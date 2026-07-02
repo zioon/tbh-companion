@@ -18,6 +18,9 @@ import type { SessionStateService } from "./SessionStateService";
 
 const log = createLogger("tracking");
 
+/** Live-memory frames arrive at ~25 Hz; the UI doesn't need a broadcast that often. */
+const LIVE_BROADCAST_INTERVAL_MS = 200;
+
 export class TrackingService {
   private tracker!: XpTracker;
   private chestDropTracker!: ChestDropTracker;
@@ -25,6 +28,7 @@ export class TrackingService {
   private tickTimer: NodeJS.Timeout | null = null;
   private lastSnap: SaveSnapshot | null = null;
   private lastLiveFrame: LiveMemorySnapshot | null = null;
+  private lastLiveBroadcastMs = 0;
   private lastError: string | null = null;
   private config!: AppConfig;
   private restoreApplied = false;
@@ -53,7 +57,12 @@ export class TrackingService {
     this.restoreApplied = false;
     this.watcher = this.createWatcher();
     this.watcher.start();
-    this.tickTimer = setInterval(() => this.pushStats(), 1000);
+    this.tickTimer = setInterval(() => {
+      // Skip the redundant push if a live-memory frame already broadcast recently —
+      // avoids the 1 Hz safety-net tick doubling up with the ~5 Hz live broadcast.
+      if (Date.now() - this.lastLiveBroadcastMs < LIVE_BROADCAST_INTERVAL_MS) return;
+      this.pushStats();
+    }, 1000);
     this.sessionState?.startAutosave(() => ({
       tracker: this.tracker,
       chestDropTracker: this.chestDropTracker,
@@ -159,7 +168,8 @@ export class TrackingService {
 
   /**
    * Ingest a live-memory snapshot frame into the tracker.
-   * Called at ~25 Hz from LiveMemoryService; pushes stats each tick while live.
+   * Called at ~25 Hz from LiveMemoryService; broadcasts to the renderer are throttled
+   * to LIVE_BROADCAST_INTERVAL_MS (tracker sampling itself stays at full rate).
    */
   ingestLiveFrame(snap: LiveMemorySnapshot): void {
     if (!snap.connected) return;
@@ -182,7 +192,13 @@ export class TrackingService {
       }
     }
 
-    this.pushStats();
+    // Tracker ingestion above stays at full ~25 Hz for accurate rate sampling;
+    // only the renderer broadcast is throttled to cut re-render/IPC pressure.
+    const now = Date.now();
+    if (now - this.lastLiveBroadcastMs >= LIVE_BROADCAST_INTERVAL_MS) {
+      this.lastLiveBroadcastMs = now;
+      this.pushStats();
+    }
   }
 
   private createWatcher(): SaveWatcher {
