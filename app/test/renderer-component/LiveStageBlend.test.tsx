@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import type { LiveMemorySnapshot } from "../../shared/types";
+import { EntityPanelProvider } from "../../src/renderer/context/EntityPanelProvider";
 
 // Live memory snapshot is mutated per test via this hoisted ref.
 const state = vi.hoisted(() => ({ live: null as LiveMemorySnapshot | null }));
@@ -33,6 +35,7 @@ const baseStats = {
 vi.mock("../../src/renderer/lib/useStats", () => ({ useStats: () => baseStats }));
 vi.mock("../../src/renderer/lib/useInventory", () => ({ useInventory: () => null }));
 vi.mock("../../src/renderer/lib/useChests", () => ({ useChests: () => null }));
+vi.mock("../../src/renderer/lib/useStageRuns", () => ({ useStageRuns: () => null }));
 vi.mock("../../src/renderer/lib/useLiveMemory", () => ({
   useLiveMemory: () => ({ snapshot: state.live, status: null }),
 }));
@@ -46,6 +49,12 @@ function liveSnapshot(stageKey: number, stageWave: number): LiveMemorySnapshot {
     connected: true,
     stageKey,
     stageWave,
+    gold: null,
+    heroes: null,
+    chestDrops: null,
+    inventoryItems: null,
+    petData: null,
+    stageClears: null,
     source: "memory v1.00.21",
     readMs: 1,
     at: Date.now(),
@@ -57,17 +66,21 @@ beforeEach(() => {
   window.tbh = {} as typeof window.tbh;
 });
 
+function renderLive(ui: ReactElement) {
+  return render(<EntityPanelProvider>{ui}</EntityPanelProvider>);
+}
+
 describe("Live.tsx stage blend", () => {
   it("shows the save stage when no live snapshot is present (reader off)", async () => {
     const { Live } = await import("../../src/renderer/tabs/Live");
-    render(<Live />);
+    renderLive(<Live />);
     expect(screen.getByText("MAP:1010")).toBeInTheDocument();
   });
 
   it("prefers the live stage over the save stage when a snapshot is present", async () => {
     state.live = liveSnapshot(3020, 5);
     const { Live } = await import("../../src/renderer/tabs/Live");
-    render(<Live />);
+    renderLive(<Live />);
     expect(screen.getByText("MAP:3020")).toBeInTheDocument();
     expect(screen.queryByText("MAP:1010")).not.toBeInTheDocument();
   });
@@ -75,7 +88,7 @@ describe("Live.tsx stage blend", () => {
   it("hides XP updated text when live memory is connected", async () => {
     state.live = liveSnapshot(3020, 5);
     const { Live } = await import("../../src/renderer/tabs/Live");
-    render(<Live />);
+    renderLive(<Live />);
     expect(screen.queryByText(/XP updated/i)).not.toBeInTheDocument();
   });
 });
