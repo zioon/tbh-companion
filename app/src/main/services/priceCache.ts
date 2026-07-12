@@ -37,18 +37,47 @@ export function priceCachePath(currency: string): string {
   }
 }
 
-export function loadPriceCache(currency: string): PriceCache {
-  const path = priceCachePath(currency);
-  if (existsSync(path)) {
-    try {
-      const raw = readFileSync(path, "utf-8").replace(/^\uFEFF/, "");
-      const c = JSON.parse(raw) as PriceCache;
-      if (c && typeof c.prices === "object") return c;
-    } catch {
-      // fall through
-    }
+/** Fallback seed path: look for a pre-seeded price file next to the app directory. */
+function priceCacheSeedPath(currency: string): string {
+  const file = `prices.${currency.toUpperCase()}.json`;
+  try {
+    return join(app.getAppPath(), file);
+  } catch {
+    return join(process.cwd(), file);
   }
-  return { currency: currency.toUpperCase(), fetchedUtc: null, prices: {} };
+}
+
+function tryLoadCache(path: string, currency: string): PriceCache | null {
+  if (!existsSync(path)) return null;
+  try {
+    const raw = readFileSync(path, "utf-8").replace(/^\uFEFF/, "");
+    const c = JSON.parse(raw) as PriceCache;
+    if (c && typeof c.prices === "object") {
+      c.currency = currency.toUpperCase();
+      return c;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+export function loadPriceCache(currency: string): PriceCache {
+  const upper = currency.toUpperCase();
+
+  // 1. Try userData path (normal cache)
+  const userPath = priceCachePath(currency);
+  const cached = tryLoadCache(userPath, upper);
+  if (cached) return cached;
+
+  // 2. Fall back to seed file in app directory (CI-generated or manual seed)
+  const seedPath = priceCacheSeedPath(currency);
+  if (seedPath !== userPath) {
+    const seeded = tryLoadCache(seedPath, upper);
+    if (seeded) return seeded;
+  }
+
+  return { currency: upper, fetchedUtc: null, prices: {} };
 }
 
 export function persistPriceCache(cache: PriceCache): void {

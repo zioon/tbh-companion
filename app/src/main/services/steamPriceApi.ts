@@ -1,3 +1,4 @@
+import { EnvHttpProxyAgent } from "undici";
 import { currencyCode, parseMoney } from "../../core/steamPrice";
 import type { PriceEntry } from "./priceCache";
 
@@ -29,6 +30,13 @@ function entryHasSellPrice(entry: PriceEntry): boolean {
   return entry.median != null || entry.lowest != null;
 }
 
+/** Create a proxy-aware dispatcher if HTTP_PROXY/HTTPS_PROXY is set. */
+function getDispatcher(): NonNullable<RequestInit["dispatcher"]> | undefined {
+  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  if (!proxy) return undefined;
+  return new EnvHttpProxyAgent();
+}
+
 export async function fetchSteamPrice(
   name: string,
   currency: string,
@@ -41,6 +49,7 @@ export async function fetchSteamPrice(
     res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (TBH Companion)" },
       signal: AbortSignal.timeout(30_000),
+      dispatcher: getDispatcher(),
     });
   } catch {
     return { ok: false, status: 0, reason: "network" };

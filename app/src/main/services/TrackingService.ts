@@ -4,6 +4,7 @@ import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
 import { ChestDropTracker } from "../../core/chestDropTracker";
+import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import type {
   AppConfig,
   InventorySnapshot,
@@ -24,11 +25,13 @@ const LIVE_BROADCAST_INTERVAL_MS = 200;
 export class TrackingService {
   private tracker!: XpTracker;
   private chestDropTracker!: ChestDropTracker;
+  private dpsTracker!: DpsTracker;
   private watcher: SaveWatcher | null = null;
   private tickTimer: NodeJS.Timeout | null = null;
   private lastSnap: SaveSnapshot | null = null;
   private lastLiveFrame: LiveMemorySnapshot | null = null;
   private lastLiveBroadcastMs = 0;
+  private previousMonsterHp: [number, number][] | null = null;
   /**
    * XP/gold totals captured at the last recorded stage-clear event, used to
    * compute this run's gained XP/gold as a delta. `null` means the next clear
@@ -64,6 +67,7 @@ export class TrackingService {
     this.config = config;
     this.tracker = new XpTracker(config.rollingWindowMinutes * 60);
     this.chestDropTracker = new ChestDropTracker();
+    this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
     if (config.logHistoryCsv) {
       this.tracker.onHistory = makeHistoryLogger();
@@ -101,6 +105,7 @@ export class TrackingService {
     return buildStats(
       this.tracker,
       this.chestDropTracker,
+      this.dpsTracker,
       this.lastSnap,
       this.lastError,
       this.sessionState?.getStatusOverride() ?? null,
@@ -111,6 +116,7 @@ export class TrackingService {
   reset(): void {
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.onTrackerReset(
       this.tracker,
@@ -155,6 +161,7 @@ export class TrackingService {
     this.sessionState?.invalidatePending();
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.notifyNewSession();
     this.sessionState?.onTrackerReset(this.tracker, this.chestDropTracker, this.config, null);
@@ -169,6 +176,7 @@ export class TrackingService {
     this.lastLiveFrame = null;
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.dpsTracker.reset();
     this.stageEventBaseline = null;
     if (this.lastSnap) {
       this.tracker.update(this.lastSnap);
@@ -198,6 +206,14 @@ export class TrackingService {
         : undefined;
 
     this.tracker.updateLive({ gold: snap.gold, heroes: snap.heroes }, snap.at / 1000, stage);
+
+    // DPS / Damage / Mobs tracking from monster HP data
+    if (snap.monsterHp != null) {
+      const timestamp = snap.at / 1000;
+      this.dpsTracker.update(snap.monsterHp, snap.deadMonsterCount, timestamp);
+      this.dpsTracker.recordDamageFrame(snap.monsterHp, this.previousMonsterHp, timestamp);
+      this.previousMonsterHp = snap.monsterHp;
+    }
 
     if (snap.chestDrops && snap.chestDrops.length > 0) {
       for (const category of snap.chestDrops) {

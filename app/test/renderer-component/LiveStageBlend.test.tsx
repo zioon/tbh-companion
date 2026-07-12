@@ -55,6 +55,8 @@ function liveSnapshot(stageKey: number, stageWave: number): LiveMemorySnapshot {
     inventoryItems: null,
     petData: null,
     stageClears: null,
+    monsterHp: null,
+    deadMonsterCount: null,
     source: "memory v1.00.21",
     readMs: 1,
     at: Date.now(),

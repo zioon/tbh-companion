@@ -103,6 +103,12 @@ export interface Stats {
   heroes: HeroRate[];
   history: HistoryEntry[];
   chestDrops: ChestDropStats;
+  /** Damage per second (5-second rolling window). Only meaningful when live memory is active. */
+  dps: number;
+  /** Total damage dealt this run. Only meaningful when live memory is active. */
+  totalDamage: number;
+  /** Total monsters killed this run. Only meaningful when live memory is active. */
+  totalMobsKilled: number;
 }
 
 /** Serialized XP tracker internals for session_state.json restore. */
@@ -939,6 +945,14 @@ export interface LiveMemorySnapshot {
   stageClears: number[] | null;
   /** Live pet unlock state from save-layer heap (null ⇒ unavailable). */
   petData: LivePetData[] | null;
+  /**
+   * Live monster HP values observed this frame. Each entry is [hpCurrent, hpMax].
+   * When the reader is active but there are no monsters, the array is empty `[]`.
+   * `null` means monster reading is unavailable for this game version.
+   */
+  monsterHp: [number, number][] | null;
+  /** Number of monsters killed so far this run (from dead monster list count). null = unavailable. */
+  deadMonsterCount: number | null;
   /** Human-readable source, e.g. "memory v1.00.21". */
   source: string;
   /** Duration of the last snapshot read in ms (per-tick cost, diagnostics). */

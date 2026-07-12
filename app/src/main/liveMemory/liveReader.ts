@@ -21,18 +21,21 @@ import {
 import {
   makeChestLogPinState,
   makeGoldPinState,
+  makeMonsterSpawnPinState,
   makeSmPinState,
   makeStageClearPinState,
   readRuntimeChestLog,
   readRuntimeGold,
   readRuntimeHeroes,
   readRuntimeInventory,
+  readRuntimeMonsterHp,
   readRuntimePets,
   readRuntimeStage,
   readRuntimeStageClears,
   resolveStageManager,
   type ChestLogPinState,
   type GoldPinState,
+  type MonsterSpawnPinState,
   type SmPinState,
   type StageClearPinState,
 } from "../../core/liveMemory/runtime";
@@ -87,6 +90,8 @@ export class LiveMemoryReader {
   private smPin: SmPinState = makeSmPinState();
   private chestPin: ChestLogPinState = makeChestLogPinState();
   private stageClearPin: StageClearPinState = makeStageClearPinState();
+  private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
+  private lastMonsterHp: [number, number][] | null = null;
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
@@ -268,6 +273,8 @@ export class LiveMemoryReader {
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
+    this.monsterPin = makeMonsterSpawnPinState();
+    this.lastMonsterHp = null;
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
@@ -284,6 +291,12 @@ export class LiveMemoryReader {
     const smPtr = resolveStageManager(p, ga.base, ga.size, o, this.smPin);
     const stage = readRuntimeStage(p, ga.base, ga.size, o, smPtr);
     if (!stage) return null;
+
+    const monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
+    const monsterHp = monsterData?.monsterHps ?? null;
+    const deadMonsterCount = monsterData?.deadCount ?? null;
+    this.lastMonsterHp = monsterHp;
+
     return {
       connected: true,
       stageKey: stage.stageKey,
@@ -294,6 +307,8 @@ export class LiveMemoryReader {
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
       inventoryItems: readRuntimeInventory(p, ga.base, ga.size, o),
       petData: readRuntimePets(p, ga.base, ga.size, o),
+      monsterHp,
+      deadMonsterCount,
       source: `memory v${o.gameVersion}`,
       readMs: Date.now() - t0,
       at: Date.now(),

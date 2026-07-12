@@ -4,6 +4,7 @@ import type { LiveMemorySnapshot, Stats, SaveSnapshot } from "../../shared/types
 
 import type { ChestDropTracker } from "../core/chestDropTracker";
 import type { XpTracker } from "../core/tracker";
+import type { DpsTracker } from "../core/liveMemory/dpsTracker";
 
 import { heroName } from "../core/heroes";
 
@@ -18,6 +19,7 @@ function nowSeconds(): number {
 export function buildStats(
   tracker: XpTracker,
   chestDropTracker: ChestDropTracker,
+  dpsTracker: DpsTracker,
   lastSnap: SaveSnapshot | null,
   lastError: string | null,
   statusOverride: string | null = null,
@@ -99,5 +101,10 @@ export function buildStats(
 
     history: tracker.history.slice(-HISTORY_VISIBLE).reverse(),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
+
+    // DPS / Damage / Mobs (only meaningful when live memory reader is active)
+    dps: dpsTracker.dps,
+    totalDamage: dpsTracker.totalDamage,
+    totalMobsKilled: dpsTracker.totalMobsKilled,
   };
 }

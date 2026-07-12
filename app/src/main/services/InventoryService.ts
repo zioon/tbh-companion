@@ -263,7 +263,6 @@ export class InventoryService {
     }
 
     const targets = this.currentOwnedPriceTargets();
-    this.market.pruneCacheTargets(targets);
 
     const pending = this.market.pendingTargets(targets, force);
     if (!force && pending.length === 0) return;

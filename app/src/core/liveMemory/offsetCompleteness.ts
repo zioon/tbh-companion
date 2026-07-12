@@ -42,6 +42,8 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   { path: "inventoryItem.isChaotic", get: (o) => o.inventoryItem.isChaotic },
   { path: "runtime.log.stageClearTypeKey", get: (o) => o.runtime.log.stageClearTypeKey },
   { path: "runtime.stageClearLog.clearTimeSec", get: (o) => o.runtime.stageClearLog.clearTimeSec },
+  { path: "runtime.monster.monsterList", get: (o) => o.runtime.monster.monsterList },
+  { path: "runtime.monster.deadMonsterList", get: (o) => o.runtime.monster.deadMonsterList },
 ];
 
 const ALL_FIELDS: readonly FieldCheck[] = [...CRITICAL_FIELDS, ...ENRICHMENT_FIELDS];
@@ -136,6 +138,14 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
           base.runtime.stageClearLog.clearTimeSec,
           derived.runtime.stageClearLog.clearTimeSec,
         ),
+      },
+      monster: {
+        monsterList: pickN(base.runtime.monster.monsterList, derived.runtime.monster.monsterList),
+        summonedList: pickN(base.runtime.monster.summonedList, derived.runtime.monster.summonedList),
+        deadMonsterList: pickN(base.runtime.monster.deadMonsterList, derived.runtime.monster.deadMonsterList),
+        monsterHealth: pickN(base.runtime.monster.monsterHealth, derived.runtime.monster.monsterHealth),
+        hpCurrent: pickN(base.runtime.monster.hpCurrent, derived.runtime.monster.hpCurrent),
+        hpMax: pickN(base.runtime.monster.hpMax, derived.runtime.monster.hpMax),
       },
     },
   };

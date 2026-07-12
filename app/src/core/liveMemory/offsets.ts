@@ -112,6 +112,24 @@ export interface LiveOffsets {
       /** Clear time in whole seconds, as recorded by the game itself. */
       clearTimeSec: number;
     };
+    /**
+     * Monster tracking offsets. These are derived from MonsterSpawnManager fields.
+     * All set to 0 by default; filled in by the dynamic extractor or bundled tables.
+     * monsterList: offset to List<Monster> of alive monsters
+     * summonedList: offset to List<Monster> of summoned monsters
+     * deadMonsterList: offset to List<dead monster> of killed monsters
+     * monsterHealth: offset within Monster to UnitHealthController
+     * hpCurrent: offset of current HP within UnitHealthController
+     * hpMax: offset of max HP within UnitHealthController
+     */
+    monster: {
+      monsterList: number;
+      summonedList: number;
+      deadMonsterList: number;
+      monsterHealth: number;
+      hpCurrent: number;
+      hpMax: number;
+    };
   };
   /** Standard IL2CPP container / dictionary layout. */
   container: { objectHeader: number; listItems: number; listSize: number; arrayFirst: number };
@@ -149,6 +167,14 @@ const RUNTIME_V1_00_21 = {
   },
   stageClearLog: {
     clearTimeSec: 0x48, // StageClearLog — live-verified on v1.00.23 (see phase-4-stage-times/design.md)
+  },
+  monster: {
+    monsterList: 0,
+    summonedList: 0,
+    deadMonsterList: 0,
+    monsterHealth: 0,
+    hpCurrent: 0,
+    hpMax: 0,
   },
 } as const;
 

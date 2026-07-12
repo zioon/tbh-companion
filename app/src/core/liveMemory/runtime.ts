@@ -652,3 +652,56 @@ export function readRuntimePets(
 
   return results.length > 0 ? results : null;
 }
+
+// ── Monster HP and dead count (MonsterSpawnManager) ──────────────────────────
+
+/** Per-reader pin for a resolved MonsterSpawnManager instance pointer. */
+export interface MonsterSpawnPinState {
+  ptr: bigint | null;
+}
+
+export function makeMonsterSpawnPinState(): MonsterSpawnPinState {
+  return { ptr: null };
+}
+
+const MS_STATIC_SCAN_MAX = 0x100;
+
+/**
+ * Read live monster HP data and dead monster count from MonsterSpawnManager.
+ * Returns null when offsets are not available for this game version.
+ *
+ * MonsterSpawnManager has three List<Monster> fields:
+ *   - monsterList:  alive monsters currently on the field
+ *   - summonedList: monsters spawned by summon effects
+ *   - deadMonsterList: monsters that have been killed (used for kill count)
+ *
+ * Each Monster is a Unit with a UnitHealthController providing current/max HP.
+ */
+export function readRuntimeMonsterHp(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: MonsterSpawnPinState,
+): { monsterHps: [number, number][]; deadCount: number } | null {
+  // Offsets not yet derived for this version
+  if (o.runtime.monster.monsterList === 0) return null;
+
+  // Resolve MonsterSpawnManager singleton — it lives in the same TypeInfo
+  // region as other managers (StageManager, LogManager).
+  const candidates = o.il2cppClass.staticFieldsOffsets;
+  const block = readStaticFieldsBlock(
+    reader,
+    gaBase,
+    gaSize,
+    o.typeInfoRva.stageManager,
+    candidates,
+  );
+  if (block == null) return null;
+
+  // Scan the static block for a valid MonsterSpawnManager instance.
+  // For now this returns null to indicate the offset extractor hasn't
+  // derived monster offsets yet. Once derived, the actual reading code
+  // would walk the monster list and read HP from UnitHealthController.
+  return null;
+}

@@ -330,6 +330,14 @@ export class SteamMarketProvider {
       const entry = response.ok ? response.entry : response.entry;
       if (!entry) {
         if (!response.ok) {
+          // Network errors: fall back to cached (seeded) data if available
+          const existing = this.cache.prices[name];
+          if (response.reason === "network" && existing && entryHasMarketData(existing)) {
+            if (countAsPriced) {
+              counters.priced++;
+            }
+            return "advance";
+          }
           const detail = describeSteamPriceFailure(response);
           options.onFail?.(detail);
           if (countAsPriced) {
