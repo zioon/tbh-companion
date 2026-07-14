@@ -31,10 +31,13 @@ function entryHasSellPrice(entry: PriceEntry): boolean {
 }
 
 /** Create a proxy-aware dispatcher if HTTP_PROXY/HTTPS_PROXY is set. */
-function getDispatcher(): NonNullable<RequestInit["dispatcher"]> | undefined {
+interface FetchInitExtra {
+  dispatcher?: unknown;
+}
+function getDispatcher(): FetchInitExtra {
   const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-  if (!proxy) return undefined;
-  return new EnvHttpProxyAgent();
+  if (!proxy) return {};
+  return { dispatcher: new EnvHttpProxyAgent() };
 }
 
 export async function fetchSteamPrice(
@@ -49,7 +52,7 @@ export async function fetchSteamPrice(
     res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (TBH Companion)" },
       signal: AbortSignal.timeout(30_000),
-      dispatcher: getDispatcher(),
+      ...getDispatcher(),
     });
   } catch {
     return { ok: false, status: 0, reason: "network" };

@@ -12,6 +12,7 @@ import {
   findCurrencyManager,
   findCurrencyManagerStatic,
   findLogManager,
+  findMonsterSpawnManager,
   findPlayerSaveData,
   findStageCacheManager,
   findStageCacheManagerStatic,
@@ -138,6 +139,18 @@ export function extractOffsets(
       : `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade)`,
   );
 
+  // ── MonsterSpawnManager (enrichment for DPS tracking) ──────────────
+  const msm = findMonsterSpawnManager(ctx, entries);
+  log(
+    msm
+      ? `extract: monsterSpawnManager rva=0x${msm.slotRva.toString(16)}`
+      : `extract: monsterSpawnManager not derived (DPS tracking degrades)`,
+  );
+
+  // ── UnitHealthController HP field offsets (bundled from tbh-meter) ─────────
+  // These are now bundled directly in the offset tables. The extractor emits zeros
+  // so the bundled defaults (0x28/0x38/0x30/0xB0/0x40/0x4C) take priority in mergeOffsets.
+
   const player = findPlayerSaveData(ctx, entries);
   log(
     player
@@ -158,6 +171,7 @@ export function extractOffsets(
       stageManager: sm.slotRva,
       localInventoryManager: 0n, // unused; inventory reads via the player save snapshot
       logManager: lm?.slotRva ?? 0n,
+      monsterSpawnManager: msm?.slotRva ?? 0n,
     },
 
     player: {
@@ -166,6 +180,7 @@ export function extractOffsets(
       heroSaveDatas: 0x50,
       petSaveDatas: player?.petSaveDatas ?? 0,
       itemSaveDatas: player?.itemSaveDatas ?? 0,
+      aggregates: player?.aggregateSaveDatas ?? 0,
     },
 
     common: {
@@ -214,6 +229,7 @@ export function extractOffsets(
       },
       getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },
       stageClearLog: { clearTimeSec: STRUCT_STAGE_CLEAR_TIME },
+      monster: { monsterList: 0, summonedList: 0, deadMonsterList: 0, monsterHealth: 0, hpCurrent: 0, hpMax: 0 },
     },
 
     container: STRUCT_CONTAINER,

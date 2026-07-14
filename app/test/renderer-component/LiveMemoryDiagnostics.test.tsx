@@ -36,6 +36,14 @@ vi.mock("../../src/renderer/lib/useStats", () => ({
     },
     heroes: [],
     history: [],
+    dps: 0,
+    mapDamage: 0,
+    mapMobsKilled: 0,
+    sessionDamage: 0,
+    sessionMobsKilled: 0,
+    aliveMonsters: 0,
+    hpSum: 0,
+    hpMaxSum: 0,
   }),
 }));
 

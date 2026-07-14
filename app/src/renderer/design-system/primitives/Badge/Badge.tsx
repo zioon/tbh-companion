@@ -7,6 +7,7 @@ const badgeVariants = cva("rounded-full px-2 py-0.5 text-[11px]", {
       full: "bg-status-danger font-semibold text-white",
       info: "border border-status-info-border bg-card font-semibold text-status-info",
       success: "border border-status-success-border bg-card font-semibold text-status-success",
+      warning: "border border-status-warning-border bg-card font-semibold text-status-warning",
       muted: "border border-border bg-card font-medium text-muted",
       statusReady: "bg-status-success/15 font-bold tabular-nums text-status-success",
       statusCooldown: "bg-status-info/15 font-bold tabular-nums text-status-info",

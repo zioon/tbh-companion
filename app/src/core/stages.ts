@@ -12,14 +12,12 @@ const DIFFICULTIES: Record<number, string> = {
   4: "Torment",
 };
 
-export function stageName(key: number, wave?: number | null): string {
+export function stageName(key: number): string {
   const k = Math.trunc(Number(key));
   if (!Number.isFinite(k) || k <= 0) return "?";
   const difficulty = Math.floor(k / 1000);
   const act = Math.floor(k / 100) % 10;
   const stage = k % 100;
   const diff = DIFFICULTIES[difficulty] ?? `D${difficulty}`;
-  let name = `${diff} ${act}-${stage}`;
-  if (wave) name += ` (w${wave})`;
-  return name;
+  return `${diff} ${act}-${stage}`;
 }

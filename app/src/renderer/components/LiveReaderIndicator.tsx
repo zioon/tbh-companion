@@ -12,6 +12,14 @@ export function LiveReaderIndicator() {
   // Show nothing while the reader isn't running (off, stopped, not yet started).
   if (!status?.running) return null;
 
+  if (status.attached && status.scanning) {
+    return (
+      <Badge variant="warning" className="self-center">
+        Live: scanning
+      </Badge>
+    );
+  }
+
   if (status.attached && status.supported) {
     return (
       <Badge variant="success" className="self-center">

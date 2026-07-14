@@ -64,6 +64,14 @@ describe("liveReaderState", () => {
     expect(liveReaderState({ ...base, supported: false }, true)).toBe("degraded");
   });
 
+  it("is scanning when attached but a memory scan is still in progress", () => {
+    expect(liveReaderState({ ...base, scanning: true }, true)).toBe("scanning");
+  });
+
+  it("is scanning even if offsets are otherwise unsupported", () => {
+    expect(liveReaderState({ ...base, supported: false, scanning: true }, true)).toBe("scanning");
+  });
+
   it("is attached when attached to a supported version", () => {
     expect(liveReaderState(base, true)).toBe("attached");
   });

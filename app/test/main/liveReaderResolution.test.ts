@@ -15,12 +15,20 @@ const INCOMPLETE: LiveOffsets = { ...offsetsForVersion("1.00.21")!, gameVersion:
 // Same table with the last gap filled → fully complete.
 const COMPLETE: LiveOffsets = {
   ...INCOMPLETE,
-  typeInfoRva: { ...INCOMPLETE.typeInfoRva, logManager: 0x5e40000n },
+  typeInfoRva: { ...INCOMPLETE.typeInfoRva, logManager: 0x5e40000n, monsterSpawnManager: 0x5e50000n },
+  runtime: {
+    ...INCOMPLETE.runtime,
+    monster: { ...INCOMPLETE.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
+  },
 };
 // What the extractor "derives": only the missing enrichment RVA.
 const DERIVED: LiveOffsets = {
   ...INCOMPLETE,
-  typeInfoRva: { ...INCOMPLETE.typeInfoRva, logManager: 0x5e40000n },
+  typeInfoRva: { ...INCOMPLETE.typeInfoRva, logManager: 0x5e40000n, monsterSpawnManager: 0x5e50000n },
+  runtime: {
+    ...INCOMPLETE.runtime,
+    monster: { ...INCOMPLETE.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
+  },
 };
 
 const stubs = vi.hoisted(() => ({

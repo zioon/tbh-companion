@@ -13,9 +13,27 @@ function withLogManager(o: LiveOffsets, rva: bigint): LiveOffsets {
   return { ...o, typeInfoRva: { ...o.typeInfoRva, logManager: rva } };
 }
 
+function withMonsterFields(o: LiveOffsets): LiveOffsets {
+  return {
+    ...o,
+    typeInfoRva: { ...o.typeInfoRva, monsterSpawnManager: 0x5e50000n },
+    runtime: {
+      ...o.runtime,
+      monster: { ...o.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
+    },
+  };
+}
+
+function withAllEnrichment(o: LiveOffsets): LiveOffsets {
+  return withMonsterFields(withLogManager(o, 0x5e40000n));
+}
+
 describe("missingOffsetFields", () => {
-  it("reports logManager as the only gap in the bundled v1.00.21 table", () => {
-    expect(missingOffsetFields(BASE, "full")).toEqual(["typeInfoRva.logManager"]);
+  it("reports logManager and monsterSpawnManager as gaps in the bundled v1.00.21 table", () => {
+    expect(missingOffsetFields(BASE, "full")).toEqual([
+      "typeInfoRva.logManager",
+      "typeInfoRva.monsterSpawnManager",
+    ]);
   });
 
   it("reports no gaps at the critical level for the bundled table", () => {
@@ -52,6 +70,7 @@ describe("missingOffsetFields", () => {
         "runtime.stageClearLog.clearTimeSec",
         "typeInfoRva.commonSaveData",
         "typeInfoRva.logManager",
+        "typeInfoRva.monsterSpawnManager",
       ].sort(),
     );
   });
@@ -69,8 +88,8 @@ describe("hasCriticalOffsets / isOffsetTableComplete", () => {
     expect(isOffsetTableComplete(BASE)).toBe(false);
   });
 
-  it("filling logManager makes the table complete", () => {
-    const complete = withLogManager(BASE, 0x5e40000n);
+  it("filling all enrichment fields makes the table complete", () => {
+    const complete = withAllEnrichment(BASE);
     expect(isOffsetTableComplete(complete)).toBe(true);
   });
 
@@ -82,9 +101,10 @@ describe("hasCriticalOffsets / isOffsetTableComplete", () => {
 
 describe("mergeOffsets", () => {
   it("fills a missing base field from the derived table", () => {
-    const derived = withLogManager(BASE, 0x5e40000n);
+    const derived = withAllEnrichment(BASE);
     const merged = mergeOffsets(BASE, derived);
     expect(merged.typeInfoRva.logManager).toBe(0x5e40000n);
+    expect(merged.typeInfoRva.monsterSpawnManager).toBe(0x5e50000n);
     expect(isOffsetTableComplete(merged)).toBe(true);
   });
 
@@ -122,7 +142,7 @@ describe("mergeOffsets", () => {
         stageClearLog: { clearTimeSec: 0 },
       },
     };
-    const derived = withLogManager(BASE, 0x5e40000n);
+    const derived = withAllEnrichment(BASE);
     const merged = mergeOffsets(stripped, derived);
     expect(merged.runtime.log.stageClearTypeKey).toBe(BASE.runtime.log.stageClearTypeKey);
     expect(merged.runtime.stageClearLog.clearTimeSec).toBe(BASE.runtime.stageClearLog.clearTimeSec);

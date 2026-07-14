@@ -363,3 +363,117 @@ export class WinProcess implements MemoryReader {
 }
 
 export { MEM_COMMIT };
+
+/** Scan readable memory regions for a byte pattern. Returns addresses where the pattern starts. */
+export function scanBytes(
+  proc: WinProcess,
+  pattern: Buffer,
+  maxMatches = 200,
+): bigint[] {
+  const results: bigint[] = [];
+  for (const region of proc.readableRegions()) {
+    if (results.length >= maxMatches) break;
+    // Read the region in manageable chunks to avoid excessive memory
+    const CHUNK = 256 * 1024; // 256 KB per read
+    let offset = 0n;
+    while (offset < BigInt(region.size) && results.length < maxMatches) {
+      const remaining = Number(BigInt(region.size) - offset);
+      const chunkSize = Math.min(CHUNK, remaining);
+      const buf = proc.readBytes(region.baseAddress + offset, chunkSize);
+      if (!buf) {
+        offset += BigInt(chunkSize);
+        continue;
+      }
+      let pos = -1;
+      while ((pos = buf.indexOf(pattern, pos + 1)) !== -1) {
+        results.push(region.baseAddress + offset + BigInt(pos));
+        if (results.length >= maxMatches) break;
+      }
+      offset += BigInt(chunkSize);
+    }
+  }
+  return results;
+}
+
+/** Scan readable memory for 8-aligned pointers to a target address. */
+export function scanPointers(
+  proc: WinProcess,
+  target: bigint,
+  maxMatches = 4000,
+): bigint[] {
+  const needle = Buffer.alloc(8);
+  needle.writeBigUInt64LE(target);
+  const raw = scanBytes(proc, needle, maxMatches);
+  // Only keep 8-aligned addresses
+  return raw.filter((addr) => (addr & 7n) === 0n);
+}
+
+/** Resolve an Il2Cpp class by its real name string (meter's 3-pass approach).
+ *  Returns the Il2CppClass* pointer or null if not found. */
+export function resolveClassByName(
+  proc: WinProcess,
+  className: string,
+): bigint | null {
+  const IL2CPP_CLASS_NAME_OFFSET = 0x10n;
+
+  // Pass 1: find the name string in memory
+  const nameBuffer = Buffer.from(className + "\0", "utf-8");
+  const nameAddrs = scanBytes(proc, nameBuffer, 100);
+  if (nameAddrs.length === 0) return null;
+
+  // Pass 2: find 8-aligned pointers to any name string address
+  const seen = new Set<string>();
+  for (const nameAddr of nameAddrs) {
+    if (seen.has(nameAddr.toString())) continue;
+    seen.add(nameAddr.toString());
+    const ptrHits = scanPointers(proc, nameAddr, 4000);
+    for (const ploc of ptrHits) {
+      // ploc - NAME_OFFSET = potential Il2CppClass*
+      const K = ploc - IL2CPP_CLASS_NAME_OFFSET;
+      if (K <= 0x10000n) continue;
+
+      // Verify: read the name string back and check it matches
+      // Il2CppClass.name is a const char* at +0x10 — the value is nameAddr
+      const namePtr = proc.readBytes(K + IL2CPP_CLASS_NAME_OFFSET, 8);
+      if (!namePtr) continue;
+      if (namePtr.readBigUInt64LE() !== nameAddr) continue;
+
+      // Verify element_class or cast_class round-trip (same as meter)
+      const elemClass = proc.readBytes(K + 0x40n, 8);
+      if (elemClass) {
+        const elemVal = elemClass.readBigUInt64LE();
+        if (elemVal === K || proc.readBytes(K + 0x48n, 8)?.readBigUInt64LE() === K) {
+          return K;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve a singleton instance from its class by finding the `bbwf` static field.
+ * The singleton lives in the parent class (nn<T>) static_fields block at offset 0.
+ */
+export function singletonFromClass(proc: WinProcess, classPtr: bigint): bigint | null {
+  // Parent class is at +0x58
+  const parentBuf = proc.readBytes(classPtr + 0x58n, 8);
+  if (!parentBuf) return null;
+  const parent = parentBuf.readBigUInt64LE();
+  if (parent <= 0x10000n || parent >= 0x7ff0_0000_0000n) return null;
+
+  // Try static_fields at known offsets (0xb0, 0xb8, 0xa8)
+  for (const soff of [0xb0, 0xb8, 0xa8]) {
+    const blockBuf = proc.readBytes(parent + BigInt(soff), 8);
+    if (!blockBuf) continue;
+    const block = blockBuf.readBigUInt64LE();
+    if (block <= 0x10000n || block >= 0x7ff0_0000_0000n) continue;
+
+    // bbwf is at static_fields + 0 (offset 0 in the block)
+    const instBuf = proc.readBytes(block, 8);
+    if (!instBuf) continue;
+    const inst = instBuf.readBigUInt64LE();
+    if (inst > 0x10000n && inst < 0x7ff0_0000_0000n) return inst;
+  }
+  return null;
+}

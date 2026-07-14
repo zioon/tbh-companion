@@ -2,14 +2,16 @@
 // (CurrencyManager Dictionary<int,T> → ACTk ObscuredLong). Pure: operates over
 // an injected MemoryReader so it is unit-testable over synthetic memory maps.
 
-import { readI32, readI64, readPtr, readU32, type MemoryReader } from "./memory";
+import { readF32, readI32, readI64, readPtr, readU32, readU64, type MemoryReader } from "./memory";
 import { plausibleGold, plausibleStage, plausibleWave, type LiveOffsets } from "./offsets";
-import { readStaticFieldPtr, readStaticFieldsBlock } from "./statics";
+import { readStaticFieldPtr, readStaticFieldsBlock, resolveClassPtr } from "./statics";
+import { STRUCT_CONTAINER } from "./il2cppScanner";
 import type { LiveHeroData, LiveInventoryItem, LivePetData } from "../../../shared/types";
 
 export interface RuntimeStage {
   stageKey: number | null;
   wave: number | null;
+  waveTotal: number | null;
 }
 
 /**
@@ -42,8 +44,10 @@ export function readRuntimeStage(
   if (stageInfoPtr == null) return null;
 
   const stageKey = readI32(reader, stageInfoPtr + BigInt(o.runtime.stage.stageKey));
+  // waveAmount (StageInfoData+0x54) is the total number of waves for this stage.
+  const waveTotal = readI32(reader, stageInfoPtr + BigInt(o.runtime.stage.waveAmount));
 
-  // StageManager singleton runtime wave counter, when positive.
+  // StageManager singleton runtimeWave — current wave counter when available.
   let wave: number | null = null;
   if (smPtr != null) {
     const runtimeWave = readI32(reader, smPtr + BigInt(o.runtime.stage.runtimeWave));
@@ -53,6 +57,7 @@ export function readRuntimeStage(
   return {
     stageKey: plausibleStage(stageKey) ? stageKey : null,
     wave,
+    waveTotal: waveTotal != null && waveTotal > 0 ? waveTotal : null,
   };
 }
 
@@ -164,6 +169,60 @@ export function readRuntimeGold(
   return pin.lastKnown;
 }
 
+// ── COMBAT GOLD from PlayerSaveData.aggregateSaveDatas (tbh-meter approach) ─────
+//
+// The game tracks GoldEarn as a cumulative Dict<SubKey, long> in the save's
+// AggregateSaveData list. SubKey 1 = COMBAT (pure combat gold, excludes sales/idle/quest).
+// This is more accurate than wallet balance (CurrencyManager) which includes gear sales.
+// Ported from tbh-meter/reader/metrics/gold.py -> combat_gold_save.
+export function readRuntimeCombatGold(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+): number | null {
+  if (o.player.aggregates === 0) return null; // offset not yet derived
+
+  const candidates = o.il2cppClass.staticFieldsOffsets;
+
+  // CommonSaveData -> player -> aggregateSaveDatas
+  const playerPtr = readStaticFieldPtr(
+    reader, gaBase, gaSize, o.typeInfoRva.commonSaveData,
+    o.player.commonSaveData, candidates,
+  );
+  if (playerPtr == null) return null;
+
+  const listPtr = readPtr(reader, playerPtr + BigInt(o.player.aggregates));
+  if (listPtr == null) return null;
+
+  const arrPtr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+  if (arrPtr == null) return null;
+
+  const count = readI32(reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+  if (count == null || count <= 0 || count > 2000) return null;
+
+  const first = arrPtr + BigInt(STRUCT_CONTAINER.arrayFirst);
+
+  // AggregateSaveData: TYPE@0x10 (int), SUB_KEY@0x14 (int), VALUE@0x18 (long)
+  // Find GoldEarn(2) with SubKey=1 (COMBAT)
+  for (let i = 0; i < count; i++) {
+    const entryPtr = readPtr(reader, first + BigInt(i * 8));
+    if (entryPtr == null) continue;
+
+    const type = readI32(reader, entryPtr + 0x10n);
+    if (type !== 2) continue; // EAggregateType.GoldEarn == 2
+
+    const subKey = readI32(reader, entryPtr + 0x14n);
+    if (subKey !== 1) continue; // COMBAT subkey
+
+    const value = readI64(reader, entryPtr + 0x18n);
+    if (value == null) return null;
+    const v = Number(value);
+    return (plausibleGold(v) && v > 0) ? v : null;
+  }
+  return null;
+}
+
 // ── ACTk Obscured value decode (level = ObscuredInt, exp = ObscuredFloat) ─────
 
 /** Swap bytes [1] and [2] of a 32-bit little-endian word (ObscuredFloat quirk). */
@@ -193,6 +252,35 @@ function decodeObscuredFloat(hidden: number | null, key: number | null): number 
   return u32ToF32((key ^ byteswap12(hidden)) >>> 0);
 }
 
+// ── ACTk ObscuredDouble decode (1.00.27+ widened ObscuredFloat→ObscuredDouble) ──
+
+/** ACTkByte8 `yub` permutation for ObscuredDouble decode (read from 1.00.27 binary).
+ *  out[i] = in[_BYTE8_PERM[i]] — not its own inverse (3-cycle on 4/5/7). */
+const _BYTE8_PERM = [1, 0, 2, 3, 7, 4, 6, 5];
+
+/** Apply the ACTkByte8 shuffle to a 64-bit little-endian word. */
+function byteswap8(v: bigint): bigint {
+  let result = 0n;
+  for (let i = 0; i < 8; i++) {
+    const srcByte = Number((v >> BigInt(_BYTE8_PERM[i] * 8)) & 0xffn);
+    result |= BigInt(srcByte) << BigInt(i * 8);
+  }
+  return result;
+}
+
+/** Decode an ACTk ObscuredDouble to a float64: `f64(key ^ byteswap8(hidden))`.
+ *  hidden/key are unsigned 64-bit values read via readU64.
+ *  Ported from tbh-meter's game/obscured.py -> decode_obscured_double. */
+function decodeObscuredDouble(hidden: bigint | null, key: bigint | null): number | null {
+  if (hidden == null || key == null) return null;
+  const bits = (key ^ byteswap8(hidden)) & 0xffffffffffffffffn;
+  // Reinterpret bigint bits as float64
+  const buf = new ArrayBuffer(8);
+  const view = new DataView(buf);
+  view.setBigUint64(0, bits, true);
+  return view.getFloat64(0, true);
+}
+
 // ── Heroes (StageManager.HeroList → Hero[] → Unit.cache → HeroRuntime) ────────
 
 const MAX_HEROES = 20; // sanity cap: game has far fewer party slots
@@ -214,6 +302,9 @@ function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): LiveHer
   const count = readI32(reader, heroListPtr + BigInt(o.container.listSize));
   if (count == null || count <= 0 || count > MAX_HEROES) return null;
 
+  // Detect exp field type: 8-byte gap → ObscuredDouble (v1.00.27+), 4-byte → ObscuredFloat (pre-1.00.27)
+  const expIsDouble = (o.heroRuntime.expKey - o.heroRuntime.expHidden) >= 8;
+
   const heroes: LiveHeroData[] = [];
   const first = heroListPtr + BigInt(o.container.arrayFirst);
 
@@ -234,10 +325,20 @@ function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): LiveHer
       readU32(reader, runtimePtr + BigInt(o.heroRuntime.levelHidden)),
       readU32(reader, runtimePtr + BigInt(o.heroRuntime.levelKey)),
     );
-    const exp = decodeObscuredFloat(
-      readU32(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
-      readU32(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
-    );
+
+    // Decode exp: ObscuredDouble (8-byte) for v1.00.27+, ObscuredFloat (4-byte) for older versions
+    let exp: number | null = null;
+    if (expIsDouble) {
+      exp = decodeObscuredDouble(
+        readU64(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
+        readU64(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
+      );
+    } else {
+      exp = decodeObscuredFloat(
+        readU32(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
+        readU32(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
+      );
+    }
 
     heroes.push({
       heroKey,
@@ -664,18 +765,162 @@ export function makeMonsterSpawnPinState(): MonsterSpawnPinState {
   return { ptr: null };
 }
 
-const MS_STATIC_SCAN_MAX = 0x100;
+const MAX_MONSTERS = 500;
+
+function isPlausibleHeapPtr(v: bigint): boolean {
+  return v > 0x10000n && v < 0x7ff0_0000_0000n;
+}
+
+/** Resolve MonsterSpawnManager instance using the TypeInfo RVA (extracted or bundled).
+ *  Reads the class's static_fields block and scans for a plausible heap pointer
+ *  (the singleton instance). Tries the parent class (nn<T>) first for the bbwf field,
+ *  falls back to scanning the child class's static_fields.
+ *  VALIDATES the instance by checking that at least monsterList resolves to a valid
+ *  non-null pointer — if not, returns null so the caller falls back to name-scan. */
+function resolveMonsterSpawnManager(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: MonsterSpawnPinState,
+): bigint | null {
+  // Fast path: cached pin (may be set by name-scan fallback in liveReader)
+  if (pin.ptr != null) return pin.ptr;
+  if (o.typeInfoRva.monsterSpawnManager === 0n) return null;
+  pin.ptr = null;
+
+  const klass = resolveClassPtr(reader, gaBase, gaSize, o.typeInfoRva.monsterSpawnManager);
+  if (klass == null) return null;
+
+  // Strategy 1: try via parent class (nn<T>) — bbwf at static_fields+0x00
+  const parent = readPtr(reader, klass + 0x58n);
+  if (parent != null && parent >= 0x10000n && parent < 0x7ff0_0000_0000n) {
+    for (const off of o.il2cppClass.staticFieldsOffsets) {
+      const block = readPtr(reader, parent + BigInt(off));
+      if (block != null && block > 0x10000n && block < 0x7ff0_0000_0000n) {
+        const bbwf = readPtr(reader, block);
+        if (bbwf != null && bbwf > 0x10000n && bbwf < 0x7ff0_0000_0000n) {
+          if (isValidMonsterManager(reader, bbwf)) {
+            pin.ptr = bbwf;
+            return bbwf;
+          }
+        }
+      }
+    }
+  }
+
+  // Strategy 2: fallback — read static_fields from the MonsterSpawnManager class
+  // and scan for a plausible instance pointer (bbwf may be inherited)
+  const block = readStaticFieldsBlock(
+    reader, gaBase, gaSize, o.typeInfoRva.monsterSpawnManager,
+    o.il2cppClass.staticFieldsOffsets,
+  );
+  if (block == null) return null;
+
+  for (let off = 0; off <= 0x100; off += 8) {
+    const cand = readPtr(reader, block + BigInt(off));
+    if (cand == null) continue;
+    if (cand !== 0n && cand > 0x10000n && cand < 0x7ff0_0000_0000n) {
+      if (isValidMonsterManager(reader, cand)) {
+        pin.ptr = cand;
+        return cand;
+      }
+    }
+  }
+  return null;
+}
+
+/** Check that a candidate MonsterSpawnManager instance has at least one valid monster list.
+ *  Reads monsterList@0x28 — must be non-null and point at a valid list with non-zero count. */
+function isValidMonsterManager(reader: MemoryReader, inst: bigint): boolean {
+  const listPtr = readPtr(reader, inst + 0x28n);  // MONSTER_LIST
+  if (listPtr == null || listPtr <= 0x10000n || listPtr >= 0x7ff0_0000_0000n) return false;
+  // Verify it has a non-empty backing array with sane count
+  const arr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+  if (arr == null || arr <= 0x10000n || arr >= 0x7ff0_0000_0000n) return false;
+  const count = readI32(reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+  return count != null && count >= 0 && count <= MAX_MONSTERS;
+}
+
+/** Known HP offset pairs to probe within a UnitHealthController candidate. */
+const HC_PROBE_PAIRS: [number, number][] = [
+  [0x40, 0x4c], // tbh-meter verified layout
+  [0x38, 0x44],
+  [0x30, 0x3c],
+  [0x48, 0x54],
+];
+
+/** Scan a monster (Unit) for its health controller and read HP.
+ *  Uses the configured HealthController offset (0xB0, tbh-meter verified).
+ *  No fallback scanning — unlike meter, companion reads are not offline:
+ *  a bad HP read silently produces garbage DPS for the rest of the session. */
+function readMonsterHp(
+  reader: MemoryReader,
+  monsterPtr: bigint,
+  o: LiveOffsets,
+): [number, number] | null {
+  const hcOff = o.runtime.monster.monsterHealth > 0 ? o.runtime.monster.monsterHealth : 0xB0;
+
+  const hc = readPtr(reader, monsterPtr + BigInt(hcOff));
+  if (hc == null || hc <= 0x10000n || hc >= 0x7ff0_0000_0000n) return null;
+  return probeHealthController(reader, hc);
+}
+
+/** Try multiple known HP offset pairs within a controller struct. */
+function probeHealthController(
+  reader: MemoryReader,
+  ctrlPtr: bigint,
+): [number, number] | null {
+  for (const [cOff, mOff] of HC_PROBE_PAIRS) {
+    const current = readF32(reader, ctrlPtr + BigInt(cOff));
+    const maxHp = readF32(reader, ctrlPtr + BigInt(mOff));
+    if (current != null && maxHp != null && Number.isFinite(current) && Number.isFinite(maxHp)) {
+      if (current >= 0 && maxHp > 0 && current <= maxHp * 1.1 && maxHp < 1e7) {
+        return [current, maxHp];
+      }
+    }
+  }
+  return null;
+}
+
+/** Walk a List<Monster> and extract HP from each Monster's UnitHealthController.
+ *  Returns [addr, hpCurrent, hpMax] triples following tbh-meter's address-based approach. */
+function walkMonsterList(
+  reader: MemoryReader,
+  listPtr: bigint,
+  out: Array<[number, number, number]>,  // [addr, hpCurrent, hpMax]
+  o: LiveOffsets,
+): void {
+  const arr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+  if (arr == null || !isPlausibleHeapPtr(arr)) return;
+  const count = readI32(reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+  if (count == null || count <= 0 || count > MAX_MONSTERS) return;
+
+  const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
+
+  for (let i = 0; i < count; i++) {
+    const monsterPtr = readPtr(reader, first + BigInt(i * 8));
+    if (monsterPtr == null || !isPlausibleHeapPtr(monsterPtr)) continue;
+    const hp = readMonsterHp(reader, monsterPtr, o);
+    if (hp != null) {
+      // Convert bigint address to number for IPC serialization (safe: Win64 user-mode < 2^53)
+      out.push([Number(monsterPtr), hp[0], hp[1]]);
+    }
+  }
+}
+
 
 /**
- * Read live monster HP data and dead monster count from MonsterSpawnManager.
- * Returns null when offsets are not available for this game version.
+ * Read live monster HP data from MonsterSpawnManager.
+ * Returns the combined (monsterList + summonedList) HP array and the dead monster count.
  *
- * MonsterSpawnManager has three List<Monster> fields:
- *   - monsterList:  alive monsters currently on the field
- *   - summonedList: monsters spawned by summon effects
- *   - deadMonsterList: monsters that have been killed (used for kill count)
+ * MonsterSpawnManager has:
+ *   - monsterList: List<Monster> (alive on field)
+ *   - summonedList: List<Monster> (summoned monsters)
+ *   - deadMonsterList: List<dead_monster> (dead count via listSize)
  *
- * Each Monster is a Unit with a UnitHealthController providing current/max HP.
+ * Each Monster (a runtime Unit) has a UnitHealthController whose exact field
+ * offset is scanned dynamically.
  */
 export function readRuntimeMonsterHp(
   reader: MemoryReader,
@@ -683,25 +928,45 @@ export function readRuntimeMonsterHp(
   gaSize: number,
   o: LiveOffsets,
   pin: MonsterSpawnPinState,
-): { monsterHps: [number, number][]; deadCount: number } | null {
-  // Offsets not yet derived for this version
-  if (o.runtime.monster.monsterList === 0) return null;
+): { monsterHps: Array<[number, number, number]>; deadCount: number } | null {
+  // If the pin is already set (via name-scan), skip RVA check
+  if (pin.ptr == null && o.typeInfoRva.monsterSpawnManager === 0n) return null;
 
-  // Resolve MonsterSpawnManager singleton — it lives in the same TypeInfo
-  // region as other managers (StageManager, LogManager).
-  const candidates = o.il2cppClass.staticFieldsOffsets;
-  const block = readStaticFieldsBlock(
-    reader,
-    gaBase,
-    gaSize,
-    o.typeInfoRva.stageManager,
-    candidates,
-  );
-  if (block == null) return null;
+  const msmPtr = resolveMonsterSpawnManager(reader, gaBase, gaSize, o, pin);
+  if (msmPtr == null) return null;
 
-  // Scan the static block for a valid MonsterSpawnManager instance.
-  // For now this returns null to indicate the offset extractor hasn't
-  // derived monster offsets yet. Once derived, the actual reading code
-  // would walk the monster list and read HP from UnitHealthController.
-  return null;
+  // Use known offsets from tbh-meter: MONSTER_LIST=0x28, SUMMONED_LIST=0x38, DEAD_MONSTER_LIST=0x30
+  const monsterListOff = o.runtime.monster.monsterList > 0
+    ? o.runtime.monster.monsterList
+    : 0x28;
+  const summonedListOff = o.runtime.monster.summonedList > 0
+    ? o.runtime.monster.summonedList
+    : 0x38;
+  const deadListOff = o.runtime.monster.deadMonsterList > 0
+    ? o.runtime.monster.deadMonsterList
+    : 0x30;
+
+  // Read monsters from monsterList and summonedList
+  const monsterHps: Array<[number, number, number]> = [];  // [addr, hpCurrent, hpMax]
+
+  const listOffs = [monsterListOff];
+  if (summonedListOff > 0) listOffs.push(summonedListOff);
+
+  for (const loff of listOffs) {
+    const listPtr = readPtr(reader, msmPtr + BigInt(loff));
+    if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+    walkMonsterList(reader, listPtr, monsterHps, o);
+  }
+
+  // Dead monster count
+  let deadCount = 0;
+  if (deadListOff > 0) {
+    const deadListPtr = readPtr(reader, msmPtr + BigInt(deadListOff));
+    if (deadListPtr != null && isPlausibleHeapPtr(deadListPtr)) {
+      const dc = readI32(reader, deadListPtr + BigInt(STRUCT_CONTAINER.listSize));
+      if (dc != null && dc >= 0 && dc < 100000) deadCount = dc;
+    }
+  }
+
+  return { monsterHps, deadCount };
 }

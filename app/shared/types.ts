@@ -47,6 +47,10 @@ export interface HeroRate {
   name: string;
   level: number;
   rate: number; // rolling XP/hour for this hero
+  /** XP needed to reach the next level, or null if capped / unknown. */
+  xpToNextLevel: number | null;
+  /** Estimated seconds until next level-up at the current rate, or null if rate <= 0 or capped. */
+  timeToLevelSec: number | null;
 }
 
 export interface ChestDropBreakdownRow {
@@ -71,6 +75,8 @@ export interface ChestDropStats {
   rarePerHour: number;
   breakdown: ChestDropBreakdownRow[];
   history: ChestDropHistoryEntry[];
+  /** Epoch seconds of the most recent chest drop. null = no drops yet. */
+  lastDropWallTime: number | null;
   /**
    * True when chest drop data requires the live reader (Player.log removed).
    * Renderer shows inactive/unavailable when the reader is off or detection is not wired yet.
@@ -100,15 +106,27 @@ export interface Stats {
   secondsSinceRead: number | null;
   stageKey: number;
   stageWave: number;
+  /** Total waves in the current stage (from live memory, 0 if unavailable). */
+  stageWaveTotal: number;
   heroes: HeroRate[];
   history: HistoryEntry[];
   chestDrops: ChestDropStats;
   /** Damage per second (5-second rolling window). Only meaningful when live memory is active. */
   dps: number;
-  /** Total damage dealt this run. Only meaningful when live memory is active. */
-  totalDamage: number;
-  /** Total monsters killed this run. Only meaningful when live memory is active. */
-  totalMobsKilled: number;
+  /** Damage dealt on the current map. Resets when stage changes. Only meaningful when live memory is active. */
+  mapDamage: number;
+  /** Mobs killed on the current map. Resets when stage changes. Only meaningful when live memory is active. */
+  mapMobsKilled: number;
+  /** Total damage dealt this session (cumulative, never resets). Only meaningful when live memory is active. */
+  sessionDamage: number;
+  /** Total mobs killed this session (cumulative, never resets). Only meaningful when live memory is active. */
+  sessionMobsKilled: number;
+  /** Number of currently alive monsters (from the last live memory tick). */
+  aliveMonsters: number;
+  /** Sum of current HP of all alive monsters (from the last tick). */
+  hpSum: number;
+  /** Sum of max HP of all alive monsters (from the last tick). */
+  hpMaxSum: number;
 }
 
 /** Serialized XP tracker internals for session_state.json restore. */
@@ -117,6 +135,12 @@ export interface TrackerRateMeterSnapshot {
   gained: number;
   rolling: number;
   samples: Array<[number, number]>;
+}
+
+/** Per-hero state including level and within-level exp. */
+export interface PrevHeroState {
+  level: number;
+  exp: number;
 }
 
 export interface TrackerSnapshot {
@@ -128,6 +152,7 @@ export interface TrackerSnapshot {
   heroes: HeroSnapshot[];
   history: HistoryEntry[];
   lastGainMtime: number | null;
+  /** @deprecated Use prevHeroState instead. Old format: heroKey → exp only. */
   prevHero: Record<string, number>;
   heroMeters: Record<string, TrackerRateMeterSnapshot>;
   samples: Array<[number, number]>;
@@ -142,6 +167,11 @@ export interface TrackerSnapshot {
   goldLastChangeMtime: number | null;
   goldRollingRateValue: number;
   goldSessionRateValue: number;
+  /**
+   * Per-hero previous state (level + exp) for accurate level-up bridging.
+   * Optional: absent means old format (use prevHero as fallback, level unknown → use 0).
+   */
+  prevHeroState?: Record<string, PrevHeroState>;
 }
 
 export interface SessionUiSnapshot {
@@ -268,6 +298,8 @@ export interface InventoryComposition {
   feeTotal: number;
   netAfterFeesTotal: number;
   buyOrderValuedTotal: number;
+  /** Instant-sell total net of Steam fees. */
+  buyOrderNetTotal: number;
   /** Distinct priced rows with a non-null buy order unit. */
   buyOrderPricedRows: number;
   currency: string | null;
@@ -923,6 +955,8 @@ export interface LiveMemorySnapshot {
   stageKey: number | null;
   /** Live current wave within the stage. */
   stageWave: number | null;
+  /** Total waves in the current stage (from StageInfoData). */
+  stageWaveTotal: number | null;
   /** Live current gold (null ⇒ fall back to save value). */
   gold: number | null;
   /** Live hero XP/level for all party members (null ⇒ fall back to save). */
@@ -946,11 +980,13 @@ export interface LiveMemorySnapshot {
   /** Live pet unlock state from save-layer heap (null ⇒ unavailable). */
   petData: LivePetData[] | null;
   /**
-   * Live monster HP values observed this frame. Each entry is [hpCurrent, hpMax].
+   * Live monster HP values observed this frame. Each entry is [addr, hpCurrent, hpMax].
+   * `addr` is the monster's memory address (converted to number for IPC, safe on x64).
+   * Used by DpsTracker for address-based HP matching (tbh-meter approach).
    * When the reader is active but there are no monsters, the array is empty `[]`.
    * `null` means monster reading is unavailable for this game version.
    */
-  monsterHp: [number, number][] | null;
+  monsterHp: [number, number, number][] | null;
   /** Number of monsters killed so far this run (from dead monster list count). null = unavailable. */
   deadMonsterCount: number | null;
   /** Human-readable source, e.g. "memory v1.00.21". */
@@ -974,6 +1010,8 @@ export interface LiveMemoryStatus {
   supported: boolean;
   /** e.g. "live stats unavailable for game v1.00.99". */
   note?: string;
+  /** True while the reader is performing an expensive memory scan (offset derivation or class-name resolution). */
+  scanning?: boolean;
   /** Self-healing offset resolution health: whether every wanted field is mapped. */
   offsetHealth?: {
     complete: boolean;

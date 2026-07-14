@@ -65,4 +65,10 @@ describe("LiveReaderIndicator", () => {
       "live stats unavailable for game v9.9.9",
     );
   });
+
+  it("shows scanning while an expensive memory scan is in progress", async () => {
+    state.status = status({ scanning: true });
+    await renderIndicator();
+    expect(screen.getByText("Live: scanning")).toBeInTheDocument();
+  });
 });

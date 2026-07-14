@@ -14,10 +14,13 @@ import { createLogger } from "../log";
 import { broadcast } from "./broadcast";
 import { LOOKUP_PRICES_FILE } from "./appData";
 
-function getLookupDispatcher(): NonNullable<RequestInit["dispatcher"]> | undefined {
+interface FetchInitExtra {
+  dispatcher?: unknown;
+}
+function getLookupDispatcher(): FetchInitExtra {
   const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-  if (!proxy) return undefined;
-  return new EnvHttpProxyAgent();
+  if (!proxy) return {};
+  return { dispatcher: new EnvHttpProxyAgent() };
 }
 
 const log = createLogger("lookupPrices");
@@ -127,7 +130,7 @@ export class LookupPriceService {
 
     let res: Response;
     try {
-      res = await this.fetchFn(ASSET_URL, { headers, signal: AbortSignal.timeout(30_000), dispatcher: getLookupDispatcher() });
+      res = await this.fetchFn(ASSET_URL, { headers, signal: AbortSignal.timeout(30_000), ...getLookupDispatcher() } as RequestInit);
     } catch (err) {
       log.warn(`Lookup snapshot fetch failed: ${(err as Error).message}`);
       return;

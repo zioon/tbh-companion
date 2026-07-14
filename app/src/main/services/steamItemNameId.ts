@@ -9,10 +9,13 @@ import { readBundledJson } from "../../core/bundledData";
 import { TBH_STEAM_APP_ID } from "../../core/steamPrice";
 import { createLogger } from "../log";
 
-function getDispatcher(): NonNullable<RequestInit["dispatcher"]> | undefined {
+interface FetchInitExtra {
+  dispatcher?: unknown;
+}
+function getDispatcher(): FetchInitExtra {
   const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-  if (!proxy) return undefined;
-  return new EnvHttpProxyAgent();
+  if (!proxy) return {};
+  return { dispatcher: new EnvHttpProxyAgent() };
 }
 
 const log = createLogger("market");
@@ -97,7 +100,7 @@ export class SteamItemNameIdService {
           Referer: `https://steamcommunity.com/market/search?appid=${TBH_STEAM_APP_ID}`,
         },
         signal: AbortSignal.timeout(30_000),
-        dispatcher: getDispatcher(),
+        ...getDispatcher(),
       });
       if (res.status === 429) return { ok: false, status: 429 };
       if (!res.ok) {

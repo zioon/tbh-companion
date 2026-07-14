@@ -14,12 +14,14 @@ import type {
   HistoryEntry,
   TrackerRateMeterSnapshot,
   TrackerSnapshot,
+  PrevHeroState,
 } from "../../shared/types";
 import {
   isPlausibleCumulativeXp,
   isPlausibleXpRate,
   MAX_PLAUSIBLE_CUMULATIVE_XP,
 } from "./trackerLimits";
+import { perHeroGain } from "./levelCurve";
 
 const HISTORY_LIMIT = 500;
 
@@ -93,12 +95,29 @@ class RateMeter {
   }
 }
 
-function deltaGain(prev: number | undefined, current: number): number {
-  if (prev === undefined) return 0;
-  const d = current - prev;
+/**
+ * Compute per-hero XP gain between two snapshots, bridging level-ups via the
+ * level curve. Ported from tbh-meter's per_hero_gain().
+ *
+ * When level is unknown (old format / fallback), falls back to the old deltaGain
+ * behavior: positive delta only, treat resets as 0 (safe underestimate).
+ */
+function heroDeltaGain(
+  prevState: PrevHeroState | undefined,
+  curLevel: number,
+  curExp: number,
+): number {
+  if (prevState === undefined) return 0;
+  // Use level curve when both prev and cur levels are available and valid
+  if (prevState.level > 0 && curLevel > 0) {
+    const [gain] = perHeroGain(prevState.level, prevState.exp, curLevel, curExp);
+    return gain != null && gain >= 0 ? gain : 0;
+  }
+  // Fallback: old behavior (level unknown)
+  const d = curExp - prevState.exp;
   if (d >= 0) return d;
-  // Value dropped -> treat as a reset (e.g. level-up). Count what's accrued.
-  return Math.max(current, 0);
+  // Reset (dip or level-up without level info) — safe underestimate
+  return 0;
 }
 
 function plausibleHeroRuntimeExp(exp: number): boolean {
@@ -191,7 +210,7 @@ export class XpTracker {
   history!: HistoryEntry[];
   private lastGainMtime!: number | null;
 
-  private prevHero!: Map<string, number>;
+  private prevHero!: Map<string, PrevHeroState>;
   private heroMeters!: Map<string, RateMeter>;
   private samples!: Array<[number, number]>;
   private initialized!: boolean;
@@ -262,7 +281,7 @@ export class XpTracker {
 
     if (!this.initialized) {
       for (const h of snap.heroes) {
-        this.prevHero.set(h.key, h.exp);
+        this.prevHero.set(h.key, { level: h.level, exp: h.exp });
         const meter = new RateMeter(this.rollingWindow);
         meter.init(mtime);
         this.heroMeters.set(h.key, meter);
@@ -304,13 +323,13 @@ export class XpTracker {
         // Handover live → save: re-baseline hero exp to save values, count nothing.
         this.xpLiveOwning = false;
         this.currentTotalXp = snap.totalHeroExp;
-        for (const h of snap.heroes) this.prevHero.set(h.key, h.exp);
+        for (const h of snap.heroes) this.prevHero.set(h.key, { level: h.level, exp: h.exp });
       } else {
         this.currentTotalXp = snap.totalHeroExp;
         for (const h of snap.heroes) {
-          const heroGain = deltaGain(this.prevHero.get(h.key), h.exp);
+          const heroGain = heroDeltaGain(this.prevHero.get(h.key), h.level, h.exp);
           gain += heroGain;
-          this.prevHero.set(h.key, h.exp);
+          this.prevHero.set(h.key, { level: h.level, exp: h.exp });
           let meter = this.heroMeters.get(h.key);
           if (meter === undefined) {
             meter = new RateMeter(this.rollingWindow);
@@ -428,7 +447,7 @@ export class XpTracker {
       this.prevHero.clear();
       for (const h of heroes) {
         const key = String(h.heroKey);
-        this.prevHero.set(key, h.exp);
+        this.prevHero.set(key, { level: h.level, exp: h.exp });
         let meter = this.heroMeters.get(key);
         if (meter === undefined) {
           meter = new RateMeter(this.rollingWindow);
@@ -447,7 +466,31 @@ export class XpTracker {
           continue;
         }
 
-        const heroGain = deltaGain(this.prevHero.get(key), h.exp);
+        const prev = this.prevHero.get(key);
+        // Level-drop guard (ported from tbh-meter PartyXpAccumulator):
+        // Level NEVER drops mid-run — this is a dirty read (a pending HeroList
+        // slot that returns a valid heroKey). Skip it entirely: don't count,
+        // don't advance baseline. Tick-by-tick multiplies exposure ~600× vs
+        // the 2-endpoint delta, so this guard matters.
+        if (prev && h.level < prev.level) {
+          continue;
+        }
+        // Same-level dip guard (ported from tbh-meter PartyXpAccumulator):
+        // Within-level exp is monotonic outside level-up. A negative delta
+        // at the same level = dirty read. Skip it — don't count, don't
+        // advance baseline (so the recovery telescopes without double-count).
+        if (prev && h.level === prev.level && h.exp < prev.exp) {
+          let meter = this.heroMeters.get(key);
+          if (!meter) {
+            meter = new RateMeter(this.rollingWindow);
+            meter.init(wallTimeSec);
+            this.heroMeters.set(key, meter);
+          }
+          meter.refreshRolling(wallTimeSec);
+          continue;
+        }
+
+        const heroGain = heroDeltaGain(prev, h.level, h.exp);
 
         let meter = this.heroMeters.get(key);
         if (meter === undefined) {
@@ -457,12 +500,12 @@ export class XpTracker {
         }
 
         if (!plausibleLiveHeroGain(heroGain)) {
-          this.prevHero.set(key, h.exp);
+          this.prevHero.set(key, { level: h.level, exp: h.exp });
           meter.refreshRolling(wallTimeSec);
           continue;
         }
 
-        this.prevHero.set(key, h.exp);
+        this.prevHero.set(key, { level: h.level, exp: h.exp });
         gainSum += heroGain;
         if (heroGain > 0) meter.add(heroGain, wallTimeSec);
         else meter.refreshRolling(wallTimeSec);
@@ -655,7 +698,10 @@ export class XpTracker {
       heroes: this.heroes.map((h) => ({ ...h })),
       history: this.history.map((e) => ({ ...e })),
       lastGainMtime: this.lastGainMtime,
-      prevHero: Object.fromEntries(this.prevHero),
+      prevHero: Object.fromEntries(
+        [...this.prevHero].map(([k, v]) => [k, v.exp]),
+      ),
+      prevHeroState: Object.fromEntries(this.prevHero),
       heroMeters,
       samples: this.samples.map(([t, g]) => [t, g] as [number, number]),
       initialized: this.initialized,
@@ -682,7 +728,6 @@ export class XpTracker {
     this.heroes = snapshot.heroes.map((h) => ({ ...h }));
     this.history = snapshot.history.map((e) => ({ ...e }));
     this.lastGainMtime = snapshot.lastGainMtime;
-    this.prevHero = new Map(Object.entries(snapshot.prevHero).map(([k, v]) => [k, v]));
     this.heroMeters = new Map(
       Object.entries(snapshot.heroMeters).map(
         ([key, data]) => [key, RateMeter.fromSnapshot(data)] as const,
@@ -700,6 +745,22 @@ export class XpTracker {
     this.goldLastChangeMtime = snapshot.goldLastChangeMtime;
     this.goldRollingRateValue = snapshot.goldRollingRateValue;
     this.goldSessionRateValue = snapshot.goldSessionRateValue;
+
+    // Restore prevHero: prefer new format (prevHeroState with level+exp),
+    // fall back to old format (prevHero with exp only, level=0).
+    if (snapshot.prevHeroState) {
+      this.prevHero = new Map(
+        Object.entries(snapshot.prevHeroState).map(([k, v]) => [k, { level: v.level, exp: v.exp }]),
+      );
+    } else {
+      // Old format: prevHero is Record<string, number> (exp only)
+      this.prevHero = new Map(
+        Object.entries(snapshot.prevHero).map(
+          ([k, v]) => [k, { level: 0, exp: v }] as const,
+        ),
+      );
+    }
+
     this.liveXp.restore(
       snapshot.cumulativeGained,
       snapshot.samples.map(([t, g]) => [t, g] as [number, number]),

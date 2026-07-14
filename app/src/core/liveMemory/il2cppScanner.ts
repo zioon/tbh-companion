@@ -518,6 +518,8 @@ export interface PlayerAnchor {
   playerStaticOff: number;
   petSaveDatas: number;
   itemSaveDatas: number;
+  /** Optional: PlayerSaveData.aggregateSaveDatas offset (for combat gold reading). */
+  aggregateSaveDatas?: number;
   petKey: number;
   petIsUnlock: number;
   itemKey: number;
@@ -572,6 +574,44 @@ export function findPlayerSaveData(
         itemKey: namedClassField(ctx, entries, "ItemSaveData", "ItemKey"),
         itemIsChaotic: namedClassField(ctx, entries, "ItemSaveData", "IsChaotic"),
       };
+    }
+  }
+  return null;
+}
+
+// ── MonsterSpawnManager detector ──────────────────────────────────────────────
+
+const MONSTER_LIST_SCAN_MAX = 0x200;
+const MAX_MONSTERS_SCAN = 500;
+
+/** True when `obj` (a potential MonsterSpawnManager) has at least 2 non-empty List<> fields. */
+function hasMonsterListShape(ctx: ScanContext, obj: bigint): boolean {
+  let listCount = 0;
+  for (let foff = 0x10; foff <= MONSTER_LIST_SCAN_MAX; foff += 8) {
+    const listPtr = readPtr(ctx.reader, obj + BigInt(foff));
+    if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+    const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+    if (arr == null || !isPlausibleHeapPtr(arr)) continue;
+    const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+    if (count != null && count >= 0 && count <= MAX_MONSTERS_SCAN) listCount++;
+  }
+  return listCount >= 2;
+}
+
+/**
+ * MonsterSpawnManager singleton: a static slot pointing at an object with at
+ * least 2 non-empty List<> fields (monsterList + summonedList, or monsterList +
+ * deadMonsterList). Validated structurally: no name matching needed.
+ * Also returns the instance pointer for follow-up health-controller discovery.
+ * Returns null when no MonsterSpawnManager is found (no battle in progress).
+ */
+export function findMonsterSpawnManager(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+): { slotRva: bigint; inst: bigint } | null {
+  for (const entry of entries) {
+    for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
+      if (hasMonsterListShape(ctx, inst)) return { slotRva: entry.slotRva, inst };
     }
   }
   return null;

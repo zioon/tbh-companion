@@ -50,6 +50,7 @@ describe("offsetsForVersion", () => {
       "currencyManager",
       "localInventoryManager",
       "logManager",
+      "monsterSpawnManager",
       "stageCacheManager",
       "stageManager",
     ]);

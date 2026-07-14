@@ -41,3 +41,9 @@ export function readI64(reader: MemoryReader, addr: bigint): bigint | null {
   const b = reader.readBytes(addr, 8);
   return b && b.length >= 8 ? b.readBigInt64LE(0) : null;
 }
+
+/** Read an unsigned 64-bit int; null for short reads (used by ACTk ObscuredDouble decode). */
+export function readU64(reader: MemoryReader, addr: bigint): bigint | null {
+  const b = reader.readBytes(addr, 8);
+  return b && b.length >= 8 ? b.readBigUInt64LE(0) : null;
+}

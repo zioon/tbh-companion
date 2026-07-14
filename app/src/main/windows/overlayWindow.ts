@@ -12,7 +12,7 @@ import {
 
 /** Mini overlay — keep in sync with `OverlayFrame` (px-2.5 py-1.5) and readout rows. */
 export const OVERLAY_WIDTH = 280;
-export const OVERLAY_HEIGHT = 94;
+export const OVERLAY_HEIGHT = 116;
 
 const OVERLAY_LAYOUT_OPTIONS: WindowLayoutApplyOptions = {
   defaults: { width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT },

@@ -8,6 +8,7 @@ import { blendStage } from "../../core/liveMemory/blend";
 import {
   fmtCompact,
   fmtDuration,
+  fmtShortDuration,
   fmtXpUpdated,
   fmtClock,
   fmtHoursUntilFull,
@@ -259,18 +260,65 @@ export function Live() {
     </PanelSection>
   );
 
+  function fmtTimeToLevel(sec: number | null): string {
+    if (sec === null || !Number.isFinite(sec)) return "\u2014";
+    if (sec < 60) return `< 1m`;
+    if (sec < 3600) return `~${Math.round(sec / 60)}m`;
+    const h = sec / 3600;
+    if (h < 24) return `~${h.toFixed(1)}h`;
+    return `~${Math.round(h / 24)}d`;
+  }
+
+  function fmtSafeCompact(n: number | null): string {
+    if (n === null || !Number.isFinite(n)) return "\u2014";
+    return fmtCompact(n);
+  }
+
   const heroesPanel: ReactNode = (
     <PanelSection title="Heroes" boxed>
       <LivePanelList empty={stats.heroes.length === 0 ? "No active heroes yet." : undefined}>
+        {stats.heroes.length > 0 && (
+          <div className="grid grid-cols-[1fr_72px_72px_64px_56px] items-center gap-3 px-3 pt-2 pb-1 text-[11px] text-muted/60 uppercase tracking-wide border-b border-border/40">
+            <span>Name</span>
+            <span className="text-right">Lv</span>
+            <span className="text-right">Rate</span>
+            <Tooltip
+              trigger={<span className="cursor-help underline decoration-dotted underline-offset-2 text-right">Remaining</span>}
+            >
+              Remaining XP needed to reach next level (level curve minus current exp).
+            </Tooltip>
+            <Tooltip
+              trigger={<span className="cursor-help underline decoration-dotted underline-offset-2 text-right">ETA</span>}
+            >
+              Estimated time to next level-up at the current rolling XP rate.
+            </Tooltip>
+          </div>
+        )}
         {stats.heroes.map((h, i) => (
           <DataListRow
             key={h.key}
             index={i}
-            className="grid grid-cols-[1fr_auto_auto] items-center gap-3"
+            className="grid grid-cols-[1fr_72px_72px_64px_56px] items-center gap-3"
           >
             <span className="font-semibold">{h.name}</span>
-            <span className="text-muted">Lv {h.level}</span>
-            <span className="tabular-nums text-accent">{fmtCompact(h.rate)}/hr</span>
+            <span className="tabular-nums text-right text-muted">Lv {h.level}</span>
+            <span className="tabular-nums text-right text-accent">{fmtCompact(h.rate)}/hr</span>
+            <span className="tabular-nums text-right text-muted text-xs">
+              {fmtSafeCompact(h.xpToNextLevel)}
+            </span>
+            <Tooltip
+              trigger={
+                <span className="tabular-nums text-right text-xs text-muted cursor-help">
+                  {fmtTimeToLevel(h.timeToLevelSec)}
+                </span>
+              }
+            >
+              {h.timeToLevelSec !== null
+                ? `At ${fmtCompact(h.rate)} XP/hr, ${fmtShortDuration(h.timeToLevelSec)} until level ${h.level + 1}`
+                : h.xpToNextLevel === null
+                  ? "Max level — no further progression defined."
+                  : "Rate is zero or not yet established."}
+            </Tooltip>
           </DataListRow>
         ))}
       </LivePanelList>
@@ -374,6 +422,16 @@ export function Live() {
           title={chestRateTip}
         />
       </section>
+
+      {liveActive ? (
+        <section className="grid grid-cols-6 gap-2.5">
+          <StatCard label="DPS" value={fmtCompact(stats.dps ?? 0)} title="Damage per second (5-second rolling window from live memory)" />
+          <StatCard label="Alive" value={String(stats.aliveMonsters ?? 0)} title="Monsters currently alive on this map" />
+          <StatCard label="HP max" value={fmtCompact(stats.hpMaxSum ?? 0)} title="Sum of max HP of all alive monsters (wave health pool)" />
+          <StatCard label="Mobs killed" value={String(stats.mapMobsKilled)} title="Monsters killed on this map — resets when stage changes" />
+          <StatCard label="Damage" value={fmtCompact(stats.mapDamage)} title="Damage dealt on this map — resets when stage changes" />
+        </section>
+      ) : null}
 
       <LiveMatchedPair
         left={inventoryFillPrediction()}

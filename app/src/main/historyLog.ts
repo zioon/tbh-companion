@@ -24,7 +24,7 @@ export function makeHistoryLogger(): (entry: HistoryEntry) => void {
       mkdirSync(dirname(path), { recursive: true });
       if (!existsSync(path)) appendFileSync(path, HEADER);
       const ts = new Date(e.wallTime * 1000).toISOString();
-      const map = stageName(e.stageKey, e.stageWave).replace(/,/g, " ");
+      const map = stageName(e.stageKey).replace(/,/g, " ");
       appendFileSync(
         path,
         `${ts},${e.delta},${e.rate.toFixed(2)},${e.totalXp},${e.stageKey},${map},${e.stageWave}\n`,

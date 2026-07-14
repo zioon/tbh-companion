@@ -12,7 +12,7 @@ import { Tooltip } from "./Tooltip";
  * keyboard dismiss, and inconsistent browser hover delay; this component
  * fixes all three. **Not yet wired into the overlay** — that migration is
  * an explicit future opt-in (kept out of scope here to avoid regression
- * risk in the 280×94 frameless overlay window).
+ * risk in the 280×112 frameless overlay window).
  */
 const meta = {
   title: "Design System/Tooltip",

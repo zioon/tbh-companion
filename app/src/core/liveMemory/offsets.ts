@@ -26,6 +26,8 @@ export interface LiveOffsets {
     localInventoryManager: bigint;
     /** `np<LogManager>` — battle-log singleton; source of live chest-drop entries. */
     logManager: bigint;
+    /** MonsterSpawnManager — runtime monster list singleton. */
+    monsterSpawnManager: bigint;
   };
   player: {
     commonSaveData: number;
@@ -34,6 +36,11 @@ export interface LiveOffsets {
     petSaveDatas: number;
     /** PlayerSaveData.itemSaveDatas — List<ItemSaveData> (live bag via save snapshot). */
     itemSaveDatas: number;
+    /**
+     * PlayerSaveData.aggregateSaveDatas — List<AggregateSaveData>.
+     * Used by combat gold reader (GoldEarn[SubKey=1]). 0 = known fallback to wallet balance.
+     */
+    aggregates: number;
   };
   common: {
     playTime: number;
@@ -169,12 +176,12 @@ const RUNTIME_V1_00_21 = {
     clearTimeSec: 0x48, // StageClearLog — live-verified on v1.00.23 (see phase-4-stage-times/design.md)
   },
   monster: {
-    monsterList: 0,
-    summonedList: 0,
-    deadMonsterList: 0,
-    monsterHealth: 0,
-    hpCurrent: 0,
-    hpMax: 0,
+    monsterList: 0x28,
+    summonedList: 0x38,
+    deadMonsterList: 0x30,
+    monsterHealth: 0xB0,
+    hpCurrent: 0x40,
+    hpMax: 0x4C,
   },
 } as const;
 
@@ -199,6 +206,7 @@ const V1_00_23: LiveOffsets = {
     stageManager: 0x5e30318n, // nq<StageManager>
     localInventoryManager: 0n,
     logManager: 0x5e2fb58n, // nq<LogManager>
+    monsterSpawnManager: 0n,
   },
   player: {
     commonSaveData: 0x10,
@@ -206,6 +214,7 @@ const V1_00_23: LiveOffsets = {
     heroSaveDatas: 0x50,
     petSaveDatas: 0x70, // PlayerSaveData.PetSaveData (was 0x68 in v1.00.21)
     itemSaveDatas: 0xa8, // PlayerSaveData.itemSaveDatas (was 0xa0 in v1.00.21)
+    aggregates: 0xb8, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
   },
   common: {
     playTime: 0x20,
@@ -220,8 +229,9 @@ const V1_00_23: LiveOffsets = {
     info: 0x30,
     levelHidden: 0xd0,
     levelKey: 0xd4,
-    expHidden: 0x110,
-    expKey: 0x114,
+    // v1.00.27 WIDENED exp ObscuredFloat→ObscuredDouble: hidden now @+0x8 (long), key @+0x10 (long)
+    expHidden: 0x118, // ObscuredDouble hiddenValue @+0x8 from record 0x110 (was 0x110 for ObscuredFloat)
+    expKey: 0x120,    // ObscuredDouble currentCryptoKey @+0x10 from record 0x110 (was 0x114 for ObscuredFloat)
   },
   heroInfoData: { heroKey: 0x30 },
   currency: { key: 0x10, quantity: 0x18 },
@@ -243,6 +253,7 @@ const V1_00_21: LiveOffsets = {
     stageManager: 0x5e3ff98n, // np<StageManager>
     localInventoryManager: 0n, // unused since inventory reads via PlayerSaveData.itemSaveDatas
     logManager: 0n, // SPEC_DEVIATION: TypeInfo RVA derived at runtime by the extractor
+    monsterSpawnManager: 0n,
   },
   player: {
     commonSaveData: 0x10,
@@ -250,6 +261,7 @@ const V1_00_21: LiveOffsets = {
     heroSaveDatas: 0x50,
     petSaveDatas: 0x68, // PlayerSaveData.PetSaveData (List<PetSaveData>)
     itemSaveDatas: 0xa0, // PlayerSaveData.itemSaveDatas (List<ItemSaveData>)
+    aggregates: 0xb0, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
   },
   common: {
     playTime: 0x20,
@@ -264,7 +276,7 @@ const V1_00_21: LiveOffsets = {
     info: 0x30, // → HeroInfoData
     levelHidden: 0xd0, // ObscuredInt level: hiddenValue
     levelKey: 0xd4, //    currentCryptoKey
-    expHidden: 0x110, // ObscuredFloat xp: hiddenValue
+    expHidden: 0x110, // ObscuredFloat xp: hiddenValue (4-byte, pre-1.00.27 format)
     expKey: 0x114, //    currentCryptoKey
   },
   heroInfoData: { heroKey: 0x30 },
@@ -284,9 +296,57 @@ const V1_00_21: LiveOffsets = {
   goldKey: 100001,
 };
 
+const V1_00_27: LiveOffsets = {
+  gameVersion: "1.00.27",
+  typeInfoRva: {
+    commonSaveData: 0n, // not derivable by structural anchor (enrichment—degrades gracefully)
+    currencyManager: 0x5dd2f08n, // extractor-confirmed
+    stageCacheManager: 0x5dd3aa8n, // extractor-confirmed, currentCache=0x88
+    stageManager: 0x5dd1058n, // extractor-confirmed, heroList=0x30
+    localInventoryManager: 0n,
+    logManager: 0x5dced78n, // extractor-confirmed
+    monsterSpawnManager: 0x5db2e70n, // extractor-confirmed
+  },
+  player: {
+    commonSaveData: 0x10,
+    currency: 0x48,
+    heroSaveDatas: 0x50,
+    petSaveDatas: 0x70, // PlayerSaveData.PetSaveData (same layout as v1.00.23)
+    itemSaveDatas: 0xa8, // PlayerSaveData.itemSaveDatas
+    aggregates: 0xb8, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+  },
+  common: {
+    playTime: 0x20,
+    arrangedHeroKey: 0x48,
+    maxCompletedStage: 0x54,
+    currentStageKey: 0x58,
+    currentStageWave: 0x5c,
+  },
+  hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+  unit: { cache: 0x3b0 }, // Unit.cache (v1.00.27: +0x08 from v1.00.23)
+  heroRuntime: {
+    info: 0x30,
+    levelHidden: 0xd0,
+    levelKey: 0xd4,
+    // v1.00.27: exp WIDENED ObscuredFloat→ObscuredDouble
+    expHidden: 0x118, // ObscuredDouble hiddenValue @+0x8 from record 0x110 (long, ru64)
+    expKey: 0x120,    // ObscuredDouble currentCryptoKey @+0x10 from record 0x110 (long, ru64)
+  },
+  heroInfoData: { heroKey: 0x30 },
+  currency: { key: 0x10, quantity: 0x18 },
+  petSaveData: { petKey: 0x10, isUnlock: 0x14 },
+  inventoryItem: { itemKey: 0x10, isChaotic: 0x20 },
+  runtime: RUNTIME_V1_00_21,
+  container: CONTAINER,
+  dict: DICT,
+  il2cppClass: IL2CPP_CLASS,
+  goldKey: 100001,
+};
+
 const TABLE: Record<string, LiveOffsets> = {
   "1.00.21": V1_00_21,
   "1.00.23": V1_00_23,
+  "1.00.27": V1_00_27,
 };
 
 /** Returns the offset table for a detected game version, or null (degraded mode). */

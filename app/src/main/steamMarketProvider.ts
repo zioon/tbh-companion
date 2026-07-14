@@ -333,6 +333,9 @@ export class SteamMarketProvider {
           // Network errors: fall back to cached (seeded) data if available
           const existing = this.cache.prices[name];
           if (response.reason === "network" && existing && entryHasMarketData(existing)) {
+            // Refresh timestamps so isFresh() treats the entry as fresh
+            existing.fetchedUtc = new Date().toISOString();
+            existing.buyOrderCheckUtc = new Date().toISOString();
             if (countAsPriced) {
               counters.priced++;
             }
@@ -378,6 +381,9 @@ export class SteamMarketProvider {
   }
 
   private async attachBuyOrder(name: string, entry: PriceEntry): Promise<FetchStep> {
+    const checkedUtc = new Date().toISOString();
+    entry.buyOrderCheckUtc = checkedUtc;
+
     const nameIdService = getSteamItemNameIdService();
     const resolved = await nameIdService.resolve(name);
     if (resolved.status === 429) return "retry";
@@ -388,9 +394,7 @@ export class SteamMarketProvider {
     if (buy.status === 429) return "retry";
     if (!buy.ok) return "advance";
 
-    const checkedUtc = new Date().toISOString();
     entry.buyOrderFetched = true;
-    entry.buyOrderCheckUtc = checkedUtc;
     entry.buyOrder = buy.buyOrder ?? null;
     entry.rawBuyOrder = buy.rawBuyOrder ?? null;
     entry.buyOrderQuantity = buy.buyOrderQuantity ?? null;

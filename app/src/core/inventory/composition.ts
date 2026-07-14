@@ -19,6 +19,7 @@ function emptyComposition(): InventoryComposition {
     feeTotal: 0,
     netAfterFeesTotal: 0,
     buyOrderValuedTotal: 0,
+    buyOrderNetTotal: 0,
     buyOrderPricedRows: 0,
     currency: null,
   };
@@ -91,6 +92,14 @@ export function computeInventoryComposition(
   const proceeds = aggregateSellerProceeds(feeLines, feeRates);
   composition.feeTotal = proceeds.feeTotal;
   composition.netAfterFeesTotal = proceeds.netTotal;
+
+  // Net instant-sell: apply the same fee ratio as on median value.
+  if (composition.valuedTotal > 0 && composition.netAfterFeesTotal > 0) {
+    const feeRatio = composition.netAfterFeesTotal / composition.valuedTotal;
+    composition.buyOrderNetTotal = Math.round(composition.buyOrderValuedTotal * feeRatio);
+  } else {
+    composition.buyOrderNetTotal = composition.buyOrderValuedTotal;
+  }
 
   return composition;
 }

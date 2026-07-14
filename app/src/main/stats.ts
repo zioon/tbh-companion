@@ -7,6 +7,7 @@ import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
 
 import { heroName } from "../core/heroes";
+import { xpForNextLevel } from "../core/levelCurve";
 
 const IDLE_THRESHOLD_SECONDS = 120;
 
@@ -14,6 +15,21 @@ const HISTORY_VISIBLE = 50;
 
 function nowSeconds(): number {
   return Date.now() / 1000;
+}
+
+function heroLevelEstimate(level: number, exp: number, rate: number): {
+  xpToNextLevel: number | null;
+  timeToLevelSec: number | null;
+} {
+  const fullNeeded = xpForNextLevel(level);
+  if (fullNeeded === null) return { xpToNextLevel: null, timeToLevelSec: null };
+  const remaining = Math.max(0, fullNeeded - exp);
+  if (!Number.isFinite(rate) || rate <= 0) return { xpToNextLevel: remaining, timeToLevelSec: null };
+  const timeSec = (remaining / rate) * 3600;
+  return {
+    xpToNextLevel: remaining,
+    timeToLevelSec: Number.isFinite(timeSec) ? timeSec : null,
+  };
 }
 
 export function buildStats(
@@ -29,20 +45,29 @@ export function buildStats(
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
 
   const heroes = liveHeroes
-    ? liveFrame!.heroes!.map((h) => ({
-        key: String(h.heroKey),
-        name: heroName(String(h.heroKey)),
-        level: h.level,
-        rate: tracker.heroRate(String(h.heroKey)),
-      }))
+    ? liveFrame!.heroes!.map((h) => {
+        const key = String(h.heroKey);
+        const rate = tracker.heroRate(key);
+        return {
+          key,
+          name: heroName(key),
+          level: h.level,
+          rate,
+          ...heroLevelEstimate(h.level, h.exp, rate),
+        };
+      })
     : (lastSnap?.heroes ?? tracker.heroes)
         .filter((h) => h.unlocked || h.exp > 0)
-        .map((h) => ({
-          key: h.key,
-          name: heroName(h.key),
-          level: h.level,
-          rate: tracker.heroRate(h.key),
-        }));
+        .map((h) => {
+          const rate = tracker.heroRate(h.key);
+          return {
+            key: h.key,
+            name: heroName(h.key),
+            level: h.level,
+            rate,
+            ...heroLevelEstimate(h.level, h.exp, rate),
+          };
+        });
 
   const sinceGain = tracker.secondsSinceGain;
 
@@ -67,10 +92,13 @@ export function buildStats(
     liveFrame?.connected && liveFrame.stageKey != null
       ? liveFrame.stageKey
       : (lastSnap?.stageKey ?? 0);
-  const stageWave =
-    liveFrame?.connected && liveFrame.stageWave != null
-      ? liveFrame.stageWave
-      : (lastSnap?.stageWave ?? 0);
+  // Use DPS tracker's wave-clear detection when live memory is active, else use save value
+  const estimatedWave = liveFrame?.connected ? dpsTracker.currentWave : 0;
+  const stageWave = estimatedWave > 0 ? estimatedWave : (lastSnap?.stageWave ?? 0);
+  const stageWaveTotal =
+    liveFrame?.connected && liveFrame.stageWaveTotal != null
+      ? liveFrame.stageWaveTotal
+      : 0;
 
   return {
     connected: lastError === null,
@@ -97,14 +125,21 @@ export function buildStats(
 
     stageWave,
 
+    stageWaveTotal,
+
     heroes,
 
     history: tracker.history.slice(-HISTORY_VISIBLE).reverse(),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
 
-    // DPS / Damage / Mobs (only meaningful when live memory reader is active)
+    // DPS / Damage / Mobs / HP
     dps: dpsTracker.dps,
-    totalDamage: dpsTracker.totalDamage,
-    totalMobsKilled: dpsTracker.totalMobsKilled,
+    mapDamage: dpsTracker.mapDamage,
+    mapMobsKilled: dpsTracker.mapMobsKilled,
+    sessionDamage: dpsTracker.sessionDamage,
+    sessionMobsKilled: dpsTracker.sessionMobsKilled,
+    aliveMonsters: dpsTracker.alive,
+    hpSum: dpsTracker.hpSum,
+    hpMaxSum: dpsTracker.hpMaxSum,
   };
 }

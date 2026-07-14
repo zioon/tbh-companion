@@ -31,7 +31,6 @@ export class TrackingService {
   private lastSnap: SaveSnapshot | null = null;
   private lastLiveFrame: LiveMemorySnapshot | null = null;
   private lastLiveBroadcastMs = 0;
-  private previousMonsterHp: [number, number][] | null = null;
   /**
    * XP/gold totals captured at the last recorded stage-clear event, used to
    * compute this run's gained XP/gold as a delta. `null` means the next clear
@@ -39,6 +38,8 @@ export class TrackingService {
    * the baseline without being recorded (mirrors filtering out a partial run).
    */
   private stageEventBaseline: { xp: number; gold: number } | null = null;
+  /** Last stage seen in a live frame — used to detect stage/wave changes for per-map DPS. */
+  private lastLiveStage: { stageKey: number; stageWave: number } | null = null;
   private lastError: string | null = null;
   private config!: AppConfig;
   private restoreApplied = false;
@@ -69,6 +70,7 @@ export class TrackingService {
     this.chestDropTracker = new ChestDropTracker();
     this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
+    this.lastLiveStage = null;
     if (config.logHistoryCsv) {
       this.tracker.onHistory = makeHistoryLogger();
     }
@@ -98,7 +100,8 @@ export class TrackingService {
   }
 
   pushStats(): void {
-    broadcast(IPC.STATS, this.getStats());
+    const stats = this.getStats();
+    broadcast(IPC.STATS, stats);
   }
 
   getStats() {
@@ -207,14 +210,28 @@ export class TrackingService {
 
     this.tracker.updateLive({ gold: snap.gold, heroes: snap.heroes }, snap.at / 1000, stage);
 
-    // DPS / Damage / Mobs tracking from monster HP data
+    // DPS / Damage / Mobs tracking from monster HP data (address-based, per tbh-meter)
     if (snap.monsterHp != null) {
       const timestamp = snap.at / 1000;
+
+      // Detect stage/wave change for per-map reset (also handles first live frame).
+      // A wave change covers both map clears and failures that reset the wave counter.
+      const stageKey = snap.stageKey;
+      const stageWave = snap.stageWave ?? 0;
+      const stageChanged =
+        stageKey != null &&
+        (this.lastLiveStage == null ||
+          stageKey !== this.lastLiveStage.stageKey ||
+          stageWave !== this.lastLiveStage.stageWave);
+      if (stageChanged) {
+        this.dpsTracker.beginMap();
+        this.lastLiveStage = { stageKey, stageWave };
+      }
+
       this.dpsTracker.update(snap.monsterHp, snap.deadMonsterCount, timestamp);
-      this.dpsTracker.recordDamageFrame(snap.monsterHp, this.previousMonsterHp, timestamp);
-      this.previousMonsterHp = snap.monsterHp;
     }
 
+    // Diagnostic: throttle log to every 5s
     if (snap.chestDrops && snap.chestDrops.length > 0) {
       for (const category of snap.chestDrops) {
         if (this.chestDropTracker.recordLiveChestDrop(category, snap.at / 1000)) {
@@ -226,6 +243,10 @@ export class TrackingService {
     }
 
     if (snap.stageClears && snap.stageClears.length > 0) {
+      // A stage clear also resets the per-map damage/kill counters even if the
+      // player stays on the same stageKey (e.g. replaying the same map).
+      this.dpsTracker.beginMap();
+
       const stageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
       if (stageKey > 0) {
         const xp = this.tracker.currentTotalXp;

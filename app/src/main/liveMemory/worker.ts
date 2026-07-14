@@ -28,6 +28,7 @@ let healDueAt = 0;
 try {
   reader = new LiveMemoryReader();
   reader.setLogger((message) => post({ type: "log", message }));
+  reader.onScanningChange = () => postStatusIfChanged();
 } catch (err) {
   loadError = err instanceof Error ? err.message : String(err);
 }

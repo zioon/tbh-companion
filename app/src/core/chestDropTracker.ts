@@ -150,6 +150,14 @@ export class ChestDropTracker {
     const commonPerHour = hours > 0 ? commonTotal / hours : 0;
     const rarePerHour = hours > 0 ? rareTotal / hours : 0;
 
+    let lastRareWallTime: number | null = null;
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].category === "rare") {
+        lastRareWallTime = this.history[i].wallTime;
+        break;
+      }
+    }
+
     return {
       commonTotal,
       rareTotal,
@@ -158,6 +166,7 @@ export class ChestDropTracker {
       rarePerHour,
       breakdown,
       history: this.history.slice(-HISTORY_VISIBLE).reverse(),
+      lastDropWallTime: lastRareWallTime,
       readerRequired: true,
     };
   }

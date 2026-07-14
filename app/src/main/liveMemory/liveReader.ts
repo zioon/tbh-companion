@@ -25,6 +25,7 @@ import {
   makeSmPinState,
   makeStageClearPinState,
   readRuntimeChestLog,
+  readRuntimeCombatGold,
   readRuntimeGold,
   readRuntimeHeroes,
   readRuntimeInventory,
@@ -39,8 +40,9 @@ import {
   type SmPinState,
   type StageClearPinState,
 } from "../../core/liveMemory/runtime";
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
+import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -91,15 +93,30 @@ export class LiveMemoryReader {
   private chestPin: ChestLogPinState = makeChestLogPinState();
   private stageClearPin: StageClearPinState = makeStageClearPinState();
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
-  private lastMonsterHp: [number, number][] | null = null;
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
+  /** True once we've attempted name-based MonsterSpawnManager resolution (avoid re-scan). */
+  private monsterNameScanAttempted = false;
+  /** True while resolving offsets or scanning for a class name. */
+  private _scanning = false;
+  /** Optional callback invoked whenever the scanning flag changes. */
+  onScanningChange?: (scanning: boolean) => void;
   gameVersion: string | null = null;
   supported = false;
 
   constructor(userDataDir: string = resolveLiveMemoryUserDataDir()) {
     this.userDataDir = userDataDir;
+  }
+
+  get scanning(): boolean {
+    return this._scanning;
+  }
+
+  private setScanning(value: boolean): void {
+    if (this._scanning === value) return;
+    this._scanning = value;
+    this.onScanningChange?.(value);
   }
 
   private offsetCacheDir(): string | null {
@@ -137,7 +154,12 @@ export class LiveMemoryReader {
     this.log(
       `attach: pid=${proc.pid} version=${this.gameVersion ?? "?"} ga=${this.ga ? "ok" : "missing"}`,
     );
-    this.applyResolvedOffsets(this.resolveOffsets(proc, appBuild), appBuild);
+    try {
+      this.setScanning(true);
+      this.applyResolvedOffsets(this.resolveOffsets(proc, appBuild), appBuild);
+    } finally {
+      this.setScanning(false);
+    }
     return true;
   }
 
@@ -152,8 +174,13 @@ export class LiveMemoryReader {
 
     const wasSupported = this.supported;
     this.refreshGameContext();
-    const resolved = this.resolveOffsets(proc, appBuild);
-    this.applyResolvedOffsets(resolved, appBuild);
+    try {
+      this.setScanning(true);
+      const resolved = this.resolveOffsets(proc, appBuild);
+      this.applyResolvedOffsets(resolved, appBuild);
+    } finally {
+      this.setScanning(false);
+    }
 
     if (!wasSupported && this.supported) {
       this.log(`heal: offsets now supported (source=${this.offsetSource})`);
@@ -269,12 +296,12 @@ export class LiveMemoryReader {
     this.offsetSource = "none";
     this.supported = false;
     this.gameInstallDir = null;
+    this.monsterNameScanAttempted = false;
     this.goldPin = makeGoldPinState();
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
     this.monsterPin = makeMonsterSpawnPinState();
-    this.lastMonsterHp = null;
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
@@ -292,16 +319,40 @@ export class LiveMemoryReader {
     const stage = readRuntimeStage(p, ga.base, ga.size, o, smPtr);
     if (!stage) return null;
 
-    const monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
+    // Resolve MonsterSpawnManager: bundled RVA may point to wrong class in some versions.
+    // Try RVA first; if no monsters found, fall back to name-string scan (meter approach).
+    // Name scan is expensive (~30–60s) — only run once, cache pin for subsequent ticks.
+    let monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
+    if (!this.monsterNameScanAttempted &&
+        (this.monsterPin.ptr == null || (monsterData?.monsterHps?.length ?? 0) === 0)) {
+      this.monsterNameScanAttempted = true;
+      this.log("MonsterSpawnManager: RVA resolution produced no monsters, falling back to name scan...");
+      try {
+        this.setScanning(true);
+        const msClass = resolveClassByName(p, "MonsterSpawnManager");
+        if (msClass) {
+          const inst = singletonFromClass(p, msClass);
+          if (inst) {
+            this.monsterPin.ptr = inst;
+            this.log(`MonsterSpawnManager: resolved via name scan at 0x${inst.toString(16)}`);
+            monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
+          }
+        }
+      } finally {
+        this.setScanning(false);
+      }
+    }
     const monsterHp = monsterData?.monsterHps ?? null;
     const deadMonsterCount = monsterData?.deadCount ?? null;
-    this.lastMonsterHp = monsterHp;
 
     return {
       connected: true,
       stageKey: stage.stageKey,
       stageWave: stage.wave,
-      gold: readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
+      stageWaveTotal: stage.waveTotal,
+      // Combat gold (AggregateSaveData GoldEarn[SubKey=1]) — pure combat earnings.
+      // Falls back to wallet balance (CurrencyManager) when aggregate offset unavailable.
+      gold: readRuntimeCombatGold(p, ga.base, ga.size, o) ?? readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
       heroes: readRuntimeHeroes(p, o, smPtr),
       chestDrops: readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin),
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
@@ -327,6 +378,7 @@ export class LiveMemoryReader {
       pid: this.pid,
       gameVersion: this.gameVersion,
       supported: this.supported,
+      scanning: this.scanning,
       note:
         this.attached && !this.supported
           ? `live stats unavailable for game v${this.gameVersion ?? "?"}`
