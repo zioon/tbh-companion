@@ -39,10 +39,15 @@ import {
   type MonsterSpawnPinState,
   type SmPinState,
   type StageClearPinState,
+  type ReadInventoryResult,
+  type ReadPetsResult,
 } from "../../core/liveMemory/runtime";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type {
+  LiveMemorySnapshot,
+  LiveMemoryStatus,
+} from "../../../shared/types";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -108,6 +113,16 @@ export class LiveMemoryReader {
   onScanningChange?: (scanning: boolean) => void;
   gameVersion: string | null = null;
   supported = false;
+
+  // Slow-changing fields are read on a low-frequency cadence to avoid
+  // allocating large arrays (inventory up to 100k items, pets up to 500) at
+  // the full 25 Hz read rate. The cache is repopulated every N ticks and
+  // reused on the intervening frames; cleared on detach.
+  private static readonly LOW_FREQ_EVERY_N_TICKS = 50; // ~2s at 25 Hz
+  private lowFreqTick = 0;
+  private lowFreqLoaded = false;
+  private cachedInventory: ReadInventoryResult | null = null;
+  private cachedPets: ReadPetsResult | null = null;
 
   constructor(userDataDir: string = resolveLiveMemoryUserDataDir()) {
     this.userDataDir = userDataDir;
@@ -308,6 +323,10 @@ export class LiveMemoryReader {
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
     this.monsterPin = makeMonsterSpawnPinState();
+    this.lowFreqTick = 0;
+    this.lowFreqLoaded = false;
+    this.cachedInventory = null;
+    this.cachedPets = null;
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
@@ -359,39 +378,49 @@ export class LiveMemoryReader {
       : heroesResult.status || undefined;
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
-    let inventoryResult = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
-    let petsResult = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
 
-    // PlayerSaveData name-scan fallback: when RVA resolution produced no player
-    // instance (CommonSaveData static field unreadable), fall back to scanning
-    // memory for the PlayerSaveData class and its static-held singleton. This
-    // mirrors the MonsterSpawnManager fallback above and is cached on the pin.
-    if (!this.playerNameScanAttempted &&
-        this.playerPtr == null &&
-        inventoryResult.items == null &&
-        petsResult.pets == null &&
-        (/\bCommonSaveData singleton.*static field unreadable/i.test(inventoryResult.status) ||
-          /\bCommonSaveData singleton.*static field unreadable/i.test(petsResult.status))) {
-      this.playerNameScanAttempted = true;
-      this.log("PlayerSaveData: RVA resolution produced no player instance, falling back to name scan...");
-      try {
-        this.setScanning(true);
-        const playerClass = resolveClassByName(p, "PlayerSaveData");
-        if (playerClass) {
-          const inst = this.findPlayerInstanceByClass(p, playerClass);
-          if (inst) {
-            this.playerPtr = inst;
-            this.log(`PlayerSaveData: resolved via name scan at 0x${inst.toString(16)}`);
-            inventoryResult = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
-            petsResult = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
+    // Inventory and pets change slowly (only on save events / menu actions),
+    // so re-read them on a low-frequency cadence and reuse the cached arrays
+    // on intervening ticks. This avoids allocating up to 100k inventory items
+    // 25 times per second.
+    this.lowFreqTick++;
+    if (!this.lowFreqLoaded || this.lowFreqTick >= LiveMemoryReader.LOW_FREQ_EVERY_N_TICKS) {
+      this.lowFreqTick = 0;
+      this.lowFreqLoaded = true;
+      this.cachedInventory = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
+      this.cachedPets = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
+
+      // PlayerSaveData name-scan fallback: when RVA resolution produced no player
+      // instance (CommonSaveData static field unreadable), fall back to scanning
+      // memory for the PlayerSaveData class and its static-held singleton. This
+      // mirrors the MonsterSpawnManager fallback above and is cached on the pin.
+      if (!this.playerNameScanAttempted &&
+          this.playerPtr == null &&
+          this.cachedInventory.items == null &&
+          this.cachedPets.pets == null &&
+          (/\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedInventory.status) ||
+            /\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedPets.status))) {
+        this.playerNameScanAttempted = true;
+        this.log("PlayerSaveData: RVA resolution produced no player instance, falling back to name scan...");
+        try {
+          this.setScanning(true);
+          const playerClass = resolveClassByName(p, "PlayerSaveData");
+          if (playerClass) {
+            const inst = this.findPlayerInstanceByClass(p, playerClass);
+            if (inst) {
+              this.playerPtr = inst;
+              this.log(`PlayerSaveData: resolved via name scan at 0x${inst.toString(16)}`);
+              this.cachedInventory = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
+              this.cachedPets = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
+            } else {
+              this.log("PlayerSaveData: class found but no static-held instance");
+            }
           } else {
-            this.log("PlayerSaveData: class found but no static-held instance");
+            this.log("PlayerSaveData: class not found by name scan");
           }
-        } else {
-          this.log("PlayerSaveData: class not found by name scan");
+        } finally {
+          this.setScanning(false);
         }
-      } finally {
-        this.setScanning(false);
       }
     }
 
@@ -408,10 +437,10 @@ export class LiveMemoryReader {
       chestDrops: chestResult.drops,
       chestDropsStatus: chestResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
-      inventoryItems: inventoryResult.items,
-      inventoryItemsStatus: inventoryResult.status || undefined,
-      petData: petsResult.pets,
-      petDataStatus: petsResult.status || undefined,
+      inventoryItems: this.cachedInventory?.items ?? null,
+      inventoryItemsStatus: this.cachedInventory?.status || undefined,
+      petData: this.cachedPets?.pets ?? null,
+      petDataStatus: this.cachedPets?.status || undefined,
       monsterHp,
       deadMonsterCount,
       source: `memory v${o.gameVersion}`,

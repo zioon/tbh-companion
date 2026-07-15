@@ -237,5 +237,14 @@ export class UpdateService {
       clearTimeout(this.backgroundTimer);
       this.backgroundTimer = null;
     }
+    // Remove our listeners from the process-wide autoUpdater singleton so a
+    // subsequent start() can't register duplicates on the same emitter.
+    autoUpdater.removeAllListeners("checking-for-update");
+    autoUpdater.removeAllListeners("update-available");
+    autoUpdater.removeAllListeners("update-not-available");
+    autoUpdater.removeAllListeners("download-progress");
+    autoUpdater.removeAllListeners("update-downloaded");
+    autoUpdater.removeAllListeners("error");
+    this.started = false;
   }
 }

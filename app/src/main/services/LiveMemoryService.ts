@@ -100,6 +100,9 @@ export class LiveMemoryService {
   stop(): void {
     if (this.child) {
       try {
+        // Remove listeners before kill so the exit/message events fired during
+        // shutdown can't trigger stray broadcasts on a service that's stopping.
+        this.child.removeAllListeners();
         this.child.postMessage("stop");
         this.child.kill();
       } catch {
