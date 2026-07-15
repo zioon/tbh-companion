@@ -417,7 +417,7 @@ export function InventoryTable({
     () => buildColumnDefs(itemIndex, (id) => open({ type: "item", id })),
     [itemIndex, open],
   );
-  const columns = visibleColumns(columnDefs, columnPrefs);
+  const columns = useMemo(() => visibleColumns(columnDefs, columnPrefs), [columnDefs, columnPrefs]);
 
   return (
     <Card padding="none" className="min-h-[200px] flex-1 overflow-auto">

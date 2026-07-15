@@ -1,14 +1,9 @@
 import { createContext, useContext } from "react";
-import type { Stats, ResolvedInventory, PriceStatus, PriceProgress } from "../../../shared/types";
+import type { ResolvedInventory } from "../../../shared/types";
 
 export interface TbhContextValue {
-  stats: Stats | null;
   inventory: ResolvedInventory | null;
-  priceStatus: PriceStatus | null;
-  priceProgress: PriceProgress | null;
   lastPriceRefreshMessage: string | null;
-  setPriceStatus: (status: PriceStatus | null) => void;
-  clearPriceProgress: () => void;
   clearLastPriceRefreshMessage: () => void;
 }
 
