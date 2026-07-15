@@ -19,11 +19,13 @@ import {
   resolveLiveMemoryUserDataDir,
 } from "./liveMemoryCacheDir";
 import {
+  makeBoxOpenPinState,
   makeChestLogPinState,
   makeGoldPinState,
   makeMonsterSpawnPinState,
   makeSmPinState,
   makeStageClearPinState,
+  readRuntimeBoxOpenLog,
   readRuntimeChestLog,
   readRuntimeCombatGold,
   readRuntimeGold,
@@ -34,6 +36,7 @@ import {
   readRuntimeStage,
   readRuntimeStageClears,
   resolveStageManager,
+  type BoxOpenPinState,
   type ChestLogPinState,
   type GoldPinState,
   type MonsterSpawnPinState,
@@ -97,6 +100,7 @@ export class LiveMemoryReader {
   private smPin: SmPinState = makeSmPinState();
   private chestPin: ChestLogPinState = makeChestLogPinState();
   private stageClearPin: StageClearPinState = makeStageClearPinState();
+  private boxOpenPin: BoxOpenPinState = makeBoxOpenPinState();
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
@@ -322,6 +326,7 @@ export class LiveMemoryReader {
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
+    this.boxOpenPin = makeBoxOpenPinState();
     this.monsterPin = makeMonsterSpawnPinState();
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
@@ -378,6 +383,7 @@ export class LiveMemoryReader {
       : heroesResult.status || undefined;
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+    const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
 
     // Inventory and pets change slowly (only on save events / menu actions),
     // so re-read them on a low-frequency cadence and reuse the cached arrays
@@ -436,6 +442,8 @@ export class LiveMemoryReader {
       heroesStatus,
       chestDrops: chestResult.drops,
       chestDropsStatus: chestResult.status || undefined,
+      boxOpens: boxOpenResult.opens,
+      boxOpensStatus: boxOpenResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
       inventoryItems: this.cachedInventory?.items ?? null,
       inventoryItemsStatus: this.cachedInventory?.status || undefined,
