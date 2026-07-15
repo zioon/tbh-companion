@@ -1,6 +1,6 @@
+import { EnvHttpProxyAgent } from "undici";
 import { currencyCode, parseMoney } from "../../core/steamPrice";
 import type { PriceEntry } from "./priceCache";
-import { getProxyDispatcher } from "./proxyResolver";
 
 const APP_ID = 3678970;
 const PRICEOVERVIEW = "https://steamcommunity.com/market/priceoverview/";
@@ -30,6 +30,16 @@ function entryHasSellPrice(entry: PriceEntry): boolean {
   return entry.median != null || entry.lowest != null;
 }
 
+/** Create a proxy-aware dispatcher if HTTP_PROXY/HTTPS_PROXY is set. */
+interface FetchInitExtra {
+  dispatcher?: unknown;
+}
+function getDispatcher(): FetchInitExtra {
+  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  if (!proxy) return {};
+  return { dispatcher: new EnvHttpProxyAgent() };
+}
+
 export async function fetchSteamPrice(
   name: string,
   currency: string,
@@ -42,7 +52,7 @@ export async function fetchSteamPrice(
     res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (TBH Companion)" },
       signal: AbortSignal.timeout(30_000),
-      ...getProxyDispatcher(),
+      ...getDispatcher(),
     });
   } catch {
     return { ok: false, status: 0, reason: "network" };

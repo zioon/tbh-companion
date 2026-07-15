@@ -1,7 +1,16 @@
 // Fetch highest buy order via Steam itemordershistogram.
 
+import { EnvHttpProxyAgent } from "undici";
 import { currencyCode, parseMinorUnits, parseMoney, TBH_STEAM_APP_ID } from "../../core/steamPrice";
-import { getProxyDispatcher } from "./proxyResolver";
+
+interface FetchInitExtra {
+  dispatcher?: unknown;
+}
+function getDispatcher(): FetchInitExtra {
+  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+  if (!proxy) return {};
+  return { dispatcher: new EnvHttpProxyAgent() };
+}
 
 const HISTOGRAM = "https://steamcommunity.com/market/itemordershistogram";
 
@@ -89,7 +98,7 @@ export async function fetchSteamBuyOrder(
         Referer: listingUrl,
       },
       signal: AbortSignal.timeout(30_000),
-      ...getProxyDispatcher(),
+      ...getDispatcher(),
     });
   } catch {
     return { ok: false, status: 0 };
