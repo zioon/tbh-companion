@@ -146,6 +146,7 @@ export class TrackingService {
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.config,
       this.lastSnap,
     );
@@ -153,7 +154,13 @@ export class TrackingService {
   }
 
   flushSession(): void {
-    this.sessionState?.flush(this.tracker, this.chestDropTracker, this.lastSnap, this.config);
+    this.sessionState?.flush(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.lastSnap,
+      this.config,
+    );
   }
 
   getTracker(): XpTracker {
@@ -192,6 +199,7 @@ export class TrackingService {
     this.sessionState?.flush(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.lastSnap,
       this.config,
     );
@@ -203,6 +211,7 @@ export class TrackingService {
     this.sessionState?.flush(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.lastSnap,
       this.config,
     );
@@ -281,7 +290,7 @@ export class TrackingService {
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.notifyNewSession();
-    this.sessionState?.onTrackerReset(this.tracker, this.chestDropTracker, this.config, null);
+    this.sessionState?.onTrackerReset(this.tracker, this.chestDropTracker, this.boxOpenTracker, this.config, null);
     this.pushStats();
   }
 
@@ -303,6 +312,7 @@ export class TrackingService {
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.config,
       this.lastSnap,
     );
@@ -432,7 +442,7 @@ export class TrackingService {
         this.lastSnap = snap;
         this.lastError = null;
         if (!this.restoreApplied && this.sessionState) {
-          this.sessionState.tryRestoreOnSnapshot(this.tracker, this.chestDropTracker, snap);
+          this.sessionState.tryRestoreOnSnapshot(this.tracker, this.chestDropTracker, this.boxOpenTracker, snap);
           this.restoreApplied = true;
         }
         this.tracker.update(snap);
