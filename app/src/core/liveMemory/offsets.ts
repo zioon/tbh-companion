@@ -103,11 +103,24 @@ export interface LiveOffsets {
       getBoxTypeKey: number;
       /** ELogType.StageClear dictionary key. */
       stageClearTypeKey: number;
+      /** ELogType.GetItemWithBoxOpen dictionary key (box-open log). 0 = not derived for this version. */
+      getItemWithBoxOpenTypeKey: number;
     };
     /** GetBoxLog struct offsets (obfuscated field names, stable offsets). */
     getBoxLog: {
       /** EMonsterLogType: 0 = common, 1 = stage boss (2 = act boss, not tracked). */
       monsterType: number;
+    };
+    /** BoxOpenLog struct offsets (obfuscated field names, stable offsets). 0 = not derived. */
+    boxOpenLog: {
+      /** Produced item key (int) or string-key pointer; resolved at read time. */
+      itemStringKey: number;
+      /** ItemGradeType enum value. */
+      itemGradeType: number;
+      /** Source box type (0=common, 1=rare, 2=act); 0 = not available in struct. */
+      boxType: number;
+      /** Source box level; 0 = not available in struct. */
+      level: number;
     };
     /**
      * StageClearLog struct offset (real class name, dump.cs-confirmed; obfuscated
@@ -168,9 +181,16 @@ const RUNTIME_V1_00_21 = {
     logByType: 0x28, // LogManager Dictionary<ELogType, List<LogData>>
     getBoxTypeKey: 3, // ELogType.GetBox
     stageClearTypeKey: 1, // ELogType.StageClear
+    getItemWithBoxOpenTypeKey: 0, // ELogType.GetItemWithBoxOpen — not yet derived for v1.00.21/23/27
   },
   getBoxLog: {
     monsterType: 0x50, // GetBoxLog EMonsterLogType (0 common, 1 stage boss; 2 act boss ignored)
+  },
+  boxOpenLog: {
+    itemStringKey: 0, // not yet derived — reader returns null when 0
+    itemGradeType: 0,
+    boxType: 0,
+    level: 0,
   },
   stageClearLog: {
     clearTimeSec: 0x48, // StageClearLog — live-verified on v1.00.23 (see phase-4-stage-times/design.md)
