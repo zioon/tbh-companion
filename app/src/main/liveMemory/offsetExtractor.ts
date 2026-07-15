@@ -9,6 +9,7 @@
 
 import {
   collectClassEntries,
+  findBoxOpenLogFields,
   findCurrencyManager,
   findCurrencyManagerStatic,
   findLogManager,
@@ -39,8 +40,12 @@ import type { WinProcess } from "./winProcess";
  * Rev 6: emit stable pet/item struct offsets as defaults when the player anchor
  * isn't static-reachable (same as v1.00.27 bundled table). The runtime reader
  * guards on commonSaveData≠0 before using them, so wrong reads are impossible.
+ * Rev 7: derive BoxOpenLog struct fields (itemStringKey, itemGradeType) from
+ * the class metadata index and the ELogType.GetItemWithBoxOpen dict key from
+ * the same LogManager dictionary walk — enables the loot tracker without a
+ * manual IL2CPP dump. boxType/level remain 0 (obfuscated field names).
  */
-export const EXTRACTOR_REVISION = 6;
+export const EXTRACTOR_REVISION = 7;
 
 // Structural offsets whose field names ARE obfuscated but whose byte offsets are
 // stable across patches. Emitted as constants rather than derived by name.
@@ -151,10 +156,15 @@ export function extractOffsets(
 
   // ── Enrichment anchors (zero-value fallback, retried while incomplete) ─────
   const lm = findLogManager(ctx, entries);
+  // BoxOpenLog field offsets are class-metadata-derived, not LogManager-dependent —
+  // resolve them unconditionally so the loot tracker gets field offsets even when
+  // the LogManager singleton isn't static-reachable (the dict key is still 0 then,
+  // so the reader won't read the list, but a later bundled-table merge can fill it).
+  const boxOpenFields = findBoxOpenLogFields(ctx, entries);
   log(
     lm
-      ? `extract: logManager rva=0x${lm.slotRva.toString(16)} logByType=0x${lm.logByType.toString(16)} getBoxKey=${lm.getBoxTypeKey}`
-      : `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade)`,
+      ? `extract: logManager rva=0x${lm.slotRva.toString(16)} logByType=0x${lm.logByType.toString(16)} getBoxKey=${lm.getBoxTypeKey} boxOpenKey=${lm.boxOpenTypeKey} boxOpenLog.fields={itemStringKey:0x${lm.boxOpenLog.itemStringKey.toString(16)},itemGradeType:0x${lm.boxOpenLog.itemGradeType.toString(16)}}`
+      : `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade); boxOpenLog.fields={itemStringKey:0x${boxOpenFields.itemStringKey.toString(16)},itemGradeType:0x${boxOpenFields.itemGradeType.toString(16)}}`,
   );
 
   // ── MonsterSpawnManager (enrichment for DPS tracking) ──────────────
@@ -250,10 +260,15 @@ export function extractOffsets(
         logByType: lm?.logByType ?? STRUCT_LOG_BY_TYPE,
         getBoxTypeKey: lm?.getBoxTypeKey ?? STRUCT_GETBOX_KEY,
         stageClearTypeKey: STRUCT_STAGE_CLEAR_KEY,
-        getItemWithBoxOpenTypeKey: 0,
+        getItemWithBoxOpenTypeKey: lm?.boxOpenTypeKey ?? 0,
       },
       getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },
-      boxOpenLog: { itemStringKey: 0, itemGradeType: 0, boxType: 0, level: 0 },
+      boxOpenLog: {
+        itemStringKey: lm?.boxOpenLog.itemStringKey ?? boxOpenFields.itemStringKey,
+        itemGradeType: lm?.boxOpenLog.itemGradeType ?? boxOpenFields.itemGradeType,
+        boxType: 0, // obfuscated field name — requires manual IL2CPP dump
+        level: 0, // obfuscated field name — requires manual IL2CPP dump
+      },
       stageClearLog: { clearTimeSec: STRUCT_STAGE_CLEAR_TIME },
       monster: {
         monsterList: 0,
