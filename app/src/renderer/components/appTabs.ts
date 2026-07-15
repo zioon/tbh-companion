@@ -5,6 +5,7 @@ export type TabId =
   | "live"
   | "inventory"
   | "chests"
+  | "loot"
   | "pets"
   | "lookup"
   | "market"
@@ -16,6 +17,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "live", label: "Live" },
   { id: "inventory", label: "Inventory" },
   { id: "chests", label: "Chests" },
+  { id: "loot", label: "Loot" },
   { id: "pets", label: "Pets" },
   { id: "lookup", label: "Lookup" },
   { id: "market", label: "Market" },

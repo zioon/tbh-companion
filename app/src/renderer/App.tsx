@@ -9,6 +9,7 @@ import { GlobalEntityPanel } from "./components/GlobalEntityPanel";
 const Live = lazy(() => import("./tabs/Live").then((m) => ({ default: m.Live })));
 const Inventory = lazy(() => import("./tabs/Inventory").then((m) => ({ default: m.Inventory })));
 const Chests = lazy(() => import("./tabs/Chests").then((m) => ({ default: m.Chests })));
+const Loot = lazy(() => import("./tabs/Loot").then((m) => ({ default: m.Loot })));
 const Pets = lazy(() => import("./tabs/Pets").then((m) => ({ default: m.Pets })));
 const Lookup = lazy(() => import("./tabs/Lookup").then((m) => ({ default: m.Lookup })));
 const Market = lazy(() => import("./tabs/Market").then((m) => ({ default: m.Market })));
@@ -42,6 +43,7 @@ export function App() {
               {tab === "live" && <Live />}
               {tab === "inventory" && <Inventory />}
               {tab === "chests" && <Chests />}
+              {tab === "loot" && <Loot />}
               {tab === "pets" && <Pets />}
               {tab === "lookup" && <Lookup />}
               {tab === "market" && <Market />}
