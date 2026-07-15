@@ -45,8 +45,6 @@ export const STRUCT_DICT = {
   entryValue: 16,
 } as const;
 
-const STRUCT_LOG_BY_TYPE = 0x28; // LogManager.<logByType>: Dictionary<ELogType, List<LogData>>
-const STRUCT_GETBOX_TYPE_KEY = 3; // ELogType.GetBox
 const STRUCT_GETBOX_MONSTER_TYPE = 0x50; // GetBoxLog EMonsterLogType (0/1/2)
 const STRUCT_CACHE_INFO_DATA = 0x10; // StageCache → StageInfoData
 const STRUCT_STAGE_CACHE_STATIC_OFF = 0x88; // vb.uu / uz.us current StageCache static field
@@ -60,6 +58,17 @@ const INSTANCE_SCAN_MAX = 0x140;
 
 function isPlausibleHeapPtr(v: bigint): boolean {
   return v > 0x10000n && v < 0x7ff0_0000_0000n;
+}
+
+/**
+ * Match a class name, tolerating an obfuscation namespace prefix.
+ * Per-build name randomization can rename `PetSaveData` → `vb.PetSaveData`
+ * (seen live on v1.00.23 for StageCache); the short name stays stable because
+ * it is the ES3 serialization name. Match `vb.PetSaveData` against `PetSaveData`.
+ */
+function classNameMatches(actual: string | null, expected: string): boolean {
+  if (actual == null) return false;
+  return actual === expected || actual.endsWith("." + expected);
 }
 
 // ── Primitive readers ─────────────────────────────────────────────────────────
@@ -414,29 +423,29 @@ export function findStageCacheManager(
   return null;
 }
 
-/** True when `lmPtr` walks like a LogManager holding a GetBoxLog list. */
-function isGetBoxLogHolder(ctx: ScanContext, lmPtr: bigint): boolean {
-  const dictPtr = readPtr(ctx.reader, lmPtr + BigInt(STRUCT_LOG_BY_TYPE));
-  if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) return false;
-  const listPtr = dictLookupIntKey(
-    ctx.reader,
-    dictPtr,
-    STRUCT_GETBOX_TYPE_KEY,
-    MAX_LOG_DICT_ENTRIES,
-    MAX_LOG_DICT_ENTRIES,
-  );
-  if (listPtr == null || !isPlausibleHeapPtr(listPtr)) return false;
+/** LogManager.logByType field offset candidates. The dict has lived at +0x28 on
+ *  every version seen so far, but the field name is obfuscated so the byte
+ *  offset is not name-stable. Probe a small candidate set rather than assume. */
+const LOG_DICT_OFFSET_CANDIDATES = [0x28, 0x20, 0x30, 0x38];
+
+/** True for `GetBoxLog` and obfuscated variants (`vb.GetBoxLog`). */
+function isGetBoxLogClassName(name: string | null): boolean {
+  return classNameMatches(name, "GetBoxLog");
+}
+
+/** Validate a List<GetBoxLog> candidate: non-empty + sampled entries are real
+ *  GetBoxLog with EMonsterLogType ∈ {0,1,2}. The non-empty requirement is what
+ *  keeps unrelated dictionaries (seen live: compiler-generated `<>c`) from
+ *  false-positive matching — keep it. */
+function validateGetBoxList(ctx: ScanContext, listPtr: bigint): boolean {
   const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
   const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
   if (arr == null || count == null || count <= 0 || count > MAX_CHEST_LOG) return false;
-
-  // Every sampled entry must be a real GetBoxLog with a valid EMonsterLogType —
-  // looser shapes false-positive on unrelated dictionaries (seen live: `<>c`).
   const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
   for (let i = 0; i < Math.min(count, LOG_VALIDATE_ENTRIES); i++) {
     const e = readPtr(ctx.reader, first + BigInt(i * 8));
     if (e == null || !isPlausibleHeapPtr(e)) return false;
-    if (ctx.instanceClassName(e) !== "GetBoxLog") return false;
+    if (!isGetBoxLogClassName(ctx.instanceClassName(e))) return false;
     const mt = readI32(ctx.reader, e + BigInt(STRUCT_GETBOX_MONSTER_TYPE));
     if (mt == null || mt < 0 || mt > 2) return false;
   }
@@ -444,18 +453,59 @@ function isGetBoxLogHolder(ctx: ScanContext, lmPtr: bigint): boolean {
 }
 
 /**
+ * Find the Dictionary<ELogType, List<GetBoxLog>> on a LogManager candidate.
+ * Neither the `logByType` field offset nor the `ELogType.GetBox` enum value is
+ * name-stable, so probe several offset candidates and scan the dict entries for
+ * a value that validates as a List<GetBoxLog>. Returns the discovered offset +
+ * enum key, or null when no candidate validates.
+ */
+function findGetBoxLogDict(
+  ctx: ScanContext,
+  lmPtr: bigint,
+): { logByType: number; getBoxTypeKey: number } | null {
+  for (const logOff of LOG_DICT_OFFSET_CANDIDATES) {
+    const dictPtr = readPtr(ctx.reader, lmPtr + BigInt(logOff));
+    if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) continue;
+    const entriesArr = readPtr(ctx.reader, dictPtr + BigInt(STRUCT_DICT.entries));
+    if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) continue;
+    const count = readI32(ctx.reader, dictPtr + BigInt(STRUCT_DICT.count));
+    if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) continue;
+    const first = entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst);
+    for (let i = 0; i < count; i++) {
+      const eBase = first + BigInt(i * STRUCT_DICT.entrySize);
+      const hash = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryHash));
+      if (hash == null || hash < 0) continue;
+      const key = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryKey));
+      if (key == null) continue;
+      const listPtr = readPtr(ctx.reader, eBase + BigInt(STRUCT_DICT.entryValue));
+      if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+      if (validateGetBoxList(ctx, listPtr)) {
+        return { logByType: logOff, getBoxTypeKey: key };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * LogManager singleton (chest-drop log): a static slot pointing at an object
- * whose `+0x28` dictionary maps ELogType.GetBox to a list of `GetBoxLog`
- * entries. Requires at least one logged drop to validate — retried on later
- * launches while the offset table stays incomplete.
+ * whose logByType dictionary maps some ELogType key to a list of `GetBoxLog`
+ * entries. The field offset and enum key are discovered structurally (see
+ * {@link findGetBoxLogDict}) rather than assumed. Requires at least one logged
+ * drop to validate — retried on later launches while the offset table stays
+ * incomplete. Returns the slot RVA plus the discovered logByType offset and
+ * GetBox enum key so the runtime reader uses the same values.
  */
 export function findLogManager(
   ctx: ScanContext,
   entries: readonly ClassEntry[],
-): { slotRva: bigint } | null {
+): { slotRva: bigint; logByType: number; getBoxTypeKey: number } | null {
   for (const entry of entries) {
     for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
-      if (isGetBoxLogHolder(ctx, inst)) return { slotRva: entry.slotRva };
+      const found = findGetBoxLogDict(ctx, inst);
+      if (found != null) {
+        return { slotRva: entry.slotRva, ...found };
+      }
     }
   }
   return null;
@@ -505,7 +555,7 @@ function findListField(ctx: ScanContext, obj: bigint, elementClassName: string):
     const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
     if (count == null || count <= 0 || count > MAX_SAVE_LIST) continue;
     const e0 = readPtr(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
-    if (e0 == null || ctx.instanceClassName(e0) !== elementClassName) continue;
+    if (e0 == null || !classNameMatches(ctx.instanceClassName(e0), elementClassName)) continue;
     return foff;
   }
   return null;
@@ -534,7 +584,7 @@ function namedClassField(
   fieldName: string,
 ): number {
   for (const entry of entries) {
-    if (entry.name !== className) continue;
+    if (!classNameMatches(entry.name, className)) continue;
     const off = ctx.classFields(entry.classPtr)?.get(fieldName);
     if (off != null && off > 0) return off;
   }

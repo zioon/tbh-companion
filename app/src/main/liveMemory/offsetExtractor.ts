@@ -33,8 +33,11 @@ import type { WinProcess } from "./winProcess";
  * Rev 3: static-class anchors (vb.tp / vb.uu) + full readable GA scan; v1.00.23
  * renamed uz.tm/uz.us and uses vb.StageCache — singleton-only scan failed live.
  * Rev 4: stage-clear log offsets (runtime.log.stageClearTypeKey, stageClearLog).
+ * Rev 5: namespace-tolerant class matching (vb.PetSaveData / vb.GetBoxLog) +
+ * dynamic logByType offset + dynamic ELogType.GetBox key discovery, so the
+ * player/log anchors survive per-build obfuscation that v1.00.28 exposed.
  */
-export const EXTRACTOR_REVISION = 4;
+export const EXTRACTOR_REVISION = 5;
 
 // Structural offsets whose field names ARE obfuscated but whose byte offsets are
 // stable across patches. Emitted as constants rather than derived by name.
@@ -135,7 +138,7 @@ export function extractOffsets(
   const lm = findLogManager(ctx, entries);
   log(
     lm
-      ? `extract: logManager rva=0x${lm.slotRva.toString(16)}`
+      ? `extract: logManager rva=0x${lm.slotRva.toString(16)} logByType=0x${lm.logByType.toString(16)} getBoxKey=${lm.getBoxTypeKey}`
       : `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade)`,
   );
 
@@ -223,8 +226,8 @@ export function extractOffsets(
       currencyInfoKey: 0x30,
       heroList: sm.heroList,
       log: {
-        logByType: STRUCT_LOG_BY_TYPE,
-        getBoxTypeKey: STRUCT_GETBOX_KEY,
+        logByType: lm?.logByType ?? STRUCT_LOG_BY_TYPE,
+        getBoxTypeKey: lm?.getBoxTypeKey ?? STRUCT_GETBOX_KEY,
         stageClearTypeKey: STRUCT_STAGE_CLEAR_KEY,
       },
       getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },

@@ -341,8 +341,17 @@ describe("findStageCacheManager", () => {
 /** Seed a LogManager-shaped holder; returns the index entry. */
 function seedLogManager(
   m: FakeMemory,
-  opts: { entryClassName: string; monsterTypes: number[] },
+  opts: {
+    entryClassName: string;
+    monsterTypes: number[];
+    /** Offset of the logByType dict within the LogManager instance (default 0x28). */
+    dictOff?: number;
+    /** ELogType.GetBox enum value in the dict (default 3). */
+    getBoxKey?: number;
+  },
 ): ClassEntry {
+  const dictOff = opts.dictOff ?? 0x28;
+  const getBoxKey = opts.getBoxKey ?? 3;
   const wrapper = 0x7ff400000n;
   const lmInst = 0x7ff410000n;
   const dict = 0x7ff420000n;
@@ -355,14 +364,14 @@ function seedLogManager(
   const block = seedStaticBlock(m, wrapper, 0x7ff470000n);
   m.writePtr(block, lmInst);
   seedInstance(m, lmInst, logClass); // header irrelevant for detection but keep valid
-  m.writePtr(lmInst + 0x28n, dict);
+  m.writePtr(lmInst + BigInt(dictOff), dict);
 
-  // Dictionary<int, List<GetBoxLog>> with one entry: key 3 → list
+  // Dictionary<int, List<GetBoxLog>> with one entry: getBoxKey → list
   m.writePtr(dict + 0x18n, dictEntries);
   m.writeI32(dict + 0x20n, 1);
   const eBase = dictEntries + 0x20n;
   m.writeI32(eBase, 42); // hash ≥ 0
-  m.writeI32(eBase + 8n, 3); // ELogType.GetBox
+  m.writeI32(eBase + 8n, getBoxKey);
   m.writePtr(eBase + 16n, list);
 
   // List<GetBoxLog>
@@ -383,7 +392,52 @@ describe("findLogManager", () => {
   it("finds the holder whose GetBox list contains valid GetBoxLog entries", () => {
     const m = new FakeMemory();
     const e = seedLogManager(m, { entryClassName: "GetBoxLog", monsterTypes: [0, 1, 2] });
-    expect(findLogManager(new ScanContext(m), [e])).toEqual({ slotRva: 0x7000n });
+    expect(findLogManager(new ScanContext(m), [e])).toEqual({
+      slotRva: 0x7000n,
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+    });
+  });
+
+  it("discovers a non-default logByType offset (v1.00.28 field-shifted dict)", () => {
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "GetBoxLog",
+      monsterTypes: [0, 1],
+      dictOff: 0x20,
+    });
+    expect(findLogManager(new ScanContext(m), [e])).toEqual({
+      slotRva: 0x7000n,
+      logByType: 0x20,
+      getBoxTypeKey: 3,
+    });
+  });
+
+  it("discovers a non-default ELogType.GetBox enum value", () => {
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "GetBoxLog",
+      monsterTypes: [0, 1],
+      getBoxKey: 7,
+    });
+    expect(findLogManager(new ScanContext(m), [e])).toEqual({
+      slotRva: 0x7000n,
+      logByType: 0x28,
+      getBoxTypeKey: 7,
+    });
+  });
+
+  it("accepts a namespaced GetBoxLog class name (vb.GetBoxLog)", () => {
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "vb.GetBoxLog",
+      monsterTypes: [0, 1, 2],
+    });
+    expect(findLogManager(new ScanContext(m), [e])).toEqual({
+      slotRva: 0x7000n,
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+    });
   });
 
   it("rejects a structurally-similar dict whose entries are not GetBoxLog", () => {
@@ -554,6 +608,51 @@ describe("findPlayerSaveData", () => {
     expect(result!.playerStaticOff).toBe(0x8);
     expect(result!.petSaveDatas).toBe(0x30);
     expect(result!.petKey).toBe(0x10);
+  });
+
+  it("falls back to List<element> discovery with namespaced class names (vb.PetSaveData)", () => {
+    // v1.00.28-style obfuscation: element classes renamed `PetSaveData` → `vb.PetSaveData`.
+    // findListField + namedClassField must still resolve via the short suffix.
+    const m = new FakeMemory();
+    const petClass = 0x7ff600000n;
+    const pet = entry(m, petClass, 0x8100n, "vb.PetSaveData");
+    seedFields(m, petClass, [
+      { name: "PetKey", offset: 0x10 },
+      { name: "IsUnlock", offset: 0x14 },
+    ]);
+    const itemClass = 0x7ff610000n;
+    const item = entry(m, itemClass, 0x8200n, "vb.ItemSaveData");
+    seedFields(m, itemClass, [
+      { name: "ItemKey", offset: 0x10 },
+      { name: "IsChaotic", offset: 0x20 },
+    ]);
+    const elements = [pet, item];
+
+    const wrapper = 0x7ff700000n;
+    const holderClass = 0x7ff710000n;
+    const holder = 0x7ff720000n;
+    const list = 0x7ff740000n;
+    const listArr = 0x7ff750000n;
+    const petObj = 0x7ff760000n;
+
+    const e = entry(m, wrapper, 0x8000n, "csd");
+    const block = seedStaticBlock(m, wrapper, 0x7ff730000n);
+    m.writePtr(block + 0x8n, holder);
+    seedInstance(m, holder, holderClass);
+    seedClass(m, holderClass, "ObfuscatedHolder");
+    // No stable field names — forces findListField fallback.
+    seedFields(m, holderClass, [{ name: "renamed", offset: 0x30 }]);
+    m.writePtr(holder + 0x30n, list);
+    m.writePtr(list + 0x10n, listArr);
+    m.writeI32(list + 0x18n, 1);
+    m.writePtr(listArr + 0x20n, petObj);
+    seedInstance(m, petObj, petClass);
+
+    const result = findPlayerSaveData(new ScanContext(m), [e, ...elements]);
+    expect(result).not.toBeNull();
+    expect(result!.petSaveDatas).toBe(0x30);
+    expect(result!.petKey).toBe(0x10);
+    expect(result!.petIsUnlock).toBe(0x14);
   });
 
   it("returns null when no static-reachable object carries save lists", () => {
