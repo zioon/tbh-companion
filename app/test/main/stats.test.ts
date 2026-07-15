@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { XpTracker } from "../../src/core/tracker";
 import { ChestDropTracker } from "../../src/core/chestDropTracker";
+import { BoxOpenTracker } from "../../src/core/boxOpenTracker";
 import { DpsTracker } from "../../src/core/liveMemory/dpsTracker";
 import { buildStats } from "../../src/main/stats";
 import type { LiveMemorySnapshot, SaveSnapshot } from "../../shared/types";
@@ -25,7 +26,7 @@ describe("buildStats", () => {
     tracker.update(snap(1000));
     chestDropTracker.recordLogDrop(910151);
 
-    const stats = buildStats(tracker, chestDropTracker, new DpsTracker(), snap(1000), null, null);
+    const stats = buildStats(tracker, chestDropTracker, new BoxOpenTracker(), new DpsTracker(), snap(1000), null, null);
     expect(stats.chestDrops.commonTotal).toBe(1);
     expect(stats.chestDrops.combinedTotal).toBe(1);
     expect(stats.chestDrops.readerRequired).toBe(true);
@@ -46,6 +47,7 @@ describe("buildStats", () => {
       gold: null,
       heroes: [{ heroKey: 101, level: 12, exp: 200 }],
       chestDrops: null,
+      boxOpens: null,
       inventoryItems: null,
       stageClears: null,
       petData: null,
@@ -56,7 +58,7 @@ describe("buildStats", () => {
       at: now * 1000,
     };
 
-    const stats = buildStats(tracker, new ChestDropTracker(), new DpsTracker(), snap(1000), null, null, liveFrame);
+    const stats = buildStats(tracker, new ChestDropTracker(), new BoxOpenTracker(), new DpsTracker(), snap(1000), null, null, liveFrame);
     expect(stats.heroes).toHaveLength(1);
     expect(stats.heroes[0]?.level).toBe(12);
     expect(stats.heroes[0]?.rate).toBeGreaterThan(0);

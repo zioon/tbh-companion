@@ -2,6 +2,7 @@
 
 import type { LiveMemorySnapshot, Stats, SaveSnapshot } from "../../shared/types";
 
+import type { BoxOpenTracker, BoxOpenPriceResolver } from "../core/boxOpenTracker";
 import type { ChestDropTracker } from "../core/chestDropTracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
@@ -35,11 +36,13 @@ function heroLevelEstimate(level: number, exp: number, rate: number): {
 export function buildStats(
   tracker: XpTracker,
   chestDropTracker: ChestDropTracker,
+  boxOpenTracker: BoxOpenTracker,
   dpsTracker: DpsTracker,
   lastSnap: SaveSnapshot | null,
   lastError: string | null,
   statusOverride: string | null = null,
   liveFrame: LiveMemorySnapshot | null = null,
+  boxOpenPriceResolver: BoxOpenPriceResolver = null,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
@@ -131,6 +134,7 @@ export function buildStats(
 
     history: tracker.history.slice(-HISTORY_VISIBLE).reverse(),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
+    boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
 
     // DPS / Damage / Mobs / HP
     dps: dpsTracker.dps,
