@@ -119,6 +119,16 @@ export function resolveProxyUrl(): string | null {
 /** Force re-read on next resolveProxyUrl() / getProxyDispatcher() call. */
 export function refreshProxyCache(): void {
   cachedProxyUrl = undefined;
+  // Release the previous ProxyAgent's connection pool before discarding the
+  // reference — undici keeps persistent connections alive until close().
+  const dispatcher = cachedDispatcher?.dispatcher as { close?: () => void } | undefined;
+  if (dispatcher && typeof dispatcher.close === "function") {
+    try {
+      dispatcher.close();
+    } catch {
+      // already closed
+    }
+  }
   cachedDispatcher = undefined;
 }
 

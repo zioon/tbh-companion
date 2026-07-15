@@ -32,6 +32,14 @@ const DIAGNOSTIC_LOG_FILENAMES = new Set([
 ]);
 
 export const THROTTLE_MS = 5 * 60 * 1000;
+/**
+ * Cap on the throttle-state map. Dynamic warn/error messages (item names,
+ * error details, addresses) create a unique key per string; without eviction
+ * the map grows unbounded over multi-day sessions. When the cap is hit we
+ * drop stale entries (older than the throttle window), then fall back to a
+ * full clear if all entries are still live.
+ */
+const MAX_THROTTLE_ENTRIES = 1000;
 
 export interface ThrottleEntry {
   lastLoggedMs: number;
@@ -73,6 +81,10 @@ export function evaluateLogThrottle(
   nowMs: number,
   windowMs: number,
 ): { action: "log" | "skip"; messageSuffix?: string } {
+  if (state.size >= MAX_THROTTLE_ENTRIES) {
+    evictStaleThrottleEntries(state, nowMs, windowMs);
+    if (state.size >= MAX_THROTTLE_ENTRIES) state.clear();
+  }
   const entry = state.get(key);
   if (!entry) {
     state.set(key, { lastLoggedMs: nowMs, suppressed: 0 });
@@ -88,6 +100,17 @@ export function evaluateLogThrottle(
   entry.lastLoggedMs = nowMs;
   entry.suppressed = 0;
   return { action: "log", messageSuffix: suffix };
+}
+
+/** Drop throttle entries whose window has expired (no longer suppressing). */
+function evictStaleThrottleEntries(
+  state: Map<string, ThrottleEntry>,
+  nowMs: number,
+  windowMs: number,
+): void {
+  for (const [k, entry] of state) {
+    if (nowMs - entry.lastLoggedMs >= windowMs) state.delete(k);
+  }
 }
 
 export function listDiagnosticLogFiles(userDataDir: string): string[] {

@@ -68,6 +68,8 @@ export class LookupPriceService {
 
   /** Load the cached snapshot, then refresh and poll every 30 min. */
   start(): void {
+    // Idempotent: clear any prior interval before starting a new one.
+    this.stop();
     this.loadFromDisk();
     void this.refresh();
     this.timer = setInterval(() => void this.refresh(), REFRESH_INTERVAL_MS);

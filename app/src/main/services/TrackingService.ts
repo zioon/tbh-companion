@@ -65,6 +65,9 @@ export class TrackingService {
   }
 
   start(config: AppConfig): void {
+    // Idempotent: tear down any prior watcher/tickTimer before re-initializing
+    // so a second start() can't leak the previous intervals.
+    this.stop();
     this.config = config;
     this.tracker = new XpTracker(config.rollingWindowMinutes * 60);
     this.chestDropTracker = new ChestDropTracker();

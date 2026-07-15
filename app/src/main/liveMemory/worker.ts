@@ -6,7 +6,6 @@
 
 import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 import { LiveMemoryReader } from "./liveReader";
-import { winProcessStats } from "./winProcess";
 
 // utilityProcess exposes parentPort on the global process object.
 const parentPort = (
@@ -21,42 +20,6 @@ const parentPort = (
 const POLL_ATTACHED_MS = 40; // ~25 Hz while attached (read costs ~0.2 ms)
 const POLL_DETACHED_MS = 1500; // retry attach while the game is closed
 const HEAL_UNSUPPORTED_MS = 10_000; // re-try offset resolution while degraded
-
-// Diagnostic: sample worker memory every 5s while running. Attributes RSS
-// growth to external (koffi _Out_ marshalling), arrayBuffers (Buffer.alloc),
-// or heapUsed (JS objects). Also reports read() and readBytes() rates so we
-// can correlate allocation pressure with FFI call frequency. Remove once the
-// leak is plugged.
-const MEM_SAMPLE_MS = 5_000;
-function mb(v: number): string {
-  return (v / 1024 / 1024).toFixed(1);
-}
-let readCountSinceSample = 0;
-let lastMem: NodeJS.MemoryUsage | null = null;
-let lastMemAt = 0;
-let memTimer: NodeJS.Timeout | null = setInterval(() => {
-  const cur = process.memoryUsage();
-  const now = Date.now();
-  const dtSec = lastMemAt > 0 ? (now - lastMemAt) / 1000 : 0;
-  const readsPerSec = dtSec > 0 ? (readCountSinceSample / dtSec).toFixed(1) : "0";
-  const ffiPerSec = dtSec > 0 ? (winProcessStats.readBytesCalls / dtSec).toFixed(0) : "0";
-  const ffiMiBPerSec =
-    dtSec > 0 ? (winProcessStats.readBytesBytes / 1024 / 1024 / dtSec).toFixed(2) : "0";
-
-  let line = `mem rss=${mb(cur.rss)}MB heap=${mb(cur.heapUsed)}/${mb(cur.heapTotal)}MB ext=${mb(cur.external)}MB arrBuf=${mb(cur.arrayBuffers)}MB`;
-  if (lastMem) {
-    line += ` | Δ5s rss=+${mb(cur.rss - lastMem.rss)} heap=+${mb(cur.heapUsed - lastMem.heapUsed)} ext=+${mb(cur.external - lastMem.external)} arrBuf=+${mb(cur.arrayBuffers - lastMem.arrayBuffers)}`;
-  }
-  line += ` | reads=${readsPerSec}/s ffi=${ffiPerSec}/s (${ffiMiBPerSec} MiB/s)`;
-
-  post({ type: "log", message: line });
-
-  lastMem = cur;
-  lastMemAt = now;
-  readCountSinceSample = 0;
-  winProcessStats.readBytesCalls = 0;
-  winProcessStats.readBytesBytes = 0;
-}, MEM_SAMPLE_MS);
 
 let reader: LiveMemoryReader | null = null;
 let loadError: string | null = null;
@@ -132,7 +95,6 @@ function loop(): void {
   }
   if (reader.attached && reader.supported) {
     const snap = reader.read();
-    readCountSinceSample++;
     postStatusIfChanged();
     if (snap) {
       post({ type: "snapshot", snapshot: snap });

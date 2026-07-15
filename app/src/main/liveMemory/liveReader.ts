@@ -42,7 +42,12 @@ import {
 } from "../../core/liveMemory/runtime";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type {
+  LiveInventoryItem,
+  LiveMemorySnapshot,
+  LiveMemoryStatus,
+  LivePetData,
+} from "../../../shared/types";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -104,6 +109,16 @@ export class LiveMemoryReader {
   onScanningChange?: (scanning: boolean) => void;
   gameVersion: string | null = null;
   supported = false;
+
+  // Slow-changing fields are read on a low-frequency cadence to avoid
+  // allocating large arrays (inventory up to 100k items, pets up to 500) at
+  // the full 25 Hz read rate. The cache is repopulated every N ticks and
+  // reused on the intervening frames; cleared on detach.
+  private static readonly LOW_FREQ_EVERY_N_TICKS = 50; // ~2s at 25 Hz
+  private lowFreqTick = 0;
+  private lowFreqLoaded = false;
+  private cachedInventory: LiveInventoryItem[] | null = null;
+  private cachedPets: LivePetData[] | null = null;
 
   constructor(userDataDir: string = resolveLiveMemoryUserDataDir()) {
     this.userDataDir = userDataDir;
@@ -302,6 +317,10 @@ export class LiveMemoryReader {
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
     this.monsterPin = makeMonsterSpawnPinState();
+    this.lowFreqTick = 0;
+    this.lowFreqLoaded = false;
+    this.cachedInventory = null;
+    this.cachedPets = null;
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
@@ -345,6 +364,18 @@ export class LiveMemoryReader {
     const monsterHp = monsterData?.monsterHps ?? null;
     const deadMonsterCount = monsterData?.deadCount ?? null;
 
+    // Inventory and pets change slowly (only on save events / menu actions),
+    // so re-read them on a low-frequency cadence and reuse the cached arrays
+    // on intervening ticks. This avoids allocating up to 100k inventory items
+    // 25 times per second.
+    this.lowFreqTick++;
+    if (!this.lowFreqLoaded || this.lowFreqTick >= LiveMemoryReader.LOW_FREQ_EVERY_N_TICKS) {
+      this.lowFreqTick = 0;
+      this.lowFreqLoaded = true;
+      this.cachedInventory = readRuntimeInventory(p, ga.base, ga.size, o);
+      this.cachedPets = readRuntimePets(p, ga.base, ga.size, o);
+    }
+
     return {
       connected: true,
       stageKey: stage.stageKey,
@@ -356,8 +387,8 @@ export class LiveMemoryReader {
       heroes: readRuntimeHeroes(p, o, smPtr),
       chestDrops: readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin),
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
-      inventoryItems: readRuntimeInventory(p, ga.base, ga.size, o),
-      petData: readRuntimePets(p, ga.base, ga.size, o),
+      inventoryItems: this.cachedInventory,
+      petData: this.cachedPets,
       monsterHp,
       deadMonsterCount,
       source: `memory v${o.gameVersion}`,
