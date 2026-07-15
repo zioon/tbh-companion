@@ -229,6 +229,12 @@ const api: TbhApi = {
     ipcRenderer.on(IPC.STAGE_RUNS, listener);
     return () => ipcRenderer.removeListener(IPC.STAGE_RUNS, listener);
   },
+  resetLootBox(boxKey: string): Promise<void> {
+    return ipcRenderer.invoke(IPC.LOOT_RESET_BOX, boxKey);
+  },
+  resetLootAll(): Promise<void> {
+    return ipcRenderer.invoke(IPC.LOOT_RESET_ALL);
+  },
 };
 
 contextBridge.exposeInMainWorld("tbh", api);

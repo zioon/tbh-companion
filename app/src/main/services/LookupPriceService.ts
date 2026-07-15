@@ -59,11 +59,17 @@ export class LookupPriceService {
   private readonly fetchFn: typeof fetch;
   private readonly cacheFilePath: () => string;
   private readonly broadcastFn: (channel: string, payload: unknown) => void;
+  private onSnapshotUpdated?: (snap: LookupPriceSnapshot | null) => void;
 
   constructor(deps: LookupPriceServiceDeps = {}) {
     this.fetchFn = deps.fetchFn ?? fetch;
     this.cacheFilePath = deps.cacheFilePath ?? defaultCachePath;
     this.broadcastFn = deps.broadcastFn ?? broadcast;
+  }
+
+  /** Subscribe to snapshot updates (fires after every broadcast, including null on clear). */
+  setOnSnapshotUpdated(callback: (snap: LookupPriceSnapshot | null) => void): void {
+    this.onSnapshotUpdated = callback;
   }
 
   /** Load the cached snapshot, then refresh and poll every 30 min. */
@@ -91,6 +97,7 @@ export class LookupPriceService {
     this.etag = null;
     this.loadFromDisk();
     this.broadcastFn(IPC.LOOKUP_PRICES, this.snapshot);
+    this.onSnapshotUpdated?.(this.snapshot);
   }
 
   private loadFromDisk(): void {
@@ -168,6 +175,7 @@ export class LookupPriceService {
       `Lookup snapshot updated: ${Object.keys(parsed.prices).length} prices, generated ${parsed.generatedUtc}`,
     );
     this.broadcastFn(IPC.LOOKUP_PRICES, parsed);
+    this.onSnapshotUpdated?.(parsed);
   }
 
   private persist(snapshot: LookupPriceSnapshot): void {

@@ -47,6 +47,8 @@ describe("IPC channel registry", () => {
     expect(preload).toContain("IPC.LIVE_MEMORY_STATUS");
     expect(preload).toContain("IPC.GET_STAGE_RUNS");
     expect(preload).toContain("IPC.STAGE_RUNS");
+    expect(preload).toContain("IPC.LOOT_RESET_BOX");
+    expect(preload).toContain("IPC.LOOT_RESET_ALL");
   });
 
   it("IPC handlers wire invoke and send channels", () => {
@@ -83,6 +85,9 @@ describe("IPC channel registry", () => {
     expect(liveMemoryHandler).toContain("IPC.GET_LIVE_MEMORY_STATUS");
     const stageRunsHandler = readHandler("stageRuns");
     expect(stageRunsHandler).toContain("IPC.GET_STAGE_RUNS");
+    const lootHandler = readHandler("loot");
+    expect(lootHandler).toContain("IPC.LOOT_RESET_BOX");
+    expect(lootHandler).toContain("IPC.LOOT_RESET_ALL");
   });
 
   it("services broadcast on IPC push constants", () => {
