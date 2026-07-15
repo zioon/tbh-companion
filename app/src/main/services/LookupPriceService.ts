@@ -4,7 +4,6 @@
 // from owned-inventory pricing (`SteamMarketProvider`). All fetch/parse/cache
 // outcomes are logged for support.
 
-import { EnvHttpProxyAgent } from "undici";
 import { app } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,15 +12,7 @@ import { IPC } from "../../../shared/ipc";
 import { createLogger } from "../log";
 import { broadcast } from "./broadcast";
 import { LOOKUP_PRICES_FILE } from "./appData";
-
-interface FetchInitExtra {
-  dispatcher?: unknown;
-}
-function getLookupDispatcher(): FetchInitExtra {
-  const proxy = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-  if (!proxy) return {};
-  return { dispatcher: new EnvHttpProxyAgent() };
-}
+import { getProxyDispatcher } from "./proxyResolver";
 
 const log = createLogger("lookupPrices");
 
@@ -130,7 +121,11 @@ export class LookupPriceService {
 
     let res: Response;
     try {
-      res = await this.fetchFn(ASSET_URL, { headers, signal: AbortSignal.timeout(30_000), ...getLookupDispatcher() } as RequestInit);
+      res = await this.fetchFn(ASSET_URL, {
+        headers,
+        signal: AbortSignal.timeout(30_000),
+        ...getProxyDispatcher(),
+      } as RequestInit);
     } catch (err) {
       log.warn(`Lookup snapshot fetch failed: ${(err as Error).message}`);
       return;
