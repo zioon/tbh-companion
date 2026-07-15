@@ -13,9 +13,9 @@ A companion app for the idle game **TBH: Task Bar Hero**. It reads the game's lo
 - `app/` - the companion app (Electron + React + TypeScript). This is the target codebase.
   - `app/src/main/` - Electron main process (Node): file watching, decryption, tracking, IPC. Owns all file/network access.
   - `app/src/preload/` - `contextBridge` exposing a typed `window.tbh` API.
-  - `app/src/core/` - framework-free, unit-tested logic (`es3`, `save/snapshot`, `tracker`, `stages`, `heroes`, `gamedata`, `inventory/*`, `steamPrice`).
+  - `app/src/core/` - framework-free, unit-tested logic. Submodules: `es3`, `save/snapshot`, `tracker`, `stages`, `heroes`, `gamedata`, `boxes/*`, `inventory/*`, `liveMemory/*`, `lookup/*`, `lookupPrice/*`, `pets/*`, plus `steamPrice`, `steamMarketFee*`, `sessionState`, `stageRunTracker`, `chestDropTracker`, `grades`, `labels`, `levelCurve`, `windowLayout`.
   - `app/src/renderer/` - React UI (tabs + mini overlay). Pure UI, no Node APIs. Shared IPC state via `context/TbhProvider.tsx`.
-  - `app/shared/types.ts` - types shared across processes.
+  - `app/shared/` - `types.ts`, `ipc.ts` (IPC channel names), `notificationCatalog.ts` — shared across processes, no runtime logic.
 - `data/` - bundled catalogs (`gamedata.json`, `stage_boxes.json`).
 - `docs/` - knowledge base (see below).
 - `config.json` - user settings, reused by the app.
@@ -31,20 +31,25 @@ This project uses **pnpm** (pinned via `packageManager`, activated through Corep
 ```
 cd app
 pnpm install
-pnpm dev        # electron-vite dev (main + renderer with HMR)
-pnpm build      # production bundle (out/)
+pnpm dev                 # electron-vite dev (main + renderer with HMR)
+pnpm build               # production bundle (out/)
 pnpm typecheck
 pnpm lint
 pnpm lint:fix
 pnpm format
 pnpm format:check
-pnpm test           # vitest (core logic)
-pnpm bench      # see docs/BENCHMARKS.md
+pnpm test                # vitest (core logic)
+pnpm test:dom            # vitest with DOM config (renderer-component tests)
+pnpm bench               # see docs/BENCHMARKS.md
 pnpm bench:ci
-pnpm qa         # typecheck + lint + format + test + build + bundle guards
-pnpm qa:dev     # automated dev smoke when UI is not visible — see docs/agent/QA.md
-pnpm pack       # electron-builder --dir -> release/win-unpacked
-pnpm dist       # Windows NSIS installer
+pnpm storybook           # Storybook dev server
+pnpm build-storybook     # Storybook static build
+pnpm build:lookup-prices # rebuild bundled lookup price snapshots
+pnpm minify-and-copy-data # minify data catalogs into dist/data (runs before pack/dist)
+pnpm qa                  # typecheck + lint + format + test + build + bundle guards
+pnpm qa:dev              # automated dev smoke when UI is not visible — see docs/agent/QA.md
+pnpm pack                # minify data + build + electron-builder --dir -> release/win-unpacked
+pnpm dist                # minify data + build + Windows NSIS installer
 ```
 
 **Windows quirks** (BOM, PowerShell, paths, Electron install): [`docs/agent/WINDOWS.md`](docs/agent/WINDOWS.md).
@@ -74,7 +79,7 @@ Respect these when adding features — full detail in `docs/ARCHITECTURE.md`:
 
 ## Workflow skills (Cursor + Claude)
 
-Multi-step workflows stay as skills in `.cursor/skills/` (mirrored to `.claude/skills/` via `pnpm sync:skills`):
+Multi-step workflows stay as skills in `.cursor/skills/` (mirrored to `.claude/skills/` manually — no sync script currently defined in `package.json`):
 
 | Skill | When |
 |-------|------|
@@ -82,7 +87,7 @@ Multi-step workflows stay as skills in `.cursor/skills/` (mirrored to `.claude/s
 | **tbh-feature-showcase** | Screenshots + player announcement after a feature ships |
 | **tlc-spec-driven** | Spec / plan / implement project workflows |
 
-Edit canonical skills in `.cursor/skills/`; run `pnpm sync:skills` and commit both trees.
+Edit canonical skills in `.cursor/skills/`; mirror the edits into `.claude/skills/` and commit both trees.
 
 ## Docs index
 
@@ -97,7 +102,7 @@ Edit canonical skills in `.cursor/skills/`; run `pnpm sync:skills` and commit bo
 - [`CHANGELOG-RELEASE.md`](docs/agent/CHANGELOG-RELEASE.md) — release notes and semver
 - [`MAINTENANCE.md`](docs/agent/MAINTENANCE.md) — keep agent docs in sync with code
 - [`generated/`](docs/agent/generated/) — code-derived inventories (do not edit by hand)
-- [`layers/`](docs/agent/layers/) — main, core, renderer, UX, design-system, data
+- [`layers/`](docs/agent/layers/) — main, core, renderer, renderer-performance, UX, UX-patterns, design-system, data
 
 ### Domain
 
