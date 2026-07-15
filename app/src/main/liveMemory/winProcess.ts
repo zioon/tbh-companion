@@ -98,6 +98,17 @@ const GetExitCodeProcess = kernel32.func("GetExitCodeProcess", "bool", [
 
 const STILL_ACTIVE = 259;
 
+/**
+ * Diagnostic counters for the live-memory read loop. Read-only outside
+ * {@link WinProcess.readBytes}; reset by the worker's memory sampler.
+ * Helps attribute RSS growth (external vs arrayBuffers vs heap) to the
+ * 25 Hz read path without adding per-call logging overhead.
+ */
+export const winProcessStats = {
+  readBytesCalls: 0,
+  readBytesBytes: 0,
+};
+
 function isInvalidHandle(handle: unknown): boolean {
   if (handle == null) return true;
   if (handle === 0 || handle === -1) return true;
@@ -353,6 +364,8 @@ export class WinProcess implements MemoryReader {
   }
 
   readBytes(address: bigint, size: number): Buffer | null {
+    winProcessStats.readBytesCalls++;
+    winProcessStats.readBytesBytes += size;
     const buf = Buffer.alloc(size);
     const outLen = [0n];
     const ok = ReadProcessMemory(this.handle, address, buf, BigInt(size), outLen);
