@@ -13,6 +13,9 @@ import { resolveUserDataDir } from "./appData";
 
 const log = createLogger("liveMemory");
 
+/** Minimum interval between LIVE_MEMORY broadcasts to renderers (ms). */
+const SNAPSHOT_BROADCAST_INTERVAL_MS = 200;
+
 type WorkerMessage =
   | { type: "snapshot"; snapshot: LiveMemorySnapshot }
   | { type: "status"; status: LiveMemoryStatus }
@@ -23,6 +26,7 @@ export class LiveMemoryService {
   private lastSnapshot: LiveMemorySnapshot | null = null;
   private lastStatus: LiveMemoryStatus | null = null;
   private snapshotCb: ((snap: LiveMemorySnapshot) => void) | null = null;
+  private lastBroadcastMs = 0;
 
   /** Register a callback invoked on every snapshot frame from the reader worker. */
   setOnSnapshot(cb: (snap: LiveMemorySnapshot) => void): void {
@@ -62,7 +66,14 @@ export class LiveMemoryService {
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "snapshot") {
         this.lastSnapshot = msg.snapshot;
-        broadcast(IPC.LIVE_MEMORY, msg.snapshot);
+        // Throttle the renderer broadcast — the worker produces ~25 Hz but the
+        // UI only needs ~5 Hz (200 ms) for smooth display. The snapshotCb
+        // (TrackingService ingestion) still receives every frame at full rate.
+        const now = Date.now();
+        if (now - this.lastBroadcastMs >= SNAPSHOT_BROADCAST_INTERVAL_MS) {
+          this.lastBroadcastMs = now;
+          broadcast(IPC.LIVE_MEMORY, msg.snapshot);
+        }
         if (this.snapshotCb) {
           try {
             this.snapshotCb(msg.snapshot);
