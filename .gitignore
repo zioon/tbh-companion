@@ -12,6 +12,13 @@ app/.electron-cache/
 app/storybook-static/
 app/bench-results.json
 app/*-bench.json
+# Legacy npm lockfile (project uses pnpm)
+app/package-lock.json
+# Generated price snapshots — built by CI (lookup-prices workflow) and
+# seed-market-prices.mjs; clients download fresh from GitHub releases
+app/prices.json
+app/prices.*.json
+app/lookup_prices.json
 *.log
 
 # Runtime output

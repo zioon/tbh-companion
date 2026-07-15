@@ -13,7 +13,6 @@
     ".storybook/**/*.tsx",
     "electron.vite.config.ts",
     "vitest.config.ts",
-    "vitest.regenerate.config.ts",
     "vitest.bench.config.ts",
     "vitest.dom.config.ts"
   ]
