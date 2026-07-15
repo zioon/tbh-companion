@@ -437,7 +437,7 @@ export function Live() {
       ) : null}
 
       <LiveMatchedPair
-        left={inventoryFillPrediction()}
+        left={inventoryFillPrediction}
         right={
           <ChestDropPanel chestDrops={stats.chestDrops} inactiveMessage={chestInactiveMessage} />
         }
