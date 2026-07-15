@@ -6,7 +6,7 @@ import { readF32, readI32, readI64, readPtr, readU32, readU64, type MemoryReader
 import { plausibleGold, plausibleStage, plausibleWave, type LiveOffsets } from "./offsets";
 import { readStaticFieldPtr, readStaticFieldsBlock, resolveClassPtr } from "./statics";
 import { STRUCT_CONTAINER } from "./il2cppScanner";
-import type { LiveHeroData, LiveInventoryItem, LivePetData } from "../../../shared/types";
+import type { BoxOpenEntry, LiveHeroData, LiveInventoryItem, LivePetData } from "../../../shared/types";
 
 export interface RuntimeStage {
   stageKey: number | null;
@@ -685,6 +685,99 @@ export function readRuntimeStageClears(
   }
   pin.lastCount = count;
   return clears;
+}
+
+// ── Live box opens (LogManager → Dictionary<ELogType, List<BoxOpenLog>>) ─────
+
+/** Per-reader pin for the BoxOpenLog tail. Same shape as chest/stage-clear pins. */
+export type BoxOpenPinState = ChestLogPinState;
+
+export function makeBoxOpenPinState(): BoxOpenPinState {
+  return { ptr: null, lastCount: 0, primed: false };
+}
+
+const MAX_BOX_OPEN_LOG = 5_000;
+
+/** Resolve the GetItemWithBoxOpen List<BoxOpenLog> backing array + length. */
+function boxOpenLogList(
+  reader: MemoryReader,
+  lmPtr: bigint,
+  o: LiveOffsets,
+): { arr: bigint; count: number } | null {
+  const dictPtr = readPtr(reader, lmPtr + BigInt(o.runtime.log.logByType));
+  if (dictPtr == null) return null;
+  const listPtr = dictLookupIntKey(reader, dictPtr, o.runtime.log.getItemWithBoxOpenTypeKey, o);
+  if (listPtr == null) return null;
+  const arr = readPtr(reader, listPtr + BigInt(o.container.listItems));
+  if (arr == null) return null;
+  const count = readI32(reader, listPtr + BigInt(o.container.listSize));
+  if (count == null || count < 0 || count > MAX_BOX_OPEN_LOG) return null;
+  return { arr, count };
+}
+
+export interface ReadBoxOpenLogResult {
+  opens: BoxOpenEntry[] | null;
+  status: string;
+}
+
+/**
+ * Box opens added to the GetItemWithBoxOpen log since the last read. Tails the
+ * log by index the same way {@link readRuntimeChestLog} tails GetBox: primes
+ * to the current length on first read (backlog not counted) and returns `[]`;
+ * restarts from 0 if the log shrinks. Returns null when the LogManager can't
+ * be resolved or the `getItemWithBoxOpenTypeKey` offset is not derived (0).
+ */
+export function readRuntimeBoxOpenLog(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: BoxOpenPinState,
+): ReadBoxOpenLogResult {
+  if (o.typeInfoRva.logManager === 0n) {
+    return { opens: null, status: "typeInfoRva.logManager RVA = 0 (offset not derived for this game version)" };
+  }
+  if (o.runtime.log.getItemWithBoxOpenTypeKey === 0) {
+    return { opens: null, status: "getItemWithBoxOpenTypeKey = 0 (ELogType.GetItemWithBoxOpen not derived for this game version)" };
+  }
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) {
+    return { opens: null, status: "LogManager singleton unresolved (static block scan failed)" };
+  }
+  const list = boxOpenLogList(reader, lmPtr, o);
+  if (list == null) {
+    return { opens: null, status: "BoxOpenLog list not walkable (dict lookup failed)" };
+  }
+
+  const { arr, count } = list;
+  if (!pin.primed) {
+    pin.lastCount = count;
+    pin.primed = true;
+    return { opens: [], status: "" };
+  }
+
+  const start = count < pin.lastCount ? 0 : pin.lastCount;
+  const opens: BoxOpenEntry[] = [];
+  const first = arr + BigInt(o.container.arrayFirst);
+  for (let i = start; i < count; i++) {
+    const entryPtr = readPtr(reader, first + BigInt(i * 8));
+    if (entryPtr == null) continue;
+    const itemKey = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.itemStringKey));
+    if (itemKey == null || itemKey <= 0) continue;
+
+    const entry: BoxOpenEntry = { itemKey };
+    if (o.runtime.boxOpenLog.boxType !== 0) {
+      const boxType = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.boxType));
+      if (boxType != null) entry.boxType = boxType;
+    }
+    if (o.runtime.boxOpenLog.level !== 0) {
+      const level = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.level));
+      if (level != null && level > 0) entry.level = level;
+    }
+    opens.push(entry);
+  }
+  pin.lastCount = count;
+  return { opens, status: "" };
 }
 
 // ── Inventory (PlayerSaveData.itemSaveDatas → ItemSaveData entries) ───────────

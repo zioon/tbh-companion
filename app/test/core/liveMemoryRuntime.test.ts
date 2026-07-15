@@ -5,6 +5,7 @@ import {
   readRuntimeHeroes,
   readRuntimeChestLog,
   readRuntimeStageClears,
+  readRuntimeBoxOpenLog,
   readRuntimeInventory,
   readRuntimePets,
   resolveStageManager,
@@ -12,6 +13,7 @@ import {
   makeSmPinState,
   makeChestLogPinState,
   makeStageClearPinState,
+  makeBoxOpenPinState,
   type GoldPinState,
 } from "../../src/core/liveMemory/runtime";
 import { offsetsForVersion } from "../../src/core/liveMemory/offsets";
@@ -557,6 +559,118 @@ describe("readRuntimeStageClears", () => {
     pin.lastCount = 5;
     const m = seedStageClearChain(new FakeMemory(), [12]);
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([12]);
+  });
+});
+
+// ── readRuntimeBoxOpenLog ────────────────────────────────────────────────────
+
+const BOX_OPEN_LIST = 0xd90000n;
+const BOX_OPEN_ARR = 0xda0000n;
+
+// Patch offsets so boxOpenLog fields are non-zero (simulating a derived version).
+const BOX_LOG_O = {
+  ...LOG_O,
+  runtime: {
+    ...LOG_O.runtime,
+    log: { ...LOG_O.runtime.log, getItemWithBoxOpenTypeKey: 99 },
+    boxOpenLog: { itemStringKey: 0x10, itemGradeType: 0x0, boxType: 0x14, level: 0x18 },
+  },
+};
+
+/** Seed LogManager -> logByType dict -> GetItemWithBoxOpen List<BoxOpenLog>. */
+function seedBoxOpenChain(
+  m: FakeMemory,
+  entries: Array<{ itemKey: number; boxType?: number; level?: number }>,
+): FakeMemory {
+  m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+    .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+    .writePtr(LOG_BLOCK, LM_INSTANCE);
+
+  // Two dict entries: GetBox (liveness check) + GetItemWithBoxOpen
+  m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+    .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+    .writeI32(LOG_DICT + BigInt(O.dict.count), 2);
+
+  // Entry 0: GetBox list (must stay walkable for liveness check)
+  const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+  m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+    .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+    .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+  m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+    GETBOX_LIST + BigInt(O.container.listSize),
+    0,
+  );
+
+  // Entry 1: GetItemWithBoxOpen list
+  const de1 = de0 + BigInt(O.dict.entrySize);
+  m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+    .writeI32(de1 + BigInt(O.dict.entryKey), 99) // matches BOX_LOG_O.runtime.log.getItemWithBoxOpenTypeKey
+    .writePtr(de1 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+
+  m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+    BOX_OPEN_LIST + BigInt(O.container.listSize),
+    entries.length,
+  );
+
+  const first = BOX_OPEN_ARR + BigInt(O.container.arrayFirst);
+  for (let i = 0; i < entries.length; i++) {
+    const entry = 0xeb0000n + BigInt(i * 0x100);
+    m.writePtr(first + BigInt(i * 8), entry);
+    m.writeI32(entry + BigInt(0x10), entries[i].itemKey); // itemStringKey at +0x10 (test offset)
+    if (entries[i].boxType != null) {
+      m.writeI32(entry + BigInt(0x14), entries[i].boxType!); // boxType at +0x14
+    }
+    if (entries[i].level != null) {
+      m.writeI32(entry + BigInt(0x18), entries[i].level!); // level at +0x18
+    }
+  }
+  return m;
+}
+
+describe("readRuntimeBoxOpenLog", () => {
+  it("returns null when logManager RVA is 0 (not derived)", () => {
+    const result = readRuntimeBoxOpenLog(new FakeMemory(), GA_BASE, GA_SIZE, O, makeBoxOpenPinState());
+    expect(result.opens).toBeNull();
+    expect(result.status).toMatch(/logManager RVA = 0/i);
+  });
+
+  it("returns null when getItemWithBoxOpenTypeKey is 0 (not derived)", () => {
+    const result = readRuntimeBoxOpenLog(new FakeMemory(), GA_BASE, GA_SIZE, LOG_O, makeBoxOpenPinState());
+    expect(result.opens).toBeNull();
+    expect(result.status).toMatch(/getItemWithBoxOpenTypeKey/i);
+  });
+
+  it("primes to the current log length on first read (backlog not counted)", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001 }]);
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toEqual([]);
+    expect(pin.lastCount).toBe(1);
+  });
+
+  it("reads new entries since the last read", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001, boxType: 1, level: 3 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime
+    seedBoxOpenChain(m, [
+      { itemKey: 1001, boxType: 1, level: 3 },
+      { itemKey: 2002, boxType: 0, level: 5 },
+    ]);
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(1);
+    expect(result.opens![0].itemKey).toBe(2002);
+    expect(result.opens![0].boxType).toBe(0);
+    expect(result.opens![0].level).toBe(5);
+  });
+
+  it("restarts the tail from 0 when the log shrinks", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 5;
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001, boxType: 1 }]);
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(1);
+    expect(result.opens![0].itemKey).toBe(1001);
   });
 });
 
