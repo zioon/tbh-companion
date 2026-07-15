@@ -17,7 +17,9 @@ export class DpsTracker {
   private lastDeadCount: number | null = null;
 
   // Address-keyed HP map (tbh-meter approach): monster addr -> last hpCurrent
+  // Two maps are swapped each tick to avoid allocating a new Map at 25 Hz.
   private lastHp: Map<number, number> = new Map();
+  private hpBuffer: Map<number, number> = new Map();
 
   // KPM: 60-second rolling window ported from tbh-meter's ProgressTracker
   private static readonly KPM_WINDOW_SECONDS = 60;
@@ -65,8 +67,11 @@ export class DpsTracker {
       this.damageSamples.shift();
     }
 
-    // Calculate damage using address-based matching (tbh-meter approach)
-    const current: Map<number, number> = new Map();
+    // Calculate damage using address-based matching (tbh-meter approach).
+    // Reuse the buffer Map (clear + repopulate) instead of allocating a new
+    // one every tick — eliminates 25 Map allocations/sec.
+    const current = this.hpBuffer;
+    current.clear();
     let damageThisFrame = 0;
     let hpSum = 0;
     let hpMaxSum = 0;
@@ -102,7 +107,11 @@ export class DpsTracker {
       }
     }
 
+    // Swap: the newly-populated map becomes lastHp; the old lastHp becomes
+    // the buffer to be cleared and repopulated next tick.
+    const tmp = this.lastHp;
     this.lastHp = current;
+    this.hpBuffer = tmp;
 
     if (damageThisFrame > 0 && Number.isFinite(damageThisFrame)) {
       this.damageSamples.push([timestamp, damageThisFrame]);
@@ -206,6 +215,7 @@ export class DpsTracker {
     this.sessionMobsKilled = 0;
     this.lastDeadCount = null;
     this.lastHp.clear();
+    this.hpBuffer.clear();
     this.killSamples = [];
     this.killTotal = 0;
     this._alive = 0;

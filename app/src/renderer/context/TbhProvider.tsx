@@ -29,7 +29,7 @@ export function TbhProvider({ children }: { children: ReactNode }) {
             if (!mounted) return;
             if (p.result) {
               setLastPriceRefreshMessage(
-                `${p.result.refreshed} prices refreshed (${ps.freshCount} fresh, ${ps.staleCount} stale)`,
+                `${p.result.priced} prices refreshed (${ps.freshCount} fresh, ${ps.staleCount} stale)`,
               );
             }
           })

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { Stats } from "../../shared/types";
+import type { Stats } from "../../../shared/types";
 import { reportIpcError } from "./reportError";
 
 // Module-level singleton for stats. Stats update at ~5 Hz (200ms throttle);
@@ -9,6 +9,7 @@ import { reportIpcError } from "./reportError";
 // re-render.
 let stats: Stats | null = null;
 let started = false;
+let cleanupIpc: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -27,10 +28,20 @@ function start(): void {
       }
     })
     .catch((err: unknown) => reportIpcError(err, "useStats:getStats"));
-  window.tbh.onStats((s) => {
+  const off = window.tbh.onStats((s) => {
     stats = s;
     notify();
   });
+  cleanupIpc = typeof off === "function" ? off : null;
+}
+
+function stop(): void {
+  if (cleanupIpc) {
+    cleanupIpc();
+    cleanupIpc = null;
+  }
+  started = false;
+  stats = null;
 }
 
 function subscribe(onChange: () => void): () => void {
@@ -38,6 +49,12 @@ function subscribe(onChange: () => void): () => void {
   start();
   return () => {
     listeners.delete(onChange);
+    // When the last subscriber leaves, tear down the IPC listener so the
+    // module doesn't hold references to stale snapshots (and HMR can't
+    // accumulate duplicate listeners).
+    if (listeners.size === 0) {
+      stop();
+    }
   };
 }
 

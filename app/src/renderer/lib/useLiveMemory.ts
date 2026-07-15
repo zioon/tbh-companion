@@ -35,6 +35,8 @@ export function useLiveMemoryStatus(): LiveMemoryStatus | null {
 // with a custom selector avoids re-rendering when only unrelated fields change.
 let snapshot: LiveMemorySnapshot | null = null;
 let started = false;
+let cleanupLive: (() => void) | null = null;
+let cleanupStatus: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 function notifySnapshots(): void {
@@ -53,16 +55,33 @@ function startSnapshotStore(): void {
       }
     })
     .catch((err: unknown) => reportIpcError(err, "useLiveMemoryFields:init"));
-  window.tbh.onLiveMemory?.((s) => {
+  const offLive = window.tbh.onLiveMemory?.((s) => {
     snapshot = s;
     notifySnapshots();
   });
-  window.tbh.onLiveMemoryStatus?.((s) => {
+  const offStatus = window.tbh.onLiveMemoryStatus?.((s) => {
     if (!s.running) {
       snapshot = null;
       notifySnapshots();
     }
   });
+  cleanupLive = typeof offLive === "function" ? offLive : null;
+  cleanupStatus = typeof offStatus === "function" ? offStatus : null;
+}
+
+function stopSnapshotStore(): void {
+  if (cleanupLive) {
+    cleanupLive();
+    cleanupLive = null;
+  }
+  if (cleanupStatus) {
+    cleanupStatus();
+    cleanupStatus = null;
+  }
+  started = false;
+  snapshot = null;
+  // lastSnapshotForScalars is self-correcting: getScalars() checks
+  // snapshot !== lastSnapshotForScalars and recomputes when they diverge.
 }
 
 function subscribeSnapshot(onChange: () => void): () => void {
@@ -70,6 +89,12 @@ function subscribeSnapshot(onChange: () => void): () => void {
   startSnapshotStore();
   return () => {
     listeners.delete(onChange);
+    // When the last subscriber leaves, tear down the IPC listeners so the
+    // module doesn't hold references to large snapshots (and HMR can't
+    // accumulate duplicate listeners at 25 Hz).
+    if (listeners.size === 0) {
+      stopSnapshotStore();
+    }
   };
 }
 

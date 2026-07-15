@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { PriceStatus, PriceProgress } from "../../shared/types";
+import type { PriceStatus, PriceProgress } from "../../../shared/types";
 import { reportIpcError } from "./reportError";
 import { useTbhContext } from "../context/tbhContext";
 
