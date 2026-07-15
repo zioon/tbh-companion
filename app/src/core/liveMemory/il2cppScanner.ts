@@ -425,8 +425,9 @@ export function findStageCacheManager(
 
 /** LogManager.logByType field offset candidates. The dict has lived at +0x28 on
  *  every version seen so far, but the field name is obfuscated so the byte
- *  offset is not name-stable. Probe a small candidate set rather than assume. */
-const LOG_DICT_OFFSET_CANDIDATES = [0x28, 0x20, 0x30, 0x38];
+ *  offset is not name-stable. Probe a small candidate set rather than assume.
+ *  Extended in Rev 6 to cover ±3 pointer-widths for v1.00.28 field shifts. */
+const LOG_DICT_OFFSET_CANDIDATES = [0x28, 0x20, 0x30, 0x38, 0x18, 0x40];
 
 /** True for `GetBoxLog` and obfuscated variants (`vb.GetBoxLog`). */
 function isGetBoxLogClassName(name: string | null): boolean {

@@ -36,8 +36,11 @@ import type { WinProcess } from "./winProcess";
  * Rev 5: namespace-tolerant class matching (vb.PetSaveData / vb.GetBoxLog) +
  * dynamic logByType offset + dynamic ELogType.GetBox key discovery, so the
  * player/log anchors survive per-build obfuscation that v1.00.28 exposed.
+ * Rev 6: emit stable pet/item struct offsets as defaults when the player anchor
+ * isn't static-reachable (same as v1.00.27 bundled table). The runtime reader
+ * guards on commonSaveData≠0 before using them, so wrong reads are impossible.
  */
-export const EXTRACTOR_REVISION = 5;
+export const EXTRACTOR_REVISION = 6;
 
 // Structural offsets whose field names ARE obfuscated but whose byte offsets are
 // stable across patches. Emitted as constants rather than derived by name.
@@ -47,6 +50,18 @@ const STRUCT_GETBOX_KEY = 3; // ELogType.GetBox
 const STRUCT_STAGE_CLEAR_KEY = 1; // ELogType.StageClear
 const STRUCT_STAGE_CLEAR_TIME = 0x48;
 const STRUCT_RUNTIME_WAVE = 0x138;
+
+// PlayerSaveData list field offsets — stable since v1.00.23 (v1.00.21 used
+// 0x68/0xa0). Used as defaults when findPlayerSaveData can't reach the save
+// object statically (same situation as v1.00.27's bundled table).
+const STRUCT_PET_SAVE_DATAS = 0x70; // PlayerSaveData.petSaveDatas
+const STRUCT_ITEM_SAVE_DATAS = 0xa8; // PlayerSaveData.itemSaveDatas
+const STRUCT_AGGREGATE_SAVE_DATAS = 0xb8; // PlayerSaveData.aggregateSaveDatas
+// PetSaveData / ItemSaveData struct field offsets — never changed across versions.
+const STRUCT_PET_KEY = 0x10; // PetSaveData.PetKey
+const STRUCT_PET_IS_UNLOCK = 0x14; // PetSaveData.IsUnlock
+const STRUCT_ITEM_KEY = 0x10; // ItemSaveData.ItemKey
+const STRUCT_ITEM_IS_CHAOTIC = 0x20; // ItemSaveData.IsChaotic
 
 const GOLD_KEY = 100001;
 
@@ -181,9 +196,9 @@ export function extractOffsets(
       commonSaveData: player?.playerStaticOff ?? 0x10,
       currency: 0x48,
       heroSaveDatas: 0x50,
-      petSaveDatas: player?.petSaveDatas ?? 0,
-      itemSaveDatas: player?.itemSaveDatas ?? 0,
-      aggregates: player?.aggregateSaveDatas ?? 0,
+      petSaveDatas: player?.petSaveDatas ?? STRUCT_PET_SAVE_DATAS,
+      itemSaveDatas: player?.itemSaveDatas ?? STRUCT_ITEM_SAVE_DATAS,
+      aggregates: player?.aggregateSaveDatas ?? STRUCT_AGGREGATE_SAVE_DATAS,
     },
 
     common: {
@@ -210,9 +225,9 @@ export function extractOffsets(
 
     currency: { key: 0x10, quantity: 0x18 },
 
-    petSaveData: { petKey: player?.petKey ?? 0, isUnlock: player?.petIsUnlock ?? 0 },
+    petSaveData: { petKey: player?.petKey ?? STRUCT_PET_KEY, isUnlock: player?.petIsUnlock ?? STRUCT_PET_IS_UNLOCK },
 
-    inventoryItem: { itemKey: player?.itemKey ?? 0, isChaotic: player?.itemIsChaotic ?? 0 },
+    inventoryItem: { itemKey: player?.itemKey ?? STRUCT_ITEM_KEY, isChaotic: player?.itemIsChaotic ?? STRUCT_ITEM_IS_CHAOTIC },
 
     runtime: {
       currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
