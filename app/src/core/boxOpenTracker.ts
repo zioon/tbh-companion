@@ -83,8 +83,7 @@ export class BoxOpenTracker {
         const priceInfo = priceResolver ? priceResolver(itemKey) : null;
         const buyOrderUnit = priceInfo?.buyOrderUnit ?? null;
         const buyOrderValue = buyOrderUnit != null ? buyOrderUnit * count : null;
-        const hourlyValue =
-          buyOrderValue != null && hours > 0 ? buyOrderValue / hours : null;
+        const hourlyValue = buyOrderValue != null && hours > 0 ? buyOrderValue / hours : null;
 
         if (buyOrderValue != null) {
           totalBuyOrderValue = (totalBuyOrderValue ?? 0) + buyOrderValue;

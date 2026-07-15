@@ -83,7 +83,9 @@ describe("SessionStateService", () => {
     const fresh = new XpTracker(300);
     const freshChest = new ChestDropTracker();
     const freshBox = new BoxOpenTracker();
-    expect(svc2.tryRestoreOnSnapshot(fresh, freshChest, freshBox, snap(1060, 600))).toBe("restored");
+    expect(svc2.tryRestoreOnSnapshot(fresh, freshChest, freshBox, snap(1060, 600))).toBe(
+      "restored",
+    );
     fresh.update(snap(1060, 600));
     expect(fresh.cumulativeGained).toBe(600);
     expect(fresh.history).toHaveLength(1);
@@ -101,9 +103,14 @@ describe("SessionStateService", () => {
     const svc2 = await loadService();
     svc2.load(config);
     const fresh = new XpTracker(300);
-    expect(svc2.tryRestoreOnSnapshot(fresh, new ChestDropTracker(), new BoxOpenTracker(), snap(1999, 500))).toBe(
-      "discarded",
-    );
+    expect(
+      svc2.tryRestoreOnSnapshot(
+        fresh,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        snap(1999, 500),
+      ),
+    ).toBe("discarded");
     expect(svc2.getStatusOverride()).toBe("New session");
     expect(existsSync(join(userDataDir, SESSION_STATE_FILE))).toBe(false);
   });
@@ -165,7 +172,14 @@ describe("SessionStateService", () => {
     const svc2 = await loadService();
     svc2.load(config);
     const fresh = new XpTracker(300);
-    expect(svc2.tryRestoreOnSnapshot(fresh, new ChestDropTracker(), new BoxOpenTracker(), snap(1060, 600))).toBe("fresh");
+    expect(
+      svc2.tryRestoreOnSnapshot(
+        fresh,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        snap(1060, 600),
+      ),
+    ).toBe("fresh");
     expect(fresh.cumulativeGained).toBe(0);
   });
 
@@ -193,9 +207,14 @@ describe("SessionStateService", () => {
     const svc = await loadService();
     svc.load(config);
     const fresh = new XpTracker(300);
-    expect(svc.tryRestoreOnSnapshot(fresh, new ChestDropTracker(), new BoxOpenTracker(), snap(1060, 600))).toBe(
-      "discarded",
-    );
+    expect(
+      svc.tryRestoreOnSnapshot(
+        fresh,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        snap(1060, 600),
+      ),
+    ).toBe("discarded");
     expect(svc.getStatusOverride()).toBe("New session");
     expect(fresh.cumulativeGained).toBe(0);
   });

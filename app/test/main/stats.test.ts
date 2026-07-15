@@ -26,7 +26,15 @@ describe("buildStats", () => {
     tracker.update(snap(1000));
     chestDropTracker.recordLogDrop(910151);
 
-    const stats = buildStats(tracker, chestDropTracker, new BoxOpenTracker(), new DpsTracker(), snap(1000), null, null);
+    const stats = buildStats(
+      tracker,
+      chestDropTracker,
+      new BoxOpenTracker(),
+      new DpsTracker(),
+      snap(1000),
+      null,
+      null,
+    );
     expect(stats.chestDrops.commonTotal).toBe(1);
     expect(stats.chestDrops.combinedTotal).toBe(1);
     expect(stats.chestDrops.readerRequired).toBe(true);
@@ -58,7 +66,16 @@ describe("buildStats", () => {
       at: now * 1000,
     };
 
-    const stats = buildStats(tracker, new ChestDropTracker(), new BoxOpenTracker(), new DpsTracker(), snap(1000), null, null, liveFrame);
+    const stats = buildStats(
+      tracker,
+      new ChestDropTracker(),
+      new BoxOpenTracker(),
+      new DpsTracker(),
+      snap(1000),
+      null,
+      null,
+      liveFrame,
+    );
     expect(stats.heroes).toHaveLength(1);
     expect(stats.heroes[0]?.level).toBe(12);
     expect(stats.heroes[0]?.rate).toBeGreaterThan(0);

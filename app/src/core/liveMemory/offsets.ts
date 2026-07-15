@@ -199,9 +199,9 @@ const RUNTIME_V1_00_21 = {
     monsterList: 0x28,
     summonedList: 0x38,
     deadMonsterList: 0x30,
-    monsterHealth: 0xB0,
+    monsterHealth: 0xb0,
     hpCurrent: 0x40,
-    hpMax: 0x4C,
+    hpMax: 0x4c,
   },
 } as const;
 
@@ -251,7 +251,7 @@ const V1_00_23: LiveOffsets = {
     levelKey: 0xd4,
     // v1.00.27 WIDENED exp ObscuredFloat→ObscuredDouble: hidden now @+0x8 (long), key @+0x10 (long)
     expHidden: 0x118, // ObscuredDouble hiddenValue @+0x8 from record 0x110 (was 0x110 for ObscuredFloat)
-    expKey: 0x120,    // ObscuredDouble currentCryptoKey @+0x10 from record 0x110 (was 0x114 for ObscuredFloat)
+    expKey: 0x120, // ObscuredDouble currentCryptoKey @+0x10 from record 0x110 (was 0x114 for ObscuredFloat)
   },
   heroInfoData: { heroKey: 0x30 },
   currency: { key: 0x10, quantity: 0x18 },
@@ -350,7 +350,7 @@ const V1_00_27: LiveOffsets = {
     levelKey: 0xd4,
     // v1.00.27: exp WIDENED ObscuredFloat→ObscuredDouble
     expHidden: 0x118, // ObscuredDouble hiddenValue @+0x8 from record 0x110 (long, ru64)
-    expKey: 0x120,    // ObscuredDouble currentCryptoKey @+0x10 from record 0x110 (long, ru64)
+    expKey: 0x120, // ObscuredDouble currentCryptoKey @+0x10 from record 0x110 (long, ru64)
   },
   heroInfoData: { heroKey: 0x30 },
   currency: { key: 0x10, quantity: 0x18 },

@@ -14,7 +14,10 @@ export function Loot() {
 
   return (
     <TabPage>
-      <TabHeader title="Loot" intro="Live box-opening outcomes, aggregated by chest type and level.">
+      <TabHeader
+        title="Loot"
+        intro="Live box-opening outcomes, aggregated by chest type and level."
+      >
         {boxOpens.length > 0 && (
           <Button variant="ghost" size="sm" onClick={() => setConfirmingAll(true)}>
             Reset all
@@ -43,9 +46,7 @@ export function Loot() {
           }}
         >
           <div className="flex flex-col gap-3">
-            <DialogTitle className="m-0 text-base font-semibold">
-              Reset all loot data?
-            </DialogTitle>
+            <DialogTitle className="m-0 text-base font-semibold">Reset all loot data?</DialogTitle>
             <p className="m-0 text-sm text-muted">
               This clears all recorded box opens for every chest type. The session timer is not
               affected. This cannot be undone.

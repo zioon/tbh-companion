@@ -17,10 +17,7 @@ export function boxCategoryFromType(boxType: number | undefined | null): BoxCate
  * Returns "common" | "rare" | "act" (category-only) or "rare:3" (levelled).
  * Returns null when boxType is unknown.
  */
-export function resolveBoxKey(
-  boxType: number | undefined | null,
-  level?: number,
-): string | null {
+export function resolveBoxKey(boxType: number | undefined | null, level?: number): string | null {
   const category = boxCategoryFromType(boxType);
   if (category == null) return null;
   if (level != null && level > 0) return `${category}:${level}`;

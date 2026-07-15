@@ -112,9 +112,7 @@ export function LootBoxSection({
           }}
         >
           <div className="flex flex-col gap-3">
-            <DialogTitle className="m-0 text-base font-semibold">
-              Reset {stats.label}?
-            </DialogTitle>
+            <DialogTitle className="m-0 text-base font-semibold">Reset {stats.label}?</DialogTitle>
             <p className="m-0 text-sm text-muted">
               This clears all recorded opens and history for this box. The session timer is not
               affected. This cannot be undone.

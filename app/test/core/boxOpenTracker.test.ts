@@ -38,9 +38,7 @@ describe("BoxOpenTracker", () => {
     t.recordOpen("common", 1001, "Sword", "RARE", 1, 1000);
     t.recordOpen("common", 1001, "Sword", "RARE", 1, 2000);
 
-    const stats = t.getStats(3600, (itemKey) =>
-      itemKey === 1001 ? { buyOrderUnit: 50 } : null,
-    );
+    const stats = t.getStats(3600, (itemKey) => (itemKey === 1001 ? { buyOrderUnit: 50 } : null));
     const row = stats[0].breakdown[0];
     expect(row.buyOrderUnit).toBe(50);
     expect(row.buyOrderValue).toBe(100);
@@ -122,11 +120,6 @@ describe("BoxOpenTracker", () => {
     t.recordOpen("rare:3", 2002, "Gem", "MAGIC", 1, 4000);
 
     const stats = t.getStats(3600, () => null);
-    expect(stats.map((s) => s.boxKey)).toEqual([
-      "common",
-      "rare:3",
-      "rare:5",
-      "act",
-    ]);
+    expect(stats.map((s) => s.boxKey)).toEqual(["common", "rare:3", "rare:5", "act"]);
   });
 });

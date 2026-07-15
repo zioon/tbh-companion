@@ -436,7 +436,13 @@ function seedLogChain(m: FakeMemory, monsterTypes: number[]): FakeMemory {
 
 describe("readRuntimeChestLog", () => {
   it("returns null when logManager RVA is 0 (not derived for this version)", () => {
-    const result = readRuntimeChestLog(new FakeMemory(), GA_BASE, GA_SIZE, O, makeChestLogPinState());
+    const result = readRuntimeChestLog(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      O,
+      makeChestLogPinState(),
+    );
     expect(result.drops).toBeNull();
     expect(result.status).toMatch(/logManager RVA = 0/i);
   });
@@ -629,13 +635,25 @@ function seedBoxOpenChain(
 
 describe("readRuntimeBoxOpenLog", () => {
   it("returns null when logManager RVA is 0 (not derived)", () => {
-    const result = readRuntimeBoxOpenLog(new FakeMemory(), GA_BASE, GA_SIZE, O, makeBoxOpenPinState());
+    const result = readRuntimeBoxOpenLog(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      O,
+      makeBoxOpenPinState(),
+    );
     expect(result.opens).toBeNull();
     expect(result.status).toMatch(/logManager RVA = 0/i);
   });
 
   it("returns null when getItemWithBoxOpenTypeKey is 0 (not derived)", () => {
-    const result = readRuntimeBoxOpenLog(new FakeMemory(), GA_BASE, GA_SIZE, LOG_O, makeBoxOpenPinState());
+    const result = readRuntimeBoxOpenLog(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      makeBoxOpenPinState(),
+    );
     expect(result.opens).toBeNull();
     expect(result.status).toMatch(/getItemWithBoxOpenTypeKey/i);
   });
@@ -709,7 +727,12 @@ function seedInventoryChain(
 describe("readRuntimeInventory", () => {
   it("returns null when itemSaveDatas offset is 0 (not derived)", () => {
     const patched = { ...O, player: { ...O.player, itemSaveDatas: 0 } };
-    const result = readRuntimeInventory(seedInventoryChain(new FakeMemory(), []), GA_BASE, GA_SIZE, patched);
+    const result = readRuntimeInventory(
+      seedInventoryChain(new FakeMemory(), []),
+      GA_BASE,
+      GA_SIZE,
+      patched,
+    );
     expect(result.items).toBeNull();
     expect(result.status).toMatch(/itemSaveDatas offset = 0/i);
   });

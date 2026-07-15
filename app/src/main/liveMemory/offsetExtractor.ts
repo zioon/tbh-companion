@@ -225,9 +225,15 @@ export function extractOffsets(
 
     currency: { key: 0x10, quantity: 0x18 },
 
-    petSaveData: { petKey: player?.petKey ?? STRUCT_PET_KEY, isUnlock: player?.petIsUnlock ?? STRUCT_PET_IS_UNLOCK },
+    petSaveData: {
+      petKey: player?.petKey ?? STRUCT_PET_KEY,
+      isUnlock: player?.petIsUnlock ?? STRUCT_PET_IS_UNLOCK,
+    },
 
-    inventoryItem: { itemKey: player?.itemKey ?? STRUCT_ITEM_KEY, isChaotic: player?.itemIsChaotic ?? STRUCT_ITEM_IS_CHAOTIC },
+    inventoryItem: {
+      itemKey: player?.itemKey ?? STRUCT_ITEM_KEY,
+      isChaotic: player?.itemIsChaotic ?? STRUCT_ITEM_IS_CHAOTIC,
+    },
 
     runtime: {
       currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
@@ -249,7 +255,14 @@ export function extractOffsets(
       getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },
       boxOpenLog: { itemStringKey: 0, itemGradeType: 0, boxType: 0, level: 0 },
       stageClearLog: { clearTimeSec: STRUCT_STAGE_CLEAR_TIME },
-      monster: { monsterList: 0, summonedList: 0, deadMonsterList: 0, monsterHealth: 0, hpCurrent: 0, hpMax: 0 },
+      monster: {
+        monsterList: 0,
+        summonedList: 0,
+        deadMonsterList: 0,
+        monsterHealth: 0,
+        hpCurrent: 0,
+        hpMax: 0,
+      },
     },
 
     container: STRUCT_CONTAINER,

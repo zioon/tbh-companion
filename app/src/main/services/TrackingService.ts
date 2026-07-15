@@ -290,7 +290,13 @@ export class TrackingService {
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.notifyNewSession();
-    this.sessionState?.onTrackerReset(this.tracker, this.chestDropTracker, this.boxOpenTracker, this.config, null);
+    this.sessionState?.onTrackerReset(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.config,
+      null,
+    );
     this.pushStats();
   }
 
@@ -442,7 +448,12 @@ export class TrackingService {
         this.lastSnap = snap;
         this.lastError = null;
         if (!this.restoreApplied && this.sessionState) {
-          this.sessionState.tryRestoreOnSnapshot(this.tracker, this.chestDropTracker, this.boxOpenTracker, snap);
+          this.sessionState.tryRestoreOnSnapshot(
+            this.tracker,
+            this.chestDropTracker,
+            this.boxOpenTracker,
+            snap,
+          );
           this.restoreApplied = true;
         }
         this.tracker.update(snap);

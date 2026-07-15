@@ -18,14 +18,19 @@ function nowSeconds(): number {
   return Date.now() / 1000;
 }
 
-function heroLevelEstimate(level: number, exp: number, rate: number): {
+function heroLevelEstimate(
+  level: number,
+  exp: number,
+  rate: number,
+): {
   xpToNextLevel: number | null;
   timeToLevelSec: number | null;
 } {
   const fullNeeded = xpForNextLevel(level);
   if (fullNeeded === null) return { xpToNextLevel: null, timeToLevelSec: null };
   const remaining = Math.max(0, fullNeeded - exp);
-  if (!Number.isFinite(rate) || rate <= 0) return { xpToNextLevel: remaining, timeToLevelSec: null };
+  if (!Number.isFinite(rate) || rate <= 0)
+    return { xpToNextLevel: remaining, timeToLevelSec: null };
   const timeSec = (remaining / rate) * 3600;
   return {
     xpToNextLevel: remaining,
@@ -99,9 +104,7 @@ export function buildStats(
   const estimatedWave = liveFrame?.connected ? dpsTracker.currentWave : 0;
   const stageWave = estimatedWave > 0 ? estimatedWave : (lastSnap?.stageWave ?? 0);
   const stageWaveTotal =
-    liveFrame?.connected && liveFrame.stageWaveTotal != null
-      ? liveFrame.stageWaveTotal
-      : 0;
+    liveFrame?.connected && liveFrame.stageWaveTotal != null ? liveFrame.stageWaveTotal : 0;
 
   return {
     connected: lastError === null,
