@@ -301,18 +301,22 @@ describe("readRuntimeHeroes", () => {
       { heroKey: 1002, level: 30, exp: 6789 },
     ]);
     const result = readRuntimeHeroes(m, O, SM_SINGLETON);
-    expect(result).toHaveLength(2);
-    expect(result![0]).toEqual({ heroKey: 1001, level: 50, exp: 12345 });
-    expect(result![1]).toEqual({ heroKey: 1002, level: 30, exp: 6789 });
+    expect(result.heroes).toHaveLength(2);
+    expect(result.heroes![0]).toEqual({ heroKey: 1001, level: 50, exp: 12345 });
+    expect(result.heroes![1]).toEqual({ heroKey: 1002, level: 30, exp: 6789 });
   });
 
   it("returns null when smPtr is null (unresolved StageManager)", () => {
-    expect(readRuntimeHeroes(new FakeMemory(), O, null)).toBeNull();
+    const result = readRuntimeHeroes(new FakeMemory(), O, null);
+    expect(result.heroes).toBeNull();
+    expect(result.status).toMatch(/StageManager unresolved/i);
   });
 
   it("returns null when the HeroList pointer is missing", () => {
     // smPtr provided but no HeroList seeded off it
-    expect(readRuntimeHeroes(new FakeMemory(), O, SM_SINGLETON)).toBeNull();
+    const result = readRuntimeHeroes(new FakeMemory(), O, SM_SINGLETON);
+    expect(result.heroes).toBeNull();
+    expect(result.status).toMatch(/HeroList ptr null/i);
   });
 
   it("skips hero slots with an invalid heroKey", () => {
@@ -321,20 +325,24 @@ describe("readRuntimeHeroes", () => {
       { heroKey: 1003, level: 10, exp: 500 },
     ]);
     const result = readRuntimeHeroes(m, O, SM_SINGLETON);
-    expect(result).toHaveLength(1);
-    expect(result![0].heroKey).toBe(1003);
+    expect(result.heroes).toHaveLength(1);
+    expect(result.heroes![0].heroKey).toBe(1003);
   });
 
   it("returns null when the party is empty", () => {
     const m = seedParty(new FakeMemory(), SM_SINGLETON, []);
-    expect(readRuntimeHeroes(m, O, SM_SINGLETON)).toBeNull();
+    const result = readRuntimeHeroes(m, O, SM_SINGLETON);
+    expect(result.heroes).toBeNull();
+    expect(result.status).toMatch(/party empty/i);
   });
 
   it("returns null when hero count exceeds MAX_HEROES (21)", () => {
     const m = new FakeMemory()
       .writePtr(SM_SINGLETON + BigInt(O.runtime.heroList), HERO_LIST_OBJ)
       .writeI32(HERO_LIST_OBJ + BigInt(O.container.listSize), 21); // exceeds MAX_HEROES
-    expect(readRuntimeHeroes(m, O, SM_SINGLETON)).toBeNull();
+    const result = readRuntimeHeroes(m, O, SM_SINGLETON);
+    expect(result.heroes).toBeNull();
+    expect(result.status).toMatch(/exceeds MAX_HEROES/i);
   });
 });
 
@@ -426,15 +434,16 @@ function seedLogChain(m: FakeMemory, monsterTypes: number[]): FakeMemory {
 
 describe("readRuntimeChestLog", () => {
   it("returns null when logManager RVA is 0 (not derived for this version)", () => {
-    expect(
-      readRuntimeChestLog(new FakeMemory(), GA_BASE, GA_SIZE, O, makeChestLogPinState()),
-    ).toBeNull();
+    const result = readRuntimeChestLog(new FakeMemory(), GA_BASE, GA_SIZE, O, makeChestLogPinState());
+    expect(result.drops).toBeNull();
+    expect(result.status).toMatch(/logManager RVA = 0/i);
   });
 
   it("primes to the current log length on first read (backlog not counted)", () => {
     const pin = makeChestLogPinState();
     const m = seedLogChain(new FakeMemory(), [0, 1]); // pre-existing backlog
-    expect(readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
+    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(result.drops).toEqual([]);
     expect(pin.lastCount).toBe(2);
   });
 
@@ -443,7 +452,8 @@ describe("readRuntimeChestLog", () => {
     pin.primed = true; // skip priming so all entries are treated as new
     pin.lastCount = 0;
     const m = seedLogChain(new FakeMemory(), [0, 1, 2]);
-    expect(readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual(["common", "rare"]);
+    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(result.drops).toEqual(["common", "rare"]);
   });
 
   it("returns only drops appended since the last read", () => {
@@ -451,7 +461,8 @@ describe("readRuntimeChestLog", () => {
     const m = seedLogChain(new FakeMemory(), [0]);
     readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin); // prime at length 1
     seedLogChain(m, [0, 1, 2]); // two new drops appended (act boss entry ignored)
-    expect(readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual(["rare"]);
+    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(result.drops).toEqual(["rare"]);
   });
 
   it("restarts the tail from 0 when the log shrinks (new run cleared it)", () => {
@@ -459,7 +470,8 @@ describe("readRuntimeChestLog", () => {
     pin.primed = true;
     pin.lastCount = 5; // pretend we had seen 5 entries
     const m = seedLogChain(new FakeMemory(), [1]); // log now shorter → reset
-    expect(readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual(["rare"]);
+    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(result.drops).toEqual(["rare"]);
   });
 });
 
@@ -583,9 +595,9 @@ function seedInventoryChain(
 describe("readRuntimeInventory", () => {
   it("returns null when itemSaveDatas offset is 0 (not derived)", () => {
     const patched = { ...O, player: { ...O.player, itemSaveDatas: 0 } };
-    expect(
-      readRuntimeInventory(seedInventoryChain(new FakeMemory(), []), GA_BASE, GA_SIZE, patched),
-    ).toBeNull();
+    const result = readRuntimeInventory(seedInventoryChain(new FakeMemory(), []), GA_BASE, GA_SIZE, patched);
+    expect(result.items).toBeNull();
+    expect(result.status).toMatch(/itemSaveDatas offset = 0/i);
   });
 
   it("reads items from the itemSaveDatas list", () => {
@@ -594,9 +606,9 @@ describe("readRuntimeInventory", () => {
       { itemKey: 920201, isChaotic: true },
     ]);
     const result = readRuntimeInventory(m, GA_BASE, GA_SIZE, O);
-    expect(result).toHaveLength(2);
-    expect(result![0]).toEqual({ itemKey: 910151, isChaotic: false });
-    expect(result![1]).toEqual({ itemKey: 920201, isChaotic: true });
+    expect(result.items).toHaveLength(2);
+    expect(result.items![0]).toEqual({ itemKey: 910151, isChaotic: false });
+    expect(result.items![1]).toEqual({ itemKey: 920201, isChaotic: true });
   });
 
   it("skips entries with zero or negative itemKey", () => {
@@ -605,12 +617,14 @@ describe("readRuntimeInventory", () => {
       { itemKey: 910152, isChaotic: false },
     ]);
     const result = readRuntimeInventory(m, GA_BASE, GA_SIZE, O);
-    expect(result).toHaveLength(1);
-    expect(result![0].itemKey).toBe(910152);
+    expect(result.items).toHaveLength(1);
+    expect(result.items![0].itemKey).toBe(910152);
   });
 
   it("returns null when the player pointer is unreadable", () => {
-    expect(readRuntimeInventory(new FakeMemory(), GA_BASE, GA_SIZE, O)).toBeNull();
+    const result = readRuntimeInventory(new FakeMemory(), GA_BASE, GA_SIZE, O);
+    expect(result.items).toBeNull();
+    expect(result.status).toMatch(/CommonSaveData singleton.*static field unreadable/i);
   });
 });
 
@@ -662,7 +676,10 @@ function seedPetChain(
 
 describe("readRuntimePets", () => {
   it("returns null when petSaveDatas offset is 0 (not yet derived)", () => {
-    expect(readRuntimePets(new FakeMemory(), GA_BASE, GA_SIZE, O)).toBeNull();
+    const patched = { ...O, player: { ...O.player, petSaveDatas: 0 } };
+    const result = readRuntimePets(new FakeMemory(), GA_BASE, GA_SIZE, patched);
+    expect(result.pets).toBeNull();
+    expect(result.status).toMatch(/petSaveDatas offset = 0/i);
   });
 
   it("reads pet list with key and unlock status", () => {
@@ -671,9 +688,9 @@ describe("readRuntimePets", () => {
       { petKey: 5002, unlocked: false },
     ]);
     const result = readRuntimePets(m, GA_BASE, GA_SIZE, PET_O);
-    expect(result).toHaveLength(2);
-    expect(result![0]).toEqual({ petKey: 5001, unlocked: true });
-    expect(result![1]).toEqual({ petKey: 5002, unlocked: false });
+    expect(result.pets).toHaveLength(2);
+    expect(result.pets![0]).toEqual({ petKey: 5001, unlocked: true });
+    expect(result.pets![1]).toEqual({ petKey: 5002, unlocked: false });
   });
 
   it("skips entries with zero petKey", () => {
@@ -682,16 +699,20 @@ describe("readRuntimePets", () => {
       { petKey: 5003, unlocked: true },
     ]);
     const result = readRuntimePets(m, GA_BASE, GA_SIZE, PET_O);
-    expect(result).toHaveLength(1);
-    expect(result![0].petKey).toBe(5003);
+    expect(result.pets).toHaveLength(1);
+    expect(result.pets![0].petKey).toBe(5003);
   });
 
   it("returns null when CommonSaveData singleton is absent", () => {
-    expect(readRuntimePets(new FakeMemory(), GA_BASE, GA_SIZE, PET_O)).toBeNull();
+    const result = readRuntimePets(new FakeMemory(), GA_BASE, GA_SIZE, PET_O);
+    expect(result.pets).toBeNull();
+    expect(result.status).toMatch(/CommonSaveData singleton.*static field unreadable/i);
   });
 
   it("returns null when pet list is empty", () => {
     const m = seedPetChain(new FakeMemory(), []);
-    expect(readRuntimePets(m, GA_BASE, GA_SIZE, PET_O)).toBeNull();
+    const result = readRuntimePets(m, GA_BASE, GA_SIZE, PET_O);
+    expect(result.pets).toBeNull();
+    expect(result.status).toMatch(/petSaveDatas count = 0/i);
   });
 });

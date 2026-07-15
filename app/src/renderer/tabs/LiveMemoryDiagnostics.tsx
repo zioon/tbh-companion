@@ -87,6 +87,9 @@ export function LiveMemoryDiagnostics() {
             label="Heroes"
             value={snapshot?.heroes?.length ? snapshot.heroes.length : null}
           />
+          {snapshot?.heroes == null && snapshot?.heroesStatus ? (
+            <Row label="↳ reason" value={snapshot.heroesStatus} />
+          ) : null}
           {snapshot?.heroes && snapshot.heroes.length > 0 ? (
             <div className="mt-1 space-y-0">
               {snapshot.heroes.map((h) => (
@@ -109,6 +112,9 @@ export function LiveMemoryDiagnostics() {
           <Row label="Stage key" value={snapshot?.stageKey ?? "—"} />
           <Row label="Stage wave" value={snapshot?.stageWave ?? "—"} />
           <StatHealth label="Chest log" value={snapshot?.chestDrops} />
+          {snapshot?.chestDrops == null && snapshot?.chestDropsStatus ? (
+            <Row label="↳ reason" value={snapshot.chestDropsStatus} />
+          ) : null}
           <Row
             label="New chest drops (tick)"
             value={snapshot?.chestDrops != null ? String(snapshot.chestDrops.length) : "—"}
@@ -117,6 +123,9 @@ export function LiveMemoryDiagnostics() {
             label="Inventory"
             value={snapshot?.inventoryItems?.length ? snapshot.inventoryItems.length : null}
           />
+          {snapshot?.inventoryItems == null && snapshot?.inventoryItemsStatus ? (
+            <Row label="↳ reason" value={snapshot.inventoryItemsStatus} />
+          ) : null}
           <Row
             label="Inventory items"
             value={snapshot?.inventoryItems != null ? String(snapshot.inventoryItems.length) : "—"}
@@ -125,6 +134,9 @@ export function LiveMemoryDiagnostics() {
             label="Pets"
             value={snapshot?.petData?.length ? snapshot.petData.length : null}
           />
+          {snapshot?.petData == null && snapshot?.petDataStatus ? (
+            <Row label="↳ reason" value={snapshot.petDataStatus} />
+          ) : null}
           <Row
             label="Pets count"
             value={snapshot?.petData != null ? String(snapshot.petData.length) : "—"}

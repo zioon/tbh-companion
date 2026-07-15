@@ -34,7 +34,7 @@ function mb(v: number): string {
 let readCountSinceSample = 0;
 let lastMem: NodeJS.MemoryUsage | null = null;
 let lastMemAt = 0;
-let memTimer: NodeJS.Timeout | null = setInterval(() => {
+const memTimer = setInterval(() => {
   const cur = process.memoryUsage();
   const now = Date.now();
   const dtSec = lastMemAt > 0 ? (now - lastMemAt) / 1000 : 0;
@@ -57,6 +57,7 @@ let memTimer: NodeJS.Timeout | null = setInterval(() => {
   winProcessStats.readBytesCalls = 0;
   winProcessStats.readBytesBytes = 0;
 }, MEM_SAMPLE_MS);
+memTimer.unref();
 
 let reader: LiveMemoryReader | null = null;
 let loadError: string | null = null;

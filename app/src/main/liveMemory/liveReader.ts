@@ -98,6 +98,10 @@ export class LiveMemoryReader {
   private log: LiveMemoryLogFn = () => undefined;
   /** True once we've attempted name-based MonsterSpawnManager resolution (avoid re-scan). */
   private monsterNameScanAttempted = false;
+  /** True once we've attempted name-based PlayerSaveData resolution (avoid re-scan). */
+  private playerNameScanAttempted = false;
+  /** Resolved PlayerSaveData instance pointer (name-scan fallback cache). */
+  private playerPtr: bigint | null = null;
   /** True while resolving offsets or scanning for a class name. */
   private _scanning = false;
   /** Optional callback invoked whenever the scanning flag changes. */
@@ -297,6 +301,8 @@ export class LiveMemoryReader {
     this.supported = false;
     this.gameInstallDir = null;
     this.monsterNameScanAttempted = false;
+    this.playerNameScanAttempted = false;
+    this.playerPtr = null;
     this.goldPin = makeGoldPinState();
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
@@ -345,6 +351,50 @@ export class LiveMemoryReader {
     const monsterHp = monsterData?.monsterHps ?? null;
     const deadMonsterCount = monsterData?.deadCount ?? null;
 
+    const heroesResult = readRuntimeHeroes(p, o, smPtr);
+    const heroesStatus = (heroesResult.heroes == null
+        && this.smPin.lastStatus
+        && heroesResult.status.includes("StageManager unresolved"))
+      ? this.smPin.lastStatus
+      : heroesResult.status || undefined;
+
+    const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+    let inventoryResult = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
+    let petsResult = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
+
+    // PlayerSaveData name-scan fallback: when RVA resolution produced no player
+    // instance (CommonSaveData static field unreadable), fall back to scanning
+    // memory for the PlayerSaveData class and its static-held singleton. This
+    // mirrors the MonsterSpawnManager fallback above and is cached on the pin.
+    if (!this.playerNameScanAttempted &&
+        this.playerPtr == null &&
+        inventoryResult.items == null &&
+        petsResult.pets == null &&
+        (/\bCommonSaveData singleton.*static field unreadable/i.test(inventoryResult.status) ||
+          /\bCommonSaveData singleton.*static field unreadable/i.test(petsResult.status))) {
+      this.playerNameScanAttempted = true;
+      this.log("PlayerSaveData: RVA resolution produced no player instance, falling back to name scan...");
+      try {
+        this.setScanning(true);
+        const playerClass = resolveClassByName(p, "PlayerSaveData");
+        if (playerClass) {
+          const inst = this.findPlayerInstanceByClass(p, playerClass);
+          if (inst) {
+            this.playerPtr = inst;
+            this.log(`PlayerSaveData: resolved via name scan at 0x${inst.toString(16)}`);
+            inventoryResult = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
+            petsResult = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
+          } else {
+            this.log("PlayerSaveData: class found but no static-held instance");
+          }
+        } else {
+          this.log("PlayerSaveData: class not found by name scan");
+        }
+      } finally {
+        this.setScanning(false);
+      }
+    }
+
     return {
       connected: true,
       stageKey: stage.stageKey,
@@ -353,17 +403,57 @@ export class LiveMemoryReader {
       // Combat gold (AggregateSaveData GoldEarn[SubKey=1]) — pure combat earnings.
       // Falls back to wallet balance (CurrencyManager) when aggregate offset unavailable.
       gold: readRuntimeCombatGold(p, ga.base, ga.size, o) ?? readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
-      heroes: readRuntimeHeroes(p, o, smPtr),
-      chestDrops: readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin),
+      heroes: heroesResult.heroes,
+      heroesStatus,
+      chestDrops: chestResult.drops,
+      chestDropsStatus: chestResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
-      inventoryItems: readRuntimeInventory(p, ga.base, ga.size, o),
-      petData: readRuntimePets(p, ga.base, ga.size, o),
+      inventoryItems: inventoryResult.items,
+      inventoryItemsStatus: inventoryResult.status || undefined,
+      petData: petsResult.pets,
+      petDataStatus: petsResult.status || undefined,
       monsterHp,
       deadMonsterCount,
       source: `memory v${o.gameVersion}`,
       readMs: Date.now() - t0,
       at: Date.now(),
     };
+  }
+
+  /**
+   * Scan a class's static block (and its parent's) for a pointer whose IL2CPP
+   * header class matches `classPtr`. Returns the instance pointer or null.
+   */
+  private findPlayerInstanceByClass(proc: WinProcess, classPtr: bigint): bigint | null {
+    const targets = [classPtr];
+    const parentBuf = proc.readBytes(classPtr + 0x58n, 8);
+    if (parentBuf) {
+      const parent = parentBuf.readBigUInt64LE();
+      if (parent > 0x10000n && parent < 0x7ff0_0000_0000n) targets.push(parent);
+    }
+
+    for (const target of targets) {
+      for (const soff of [0xb0, 0xb8, 0xa8]) {
+        const blockBuf = proc.readBytes(target + BigInt(soff), 8);
+        if (!blockBuf) continue;
+        const block = blockBuf.readBigUInt64LE();
+        if (block <= 0x10000n || block >= 0x7ff0_0000_0000n) continue;
+
+        const SCAN_MAX = 0x200;
+        for (let foff = 0; foff <= SCAN_MAX; foff += 8) {
+          const instBuf = proc.readBytes(block + BigInt(foff), 8);
+          if (!instBuf) continue;
+          const inst = instBuf.readBigUInt64LE();
+          if (inst <= 0x10000n || inst >= 0x7ff0_0000_0000n) continue;
+
+          const headerBuf = proc.readBytes(inst, 8);
+          if (!headerBuf) continue;
+          const header = headerBuf.readBigUInt64LE();
+          if (header === classPtr) return inst;
+        }
+      }
+    }
+    return null;
   }
 
   status(appBuild: string = resolveAppBuild()): LiveMemoryStatus {

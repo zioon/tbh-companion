@@ -294,32 +294,48 @@ const MAX_HERO_RUNTIME_EXP = 1e12;
  * `Unit`, whose identity/level/exp live behind `Unit.cache → HeroRuntime`
  * (NOT the save-layer HeroSaveData offsets). Level/exp are ACTk Obscured values.
  */
-function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): LiveHeroData[] | null {
+export interface ReadHeroesResult {
+  heroes: LiveHeroData[] | null;
+  status: string;
+}
+
+function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): ReadHeroesResult {
   const heroListPtr = readPtr(reader, smPtr + BigInt(o.runtime.heroList));
-  if (heroListPtr == null) return null;
+  if (heroListPtr == null) {
+    return { heroes: null, status: "HeroList ptr null (runtime.heroList offset suspect)" };
+  }
 
   // HeroList is Hero[] (direct IL2CPP array): length at +listSize, elements at +arrayFirst.
   const count = readI32(reader, heroListPtr + BigInt(o.container.listSize));
-  if (count == null || count <= 0 || count > MAX_HEROES) return null;
+  if (count == null) {
+    return { heroes: null, status: "HeroList count unreadable (container.listSize offset suspect)" };
+  }
+  if (count <= 0) {
+    return { heroes: null, status: "party empty (in menu/lobby — StageManager live but no party deployed)" };
+  }
+  if (count > MAX_HEROES) {
+    return { heroes: null, status: `count=${count} exceeds MAX_HEROES (container.listSize offset suspect)` };
+  }
 
   // Detect exp field type: 8-byte gap → ObscuredDouble (v1.00.27+), 4-byte → ObscuredFloat (pre-1.00.27)
   const expIsDouble = (o.heroRuntime.expKey - o.heroRuntime.expHidden) >= 8;
 
   const heroes: LiveHeroData[] = [];
+  let filtered = 0;
   const first = heroListPtr + BigInt(o.container.arrayFirst);
 
   for (let i = 0; i < count; i++) {
     const heroPtr = readPtr(reader, first + BigInt(i * 8));
-    if (heroPtr == null) continue;
+    if (heroPtr == null) { filtered++; continue; }
 
     const runtimePtr = readPtr(reader, heroPtr + BigInt(o.unit.cache));
-    if (runtimePtr == null) continue;
+    if (runtimePtr == null) { filtered++; continue; }
 
     const infoPtr = readPtr(reader, runtimePtr + BigInt(o.heroRuntime.info));
-    if (infoPtr == null) continue;
+    if (infoPtr == null) { filtered++; continue; }
 
     const heroKey = readI32(reader, infoPtr + BigInt(o.heroInfoData.heroKey));
-    if (heroKey == null || heroKey <= 0 || heroKey >= 10_000_000) continue;
+    if (heroKey == null || heroKey <= 0 || heroKey >= 10_000_000) { filtered++; continue; }
 
     const level = decodeObscuredInt(
       readU32(reader, runtimePtr + BigInt(o.heroRuntime.levelHidden)),
@@ -347,7 +363,13 @@ function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): LiveHer
     });
   }
 
-  return heroes.length > 0 ? heroes : null;
+  if (heroes.length === 0) {
+    return {
+      heroes: null,
+      status: `all ${count} heroes filtered (filtered=${filtered}, unit.cache / heroRuntime offsets suspect)`,
+    };
+  }
+  return { heroes, status: "" };
 }
 
 /**
@@ -359,8 +381,8 @@ export function readRuntimeHeroes(
   reader: MemoryReader,
   o: LiveOffsets,
   smPtr: bigint | null,
-): LiveHeroData[] | null {
-  if (smPtr == null) return null;
+): ReadHeroesResult {
+  if (smPtr == null) return { heroes: null, status: "StageManager unresolved (in menu or scene transition)" };
   return readParty(reader, smPtr, o);
 }
 
@@ -369,10 +391,12 @@ export function readRuntimeHeroes(
 /** Per-reader-instance pin for the StageManager instance pointer. */
 export interface SmPinState {
   ptr: bigint | null;
+  /** Last resolution outcome reason — dev-only diagnostics. Empty when resolved. */
+  lastStatus: string;
 }
 
 export function makeSmPinState(): SmPinState {
-  return { ptr: null };
+  return { ptr: null, lastStatus: "" };
 }
 
 // The singleton `Instance` static field's offset within the class static block is
@@ -381,7 +405,7 @@ const SM_STATIC_SCAN_MAX = 0x100;
 
 /** A candidate StageManager is "live" when it exposes a walkable, non-empty party. */
 function isLiveStageManager(reader: MemoryReader, ptr: bigint, o: LiveOffsets): boolean {
-  return readParty(reader, ptr, o) != null;
+  return readParty(reader, ptr, o).heroes != null;
 }
 
 /**
@@ -401,7 +425,10 @@ export function resolveStageManager(
   o: LiveOffsets,
   pin: SmPinState,
 ): bigint | null {
-  if (pin.ptr != null && isLiveStageManager(reader, pin.ptr, o)) return pin.ptr;
+  if (pin.ptr != null && isLiveStageManager(reader, pin.ptr, o)) {
+    pin.lastStatus = "";
+    return pin.ptr;
+  }
   pin.ptr = null;
 
   const block = readStaticFieldsBlock(
@@ -411,16 +438,25 @@ export function resolveStageManager(
     o.typeInfoRva.stageManager,
     o.il2cppClass.staticFieldsOffsets,
   );
-  if (block == null) return null;
+  if (block == null) {
+    pin.lastStatus = "StageManager static-fields block unreadable (typeInfoRva.stageManager suspect or staticFieldsOffsets mismatch)";
+    return null;
+  }
 
+  let scanned = 0;
   for (let off = 0; off <= SM_STATIC_SCAN_MAX; off += 8) {
     const cand = readPtr(reader, block + BigInt(off));
     if (cand == null) continue;
+    scanned++;
     if (isLiveStageManager(reader, cand, o)) {
       pin.ptr = cand;
+      pin.lastStatus = "";
       return cand;
     }
   }
+  pin.lastStatus = scanned === 0
+    ? "StageManager static block scan: no plausible pointers found"
+    : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect)`;
   return null;
 }
 
@@ -532,23 +568,35 @@ export function resolveLogManager(
  * Returns null when the LogManager can't be resolved (offset not derived / no
  * battle) — distinct from `[]` (resolved, no new drops).
  */
+export interface ReadChestLogResult {
+  drops: LiveChestCategory[] | null;
+  status: string;
+}
+
 export function readRuntimeChestLog(
   reader: MemoryReader,
   gaBase: bigint,
   gaSize: number,
   o: LiveOffsets,
   pin: ChestLogPinState,
-): LiveChestCategory[] | null {
+): ReadChestLogResult {
+  if (o.typeInfoRva.logManager === 0n) {
+    return { drops: null, status: "typeInfoRva.logManager RVA = 0 (offset not derived for this game version)" };
+  }
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
-  if (lmPtr == null) return null;
+  if (lmPtr == null) {
+    return { drops: null, status: "LogManager singleton unresolved (static block scan failed — runtime.log offsets suspect or no battle yet)" };
+  }
   const list = getBoxLogList(reader, lmPtr, o);
-  if (list == null) return null;
+  if (list == null) {
+    return { drops: null, status: "GetBox log list not walkable (runtime.log.logByType dict lookup failed)" };
+  }
 
   const { arr, count } = list;
   if (!pin.primed) {
     pin.lastCount = count;
     pin.primed = true;
-    return [];
+    return { drops: [], status: "" };
   }
 
   const start = count < pin.lastCount ? 0 : pin.lastCount;
@@ -562,7 +610,7 @@ export function readRuntimeChestLog(
     if (cat) drops.push(cat);
   }
   pin.lastCount = count;
-  return drops;
+  return { drops, status: "" };
 }
 
 // ── Live stage clears (LogManager → Dictionary<ELogType, List<StageClearLog>>) ─
@@ -649,35 +697,62 @@ const MAX_INVENTORY_ITEMS = 100_000;
  * uses; it avoids depending on the LocalInventoryManager static instance.
  * Returns null when the item-list offset has not been derived for this version.
  */
+export interface ReadInventoryResult {
+  items: LiveInventoryItem[] | null;
+  status: string;
+}
+
 export function readRuntimeInventory(
   reader: MemoryReader,
   gaBase: bigint,
   gaSize: number,
   o: LiveOffsets,
-): LiveInventoryItem[] | null {
-  if (o.player.itemSaveDatas === 0) return null; // offset not yet derived
-  if (o.inventoryItem.itemKey === 0) return null; // struct offsets not yet derived
+  playerPtrOverride?: bigint | null,
+): ReadInventoryResult {
+  if (o.player.itemSaveDatas === 0) {
+    return { items: null, status: "player.itemSaveDatas offset = 0 (not derived)" };
+  }
+  if (o.inventoryItem.itemKey === 0) {
+    return { items: null, status: "inventoryItem.itemKey offset = 0 (struct offsets not derived)" };
+  }
 
   const candidates = o.il2cppClass.staticFieldsOffsets;
 
-  const playerPtr = readStaticFieldPtr(
-    reader,
-    gaBase,
-    gaSize,
-    o.typeInfoRva.commonSaveData,
-    o.player.commonSaveData,
-    candidates,
-  );
-  if (playerPtr == null) return null;
+  let playerPtr = playerPtrOverride ?? null;
+  if (playerPtr == null) {
+    playerPtr = readStaticFieldPtr(
+      reader,
+      gaBase,
+      gaSize,
+      o.typeInfoRva.commonSaveData,
+      o.player.commonSaveData,
+      candidates,
+    );
+  }
+  if (playerPtr == null) {
+    return { items: null, status: "PlayerSaveData (CommonSaveData singleton) static field unreadable — typeInfoRva.commonSaveData suspect" };
+  }
 
   const listPtr = readPtr(reader, playerPtr + BigInt(o.player.itemSaveDatas));
-  if (listPtr == null) return null;
+  if (listPtr == null) {
+    return { items: null, status: "PlayerSaveData.itemSaveDatas list pointer null (player.itemSaveDatas offset suspect)" };
+  }
 
   const itemsArrPtr = readPtr(reader, listPtr + BigInt(o.container.listItems));
-  if (itemsArrPtr == null) return null;
+  if (itemsArrPtr == null) {
+    return { items: null, status: "itemSaveDatas backing array pointer null (container.listItems offset suspect)" };
+  }
 
   const count = readI32(reader, listPtr + BigInt(o.container.listSize));
-  if (count == null || count <= 0 || count > MAX_INVENTORY_ITEMS) return null;
+  if (count == null) {
+    return { items: null, status: "itemSaveDatas count unreadable (container.listSize offset suspect)" };
+  }
+  if (count <= 0) {
+    return { items: null, status: `itemSaveDatas count = ${count} (empty inventory snapshot)` };
+  }
+  if (count > MAX_INVENTORY_ITEMS) {
+    return { items: null, status: `itemSaveDatas count = ${count} exceeds MAX_INVENTORY_ITEMS` };
+  }
 
   const results: LiveInventoryItem[] = [];
   const first = itemsArrPtr + BigInt(o.container.arrayFirst);
@@ -694,7 +769,10 @@ export function readRuntimeInventory(
     results.push({ itemKey, isChaotic: (isChaoticRaw ?? 0) !== 0 });
   }
 
-  return results.length > 0 ? results : null;
+  if (results.length === 0) {
+    return { items: null, status: `all ${count} inventory entries skipped as invalid (inventoryItem.itemKey offset suspect)` };
+  }
+  return { items: results, status: "" };
 }
 
 // ── Pets (PlayerSaveData.PetSaveData array) ───────────────────────────────────
@@ -705,36 +783,63 @@ const MAX_PETS = 500;
  * Live pet data from the save-layer `PlayerSaveData.PetSaveData` array.
  * Returns null when struct offsets have not been derived for this version.
  */
+export interface ReadPetsResult {
+  pets: LivePetData[] | null;
+  status: string;
+}
+
 export function readRuntimePets(
   reader: MemoryReader,
   gaBase: bigint,
   gaSize: number,
   o: LiveOffsets,
-): LivePetData[] | null {
-  if (o.player.petSaveDatas === 0) return null; // offset not yet derived
-  if (o.petSaveData.petKey === 0) return null;
+  playerPtrOverride?: bigint | null,
+): ReadPetsResult {
+  if (o.player.petSaveDatas === 0) {
+    return { pets: null, status: "player.petSaveDatas offset = 0 (not derived)" };
+  }
+  if (o.petSaveData.petKey === 0) {
+    return { pets: null, status: "petSaveData.petKey offset = 0 (struct offsets not derived)" };
+  }
 
   const candidates = o.il2cppClass.staticFieldsOffsets;
 
   // CommonSaveData → player → petSaveDatas (List<PetSaveData>)
-  const playerPtr = readStaticFieldPtr(
-    reader,
-    gaBase,
-    gaSize,
-    o.typeInfoRva.commonSaveData,
-    o.player.commonSaveData,
-    candidates,
-  );
-  if (playerPtr == null) return null;
+  let playerPtr = playerPtrOverride ?? null;
+  if (playerPtr == null) {
+    playerPtr = readStaticFieldPtr(
+      reader,
+      gaBase,
+      gaSize,
+      o.typeInfoRva.commonSaveData,
+      o.player.commonSaveData,
+      candidates,
+    );
+  }
+  if (playerPtr == null) {
+    return { pets: null, status: "PlayerSaveData (CommonSaveData singleton) static field unreadable — typeInfoRva.commonSaveData suspect" };
+  }
 
   const petListPtr = readPtr(reader, playerPtr + BigInt(o.player.petSaveDatas));
-  if (petListPtr == null) return null;
+  if (petListPtr == null) {
+    return { pets: null, status: "PlayerSaveData.petSaveDatas list pointer null (player.petSaveDatas offset suspect)" };
+  }
 
   const itemsArrPtr = readPtr(reader, petListPtr + BigInt(o.container.listItems));
-  if (itemsArrPtr == null) return null;
+  if (itemsArrPtr == null) {
+    return { pets: null, status: "petSaveDatas backing array pointer null (container.listItems offset suspect)" };
+  }
 
   const count = readI32(reader, petListPtr + BigInt(o.container.listSize));
-  if (count == null || count <= 0 || count > MAX_PETS) return null;
+  if (count == null) {
+    return { pets: null, status: "petSaveDatas count unreadable (container.listSize offset suspect)" };
+  }
+  if (count <= 0) {
+    return { pets: null, status: `petSaveDatas count = ${count} (empty pet snapshot)` };
+  }
+  if (count > MAX_PETS) {
+    return { pets: null, status: `petSaveDatas count = ${count} exceeds MAX_PETS` };
+  }
 
   const results: LivePetData[] = [];
   const first = itemsArrPtr + BigInt(o.container.arrayFirst);
@@ -751,7 +856,10 @@ export function readRuntimePets(
     results.push({ petKey, unlocked: (isUnlockRaw ?? 0) !== 0 });
   }
 
-  return results.length > 0 ? results : null;
+  if (results.length === 0) {
+    return { pets: null, status: `all ${count} pet entries skipped as invalid (petSaveData.petKey offset suspect)` };
+  }
+  return { pets: results, status: "" };
 }
 
 // ── Monster HP and dead count (MonsterSpawnManager) ──────────────────────────

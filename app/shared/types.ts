@@ -961,14 +961,20 @@ export interface LiveMemorySnapshot {
   gold: number | null;
   /** Live hero XP/level for all party members (null ⇒ fall back to save). */
   heroes: LiveHeroData[] | null;
+  /** Diagnostics: why `heroes` is null this tick. Dev-only. */
+  heroesStatus?: string;
   /**
    * Chest drops observed since the previous tick, classified from the GetBox
    * battle log (common / rare = stage boss). `[]` = reader active, no
    * new drops; `null` = chest log unavailable (offset not derived / no battle).
    */
   chestDrops: ("common" | "rare")[] | null;
+  /** Diagnostics: why `chestDrops` is null this tick. Dev-only. */
+  chestDropsStatus?: string;
   /** Live inventory items from PlayerSaveData.itemSaveDatas snapshot (null ⇒ unavailable). */
   inventoryItems: LiveInventoryItem[] | null;
+  /** Diagnostics: why `inventoryItems` is null this tick. Dev-only. */
+  inventoryItemsStatus?: string;
   /**
    * Stage clear times (whole seconds, as recorded by the game) observed since
    * the previous tick, read from the StageClear battle log. `[]` = reader
@@ -979,6 +985,8 @@ export interface LiveMemorySnapshot {
   stageClears: number[] | null;
   /** Live pet unlock state from save-layer heap (null ⇒ unavailable). */
   petData: LivePetData[] | null;
+  /** Diagnostics: why `petData` is null this tick. Dev-only. */
+  petDataStatus?: string;
   /**
    * Live monster HP values observed this frame. Each entry is [addr, hpCurrent, hpMax].
    * `addr` is the monster's memory address (converted to number for IPC, safe on x64).
