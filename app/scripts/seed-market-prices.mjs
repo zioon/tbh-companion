@@ -1,9 +1,9 @@
 /**
  * 从 Lookup price snapshot 生成 Market price cache 文件。
- * 
+ *
  * 用途：当无法直连 Steam API（steamcommunity.com）时，
  * 用 GitHub Actions 预构建的 Lookup 价格快照来填充市场缓存。
- * 
+ *
  * 用法：node scripts/seed-market-prices.mjs
  * 输出：prices.USD.json (放入 Electron userData 目录即可)
  */
@@ -30,15 +30,14 @@ for (const [currency, rate] of Object.entries(fx)) {
   };
 
   for (const [itemName, usdPrice] of Object.entries(lookupPrices)) {
-    const localPrice = typeof usdPrice === "number" ? Math.round(usdPrice * rate * 100) / 100 : null;
-    
+    const localPrice =
+      typeof usdPrice === "number" ? Math.round(usdPrice * rate * 100) / 100 : null;
+
     cache.prices[itemName] = {
       lowest: localPrice,
       median: null,
       volume: 0,
-      rawLowest: localPrice != null 
-        ? formatCurrency(localPrice, currency)
-        : null,
+      rawLowest: localPrice != null ? formatCurrency(localPrice, currency) : null,
       rawMedian: null,
       fetchedUtc: generatedUtc,
       buyOrder: null,
@@ -58,11 +57,19 @@ for (const [currency, rate] of Object.entries(fx)) {
 // ── 辅助：格式化金额字符串 ──
 function formatCurrency(amount, currency) {
   const symbols = {
-    USD: "$", EUR: "€", GBP: "£", JPY: "¥", CNY: "¥",
-    BRL: "R$", CAD: "CA$", AUD: "A$", KRW: "₩", INR: "₹",
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+    JPY: "¥",
+    CNY: "¥",
+    BRL: "R$",
+    CAD: "CA$",
+    AUD: "A$",
+    KRW: "₩",
+    INR: "₹",
   };
   const sym = symbols[currency] || currency + " ";
-  
+
   if (["JPY", "KRW"].includes(currency)) {
     return sym + Math.round(amount).toLocaleString("en-US");
   }

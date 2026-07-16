@@ -283,12 +283,20 @@ export function Live() {
             <span className="text-right">Lv</span>
             <span className="text-right">Rate</span>
             <Tooltip
-              trigger={<span className="cursor-help underline decoration-dotted underline-offset-2 text-right">Remaining</span>}
+              trigger={
+                <span className="cursor-help underline decoration-dotted underline-offset-2 text-right">
+                  Remaining
+                </span>
+              }
             >
               Remaining XP needed to reach next level (level curve minus current exp).
             </Tooltip>
             <Tooltip
-              trigger={<span className="cursor-help underline decoration-dotted underline-offset-2 text-right">ETA</span>}
+              trigger={
+                <span className="cursor-help underline decoration-dotted underline-offset-2 text-right">
+                  ETA
+                </span>
+              }
             >
               Estimated time to next level-up at the current rolling XP rate.
             </Tooltip>
@@ -425,11 +433,31 @@ export function Live() {
 
       {liveActive ? (
         <section className="grid grid-cols-6 gap-2.5">
-          <StatCard label="DPS" value={fmtCompact(stats.dps ?? 0)} title="Damage per second (5-second rolling window from live memory)" />
-          <StatCard label="Alive" value={String(stats.aliveMonsters ?? 0)} title="Monsters currently alive on this map" />
-          <StatCard label="HP max" value={fmtCompact(stats.hpMaxSum ?? 0)} title="Sum of max HP of all alive monsters (wave health pool)" />
-          <StatCard label="Mobs killed" value={String(stats.mapMobsKilled)} title="Monsters killed on this map — resets when stage changes" />
-          <StatCard label="Damage" value={fmtCompact(stats.mapDamage)} title="Damage dealt on this map — resets when stage changes" />
+          <StatCard
+            label="DPS"
+            value={fmtCompact(stats.dps ?? 0)}
+            title="Damage per second (5-second rolling window from live memory)"
+          />
+          <StatCard
+            label="Alive"
+            value={String(stats.aliveMonsters ?? 0)}
+            title="Monsters currently alive on this map"
+          />
+          <StatCard
+            label="HP max"
+            value={fmtCompact(stats.hpMaxSum ?? 0)}
+            title="Sum of max HP of all alive monsters (wave health pool)"
+          />
+          <StatCard
+            label="Mobs killed"
+            value={String(stats.mapMobsKilled)}
+            title="Monsters killed on this map — resets when stage changes"
+          />
+          <StatCard
+            label="Damage"
+            value={fmtCompact(stats.mapDamage)}
+            title="Damage dealt on this map — resets when stage changes"
+          />
         </section>
       ) : null}
 

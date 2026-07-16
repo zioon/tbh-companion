@@ -33,7 +33,8 @@ export class DpsTracker {
 
   /** Pending beginMap() call — delays the per-map reset so the UI can show the
    *  final damage value for a few seconds before it zeroes out. */
-  private _pendingMapReset: { delayUntil: number; damageBase: number; killsBase: number } | null = null;
+  private _pendingMapReset: { delayUntil: number; damageBase: number; killsBase: number } | null =
+    null;
   private static readonly MAP_RESET_DELAY_SECONDS = 3;
 
   // Aggregated HP from the last tick
@@ -147,7 +148,7 @@ export class DpsTracker {
     this._wavesCleared = 0;
     this._wasAlive = false;
     this._pendingMapReset = {
-      delayUntil: (Date.now() / 1000) + DpsTracker.MAP_RESET_DELAY_SECONDS,
+      delayUntil: Date.now() / 1000 + DpsTracker.MAP_RESET_DELAY_SECONDS,
       damageBase: this.sessionDamage,
       killsBase: this.sessionMobsKilled,
     };

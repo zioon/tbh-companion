@@ -141,7 +141,6 @@ export function LiveMemoryDiagnostics() {
             label="Pets count"
             value={snapshot?.petData != null ? String(snapshot.petData.length) : "—"}
           />
-
         </section>
 
         {stats ? (
@@ -162,28 +161,22 @@ export function LiveMemoryDiagnostics() {
             </p>
             <StatHealth
               label="Monster HP"
-              value={snapshot?.monsterHp != null ? (snapshot.monsterHp.length > 0 ? snapshot.monsterHp.length : 0) : null}
+              value={
+                snapshot?.monsterHp != null
+                  ? snapshot.monsterHp.length > 0
+                    ? snapshot.monsterHp.length
+                    : 0
+                  : null
+              }
             />
             <Row
               label="Alive monsters"
               value={snapshot?.monsterHp != null ? String(snapshot.monsterHp.length) : "—"}
             />
-            <Row
-              label="Mobs killed (map)"
-              value={String(stats.mapMobsKilled)}
-            />
-            <Row
-              label="Damage (map)"
-              value={fmtCompact(stats.mapDamage)}
-            />
-            <Row
-              label="Mobs killed (session)"
-              value={String(stats.sessionMobsKilled)}
-            />
-            <Row
-              label="Damage (session)"
-              value={fmtCompact(stats.sessionDamage)}
-            />
+            <Row label="Mobs killed (map)" value={String(stats.mapMobsKilled)} />
+            <Row label="Damage (map)" value={fmtCompact(stats.mapDamage)} />
+            <Row label="Mobs killed (session)" value={String(stats.sessionMobsKilled)} />
+            <Row label="Damage (session)" value={fmtCompact(stats.sessionDamage)} />
             <Row label="DPS (5s window)" value={String(stats.dps.toFixed(1))} />
           </section>
         ) : null}

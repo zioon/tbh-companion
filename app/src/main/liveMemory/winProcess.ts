@@ -378,11 +378,7 @@ export class WinProcess implements MemoryReader {
 export { MEM_COMMIT };
 
 /** Scan readable memory regions for a byte pattern. Returns addresses where the pattern starts. */
-export function scanBytes(
-  proc: WinProcess,
-  pattern: Buffer,
-  maxMatches = 200,
-): bigint[] {
+export function scanBytes(proc: WinProcess, pattern: Buffer, maxMatches = 200): bigint[] {
   const results: bigint[] = [];
   for (const region of proc.readableRegions()) {
     if (results.length >= maxMatches) break;
@@ -409,11 +405,7 @@ export function scanBytes(
 }
 
 /** Scan readable memory for 8-aligned pointers to a target address. */
-export function scanPointers(
-  proc: WinProcess,
-  target: bigint,
-  maxMatches = 4000,
-): bigint[] {
+export function scanPointers(proc: WinProcess, target: bigint, maxMatches = 4000): bigint[] {
   const needle = Buffer.alloc(8);
   needle.writeBigUInt64LE(target);
   const raw = scanBytes(proc, needle, maxMatches);
@@ -423,10 +415,7 @@ export function scanPointers(
 
 /** Resolve an Il2Cpp class by its real name string (meter's 3-pass approach).
  *  Returns the Il2CppClass* pointer or null if not found. */
-export function resolveClassByName(
-  proc: WinProcess,
-  className: string,
-): bigint | null {
+export function resolveClassByName(proc: WinProcess, className: string): bigint | null {
   const IL2CPP_CLASS_NAME_OFFSET = 0x10n;
 
   // Pass 1: find the name string in memory

@@ -8,10 +8,7 @@ import type { NotificationSoundPayload } from "../../../shared/types";
  * hidden windows so a backgrounded main window (mini mode) doesn't accumulate
  * heap from 25 Hz snapshot processing it will never display.
  */
-const HIGH_FREQ_CHANNELS = new Set<string>([
-  IPC.LIVE_MEMORY,
-  IPC.STATS,
-]);
+const HIGH_FREQ_CHANNELS = new Set<string>([IPC.LIVE_MEMORY, IPC.STATS]);
 
 /** Send a channel payload to every live, visible renderer window. */
 export function broadcast(channel: string, payload: unknown): void {
