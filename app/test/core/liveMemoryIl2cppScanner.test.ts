@@ -559,6 +559,34 @@ describe("findLogManager", () => {
     // Fields are still resolved from the class metadata
     expect(result?.boxOpenLog).toEqual({ itemStringKey: 0x18, itemGradeType: 0x1c });
   });
+
+  it("resolves boxOpenLog fields from the live instance even when BoxOpenLog is absent from the index", () => {
+    // Regression for v1.00.28: BoxOpenLog is not static-reachable, so the class
+    // never enters the entries index. findLogManager must still resolve field
+    // offsets by reading the class metadata of a live BoxOpenLog object captured
+    // during the dict walk. Without this, boxOpenLog.fields stays at {0x0,0x0}
+    // and the loot tracker never reads item keys.
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "GetBoxLog",
+      monsterTypes: [0, 1],
+      boxOpen: { key: 5 },
+    });
+    // seedLogManager already seeds the BoxOpenLog class metadata (name + class
+    // header) at 0x7ff4c0000n and an instance at 0x7ff4d0000n pointing at it.
+    // Add the fields to that class.
+    const boClass = 0x7ff4c0000n;
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+    // Note: NO boEntry is added to the index — entries only has the LogManager
+    // wrapper. The instance-pointer path must carry the field resolution.
+    const result = findLogManager(new ScanContext(m), [e]);
+    expect(result).not.toBeNull();
+    expect(result!.boxOpenTypeKey).toBe(5);
+    expect(result!.boxOpenLog).toEqual({ itemStringKey: 0x18, itemGradeType: 0x1c });
+  });
 });
 
 // ── findBoxOpenLogFields ─────────────────────────────────────────────────────
@@ -609,6 +637,80 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
       itemStringKey: 0x20,
       itemGradeType: 0x24,
+    });
+  });
+
+  it("resolves fields from a live instance ptr even when the class is absent from the index", () => {
+    // Regression for v1.00.28: BoxOpenLog class is not static-reachable, so it
+    // never appears in the entries index. Field offsets must be read directly
+    // from the live object's IL2CPP class header.
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const boInstance = 0x7ff510000n;
+    // Seed the class metadata (name + fields) but do NOT add it to `entries`.
+    seedClass(m, boClass, "BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+    seedInstance(m, boInstance, boClass);
+    // entries contains only an unrelated class — named search would return 0.
+    const unrelated = entry(m, 0x7ff520000n, 0x9000n, "SomethingElse");
+    expect(findBoxOpenLogFields(new ScanContext(m), [unrelated], boInstance)).toEqual({
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+    });
+  });
+
+  it("resolves fields from a live instance with a namespace-prefixed class name", () => {
+    // The instance-pointer path does not match class names; it reads the field
+    // map straight from the object's class. So `vb.BoxOpenLog` works even when
+    // the entries index is empty.
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const boInstance = 0x7ff510000n;
+    seedClass(m, boClass, "vb.BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x20 },
+      { name: "itemGradeType", offset: 0x24 },
+    ]);
+    seedInstance(m, boInstance, boClass);
+    expect(findBoxOpenLogFields(new ScanContext(m), [], boInstance)).toEqual({
+      itemStringKey: 0x20,
+      itemGradeType: 0x24,
+    });
+  });
+
+  it("falls back to named search when instancePtr is null", () => {
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const e = entry(m, boClass, 0x9000n, "BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+    // No instancePtr — must use the named-index path.
+    expect(findBoxOpenLogFields(new ScanContext(m), [e], null)).toEqual({
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+    });
+  });
+
+  it("fills gaps from the named index when the instance resolves only one field", () => {
+    // Instance class has itemStringKey but not itemGradeType; the named index
+    // has a BoxOpenLog entry with itemGradeType. The merger should combine them.
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const boInstance = 0x7ff510000n;
+    seedClass(m, boClass, "BoxOpenLog");
+    seedFields(m, boClass, [{ name: "itemStringKey", offset: 0x18 }]);
+    seedInstance(m, boInstance, boClass);
+    const indexedClass = 0x7ff520000n;
+    const e = entry(m, indexedClass, 0x9000n, "BoxOpenLog");
+    seedFields(m, indexedClass, [{ name: "itemGradeType", offset: 0x1c }]);
+    expect(findBoxOpenLogFields(new ScanContext(m), [e], boInstance)).toEqual({
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
     });
   });
 });
