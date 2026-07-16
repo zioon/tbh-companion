@@ -783,11 +783,17 @@ export function readRuntimeBoxOpenLog(
       status: "typeInfoRva.logManager RVA = 0 (offset not derived for this game version)",
     };
   }
-  if (o.runtime.log.getItemWithBoxOpenTypeKey === 0) {
+  if (!o.runtime.log.getItemWithBoxOpenTypeKey) {
     return {
       opens: null,
       status:
         "getItemWithBoxOpenTypeKey = 0 (ELogType.GetItemWithBoxOpen not derived for this game version)",
+    };
+  }
+  if (!o.runtime.boxOpenLog?.itemStringKey) {
+    return {
+      opens: null,
+      status: "boxOpenLog.itemStringKey = 0 (struct offsets not derived for this game version)",
     };
   }
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
@@ -816,11 +822,11 @@ export function readRuntimeBoxOpenLog(
     if (itemKey == null || itemKey <= 0) continue;
 
     const entry: BoxOpenEntry = { itemKey };
-    if (o.runtime.boxOpenLog.boxType !== 0) {
+    if (o.runtime.boxOpenLog.boxType) {
       const boxType = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.boxType));
       if (boxType != null) entry.boxType = boxType;
     }
-    if (o.runtime.boxOpenLog.level !== 0) {
+    if (o.runtime.boxOpenLog.level) {
       const level = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.level));
       if (level != null && level > 0) entry.level = level;
     }
