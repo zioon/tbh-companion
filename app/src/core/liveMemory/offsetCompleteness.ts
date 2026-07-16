@@ -42,6 +42,7 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   { path: "inventoryItem.itemKey", get: (o) => o.inventoryItem.itemKey },
   { path: "inventoryItem.isChaotic", get: (o) => o.inventoryItem.isChaotic },
   { path: "runtime.log.stageClearTypeKey", get: (o) => o.runtime.log.stageClearTypeKey },
+  { path: "runtime.log.getItemWithBoxOpenTypeKey", get: (o) => o.runtime.log.getItemWithBoxOpenTypeKey },
   { path: "runtime.stageClearLog.clearTimeSec", get: (o) => o.runtime.stageClearLog.clearTimeSec },
   // BoxOpenLog struct fields — class-metadata-derived (real ES3 field names).
   // boxType/level are intentionally excluded: obfuscated field names mean the

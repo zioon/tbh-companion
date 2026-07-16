@@ -22,6 +22,7 @@ const COMPLETE: LiveOffsets = {
   },
   runtime: {
     ...INCOMPLETE.runtime,
+    log: { ...INCOMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 42 },
     monster: { ...INCOMPLETE.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
     boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
   },
@@ -36,6 +37,7 @@ const DERIVED: LiveOffsets = {
   },
   runtime: {
     ...INCOMPLETE.runtime,
+    log: { ...INCOMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 42 },
     monster: { ...INCOMPLETE.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
     boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
   },
@@ -71,6 +73,7 @@ vi.mock("../../src/main/liveMemory/offsetHealing", () => ({
     stubs.recordCalls += 1;
   },
   extractionAttempts: () => (stubs.mayAttempt ? 0 : 3),
+  MAX_EXTRACTION_ATTEMPTS: 3,
 }));
 
 vi.mock("node:fs", () => ({
@@ -143,8 +146,17 @@ describe("LiveMemoryReader self-healing resolution", () => {
     expect(reader.supported).toBe(true);
   });
 
-  it("records an attempt before extracting", async () => {
+  it("does not record an attempt when supported (enrichment bypass)", async () => {
     stubs.cached = INCOMPLETE;
+    stubs.extracted = DERIVED;
+    await attachFresh();
+    // INCOMPLETE is supported (critical offsets present), so extraction runs
+    // with budget bypassed — no attempt is recorded.
+    expect(stubs.recordCalls).toBe(0);
+  });
+
+  it("records an attempt when not supported (no cached base)", async () => {
+    stubs.cached = null;
     stubs.extracted = DERIVED;
     await attachFresh();
     expect(stubs.recordCalls).toBe(1);
@@ -161,13 +173,13 @@ describe("LiveMemoryReader self-healing resolution", () => {
     expect(stubs.saved?.runtime.heroList).toBe(INCOMPLETE.runtime.heroList);
   });
 
-  it("skips extraction when the attempt budget is exhausted", async () => {
+  it("still runs extraction when supported but budget exhausted (enrichment bypass)", async () => {
     stubs.cached = INCOMPLETE;
     stubs.mayAttempt = false;
+    stubs.extracted = DERIVED;
     const reader = await attachFresh();
-    expect(stubs.extractCalls).toBe(0);
-    expect(stubs.saved).toBeNull();
-    // Still supported: the critical fields are present even without enrichment.
+    expect(stubs.extractCalls).toBe(1); // runs despite budget
+    expect(stubs.recordCalls).toBe(0); // not counted
     expect(reader.supported).toBe(true);
   });
 

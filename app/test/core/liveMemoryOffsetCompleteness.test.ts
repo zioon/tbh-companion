@@ -30,6 +30,7 @@ function withAllEnrichment(o: LiveOffsets): LiveOffsets {
     ...withLM,
     runtime: {
       ...withLM.runtime,
+      log: { ...withLM.runtime.log, getItemWithBoxOpenTypeKey: 42 },
       boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
     },
   };
@@ -40,6 +41,7 @@ describe("missingOffsetFields", () => {
     expect(missingOffsetFields(BASE, "full")).toEqual([
       "typeInfoRva.logManager",
       "typeInfoRva.monsterSpawnManager",
+      "runtime.log.getItemWithBoxOpenTypeKey",
       "runtime.boxOpenLog.itemStringKey",
       "runtime.boxOpenLog.itemGradeType",
     ]);
@@ -78,6 +80,7 @@ describe("missingOffsetFields", () => {
         "player.petSaveDatas",
         "runtime.boxOpenLog.itemGradeType",
         "runtime.boxOpenLog.itemStringKey",
+        "runtime.log.getItemWithBoxOpenTypeKey",
         "runtime.log.stageClearTypeKey",
         "runtime.stageClearLog.clearTimeSec",
         "typeInfoRva.commonSaveData",
