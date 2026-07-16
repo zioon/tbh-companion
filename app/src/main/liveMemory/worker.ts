@@ -82,27 +82,40 @@ function maybeHealUnsupported(): void {
 }
 
 function loop(): void {
-  if (!reader) {
-    postStatusIfChanged();
-    schedule(POLL_DETACHED_MS);
-    return;
-  }
-  if (!reader.attached) {
-    reader.attach();
-    postStatusIfChanged();
-  } else {
-    maybeHealUnsupported();
-  }
-  if (reader.attached && reader.supported) {
-    const snap = reader.read();
-    postStatusIfChanged();
-    if (snap) {
-      post({ type: "snapshot", snapshot: snap });
-      schedule(POLL_ATTACHED_MS);
+  try {
+    if (!reader) {
+      postStatusIfChanged();
+      schedule(POLL_DETACHED_MS);
       return;
     }
+    if (!reader.attached) {
+      reader.attach();
+      postStatusIfChanged();
+    } else {
+      maybeHealUnsupported();
+    }
+    if (reader.attached && reader.supported) {
+      const snap = reader.read();
+      postStatusIfChanged();
+      if (snap) {
+        post({ type: "snapshot", snapshot: snap });
+        schedule(POLL_ATTACHED_MS);
+        return;
+      }
+    }
+    schedule(reader.attached ? POLL_ATTACHED_MS : POLL_DETACHED_MS);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    post({ type: "log", message: `loop error: ${msg}` });
+    // If the reader is in a bad state, detach and retry attach on the next tick.
+    try {
+      reader?.detach();
+    } catch {
+      // ignore detach errors
+    }
+    postStatusIfChanged();
+    schedule(POLL_DETACHED_MS);
   }
-  schedule(reader.attached ? POLL_ATTACHED_MS : POLL_DETACHED_MS);
 }
 
 parentPort?.on("message", (msg) => {
@@ -113,6 +126,16 @@ parentPort?.on("message", (msg) => {
     }
     reader?.detach();
   }
+});
+
+// Global handlers — log the error and exit gracefully instead of crashing silently.
+process.on("uncaughtException", (err) => {
+  const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+  post({ type: "log", message: `uncaughtException: ${msg}` });
+});
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? `${reason.message}\n${reason.stack ?? ""}` : String(reason);
+  post({ type: "log", message: `unhandledRejection: ${msg}` });
 });
 
 postStatusIfChanged();

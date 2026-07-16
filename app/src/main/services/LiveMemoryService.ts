@@ -44,7 +44,7 @@ export class LiveMemoryService {
     try {
       this.child = utilityProcess.fork(workerPath, [], {
         serviceName: "tbh-live-memory",
-        stdio: "ignore",
+        stdio: "pipe",
         env: { ...process.env, [LIVE_MEMORY_USER_DATA_ENV]: resolveUserDataDir() },
       });
     } catch (err) {
@@ -89,8 +89,19 @@ export class LiveMemoryService {
       }
     });
 
+    // Capture stderr so worker crashes are diagnosable instead of silent exit(1).
+    const stderrChunks: string[] = [];
+    this.child.stderr?.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stderrChunks.push(text);
+      log.warn(`[worker stderr] ${text.trimEnd()}`);
+    });
+
     this.child.on("exit", (code) => {
-      log.warn(`Live-memory worker exited (code ${code}).`);
+      const stderr = stderrChunks.join("").trim();
+      log.warn(
+        `Live-memory worker exited (code ${code}).${stderr ? `\n  stderr: ${stderr}` : ""}`,
+      );
       const crashed: LiveMemoryStatus = {
         running: false,
         attached: false,
