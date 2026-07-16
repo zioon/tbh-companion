@@ -146,7 +146,10 @@ export function Overlay() {
           <p className="m-0 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] tabular-nums text-muted">
             {stats.chestDrops.lastDropWallTime != null && (
               <span>
-                Box {fmtShortDuration(Math.round(Date.now() / 1000 - stats.chestDrops.lastDropWallTime))}
+                Box{" "}
+                {fmtShortDuration(
+                  Math.round(Date.now() / 1000 - stats.chestDrops.lastDropWallTime),
+                )}
               </span>
             )}
             {stats.chestDrops.lastDropWallTime != null && (
@@ -157,7 +160,9 @@ export function Overlay() {
             <span>
               {stageName(stats.stageKey)}
               {stats.stageWaveTotal > 0 && (
-                <span className="ml-0.5 opacity-70">({stats.stageWave}/{stats.stageWaveTotal})</span>
+                <span className="ml-0.5 opacity-70">
+                  ({stats.stageWave}/{stats.stageWaveTotal})
+                </span>
               )}
             </span>
             {inv && (

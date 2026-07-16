@@ -4,11 +4,18 @@ import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
 import { ChestDropTracker } from "../../core/chestDropTracker";
+import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
+import { resolveBoxKey } from "../../core/boxOpenLog";
+import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
+import { marketHashName } from "../../core/marketName";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import type {
   AppConfig,
+  BoxOpenEntry,
   InventorySnapshot,
   LiveMemorySnapshot,
+  LookupPriceSnapshot,
+  ResolvedInventory,
   SaveSnapshot,
 } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
@@ -25,6 +32,7 @@ const LIVE_BROADCAST_INTERVAL_MS = 200;
 export class TrackingService {
   private tracker!: XpTracker;
   private chestDropTracker!: ChestDropTracker;
+  private boxOpenTracker!: BoxOpenTracker;
   private dpsTracker!: DpsTracker;
   private watcher: SaveWatcher | null = null;
   private tickTimer: NodeJS.Timeout | null = null;
@@ -49,6 +57,12 @@ export class TrackingService {
   private restoreApplied = false;
   private readonly onInventory: (snap: InventorySnapshot) => void;
   private readonly parseInventorySnapshot?: (text: string, mtime: number) => InventorySnapshot;
+  /** GameData index for resolving box-open item names/grades; set by appState. */
+  private gameDataLookup: Map<number, GameItem> | null = null;
+  /** Latest resolved inventory snapshot for buy-order price resolution. */
+  private inventorySnapshot: ResolvedInventory | null = null;
+  /** Latest lookup-price snapshot for fallback price resolution. */
+  private lookupPriceSnapshot: LookupPriceSnapshot | null = null;
 
   constructor(
     onInventory: (snap: InventorySnapshot) => void,
@@ -75,6 +89,7 @@ export class TrackingService {
     this.config = config;
     this.tracker = new XpTracker(config.rollingWindowMinutes * 60);
     this.chestDropTracker = new ChestDropTracker();
+    this.boxOpenTracker = new BoxOpenTracker();
     this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
     this.lastLiveStage = null;
@@ -93,6 +108,7 @@ export class TrackingService {
     this.sessionState?.startAutosave(() => ({
       tracker: this.tracker,
       chestDropTracker: this.chestDropTracker,
+      boxOpenTracker: this.boxOpenTracker,
       lastSnap: this.lastSnap,
       config: this.config,
     }));
@@ -115,22 +131,26 @@ export class TrackingService {
     return buildStats(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.dpsTracker,
       this.lastSnap,
       this.lastError,
       this.sessionState?.getStatusOverride() ?? null,
       this.lastLiveFrame,
+      this.buildBoxOpenPriceResolver(),
     );
   }
 
   reset(): void {
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.config,
       this.lastSnap,
     );
@@ -138,7 +158,13 @@ export class TrackingService {
   }
 
   flushSession(): void {
-    this.sessionState?.flush(this.tracker, this.chestDropTracker, this.lastSnap, this.config);
+    this.sessionState?.flush(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.lastSnap,
+      this.config,
+    );
   }
 
   getTracker(): XpTracker {
@@ -151,6 +177,99 @@ export class TrackingService {
 
   updateConfig(config: AppConfig): void {
     this.config = config;
+  }
+
+  /** Provide the GameData index for box-open item name/grade resolution. */
+  setGameDataLookup(lookup: Map<number, GameItem>): void {
+    this.gameDataLookup = lookup;
+  }
+
+  /** Provide the latest resolved inventory for buy-order price resolution. */
+  setInventorySnapshot(snap: ResolvedInventory | null): void {
+    this.inventorySnapshot = snap;
+  }
+
+  /** Provide the latest lookup-price snapshot for fallback price resolution. */
+  setLookupPriceSnapshot(snap: LookupPriceSnapshot | null): void {
+    this.lookupPriceSnapshot = snap;
+  }
+
+  getBoxOpenTracker(): BoxOpenTracker {
+    return this.boxOpenTracker;
+  }
+
+  resetLootBox(boxKey: string): void {
+    this.boxOpenTracker.resetBox(boxKey);
+    this.sessionState?.flush(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.lastSnap,
+      this.config,
+    );
+    this.pushStats();
+  }
+
+  resetLootAll(): void {
+    this.boxOpenTracker.resetAll();
+    this.sessionState?.flush(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.lastSnap,
+      this.config,
+    );
+    this.pushStats();
+  }
+
+  /**
+   * Resolve a raw BoxOpenEntry into a tracker record: derive boxKey from
+   * boxType/level, look up item name/grade from gamedata. Returns null when
+   * the boxType is unknown or the item can't be resolved.
+   */
+  private resolveBoxOpenEntry(entry: BoxOpenEntry): {
+    boxKey: string;
+    itemKey: number;
+    name: string;
+    grade: string | null;
+  } | null {
+    const boxKey = resolveBoxKey(entry.boxType, entry.level);
+    if (boxKey == null) return null;
+
+    const catalogId = catalogItemKeyFromSave(entry.itemKey);
+    const item = this.gameDataLookup?.get(catalogId);
+    const name = item?.name ?? `#${entry.itemKey}`;
+    const grade = item?.grade ?? null;
+    return { boxKey, itemKey: catalogId, name, grade };
+  }
+
+  /**
+   * Build the price resolver for box-open stats: inventory buy-order first,
+   * lookup-price snapshot (lowest ask) as fallback for consumed items.
+   */
+  private buildBoxOpenPriceResolver(): BoxOpenPriceResolver {
+    return (itemKey: number) => {
+      // 1. Inventory buy-order (precise instant-sell).
+      if (this.inventorySnapshot) {
+        const invRow = this.inventorySnapshot.rows.find((r) => r.itemKey === itemKey);
+        if (invRow?.buyOrderUnit != null) {
+          return { buyOrderUnit: invRow.buyOrderUnit };
+        }
+      }
+      // 2. Lookup-price snapshot (lowest ask as proxy).
+      if (this.lookupPriceSnapshot && this.gameDataLookup) {
+        const catalogId = catalogItemKeyFromSave(itemKey);
+        const item = this.gameDataLookup.get(catalogId);
+        if (item) {
+          const hash = marketHashName(item);
+          if (hash) {
+            const usd = this.lookupPriceSnapshot.prices[hash] ?? null;
+            if (usd != null) return { buyOrderUnit: usd };
+          }
+        }
+      }
+      return null;
+    };
   }
 
   restartWatcher(): void {
@@ -171,10 +290,17 @@ export class TrackingService {
     this.sessionState?.invalidatePending();
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.notifyNewSession();
-    this.sessionState?.onTrackerReset(this.tracker, this.chestDropTracker, this.config, null);
+    this.sessionState?.onTrackerReset(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.config,
+      null,
+    );
     this.pushStats();
   }
 
@@ -186,6 +312,7 @@ export class TrackingService {
     this.lastLiveFrame = null;
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     if (this.lastSnap) {
@@ -195,6 +322,7 @@ export class TrackingService {
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
+      this.boxOpenTracker,
       this.config,
       this.lastSnap,
     );
@@ -283,6 +411,23 @@ export class TrackingService {
       }
     }
 
+    // Box-open outcomes: each entry is one opened chest producing one item.
+    if (snap.boxOpens && snap.boxOpens.length > 0) {
+      for (const entry of snap.boxOpens) {
+        const resolved = this.resolveBoxOpenEntry(entry);
+        if (resolved) {
+          this.boxOpenTracker.recordOpen(
+            resolved.boxKey,
+            resolved.itemKey,
+            resolved.name,
+            resolved.grade,
+            1,
+            snap.at / 1000,
+          );
+        }
+      }
+    }
+
     // Tracker ingestion above stays at full ~25 Hz for accurate rate sampling;
     // only the renderer broadcast is throttled to cut re-render/IPC pressure.
     const now = Date.now();
@@ -310,7 +455,12 @@ export class TrackingService {
         this.lastSnap = snap;
         this.lastError = null;
         if (!this.restoreApplied && this.sessionState) {
-          this.sessionState.tryRestoreOnSnapshot(this.tracker, this.chestDropTracker, snap);
+          this.sessionState.tryRestoreOnSnapshot(
+            this.tracker,
+            this.chestDropTracker,
+            this.boxOpenTracker,
+            snap,
+          );
           this.restoreApplied = true;
         }
         this.tracker.update(snap);

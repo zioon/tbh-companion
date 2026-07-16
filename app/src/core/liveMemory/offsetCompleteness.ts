@@ -43,6 +43,12 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   { path: "inventoryItem.isChaotic", get: (o) => o.inventoryItem.isChaotic },
   { path: "runtime.log.stageClearTypeKey", get: (o) => o.runtime.log.stageClearTypeKey },
   { path: "runtime.stageClearLog.clearTimeSec", get: (o) => o.runtime.stageClearLog.clearTimeSec },
+  // BoxOpenLog struct fields — class-metadata-derived (real ES3 field names).
+  // boxType/level are intentionally excluded: obfuscated field names mean the
+  // extractor can never derive them, so listing them would perpetually mark the
+  // table incomplete and trigger fruitless re-extraction.
+  { path: "runtime.boxOpenLog.itemStringKey", get: (o) => o.runtime.boxOpenLog.itemStringKey },
+  { path: "runtime.boxOpenLog.itemGradeType", get: (o) => o.runtime.boxOpenLog.itemGradeType },
 ];
 
 const ALL_FIELDS: readonly FieldCheck[] = [...CRITICAL_FIELDS, ...ENRICHMENT_FIELDS];
@@ -98,7 +104,10 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       ),
       stageManager: pickB(base.typeInfoRva.stageManager, derived.typeInfoRva.stageManager),
       logManager: pickB(base.typeInfoRva.logManager, derived.typeInfoRva.logManager),
-      monsterSpawnManager: pickB(base.typeInfoRva.monsterSpawnManager, derived.typeInfoRva.monsterSpawnManager),
+      monsterSpawnManager: pickB(
+        base.typeInfoRva.monsterSpawnManager,
+        derived.typeInfoRva.monsterSpawnManager,
+      ),
     },
     player: {
       ...base.player,
@@ -132,6 +141,17 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
           derived.runtime.getBoxLog.monsterType,
         ),
       },
+      boxOpenLog: {
+        ...base.runtime.boxOpenLog,
+        itemStringKey: pickN(
+          base.runtime.boxOpenLog.itemStringKey,
+          derived.runtime.boxOpenLog.itemStringKey,
+        ),
+        itemGradeType: pickN(
+          base.runtime.boxOpenLog.itemGradeType,
+          derived.runtime.boxOpenLog.itemGradeType,
+        ),
+      },
       stageClearLog: {
         ...base.runtime.stageClearLog,
         clearTimeSec: pickN(
@@ -140,10 +160,22 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
         ),
       },
       monster: {
-        monsterList: pickN(base.runtime.monster?.monsterList ?? 0, derived.runtime.monster.monsterList),
-        summonedList: pickN(base.runtime.monster?.summonedList ?? 0, derived.runtime.monster.summonedList),
-        deadMonsterList: pickN(base.runtime.monster?.deadMonsterList ?? 0, derived.runtime.monster.deadMonsterList),
-        monsterHealth: pickN(base.runtime.monster?.monsterHealth ?? 0, derived.runtime.monster.monsterHealth),
+        monsterList: pickN(
+          base.runtime.monster?.monsterList ?? 0,
+          derived.runtime.monster.monsterList,
+        ),
+        summonedList: pickN(
+          base.runtime.monster?.summonedList ?? 0,
+          derived.runtime.monster.summonedList,
+        ),
+        deadMonsterList: pickN(
+          base.runtime.monster?.deadMonsterList ?? 0,
+          derived.runtime.monster.deadMonsterList,
+        ),
+        monsterHealth: pickN(
+          base.runtime.monster?.monsterHealth ?? 0,
+          derived.runtime.monster.monsterHealth,
+        ),
         hpCurrent: pickN(base.runtime.monster?.hpCurrent ?? 0, derived.runtime.monster.hpCurrent),
         hpMax: pickN(base.runtime.monster?.hpMax ?? 0, derived.runtime.monster.hpMax),
       },

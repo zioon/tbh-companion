@@ -6,7 +6,12 @@ import { readF32, readI32, readI64, readPtr, readU32, readU64, type MemoryReader
 import { plausibleGold, plausibleStage, plausibleWave, type LiveOffsets } from "./offsets";
 import { readStaticFieldPtr, readStaticFieldsBlock, resolveClassPtr } from "./statics";
 import { STRUCT_CONTAINER } from "./il2cppScanner";
-import type { LiveHeroData, LiveInventoryItem, LivePetData } from "../../../shared/types";
+import type {
+  BoxOpenEntry,
+  LiveHeroData,
+  LiveInventoryItem,
+  LivePetData,
+} from "../../../shared/types";
 
 export interface RuntimeStage {
   stageKey: number | null;
@@ -187,8 +192,12 @@ export function readRuntimeCombatGold(
 
   // CommonSaveData -> player -> aggregateSaveDatas
   const playerPtr = readStaticFieldPtr(
-    reader, gaBase, gaSize, o.typeInfoRva.commonSaveData,
-    o.player.commonSaveData, candidates,
+    reader,
+    gaBase,
+    gaSize,
+    o.typeInfoRva.commonSaveData,
+    o.player.commonSaveData,
+    candidates,
   );
   if (playerPtr == null) return null;
 
@@ -218,7 +227,7 @@ export function readRuntimeCombatGold(
     const value = readI64(reader, entryPtr + 0x18n);
     if (value == null) return null;
     const v = Number(value);
-    return (plausibleGold(v) && v > 0) ? v : null;
+    return plausibleGold(v) && v > 0 ? v : null;
   }
   return null;
 }
@@ -308,17 +317,26 @@ function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): ReadHer
   // HeroList is Hero[] (direct IL2CPP array): length at +listSize, elements at +arrayFirst.
   const count = readI32(reader, heroListPtr + BigInt(o.container.listSize));
   if (count == null) {
-    return { heroes: null, status: "HeroList count unreadable (container.listSize offset suspect)" };
+    return {
+      heroes: null,
+      status: "HeroList count unreadable (container.listSize offset suspect)",
+    };
   }
   if (count <= 0) {
-    return { heroes: null, status: "party empty (in menu/lobby — StageManager live but no party deployed)" };
+    return {
+      heroes: null,
+      status: "party empty (in menu/lobby — StageManager live but no party deployed)",
+    };
   }
   if (count > MAX_HEROES) {
-    return { heroes: null, status: `count=${count} exceeds MAX_HEROES (container.listSize offset suspect)` };
+    return {
+      heroes: null,
+      status: `count=${count} exceeds MAX_HEROES (container.listSize offset suspect)`,
+    };
   }
 
   // Detect exp field type: 8-byte gap → ObscuredDouble (v1.00.27+), 4-byte → ObscuredFloat (pre-1.00.27)
-  const expIsDouble = (o.heroRuntime.expKey - o.heroRuntime.expHidden) >= 8;
+  const expIsDouble = o.heroRuntime.expKey - o.heroRuntime.expHidden >= 8;
 
   const heroes: LiveHeroData[] = [];
   let filtered = 0;
@@ -326,16 +344,28 @@ function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): ReadHer
 
   for (let i = 0; i < count; i++) {
     const heroPtr = readPtr(reader, first + BigInt(i * 8));
-    if (heroPtr == null) { filtered++; continue; }
+    if (heroPtr == null) {
+      filtered++;
+      continue;
+    }
 
     const runtimePtr = readPtr(reader, heroPtr + BigInt(o.unit.cache));
-    if (runtimePtr == null) { filtered++; continue; }
+    if (runtimePtr == null) {
+      filtered++;
+      continue;
+    }
 
     const infoPtr = readPtr(reader, runtimePtr + BigInt(o.heroRuntime.info));
-    if (infoPtr == null) { filtered++; continue; }
+    if (infoPtr == null) {
+      filtered++;
+      continue;
+    }
 
     const heroKey = readI32(reader, infoPtr + BigInt(o.heroInfoData.heroKey));
-    if (heroKey == null || heroKey <= 0 || heroKey >= 10_000_000) { filtered++; continue; }
+    if (heroKey == null || heroKey <= 0 || heroKey >= 10_000_000) {
+      filtered++;
+      continue;
+    }
 
     const level = decodeObscuredInt(
       readU32(reader, runtimePtr + BigInt(o.heroRuntime.levelHidden)),
@@ -382,7 +412,8 @@ export function readRuntimeHeroes(
   o: LiveOffsets,
   smPtr: bigint | null,
 ): ReadHeroesResult {
-  if (smPtr == null) return { heroes: null, status: "StageManager unresolved (in menu or scene transition)" };
+  if (smPtr == null)
+    return { heroes: null, status: "StageManager unresolved (in menu or scene transition)" };
   return readParty(reader, smPtr, o);
 }
 
@@ -439,7 +470,8 @@ export function resolveStageManager(
     o.il2cppClass.staticFieldsOffsets,
   );
   if (block == null) {
-    pin.lastStatus = "StageManager static-fields block unreadable (typeInfoRva.stageManager suspect or staticFieldsOffsets mismatch)";
+    pin.lastStatus =
+      "StageManager static-fields block unreadable (typeInfoRva.stageManager suspect or staticFieldsOffsets mismatch)";
     return null;
   }
 
@@ -454,9 +486,10 @@ export function resolveStageManager(
       return cand;
     }
   }
-  pin.lastStatus = scanned === 0
-    ? "StageManager static block scan: no plausible pointers found"
-    : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect)`;
+  pin.lastStatus =
+    scanned === 0
+      ? "StageManager static block scan: no plausible pointers found"
+      : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect)`;
   return null;
 }
 
@@ -581,15 +614,25 @@ export function readRuntimeChestLog(
   pin: ChestLogPinState,
 ): ReadChestLogResult {
   if (o.typeInfoRva.logManager === 0n) {
-    return { drops: null, status: "typeInfoRva.logManager RVA = 0 (offset not derived for this game version)" };
+    return {
+      drops: null,
+      status: "typeInfoRva.logManager RVA = 0 (offset not derived for this game version)",
+    };
   }
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
   if (lmPtr == null) {
-    return { drops: null, status: "LogManager singleton unresolved (static block scan failed — runtime.log offsets suspect or no battle yet)" };
+    return {
+      drops: null,
+      status:
+        "LogManager singleton unresolved (static block scan failed — runtime.log offsets suspect or no battle yet)",
+    };
   }
   const list = getBoxLogList(reader, lmPtr, o);
   if (list == null) {
-    return { drops: null, status: "GetBox log list not walkable (runtime.log.logByType dict lookup failed)" };
+    return {
+      drops: null,
+      status: "GetBox log list not walkable (runtime.log.logByType dict lookup failed)",
+    };
   }
 
   const { arr, count } = list;
@@ -687,6 +730,106 @@ export function readRuntimeStageClears(
   return clears;
 }
 
+// ── Live box opens (LogManager → Dictionary<ELogType, List<BoxOpenLog>>) ─────
+
+/** Per-reader pin for the BoxOpenLog tail. Same shape as chest/stage-clear pins. */
+export type BoxOpenPinState = ChestLogPinState;
+
+export function makeBoxOpenPinState(): BoxOpenPinState {
+  return { ptr: null, lastCount: 0, primed: false };
+}
+
+const MAX_BOX_OPEN_LOG = 5_000;
+
+/** Resolve the GetItemWithBoxOpen List<BoxOpenLog> backing array + length. */
+function boxOpenLogList(
+  reader: MemoryReader,
+  lmPtr: bigint,
+  o: LiveOffsets,
+): { arr: bigint; count: number } | null {
+  const dictPtr = readPtr(reader, lmPtr + BigInt(o.runtime.log.logByType));
+  if (dictPtr == null) return null;
+  const listPtr = dictLookupIntKey(reader, dictPtr, o.runtime.log.getItemWithBoxOpenTypeKey, o);
+  if (listPtr == null) return null;
+  const arr = readPtr(reader, listPtr + BigInt(o.container.listItems));
+  if (arr == null) return null;
+  const count = readI32(reader, listPtr + BigInt(o.container.listSize));
+  if (count == null || count < 0 || count > MAX_BOX_OPEN_LOG) return null;
+  return { arr, count };
+}
+
+export interface ReadBoxOpenLogResult {
+  opens: BoxOpenEntry[] | null;
+  status: string;
+}
+
+/**
+ * Box opens added to the GetItemWithBoxOpen log since the last read. Tails the
+ * log by index the same way {@link readRuntimeChestLog} tails GetBox: primes
+ * to the current length on first read (backlog not counted) and returns `[]`;
+ * restarts from 0 if the log shrinks. Returns null when the LogManager can't
+ * be resolved or the `getItemWithBoxOpenTypeKey` offset is not derived (0).
+ */
+export function readRuntimeBoxOpenLog(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: BoxOpenPinState,
+): ReadBoxOpenLogResult {
+  if (o.typeInfoRva.logManager === 0n) {
+    return {
+      opens: null,
+      status: "typeInfoRva.logManager RVA = 0 (offset not derived for this game version)",
+    };
+  }
+  if (o.runtime.log.getItemWithBoxOpenTypeKey === 0) {
+    return {
+      opens: null,
+      status:
+        "getItemWithBoxOpenTypeKey = 0 (ELogType.GetItemWithBoxOpen not derived for this game version)",
+    };
+  }
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) {
+    return { opens: null, status: "LogManager singleton unresolved (static block scan failed)" };
+  }
+  const list = boxOpenLogList(reader, lmPtr, o);
+  if (list == null) {
+    return { opens: null, status: "BoxOpenLog list not walkable (dict lookup failed)" };
+  }
+
+  const { arr, count } = list;
+  if (!pin.primed) {
+    pin.lastCount = count;
+    pin.primed = true;
+    return { opens: [], status: "" };
+  }
+
+  const start = count < pin.lastCount ? 0 : pin.lastCount;
+  const opens: BoxOpenEntry[] = [];
+  const first = arr + BigInt(o.container.arrayFirst);
+  for (let i = start; i < count; i++) {
+    const entryPtr = readPtr(reader, first + BigInt(i * 8));
+    if (entryPtr == null) continue;
+    const itemKey = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.itemStringKey));
+    if (itemKey == null || itemKey <= 0) continue;
+
+    const entry: BoxOpenEntry = { itemKey };
+    if (o.runtime.boxOpenLog.boxType !== 0) {
+      const boxType = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.boxType));
+      if (boxType != null) entry.boxType = boxType;
+    }
+    if (o.runtime.boxOpenLog.level !== 0) {
+      const level = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.level));
+      if (level != null && level > 0) entry.level = level;
+    }
+    opens.push(entry);
+  }
+  pin.lastCount = count;
+  return { opens, status: "" };
+}
+
 // ── Inventory (PlayerSaveData.itemSaveDatas → ItemSaveData entries) ───────────
 
 const MAX_INVENTORY_ITEMS = 100_000;
@@ -730,22 +873,36 @@ export function readRuntimeInventory(
     );
   }
   if (playerPtr == null) {
-    return { items: null, status: "PlayerSaveData (CommonSaveData singleton) static field unreadable — typeInfoRva.commonSaveData suspect" };
+    return {
+      items: null,
+      status:
+        "PlayerSaveData (CommonSaveData singleton) static field unreadable — typeInfoRva.commonSaveData suspect",
+    };
   }
 
   const listPtr = readPtr(reader, playerPtr + BigInt(o.player.itemSaveDatas));
   if (listPtr == null) {
-    return { items: null, status: "PlayerSaveData.itemSaveDatas list pointer null (player.itemSaveDatas offset suspect)" };
+    return {
+      items: null,
+      status:
+        "PlayerSaveData.itemSaveDatas list pointer null (player.itemSaveDatas offset suspect)",
+    };
   }
 
   const itemsArrPtr = readPtr(reader, listPtr + BigInt(o.container.listItems));
   if (itemsArrPtr == null) {
-    return { items: null, status: "itemSaveDatas backing array pointer null (container.listItems offset suspect)" };
+    return {
+      items: null,
+      status: "itemSaveDatas backing array pointer null (container.listItems offset suspect)",
+    };
   }
 
   const count = readI32(reader, listPtr + BigInt(o.container.listSize));
   if (count == null) {
-    return { items: null, status: "itemSaveDatas count unreadable (container.listSize offset suspect)" };
+    return {
+      items: null,
+      status: "itemSaveDatas count unreadable (container.listSize offset suspect)",
+    };
   }
   if (count <= 0) {
     return { items: null, status: `itemSaveDatas count = ${count} (empty inventory snapshot)` };
@@ -770,7 +927,10 @@ export function readRuntimeInventory(
   }
 
   if (results.length === 0) {
-    return { items: null, status: `all ${count} inventory entries skipped as invalid (inventoryItem.itemKey offset suspect)` };
+    return {
+      items: null,
+      status: `all ${count} inventory entries skipped as invalid (inventoryItem.itemKey offset suspect)`,
+    };
   }
   return { items: results, status: "" };
 }
@@ -817,22 +977,35 @@ export function readRuntimePets(
     );
   }
   if (playerPtr == null) {
-    return { pets: null, status: "PlayerSaveData (CommonSaveData singleton) static field unreadable — typeInfoRva.commonSaveData suspect" };
+    return {
+      pets: null,
+      status:
+        "PlayerSaveData (CommonSaveData singleton) static field unreadable — typeInfoRva.commonSaveData suspect",
+    };
   }
 
   const petListPtr = readPtr(reader, playerPtr + BigInt(o.player.petSaveDatas));
   if (petListPtr == null) {
-    return { pets: null, status: "PlayerSaveData.petSaveDatas list pointer null (player.petSaveDatas offset suspect)" };
+    return {
+      pets: null,
+      status: "PlayerSaveData.petSaveDatas list pointer null (player.petSaveDatas offset suspect)",
+    };
   }
 
   const itemsArrPtr = readPtr(reader, petListPtr + BigInt(o.container.listItems));
   if (itemsArrPtr == null) {
-    return { pets: null, status: "petSaveDatas backing array pointer null (container.listItems offset suspect)" };
+    return {
+      pets: null,
+      status: "petSaveDatas backing array pointer null (container.listItems offset suspect)",
+    };
   }
 
   const count = readI32(reader, petListPtr + BigInt(o.container.listSize));
   if (count == null) {
-    return { pets: null, status: "petSaveDatas count unreadable (container.listSize offset suspect)" };
+    return {
+      pets: null,
+      status: "petSaveDatas count unreadable (container.listSize offset suspect)",
+    };
   }
   if (count <= 0) {
     return { pets: null, status: `petSaveDatas count = ${count} (empty pet snapshot)` };
@@ -857,7 +1030,10 @@ export function readRuntimePets(
   }
 
   if (results.length === 0) {
-    return { pets: null, status: `all ${count} pet entries skipped as invalid (petSaveData.petKey offset suspect)` };
+    return {
+      pets: null,
+      status: `all ${count} pet entries skipped as invalid (petSaveData.petKey offset suspect)`,
+    };
   }
   return { pets: results, status: "" };
 }
@@ -920,7 +1096,10 @@ function resolveMonsterSpawnManager(
   // Strategy 2: fallback — read static_fields from the MonsterSpawnManager class
   // and scan for a plausible instance pointer (bbwf may be inherited)
   const block = readStaticFieldsBlock(
-    reader, gaBase, gaSize, o.typeInfoRva.monsterSpawnManager,
+    reader,
+    gaBase,
+    gaSize,
+    o.typeInfoRva.monsterSpawnManager,
     o.il2cppClass.staticFieldsOffsets,
   );
   if (block == null) return null;
@@ -941,7 +1120,7 @@ function resolveMonsterSpawnManager(
 /** Check that a candidate MonsterSpawnManager instance has at least one valid monster list.
  *  Reads monsterList@0x28 — must be non-null and point at a valid list with non-zero count. */
 function isValidMonsterManager(reader: MemoryReader, inst: bigint): boolean {
-  const listPtr = readPtr(reader, inst + 0x28n);  // MONSTER_LIST
+  const listPtr = readPtr(reader, inst + 0x28n); // MONSTER_LIST
   if (listPtr == null || listPtr <= 0x10000n || listPtr >= 0x7ff0_0000_0000n) return false;
   // Verify it has a non-empty backing array with sane count
   const arr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
@@ -967,7 +1146,7 @@ function readMonsterHp(
   monsterPtr: bigint,
   o: LiveOffsets,
 ): [number, number] | null {
-  const hcOff = o.runtime.monster.monsterHealth > 0 ? o.runtime.monster.monsterHealth : 0xB0;
+  const hcOff = o.runtime.monster.monsterHealth > 0 ? o.runtime.monster.monsterHealth : 0xb0;
 
   const hc = readPtr(reader, monsterPtr + BigInt(hcOff));
   if (hc == null || hc <= 0x10000n || hc >= 0x7ff0_0000_0000n) return null;
@@ -975,10 +1154,7 @@ function readMonsterHp(
 }
 
 /** Try multiple known HP offset pairs within a controller struct. */
-function probeHealthController(
-  reader: MemoryReader,
-  ctrlPtr: bigint,
-): [number, number] | null {
+function probeHealthController(reader: MemoryReader, ctrlPtr: bigint): [number, number] | null {
   for (const [cOff, mOff] of HC_PROBE_PAIRS) {
     const current = readF32(reader, ctrlPtr + BigInt(cOff));
     const maxHp = readF32(reader, ctrlPtr + BigInt(mOff));
@@ -996,7 +1172,7 @@ function probeHealthController(
 function walkMonsterList(
   reader: MemoryReader,
   listPtr: bigint,
-  out: Array<[number, number, number]>,  // [addr, hpCurrent, hpMax]
+  out: Array<[number, number, number]>, // [addr, hpCurrent, hpMax]
   o: LiveOffsets,
 ): void {
   const arr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
@@ -1016,7 +1192,6 @@ function walkMonsterList(
     }
   }
 }
-
 
 /**
  * Read live monster HP data from MonsterSpawnManager.
@@ -1044,18 +1219,14 @@ export function readRuntimeMonsterHp(
   if (msmPtr == null) return null;
 
   // Use known offsets from tbh-meter: MONSTER_LIST=0x28, SUMMONED_LIST=0x38, DEAD_MONSTER_LIST=0x30
-  const monsterListOff = o.runtime.monster.monsterList > 0
-    ? o.runtime.monster.monsterList
-    : 0x28;
-  const summonedListOff = o.runtime.monster.summonedList > 0
-    ? o.runtime.monster.summonedList
-    : 0x38;
-  const deadListOff = o.runtime.monster.deadMonsterList > 0
-    ? o.runtime.monster.deadMonsterList
-    : 0x30;
+  const monsterListOff = o.runtime.monster.monsterList > 0 ? o.runtime.monster.monsterList : 0x28;
+  const summonedListOff =
+    o.runtime.monster.summonedList > 0 ? o.runtime.monster.summonedList : 0x38;
+  const deadListOff =
+    o.runtime.monster.deadMonsterList > 0 ? o.runtime.monster.deadMonsterList : 0x30;
 
   // Read monsters from monsterList and summonedList
-  const monsterHps: Array<[number, number, number]> = [];  // [addr, hpCurrent, hpMax]
+  const monsterHps: Array<[number, number, number]> = []; // [addr, hpCurrent, hpMax]
 
   const listOffs = [monsterListOff];
   if (summonedListOff > 0) listOffs.push(summonedListOff);

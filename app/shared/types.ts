@@ -92,6 +92,80 @@ export interface ChestDropTrackerSnapshot {
   history: ChestDropHistoryEntry[];
 }
 
+// --- Box open loot tracking ---
+
+/** A single recorded box open (history entry). */
+export interface BoxOpenHistoryEntry {
+  /** Epoch seconds. */
+  wallTime: number;
+  /** "common" | "rare" | "act" | "rare:3" | "common:5" ... */
+  boxKey: string;
+  /** Produced item id (resolved from BoxOpenLog.itemStringKey). */
+  itemKey: number;
+  itemName: string;
+  grade: string | null;
+  /** Typically 1; reserved for batch opens. */
+  count: number;
+}
+
+/** Per-item aggregation row inside a boxKey bucket. */
+export interface BoxOpenBreakdownRow {
+  itemKey: number;
+  name: string;
+  grade: string | null;
+  /** Total produced of this item under this boxKey. */
+  count: number;
+  /** Observed frequency = count / boxKey.totalOpens. */
+  dropPct: number;
+  /** Steam buy-order unit price (instant-sell price); null = unavailable. */
+  buyOrderUnit: number | null;
+  /** count * buyOrderUnit. */
+  buyOrderValue: number | null;
+  /** buyOrderValue / sessionHours. */
+  hourlyValue: number | null;
+}
+
+/** Per-boxKey aggregation. */
+export interface BoxOpenStats {
+  boxKey: string;
+  /** "Common chest" | "Stage boss chest Lv3" | ... */
+  label: string;
+  category: "common" | "rare" | "act";
+  /** null = category-only fallback (BoxOpenLog lacks level). */
+  level: number | null;
+  totalOpens: number;
+  /** Sum of buyOrderValue across items; null when no items are priced. */
+  totalBuyOrderValue: number | null;
+  /** totalBuyOrderValue / sessionHours. */
+  hourlyValue: number | null;
+  breakdown: BoxOpenBreakdownRow[];
+  /** Most recent N (visible window). */
+  history: BoxOpenHistoryEntry[];
+  /** Epoch seconds of the most recent open; null = no opens yet. */
+  lastOpenWallTime: number | null;
+}
+
+/** Serialized box open tracker for session_state.json restore. */
+export interface BoxOpenTrackerSnapshot {
+  /** boxKey -> itemKey -> count. */
+  countsByKey: Record<string, Record<string, number>>;
+  /** itemKey -> name (shared across all boxKeys). */
+  namesByKey: Record<string, string>;
+  /** itemKey -> grade (shared across all boxKeys). */
+  gradesByKey: Record<string, string | null>;
+  history: BoxOpenHistoryEntry[];
+}
+
+/** Raw entry from the live-memory BoxOpenLog tail. */
+export interface BoxOpenEntry {
+  /** Produced item id (resolved from itemStringKey). */
+  itemKey: number;
+  /** 0=common, 1=rare(stage boss), 2=act; undefined when offset unavailable. */
+  boxType?: number;
+  /** Box level; undefined when offset unavailable (category-only fallback). */
+  level?: number;
+}
+
 // Live payload pushed from main to the renderer.
 export interface Stats {
   connected: boolean;
@@ -111,6 +185,8 @@ export interface Stats {
   heroes: HeroRate[];
   history: HistoryEntry[];
   chestDrops: ChestDropStats;
+  /** Box-opening outcomes aggregated by box type/level. Empty when no opens recorded. */
+  boxOpens: BoxOpenStats[];
   /** Damage per second (5-second rolling window). Only meaningful when live memory is active. */
   dps: number;
   /** Damage dealt on the current map. Resets when stage changes. Only meaningful when live memory is active. */
@@ -189,6 +265,8 @@ export interface PersistedSessionState {
   liveMemoryEnabled?: boolean;
   tracker: TrackerSnapshot;
   chestDropTracker?: ChestDropTrackerSnapshot;
+  /** Box-open tracker state (loot tab). */
+  boxOpenTracker?: BoxOpenTrackerSnapshot;
   ui: SessionUiSnapshot;
 }
 
@@ -983,6 +1061,14 @@ export interface LiveMemorySnapshot {
    * live/save stageKey — the log entry itself doesn't carry difficulty.
    */
   stageClears: number[] | null;
+  /**
+   * Box opens observed since the previous tick, read from the
+   * GetItemWithBoxOpen battle log. `[]` = reader active, no new opens;
+   * `null` = box-open log unavailable (offset not derived / no open yet).
+   */
+  boxOpens: BoxOpenEntry[] | null;
+  /** Diagnostics: why `boxOpens` is null this tick. Dev-only. */
+  boxOpensStatus?: string;
   /** Live pet unlock state from save-layer heap (null ⇒ unavailable). */
   petData: LivePetData[] | null;
   /** Diagnostics: why `petData` is null this tick. Dev-only. */
@@ -1092,4 +1178,6 @@ export interface TbhApi {
   onLiveMemoryStatus(cb: (status: LiveMemoryStatus) => void): () => void;
   getStageRuns(): Promise<StageRunStats>;
   onStageRuns(cb: (stats: StageRunStats) => void): () => void;
+  resetLootBox(boxKey: string): Promise<void>;
+  resetLootAll(): Promise<void>;
 }

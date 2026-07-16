@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   collectClassEntries,
+  findBoxOpenLogFields,
   findCurrencyManager,
   findLogManager,
   findPlayerSaveData,
@@ -348,6 +349,13 @@ function seedLogManager(
     dictOff?: number;
     /** ELogType.GetBox enum value in the dict (default 3). */
     getBoxKey?: number;
+    /** Optional second dict bucket: List<BoxOpenLog>. */
+    boxOpen?: {
+      key: number;
+      entryClassName?: string;
+      /** Extra index entries to add (e.g. a BoxOpenLog class with fields). */
+      extraEntries?: ClassEntry[];
+    };
   },
 ): ClassEntry {
   const dictOff = opts.dictOff ?? 0x28;
@@ -366,9 +374,12 @@ function seedLogManager(
   seedInstance(m, lmInst, logClass); // header irrelevant for detection but keep valid
   m.writePtr(lmInst + BigInt(dictOff), dict);
 
+  const hasBoxOpen = opts.boxOpen != null;
+  const dictCount = hasBoxOpen ? 2 : 1;
+
   // Dictionary<int, List<GetBoxLog>> with one entry: getBoxKey → list
   m.writePtr(dict + 0x18n, dictEntries);
-  m.writeI32(dict + 0x20n, 1);
+  m.writeI32(dict + 0x20n, dictCount);
   const eBase = dictEntries + 0x20n;
   m.writeI32(eBase, 42); // hash ≥ 0
   m.writeI32(eBase + 8n, getBoxKey);
@@ -385,6 +396,27 @@ function seedLogManager(
     seedInstance(m, logObj, entryClass);
     m.writeI32(logObj + 0x50n, opts.monsterTypes[i]);
   }
+
+  // Optional second dict entry: BoxOpenLog bucket
+  if (hasBoxOpen) {
+    const bo = opts.boxOpen!;
+    const e2Base = eBase + 24n; // entrySize = 24
+    const boList = 0x7ff4a0000n;
+    const boListArr = 0x7ff4b0000n;
+    const boEntryClass = 0x7ff4c0000n;
+    const boClassName = bo.entryClassName ?? "BoxOpenLog";
+    m.writeI32(e2Base, 99); // hash ≥ 0
+    m.writeI32(e2Base + 8n, bo.key);
+    m.writePtr(e2Base + 16n, boList);
+    // List<BoxOpenLog> with 1 entry
+    m.writePtr(boList + 0x10n, boListArr);
+    m.writeI32(boList + 0x18n, 1);
+    seedClass(m, boEntryClass, boClassName);
+    const boObj = 0x7ff4d0000n;
+    m.writePtr(boListArr + 0x20n, boObj);
+    seedInstance(m, boObj, boEntryClass);
+  }
+
   return e;
 }
 
@@ -396,6 +428,8 @@ describe("findLogManager", () => {
       slotRva: 0x7000n,
       logByType: 0x28,
       getBoxTypeKey: 3,
+      boxOpenTypeKey: 0,
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
     });
   });
 
@@ -410,6 +444,8 @@ describe("findLogManager", () => {
       slotRva: 0x7000n,
       logByType: 0x20,
       getBoxTypeKey: 3,
+      boxOpenTypeKey: 0,
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
     });
   });
 
@@ -424,6 +460,8 @@ describe("findLogManager", () => {
       slotRva: 0x7000n,
       logByType: 0x28,
       getBoxTypeKey: 7,
+      boxOpenTypeKey: 0,
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
     });
   });
 
@@ -437,6 +475,8 @@ describe("findLogManager", () => {
       slotRva: 0x7000n,
       logByType: 0x28,
       getBoxTypeKey: 3,
+      boxOpenTypeKey: 0,
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
     });
   });
 
@@ -457,6 +497,119 @@ describe("findLogManager", () => {
     const m = new FakeMemory();
     const e = seedLogManager(m, { entryClassName: "GetBoxLog", monsterTypes: [] });
     expect(findLogManager(new ScanContext(m), [e])).toBeNull();
+  });
+
+  it("derives boxOpenTypeKey when the dict has a BoxOpenLog bucket", () => {
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "GetBoxLog",
+      monsterTypes: [0, 1],
+      boxOpen: { key: 5 },
+    });
+    // BoxOpenLog class entry with real-named fields
+    const boClass = 0x7ff4c0000n; // same addr seedLogManager used for the class
+    const boEntry = entry(m, boClass, 0x8000n, "BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+    expect(findLogManager(new ScanContext(m), [e, boEntry])).toEqual({
+      slotRva: 0x7000n,
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      boxOpenTypeKey: 5,
+      boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c },
+    });
+  });
+
+  it("accepts a namespaced BoxOpenLog class name (vb.BoxOpenLog)", () => {
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "GetBoxLog",
+      monsterTypes: [0],
+      boxOpen: { key: 4, entryClassName: "vb.BoxOpenLog" },
+    });
+    const boClass = 0x7ff4c0000n;
+    const boEntry = entry(m, boClass, 0x8000n, "vb.BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x20 },
+      { name: "itemGradeType", offset: 0x24 },
+    ]);
+    expect(findLogManager(new ScanContext(m), [e, boEntry])).toEqual({
+      slotRva: 0x7000n,
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      boxOpenTypeKey: 4,
+      boxOpenLog: { itemStringKey: 0x20, itemGradeType: 0x24 },
+    });
+  });
+
+  it("returns boxOpenTypeKey=0 when no BoxOpenLog bucket is in the dict", () => {
+    const m = new FakeMemory();
+    const e = seedLogManager(m, { entryClassName: "GetBoxLog", monsterTypes: [0, 1] });
+    // BoxOpenLog class exists in the index, but no bucket in the dict
+    const boClass = 0x7ff480000n + 0x10000n;
+    const boEntry = entry(m, boClass, 0x8000n, "BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+    const result = findLogManager(new ScanContext(m), [e, boEntry]);
+    expect(result?.boxOpenTypeKey).toBe(0);
+    // Fields are still resolved from the class metadata
+    expect(result?.boxOpenLog).toEqual({ itemStringKey: 0x18, itemGradeType: 0x1c });
+  });
+});
+
+// ── findBoxOpenLogFields ─────────────────────────────────────────────────────
+
+describe("findBoxOpenLogFields", () => {
+  it("resolves itemStringKey and itemGradeType from the BoxOpenLog class metadata", () => {
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const e = entry(m, boClass, 0x9000n, "BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+    expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+    });
+  });
+
+  it("returns 0 for fields absent from the BoxOpenLog class", () => {
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const e = entry(m, boClass, 0x9000n, "BoxOpenLog");
+    seedFields(m, boClass, [{ name: "someOtherField", offset: 0x10 }]);
+    expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
+      itemStringKey: 0,
+      itemGradeType: 0,
+    });
+  });
+
+  it("returns 0 when no BoxOpenLog class is in the index", () => {
+    const m = new FakeMemory();
+    const e = entry(m, 0x7ff500000n, 0x9000n, "SomethingElse");
+    expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
+      itemStringKey: 0,
+      itemGradeType: 0,
+    });
+  });
+
+  it("accepts a namespaced BoxOpenLog class (vb.BoxOpenLog)", () => {
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const e = entry(m, boClass, 0x9000n, "vb.BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x20 },
+      { name: "itemGradeType", offset: 0x24 },
+    ]);
+    expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
+      itemStringKey: 0x20,
+      itemGradeType: 0x24,
+    });
   });
 });
 

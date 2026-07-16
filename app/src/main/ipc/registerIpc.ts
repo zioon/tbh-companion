@@ -13,6 +13,7 @@ import { registerUpdateHandlers } from "./handlers/update";
 import { registerLookupHandlers } from "./handlers/lookup";
 import { registerLiveMemoryHandlers } from "./handlers/liveMemory";
 import { registerStageRunHandlers } from "./handlers/stageRuns";
+import { registerLootHandlers } from "./handlers/loot";
 
 export function registerIpc(services: AppServices): void {
   registerStatsHandlers(ipcMain, services);
@@ -29,4 +30,5 @@ export function registerIpc(services: AppServices): void {
   registerLookupHandlers(ipcMain, services);
   registerLiveMemoryHandlers(ipcMain, services);
   registerStageRunHandlers(ipcMain, services);
+  registerLootHandlers(ipcMain, services);
 }

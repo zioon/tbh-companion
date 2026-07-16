@@ -19,11 +19,13 @@ import {
   resolveLiveMemoryUserDataDir,
 } from "./liveMemoryCacheDir";
 import {
+  makeBoxOpenPinState,
   makeChestLogPinState,
   makeGoldPinState,
   makeMonsterSpawnPinState,
   makeSmPinState,
   makeStageClearPinState,
+  readRuntimeBoxOpenLog,
   readRuntimeChestLog,
   readRuntimeCombatGold,
   readRuntimeGold,
@@ -34,6 +36,7 @@ import {
   readRuntimeStage,
   readRuntimeStageClears,
   resolveStageManager,
+  type BoxOpenPinState,
   type ChestLogPinState,
   type GoldPinState,
   type MonsterSpawnPinState,
@@ -44,10 +47,7 @@ import {
 } from "../../core/liveMemory/runtime";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
-import type {
-  LiveMemorySnapshot,
-  LiveMemoryStatus,
-} from "../../../shared/types";
+import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -97,6 +97,7 @@ export class LiveMemoryReader {
   private smPin: SmPinState = makeSmPinState();
   private chestPin: ChestLogPinState = makeChestLogPinState();
   private stageClearPin: StageClearPinState = makeStageClearPinState();
+  private boxOpenPin: BoxOpenPinState = makeBoxOpenPinState();
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
@@ -322,6 +323,7 @@ export class LiveMemoryReader {
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
+    this.boxOpenPin = makeBoxOpenPinState();
     this.monsterPin = makeMonsterSpawnPinState();
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
@@ -348,10 +350,14 @@ export class LiveMemoryReader {
     // Try RVA first; if no monsters found, fall back to name-string scan (meter approach).
     // Name scan is expensive (~30–60s) — only run once, cache pin for subsequent ticks.
     let monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
-    if (!this.monsterNameScanAttempted &&
-        (this.monsterPin.ptr == null || (monsterData?.monsterHps?.length ?? 0) === 0)) {
+    if (
+      !this.monsterNameScanAttempted &&
+      (this.monsterPin.ptr == null || (monsterData?.monsterHps?.length ?? 0) === 0)
+    ) {
       this.monsterNameScanAttempted = true;
-      this.log("MonsterSpawnManager: RVA resolution produced no monsters, falling back to name scan...");
+      this.log(
+        "MonsterSpawnManager: RVA resolution produced no monsters, falling back to name scan...",
+      );
       try {
         this.setScanning(true);
         const msClass = resolveClassByName(p, "MonsterSpawnManager");
@@ -371,13 +377,15 @@ export class LiveMemoryReader {
     const deadMonsterCount = monsterData?.deadCount ?? null;
 
     const heroesResult = readRuntimeHeroes(p, o, smPtr);
-    const heroesStatus = (heroesResult.heroes == null
-        && this.smPin.lastStatus
-        && heroesResult.status.includes("StageManager unresolved"))
-      ? this.smPin.lastStatus
-      : heroesResult.status || undefined;
+    const heroesStatus =
+      heroesResult.heroes == null &&
+      this.smPin.lastStatus &&
+      heroesResult.status.includes("StageManager unresolved")
+        ? this.smPin.lastStatus
+        : heroesResult.status || undefined;
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+    const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
 
     // Inventory and pets change slowly (only on save events / menu actions),
     // so re-read them on a low-frequency cadence and reuse the cached arrays
@@ -394,14 +402,18 @@ export class LiveMemoryReader {
       // instance (CommonSaveData static field unreadable), fall back to scanning
       // memory for the PlayerSaveData class and its static-held singleton. This
       // mirrors the MonsterSpawnManager fallback above and is cached on the pin.
-      if (!this.playerNameScanAttempted &&
-          this.playerPtr == null &&
-          this.cachedInventory.items == null &&
-          this.cachedPets.pets == null &&
-          (/\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedInventory.status) ||
-            /\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedPets.status))) {
+      if (
+        !this.playerNameScanAttempted &&
+        this.playerPtr == null &&
+        this.cachedInventory.items == null &&
+        this.cachedPets.pets == null &&
+        (/\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedInventory.status) ||
+          /\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedPets.status))
+      ) {
         this.playerNameScanAttempted = true;
-        this.log("PlayerSaveData: RVA resolution produced no player instance, falling back to name scan...");
+        this.log(
+          "PlayerSaveData: RVA resolution produced no player instance, falling back to name scan...",
+        );
         try {
           this.setScanning(true);
           const playerClass = resolveClassByName(p, "PlayerSaveData");
@@ -431,11 +443,15 @@ export class LiveMemoryReader {
       stageWaveTotal: stage.waveTotal,
       // Combat gold (AggregateSaveData GoldEarn[SubKey=1]) — pure combat earnings.
       // Falls back to wallet balance (CurrencyManager) when aggregate offset unavailable.
-      gold: readRuntimeCombatGold(p, ga.base, ga.size, o) ?? readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
+      gold:
+        readRuntimeCombatGold(p, ga.base, ga.size, o) ??
+        readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
       heroes: heroesResult.heroes,
       heroesStatus,
       chestDrops: chestResult.drops,
       chestDropsStatus: chestResult.status || undefined,
+      boxOpens: boxOpenResult.opens,
+      boxOpensStatus: boxOpenResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
       inventoryItems: this.cachedInventory?.items ?? null,
       inventoryItemsStatus: this.cachedInventory?.status || undefined,

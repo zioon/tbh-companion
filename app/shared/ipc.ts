@@ -54,6 +54,8 @@ export const IPC = {
   GET_LIVE_MEMORY: "get-live-memory",
   GET_LIVE_MEMORY_STATUS: "get-live-memory-status",
   GET_STAGE_RUNS: "get-stage-runs",
+  LOOT_RESET_BOX: "loot-reset-box",
+  LOOT_RESET_ALL: "loot-reset-all",
 
   // Send (renderer → main, no response)
   RESET: "reset",
@@ -107,6 +109,8 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.GET_LIVE_MEMORY,
   IPC.GET_LIVE_MEMORY_STATUS,
   IPC.GET_STAGE_RUNS,
+  IPC.LOOT_RESET_BOX,
+  IPC.LOOT_RESET_ALL,
 ] as const;
 
 export const IPC_SEND_CHANNELS = [

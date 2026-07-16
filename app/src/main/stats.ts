@@ -2,6 +2,7 @@
 
 import type { LiveMemorySnapshot, Stats, SaveSnapshot } from "../../shared/types";
 
+import type { BoxOpenTracker, BoxOpenPriceResolver } from "../core/boxOpenTracker";
 import type { ChestDropTracker } from "../core/chestDropTracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
@@ -17,14 +18,19 @@ function nowSeconds(): number {
   return Date.now() / 1000;
 }
 
-function heroLevelEstimate(level: number, exp: number, rate: number): {
+function heroLevelEstimate(
+  level: number,
+  exp: number,
+  rate: number,
+): {
   xpToNextLevel: number | null;
   timeToLevelSec: number | null;
 } {
   const fullNeeded = xpForNextLevel(level);
   if (fullNeeded === null) return { xpToNextLevel: null, timeToLevelSec: null };
   const remaining = Math.max(0, fullNeeded - exp);
-  if (!Number.isFinite(rate) || rate <= 0) return { xpToNextLevel: remaining, timeToLevelSec: null };
+  if (!Number.isFinite(rate) || rate <= 0)
+    return { xpToNextLevel: remaining, timeToLevelSec: null };
   const timeSec = (remaining / rate) * 3600;
   return {
     xpToNextLevel: remaining,
@@ -35,11 +41,13 @@ function heroLevelEstimate(level: number, exp: number, rate: number): {
 export function buildStats(
   tracker: XpTracker,
   chestDropTracker: ChestDropTracker,
+  boxOpenTracker: BoxOpenTracker,
   dpsTracker: DpsTracker,
   lastSnap: SaveSnapshot | null,
   lastError: string | null,
   statusOverride: string | null = null,
   liveFrame: LiveMemorySnapshot | null = null,
+  boxOpenPriceResolver: BoxOpenPriceResolver = null,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
@@ -96,9 +104,7 @@ export function buildStats(
   const estimatedWave = liveFrame?.connected ? dpsTracker.currentWave : 0;
   const stageWave = estimatedWave > 0 ? estimatedWave : (lastSnap?.stageWave ?? 0);
   const stageWaveTotal =
-    liveFrame?.connected && liveFrame.stageWaveTotal != null
-      ? liveFrame.stageWaveTotal
-      : 0;
+    liveFrame?.connected && liveFrame.stageWaveTotal != null ? liveFrame.stageWaveTotal : 0;
 
   return {
     connected: lastError === null,
@@ -131,6 +137,7 @@ export function buildStats(
 
     history: tracker.getVisibleHistory(HISTORY_VISIBLE),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
+    boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
 
     // DPS / Damage / Mobs / HP
     dps: dpsTracker.dps,

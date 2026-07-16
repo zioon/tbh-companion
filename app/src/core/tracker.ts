@@ -725,9 +725,7 @@ export class XpTracker {
       heroes: this.heroes.map((h) => ({ ...h })),
       history: this.history.map((e) => ({ ...e })),
       lastGainMtime: this.lastGainMtime,
-      prevHero: Object.fromEntries(
-        [...this.prevHero].map(([k, v]) => [k, v.exp]),
-      ),
+      prevHero: Object.fromEntries([...this.prevHero].map(([k, v]) => [k, v.exp])),
       prevHeroState: Object.fromEntries(this.prevHero),
       heroMeters,
       samples: this.samples.map(([t, g]) => [t, g] as [number, number]),
@@ -783,9 +781,7 @@ export class XpTracker {
     } else {
       // Old format: prevHero is Record<string, number> (exp only)
       this.prevHero = new Map(
-        Object.entries(snapshot.prevHero).map(
-          ([k, v]) => [k, { level: 0, exp: v }] as const,
-        ),
+        Object.entries(snapshot.prevHero).map(([k, v]) => [k, { level: 0, exp: v }] as const),
       );
     }
 

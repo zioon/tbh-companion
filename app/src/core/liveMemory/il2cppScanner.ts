@@ -434,6 +434,11 @@ function isGetBoxLogClassName(name: string | null): boolean {
   return classNameMatches(name, "GetBoxLog");
 }
 
+/** True for `BoxOpenLog` and obfuscated variants (`vb.BoxOpenLog`). */
+function isBoxOpenLogClassName(name: string | null): boolean {
+  return classNameMatches(name, "BoxOpenLog");
+}
+
 /** Validate a List<GetBoxLog> candidate: non-empty + sampled entries are real
  *  GetBoxLog with EMonsterLogType ∈ {0,1,2}. The non-empty requirement is what
  *  keeps unrelated dictionaries (seen live: compiler-generated `<>c`) from
@@ -449,6 +454,24 @@ function validateGetBoxList(ctx: ScanContext, listPtr: bigint): boolean {
     if (!isGetBoxLogClassName(ctx.instanceClassName(e))) return false;
     const mt = readI32(ctx.reader, e + BigInt(STRUCT_GETBOX_MONSTER_TYPE));
     if (mt == null || mt < 0 || mt > 2) return false;
+  }
+  return true;
+}
+
+/** Validate a List<BoxOpenLog> candidate: non-empty + sampled entries are real
+ *  BoxOpenLog instances. Class name is the only serialization-stable identifier
+ *  available (the item-key/grade field offsets are resolved separately from the
+ *  class metadata), so name matching is the sole gate. The non-empty requirement
+ *  mirrors validateGetBoxList — keeps compiler-generated buckets from matching. */
+function validateBoxOpenList(ctx: ScanContext, listPtr: bigint): boolean {
+  const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+  const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+  if (arr == null || count == null || count <= 0 || count > MAX_CHEST_LOG) return false;
+  const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
+  for (let i = 0; i < Math.min(count, LOG_VALIDATE_ENTRIES); i++) {
+    const e = readPtr(ctx.reader, first + BigInt(i * 8));
+    if (e == null || !isPlausibleHeapPtr(e)) return false;
+    if (!isBoxOpenLogClassName(ctx.instanceClassName(e))) return false;
   }
   return true;
 }
@@ -489,6 +512,54 @@ function findGetBoxLogDict(
 }
 
 /**
+ * Scan the already-located `logByType` dictionary for the
+ * `ELogType.GetItemWithBoxOpen` key — the bucket whose value validates as a
+ * `List<BoxOpenLog>`. `logByType` offset is already known from
+ * {@link findGetBoxLogDict}, so this is a single-dict walk. Returns 0 when the
+ * bucket isn't found (no box opened yet, or BoxOpenLog class name shifted) —
+ * the loot reader then degrades to "no live data" gracefully.
+ */
+function findBoxOpenLogDictKey(ctx: ScanContext, lmPtr: bigint, logByType: number): number {
+  const dictPtr = readPtr(ctx.reader, lmPtr + BigInt(logByType));
+  if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) return 0;
+  const entriesArr = readPtr(ctx.reader, dictPtr + BigInt(STRUCT_DICT.entries));
+  if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) return 0;
+  const count = readI32(ctx.reader, dictPtr + BigInt(STRUCT_DICT.count));
+  if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) return 0;
+  const first = entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst);
+  for (let i = 0; i < count; i++) {
+    const eBase = first + BigInt(i * STRUCT_DICT.entrySize);
+    const hash = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryHash));
+    if (hash == null || hash < 0) continue;
+    const key = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryKey));
+    if (key == null) continue;
+    const listPtr = readPtr(ctx.reader, eBase + BigInt(STRUCT_DICT.entryValue));
+    if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+    if (validateBoxOpenList(ctx, listPtr)) return key;
+  }
+  return 0;
+}
+
+/**
+ * Resolve `BoxOpenLog` struct field offsets from the class metadata index.
+ * `itemStringKey` and `itemGradeType` are ES3 serialization-stable field names
+ * (real names, not obfuscated), so they are name-resolvable via
+ * {@link namedClassField}. `boxType` and `level` are obfuscated private fields
+ * with no stable name — they return 0 here and must be filled from a manual
+ * IL2CPP dump if needed. Returns 0 for every unresolvable field; the reader
+ * treats 0 as "not derived" and skips that field.
+ */
+export function findBoxOpenLogFields(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+): { itemStringKey: number; itemGradeType: number } {
+  return {
+    itemStringKey: namedClassField(ctx, entries, "BoxOpenLog", "itemStringKey"),
+    itemGradeType: namedClassField(ctx, entries, "BoxOpenLog", "itemGradeType"),
+  };
+}
+
+/**
  * LogManager singleton (chest-drop log): a static slot pointing at an object
  * whose logByType dictionary maps some ELogType key to a list of `GetBoxLog`
  * entries. The field offset and enum key are discovered structurally (see
@@ -496,16 +567,36 @@ function findGetBoxLogDict(
  * drop to validate — retried on later launches while the offset table stays
  * incomplete. Returns the slot RVA plus the discovered logByType offset and
  * GetBox enum key so the runtime reader uses the same values.
+ *
+ * Also derives the `ELogType.GetItemWithBoxOpen` key (loot tracker) by scanning
+ * the same dictionary for a `List<BoxOpenLog>` bucket, and the `BoxOpenLog`
+ * struct field offsets (`itemStringKey`, `itemGradeType`) from the class
+ * metadata. These are best-effort: they return 0 when the bucket is empty or
+ * the class isn't indexed yet, and the loot reader degrades gracefully.
  */
 export function findLogManager(
   ctx: ScanContext,
   entries: readonly ClassEntry[],
-): { slotRva: bigint; logByType: number; getBoxTypeKey: number } | null {
+): {
+  slotRva: bigint;
+  logByType: number;
+  getBoxTypeKey: number;
+  boxOpenTypeKey: number;
+  boxOpenLog: { itemStringKey: number; itemGradeType: number };
+} | null {
   for (const entry of entries) {
     for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
       const found = findGetBoxLogDict(ctx, inst);
       if (found != null) {
-        return { slotRva: entry.slotRva, ...found };
+        const boxOpenTypeKey = findBoxOpenLogDictKey(ctx, inst, found.logByType);
+        const boxOpenLog = findBoxOpenLogFields(ctx, entries);
+        return {
+          slotRva: entry.slotRva,
+          logByType: found.logByType,
+          getBoxTypeKey: found.getBoxTypeKey,
+          boxOpenTypeKey,
+          boxOpenLog,
+        };
       }
     }
   }

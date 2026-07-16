@@ -124,6 +124,12 @@ export function startTracking(): SessionUiSnapshot {
   liveMemory.setOnSnapshot((snap) => tracking.ingestLiveFrame(snap));
   const ui = sessionState.load(config);
   tracking.start(config);
+  // Feed inventory + lookup-price snapshots to TrackingService for box-open price resolution.
+  tracking.setGameDataLookup(inventory.getGameDataLookup());
+  tracking.setInventorySnapshot(inventory.getInventory());
+  inventory.setOnInventoryUpdated((snap) => tracking.setInventorySnapshot(snap));
+  tracking.setLookupPriceSnapshot(lookupPrices.getSnapshot());
+  lookupPrices.setOnSnapshotUpdated((snap) => tracking.setLookupPriceSnapshot(snap));
   return ui;
 }
 
@@ -363,6 +369,8 @@ export function getAppServices() {
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),
+    resetLootBox: (boxKey: string) => tracking.resetLootBox(boxKey),
+    resetLootAll: () => tracking.resetLootAll(),
   };
 }
 

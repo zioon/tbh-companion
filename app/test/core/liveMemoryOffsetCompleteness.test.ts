@@ -25,7 +25,14 @@ function withMonsterFields(o: LiveOffsets): LiveOffsets {
 }
 
 function withAllEnrichment(o: LiveOffsets): LiveOffsets {
-  return withMonsterFields(withLogManager(o, 0x5e40000n));
+  const withLM = withMonsterFields(withLogManager(o, 0x5e40000n));
+  return {
+    ...withLM,
+    runtime: {
+      ...withLM.runtime,
+      boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
+    },
+  };
 }
 
 describe("missingOffsetFields", () => {
@@ -33,6 +40,8 @@ describe("missingOffsetFields", () => {
     expect(missingOffsetFields(BASE, "full")).toEqual([
       "typeInfoRva.logManager",
       "typeInfoRva.monsterSpawnManager",
+      "runtime.boxOpenLog.itemStringKey",
+      "runtime.boxOpenLog.itemGradeType",
     ]);
   });
 
@@ -56,6 +65,7 @@ describe("missingOffsetFields", () => {
         ...BASE.runtime,
         log: { ...BASE.runtime.log, stageClearTypeKey: 0 },
         stageClearLog: { clearTimeSec: 0 },
+        boxOpenLog: { itemStringKey: 0, itemGradeType: 0, boxType: 0, level: 0 },
       },
     };
     expect(missingOffsetFields(stripped, "full").sort()).toEqual(
@@ -66,6 +76,8 @@ describe("missingOffsetFields", () => {
         "petSaveData.petKey",
         "player.itemSaveDatas",
         "player.petSaveDatas",
+        "runtime.boxOpenLog.itemGradeType",
+        "runtime.boxOpenLog.itemStringKey",
         "runtime.log.stageClearTypeKey",
         "runtime.stageClearLog.clearTimeSec",
         "typeInfoRva.commonSaveData",

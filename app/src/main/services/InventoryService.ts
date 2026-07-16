@@ -7,6 +7,7 @@ import {
   parseInventory,
 } from "../../core/inventory";
 import type { OwnedPriceTarget } from "../../core/inventory/ownedPriceTargets";
+import type { GameItem } from "../../core/gamedata";
 import type {
   InventorySnapshot,
   ResolvedInventory,
@@ -32,6 +33,7 @@ export class InventoryService {
   private onAlmostFull?: (payload: { used: number; capacity: number }) => void;
   private getAlmostFullThresholdPercent: () => number = () => 90;
   private wasAboveAlmostFullThreshold = false;
+  private onInventoryUpdated?: (snap: ResolvedInventory) => void;
 
   initMarket(currency: string): void {
     this.market = new SteamMarketProvider(currency);
@@ -62,6 +64,16 @@ export class InventoryService {
   ): void {
     this.onAlmostFull = callback;
     this.getAlmostFullThresholdPercent = getThresholdPercent;
+  }
+
+  /** Subscribe to resolved inventory updates (fires after every broadcast). */
+  setOnInventoryUpdated(callback: (snap: ResolvedInventory) => void): void {
+    this.onInventoryUpdated = callback;
+  }
+
+  /** Expose the game-data catalog (catalog-id → GameItem) for box-open item resolution. */
+  getGameDataLookup(): Map<number, GameItem> {
+    return this.gameData.asMap();
   }
 
   private checkAlmostFull(snap: InventorySnapshot): void {
@@ -248,6 +260,7 @@ export class InventoryService {
       this.lastInventory.currency = currency;
       this.lastInventory.composition.currency = currency;
       broadcast(IPC.INVENTORY, this.lastInventory);
+      this.onInventoryUpdated?.(this.lastInventory);
     } catch (err) {
       log.error(`resolveAndPushInventory failed: ${String(err)}`);
     }

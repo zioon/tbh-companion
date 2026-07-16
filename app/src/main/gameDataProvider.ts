@@ -79,4 +79,9 @@ export class GameDataProvider {
   itemCount(): number {
     return this.index.size;
   }
+
+  /** Read-only view of the catalog-id → GameItem index. Keys are catalog ids (already normalized). */
+  asMap(): Map<number, GameItem> {
+    return this.index;
+  }
 }
