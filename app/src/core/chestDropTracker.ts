@@ -65,6 +65,37 @@ export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | nul
   };
 }
 
+/**
+ * Collapse a per-tick burst of live `GetBox` entries into the drops to record.
+ *
+ * The game appends multiple `GetBoxLog` entries for a single chest-drop event
+ * (a burst), and the burst for one drop is a single category, so each category
+ * is collapsed to one recorded drop. When entries of both categories arrive in
+ * the same tick, a lone singleton riding another category's burst is treated as
+ * stray noise (e.g. a single "rare" entry surfacing amid a common-chest burst,
+ * which would otherwise misidentify a common drop as a stage-boss drop) and is
+ * suppressed — only categories that are themselves a burst (>= 2 entries) or
+ * that appear as a pure 1:1 mix are kept.
+ */
+export function collapseLiveChestDrops(
+  categories: ChestDropCategory[],
+): ChestDropCategory[] {
+  if (categories.length === 0) return [];
+  const counts = new Map<ChestDropCategory, number>();
+  for (const c of categories) counts.set(c, (counts.get(c) ?? 0) + 1);
+  if (counts.size === 1) return [categories[0]];
+
+  const hasBurst = [...counts.values()].some((n) => n >= 2);
+  const kept: ChestDropCategory[] = [];
+  for (const [cat, n] of counts) {
+    // Keep a category when it is itself a burst, or when no category is a burst
+    // (a pure 1:1 mix = two distinct single drops). Suppress lone singletons
+    // that ride alongside another category's burst.
+    if (n >= 2 || !hasBurst) kept.push(cat);
+  }
+  return kept;
+}
+
 export class ChestDropTracker {
   private countsByKey = new Map<string, number>();
   private namesByKey = new Map<string, string>();

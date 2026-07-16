@@ -243,6 +243,120 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     svc.stop();
   });
 
+  it("collapses a per-tick GetBox burst to one drop per category", () => {
+    const onLiveStageBossDrop = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageBossDrop,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 4103,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      // A single common drop emits a burst of common entries.
+      chestDrops: ["common", "common", "common"],
+      inventoryItems: null,
+      stageClears: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    const stats = svc.getStats().chestDrops;
+    expect(stats.commonTotal).toBe(1);
+    expect(stats.rareTotal).toBe(0);
+    expect(onLiveStageBossDrop).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a stray rare singleton riding a common-chest burst", () => {
+    const onLiveStageBossDrop = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageBossDrop,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 4103,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      // One common drop, but the burst carries a stray "rare" entry.
+      chestDrops: ["common", "rare", "common", "common"],
+      inventoryItems: null,
+      stageClears: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    const stats = svc.getStats().chestDrops;
+    expect(stats.commonTotal).toBe(1);
+    expect(stats.rareTotal).toBe(0);
+    expect(onLiveStageBossDrop).not.toHaveBeenCalled();
+  });
+
+  it("records a rare burst as one stage-boss drop and fires onLiveStageBossDrop once", () => {
+    const onLiveStageBossDrop = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageBossDrop,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 4103,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: ["rare", "rare", "rare"],
+      inventoryItems: null,
+      stageClears: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    const stats = svc.getStats().chestDrops;
+    expect(stats.rareTotal).toBe(1);
+    expect(stats.commonTotal).toBe(0);
+    expect(onLiveStageBossDrop).toHaveBeenCalledTimes(1);
+    expect(onLiveStageBossDrop).toHaveBeenCalledWith(4103);
+  });
+
   it("seeds the baseline on the first clear (unknown true start) without firing onLiveStageClear", () => {
     const onLiveStageClear = vi.fn();
     const svc = new TrackingService(

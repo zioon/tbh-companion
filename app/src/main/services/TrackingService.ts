@@ -3,7 +3,7 @@ import { SaveWatcher } from "../saveWatcher";
 import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
-import { ChestDropTracker } from "../../core/chestDropTracker";
+import { ChestDropTracker, collapseLiveChestDrops } from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
@@ -378,12 +378,15 @@ export class TrackingService {
       this.dpsTracker.update(snap.monsterHp, snap.deadMonsterCount, timestamp);
     }
 
-    // Live chest drops from the GetBox battle log. Each "rare" entry fires
-    // onLiveStageBossDrop, which is idempotent (BoxTimerService skips when the
-    // box is already on cooldown) so a burst of entries won't spam the log or
-    // reset the cooldown timer.
+    // Live chest drops from the GetBox battle log. The game appends a burst of
+    // GetBoxLog entries per drop event, so collapse the per-tick burst before
+    // recording: each category becomes a single drop, and a lone singleton
+    // riding another category's burst (e.g. a stray "rare" amid a common-chest
+    // burst) is suppressed as noise. A kept "rare" fires onLiveStageBossDrop,
+    // which is also idempotent across ticks (BoxTimerService skips when the box
+    // is already on cooldown).
     if (snap.chestDrops && snap.chestDrops.length > 0) {
-      for (const category of snap.chestDrops) {
+      for (const category of collapseLiveChestDrops(snap.chestDrops)) {
         if (this.chestDropTracker.recordLiveChestDrop(category, snap.at / 1000)) {
           if (category === "rare" && snap.stageKey != null && snap.stageKey > 0) {
             this.onLiveStageBossDrop?.(snap.stageKey);
