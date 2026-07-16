@@ -54,6 +54,7 @@ describe("readRuntimeStage", () => {
     expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O, SM_SINGLETON)).toEqual({
       stageKey: 1234,
       wave: 5,
+      waveTotal: null,
     });
   });
 
@@ -62,7 +63,11 @@ describe("readRuntimeStage", () => {
       STAGE_INFO + BigInt(O.runtime.stage.stageKey),
       42,
     );
-    expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O, null)).toEqual({ stageKey: 42, wave: null });
+    expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O, null)).toEqual({
+      stageKey: 42,
+      wave: null,
+      waveTotal: null,
+    });
   });
 
   it("nulls an implausible stage key (never returns a wrong value)", () => {
@@ -74,6 +79,7 @@ describe("readRuntimeStage", () => {
     expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O, SM_SINGLETON)).toEqual({
       stageKey: null,
       wave: 3,
+      waveTotal: null,
     });
   });
 
@@ -86,6 +92,7 @@ describe("readRuntimeStage", () => {
     expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O, SM_SINGLETON)).toEqual({
       stageKey: 77,
       wave: null,
+      waveTotal: null,
     });
   });
 
