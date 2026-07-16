@@ -462,18 +462,25 @@ function validateGetBoxList(ctx: ScanContext, listPtr: bigint): boolean {
  *  BoxOpenLog instances. Class name is the only serialization-stable identifier
  *  available (the item-key/grade field offsets are resolved separately from the
  *  class metadata), so name matching is the sole gate. The non-empty requirement
- *  mirrors validateGetBoxList — keeps compiler-generated buckets from matching. */
-function validateBoxOpenList(ctx: ScanContext, listPtr: bigint): boolean {
+ *  mirrors validateGetBoxList — keeps compiler-generated buckets from matching.
+ *
+ *  Returns the first entry pointer on success so the caller can read field
+ *  offsets directly from the live object's IL2CPP class metadata (robust against
+ *  the BoxOpenLog class being absent from the static-reachable index, or its
+ *  name carrying an unexpected namespace prefix). Returns null on rejection. */
+function validateBoxOpenList(ctx: ScanContext, listPtr: bigint): bigint | null {
   const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
   const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
-  if (arr == null || count == null || count <= 0 || count > MAX_CHEST_LOG) return false;
+  if (arr == null || count == null || count <= 0 || count > MAX_CHEST_LOG) return null;
   const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
+  let firstEntryPtr: bigint | null = null;
   for (let i = 0; i < Math.min(count, LOG_VALIDATE_ENTRIES); i++) {
     const e = readPtr(ctx.reader, first + BigInt(i * 8));
-    if (e == null || !isPlausibleHeapPtr(e)) return false;
-    if (!isBoxOpenLogClassName(ctx.instanceClassName(e))) return false;
+    if (e == null || !isPlausibleHeapPtr(e)) return null;
+    if (!isBoxOpenLogClassName(ctx.instanceClassName(e))) return null;
+    if (i === 0) firstEntryPtr = e;
   }
-  return true;
+  return firstEntryPtr;
 }
 
 /**
@@ -515,17 +522,29 @@ function findGetBoxLogDict(
  * Scan the already-located `logByType` dictionary for the
  * `ELogType.GetItemWithBoxOpen` key — the bucket whose value validates as a
  * `List<BoxOpenLog>`. `logByType` offset is already known from
- * {@link findGetBoxLogDict}, so this is a single-dict walk. Returns 0 when the
- * bucket isn't found (no box opened yet, or BoxOpenLog class name shifted) —
- * the loot reader then degrades to "no live data" gracefully.
+ * {@link findGetBoxLogDict}, so this is a single-dict walk. Returns `{key:0,
+ * firstEntryPtr:null}` when the bucket isn't found (no box opened yet, or
+ * BoxOpenLog class name shifted) — the loot reader then degrades to "no live
+ * data" gracefully.
+ *
+ * The returned `firstEntryPtr` is the first validated BoxOpenLog instance
+ * pointer, used to resolve struct field offsets directly from the live object's
+ * IL2CPP class metadata. This is more robust than searching the static class
+ * index by name: the BoxOpenLog class is frequently not static-reachable, and
+ * per-build obfuscation can prepend namespace prefixes the name matcher doesn't
+ * expect.
  */
-function findBoxOpenLogDictKey(ctx: ScanContext, lmPtr: bigint, logByType: number): number {
+function findBoxOpenLogDictKey(
+  ctx: ScanContext,
+  lmPtr: bigint,
+  logByType: number,
+): { key: number; firstEntryPtr: bigint | null } {
   const dictPtr = readPtr(ctx.reader, lmPtr + BigInt(logByType));
-  if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) return 0;
+  if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) return { key: 0, firstEntryPtr: null };
   const entriesArr = readPtr(ctx.reader, dictPtr + BigInt(STRUCT_DICT.entries));
-  if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) return 0;
+  if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) return { key: 0, firstEntryPtr: null };
   const count = readI32(ctx.reader, dictPtr + BigInt(STRUCT_DICT.count));
-  if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) return 0;
+  if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) return { key: 0, firstEntryPtr: null };
   const first = entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst);
   for (let i = 0; i < count; i++) {
     const eBase = first + BigInt(i * STRUCT_DICT.entrySize);
@@ -535,24 +554,65 @@ function findBoxOpenLogDictKey(ctx: ScanContext, lmPtr: bigint, logByType: numbe
     if (key == null) continue;
     const listPtr = readPtr(ctx.reader, eBase + BigInt(STRUCT_DICT.entryValue));
     if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
-    if (validateBoxOpenList(ctx, listPtr)) return key;
+    const firstEntryPtr = validateBoxOpenList(ctx, listPtr);
+    if (firstEntryPtr != null) return { key, firstEntryPtr };
   }
-  return 0;
+  return { key: 0, firstEntryPtr: null };
 }
 
 /**
- * Resolve `BoxOpenLog` struct field offsets from the class metadata index.
- * `itemStringKey` and `itemGradeType` are ES3 serialization-stable field names
- * (real names, not obfuscated), so they are name-resolvable via
- * {@link namedClassField}. `boxType` and `level` are obfuscated private fields
- * with no stable name — they return 0 here and must be filled from a manual
- * IL2CPP dump if needed. Returns 0 for every unresolvable field; the reader
- * treats 0 as "not derived" and skips that field.
+ * Resolve `BoxOpenLog` struct field offsets. `itemStringKey` and `itemGradeType`
+ * are ES3 serialization-stable field names (real names, not obfuscated).
+ *
+ * Resolution order (most robust first):
+ *  1. **Live instance class metadata** — when `instancePtr` is provided (a
+ *     validated BoxOpenLog object pointer from the dict walk), read the field
+ *     map directly from the object's IL2CPP class header via
+ *     {@link ScanContext.instanceClassFields}. This works even when the
+ *     BoxOpenLog class isn't static-reachable and therefore absent from the
+ *     `entries` index, and tolerates namespace-prefixed class names
+ *     (`vb.BoxOpenLog`, etc.) because the class pointer comes from the live
+ *     object, not a name match.
+ *  2. **Named class index search** — fall back to {@link namedClassField} over
+ *     the static-reachable class index. Used when no instance is available
+ *     (e.g. the boxOpen bucket hasn't been populated yet) but the class happens
+ *     to be indexed.
+ *
+ * `boxType` and `level` are obfuscated private fields with no stable name —
+ * they return 0 here and must be filled from a manual IL2CPP dump if needed.
+ * Returns 0 for every unresolvable field; the reader treats 0 as "not derived"
+ * and skips that field.
  */
 export function findBoxOpenLogFields(
   ctx: ScanContext,
   entries: readonly ClassEntry[],
+  instancePtr: bigint | null = null,
 ): { itemStringKey: number; itemGradeType: number } {
+  // 1. Live instance class metadata (preferred — robust against missing index
+  //    entries and namespace-prefixed class names).
+  if (instancePtr != null) {
+    const fields = ctx.instanceClassFields(instancePtr);
+    if (fields != null) {
+      const isk = fields.get("itemStringKey");
+      const igt = fields.get("itemGradeType");
+      // Both fields resolved from the live class — done.
+      if (isk != null && isk > 0 && igt != null && igt > 0) {
+        return { itemStringKey: isk, itemGradeType: igt };
+      }
+      // Partial resolution: keep what we have, fall through to named search to
+      // fill the gap (a different BoxOpenLog class entry in the index may have
+      // the missing field — rare, but cheap to try).
+      const fallback = {
+        itemStringKey: namedClassField(ctx, entries, "BoxOpenLog", "itemStringKey"),
+        itemGradeType: namedClassField(ctx, entries, "BoxOpenLog", "itemGradeType"),
+      };
+      return {
+        itemStringKey: isk != null && isk > 0 ? isk : fallback.itemStringKey,
+        itemGradeType: igt != null && igt > 0 ? igt : fallback.itemGradeType,
+      };
+    }
+  }
+  // 2. Named class index search.
   return {
     itemStringKey: namedClassField(ctx, entries, "BoxOpenLog", "itemStringKey"),
     itemGradeType: namedClassField(ctx, entries, "BoxOpenLog", "itemGradeType"),
@@ -571,8 +631,11 @@ export function findBoxOpenLogFields(
  * Also derives the `ELogType.GetItemWithBoxOpen` key (loot tracker) by scanning
  * the same dictionary for a `List<BoxOpenLog>` bucket, and the `BoxOpenLog`
  * struct field offsets (`itemStringKey`, `itemGradeType`) from the class
- * metadata. These are best-effort: they return 0 when the bucket is empty or
- * the class isn't indexed yet, and the loot reader degrades gracefully.
+ * metadata. The field offsets are resolved from the live BoxOpenLog instance
+ * captured during the dict walk when available (robust against the class being
+ * absent from the static-reachable index), falling back to the named-class
+ * index search. These are best-effort: they return 0 when the bucket is empty
+ * or the class isn't indexed yet, and the loot reader degrades gracefully.
  */
 export function findLogManager(
   ctx: ScanContext,
@@ -588,13 +651,13 @@ export function findLogManager(
     for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
       const found = findGetBoxLogDict(ctx, inst);
       if (found != null) {
-        const boxOpenTypeKey = findBoxOpenLogDictKey(ctx, inst, found.logByType);
-        const boxOpenLog = findBoxOpenLogFields(ctx, entries);
+        const boxOpen = findBoxOpenLogDictKey(ctx, inst, found.logByType);
+        const boxOpenLog = findBoxOpenLogFields(ctx, entries, boxOpen.firstEntryPtr);
         return {
           slotRva: entry.slotRva,
           logByType: found.logByType,
           getBoxTypeKey: found.getBoxTypeKey,
-          boxOpenTypeKey,
+          boxOpenTypeKey: boxOpen.key,
           boxOpenLog,
         };
       }
