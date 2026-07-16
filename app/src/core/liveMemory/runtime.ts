@@ -604,6 +604,14 @@ export function resolveLogManager(
 export interface ReadChestLogResult {
   drops: LiveChestCategory[] | null;
   status: string;
+  /**
+   * Tail-position diagnostics for investigating duplicate-drop bugs. Present
+   * only after priming (i.e. when `drops` is a real per-tick delta, not `null`).
+   * `count` = current list length; `lastCountBefore` = tail position before
+   * this read; `start` = index this read began at (0 when the log shrank);
+   * `entriesRead` = number of entries scanned this tick.
+   */
+  debug?: { count: number; lastCountBefore: number; start: number; entriesRead: number };
 }
 
 export function readRuntimeChestLog(
@@ -642,7 +650,23 @@ export function readRuntimeChestLog(
     return { drops: [], status: "" };
   }
 
-  const start = count < pin.lastCount ? 0 : pin.lastCount;
+  const lastCountBefore = pin.lastCount;
+  // When the log shrinks, never re-read already-tailed entries. The shrink is
+  // either a memory-read race (a transient smaller value), a ring buffer
+  // evicting the oldest entry, or a new run clearing the log. In every case,
+  // re-reading from 0 would classify the entire history as new drops and fire
+  // phantom chest-drop events. Instead, realign the tail to `count` and return
+  // no drops this tick; subsequent ticks resume tailing from `count`.
+  if (count < lastCountBefore) {
+    pin.lastCount = count;
+    return {
+      drops: [],
+      status: "",
+      debug: { count, lastCountBefore, start: count, entriesRead: 0 },
+    };
+  }
+
+  const start = lastCountBefore;
   const drops: LiveChestCategory[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
   for (let i = start; i < count; i++) {
@@ -653,7 +677,11 @@ export function readRuntimeChestLog(
     if (cat) drops.push(cat);
   }
   pin.lastCount = count;
-  return { drops, status: "" };
+  return {
+    drops,
+    status: "",
+    debug: { count, lastCountBefore, start, entriesRead: count - start },
+  };
 }
 
 // ── Live stage clears (LogManager → Dictionary<ELogType, List<StageClearLog>>) ─
@@ -690,8 +718,9 @@ function stageClearLogList(
  * Clear times (whole seconds, as recorded by the game) added to the
  * StageClear log since the last read. Tails the log by index the same way
  * {@link readRuntimeChestLog} tails GetBox: primes to the current length on
- * first read (backlog not counted) and returns `[]`; restarts the tail from 0
- * if the log shrinks (new run cleared it). Returns null when the LogManager
+ * first read (backlog not counted) and returns `[]`; when the log shrinks it
+ * realigns the tail to `count` and returns `[]` (never re-reads history, see
+ * {@link readRuntimeChestLog} for rationale). Returns null when the LogManager
  * can't be resolved — distinct from `[]` (resolved, no new clears this tick).
  * Stage attribution is the caller's job (the live/save stageKey at read time);
  * the log entry's own act/stage ints don't carry difficulty.
@@ -715,7 +744,12 @@ export function readRuntimeStageClears(
     return [];
   }
 
-  const start = count < pin.lastCount ? 0 : pin.lastCount;
+  if (count < pin.lastCount) {
+    pin.lastCount = count;
+    return [];
+  }
+
+  const start = pin.lastCount;
   const clears: number[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
   for (let i = start; i < count; i++) {
@@ -767,8 +801,10 @@ export interface ReadBoxOpenLogResult {
  * Box opens added to the GetItemWithBoxOpen log since the last read. Tails the
  * log by index the same way {@link readRuntimeChestLog} tails GetBox: primes
  * to the current length on first read (backlog not counted) and returns `[]`;
- * restarts from 0 if the log shrinks. Returns null when the LogManager can't
- * be resolved or the `getItemWithBoxOpenTypeKey` offset is not derived (0).
+ * when the log shrinks it realigns the tail to `count` and returns `[]` (never
+ * re-reads history, see {@link readRuntimeChestLog} for rationale). Returns
+ * null when the LogManager can't be resolved or the
+ * `getItemWithBoxOpenTypeKey` offset is not derived (0).
  */
 export function readRuntimeBoxOpenLog(
   reader: MemoryReader,
@@ -812,7 +848,12 @@ export function readRuntimeBoxOpenLog(
     return { opens: [], status: "" };
   }
 
-  const start = count < pin.lastCount ? 0 : pin.lastCount;
+  if (count < pin.lastCount) {
+    pin.lastCount = count;
+    return { opens: [], status: "" };
+  }
+
+  const start = pin.lastCount;
   const opens: BoxOpenEntry[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
   for (let i = start; i < count; i++) {

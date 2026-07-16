@@ -469,6 +469,7 @@ export class LiveMemoryReader {
       heroesStatus,
       chestDrops: chestResult.drops,
       chestDropsStatus: chestResult.status || undefined,
+      chestLogDebug: chestResult.debug,
       boxOpens: boxOpenResult.opens,
       boxOpensStatus: boxOpenResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),

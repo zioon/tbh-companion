@@ -66,16 +66,22 @@ export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | nul
 }
 
 /**
- * Collapse a per-tick burst of live `GetBox` entries into the drops to record.
+ * Collapse a burst of live `GetBox` entries into the drops to record.
  *
  * The game appends multiple `GetBoxLog` entries for a single chest-drop event
  * (a burst), and the burst for one drop is a single category, so each category
  * is collapsed to one recorded drop. When entries of both categories arrive in
- * the same tick, a lone singleton riding another category's burst is treated as
- * stray noise (e.g. a single "rare" entry surfacing amid a common-chest burst,
- * which would otherwise misidentify a common drop as a stage-boss drop) and is
- * suppressed — only categories that are themselves a burst (>= 2 entries) or
- * that appear as a pure 1:1 mix are kept.
+ * the same burst, a lone singleton riding another category's burst is treated
+ * as stray noise (e.g. a single "rare" entry surfacing amid a common-chest
+ * burst, which would otherwise misidentify a common drop as a stage-boss drop)
+ * and is suppressed — only categories that are themselves a burst (>= 2 entries)
+ * or that appear as a pure 1:1 mix are kept.
+ *
+ * This function is pure and stateless; it does not see tick boundaries. A burst
+ * that straddles multiple reader ticks must first be accumulated by
+ * {@link LiveChestDropAggregator}, which calls this on the full cross-tick
+ * buffer once the burst goes silent. Calling it per-tick on a split burst would
+ * record one drop per tick.
  */
 export function collapseLiveChestDrops(
   categories: ChestDropCategory[],
@@ -94,6 +100,121 @@ export function collapseLiveChestDrops(
     if (n >= 2 || !hasBurst) kept.push(cat);
   }
   return kept;
+}
+
+/**
+ * Diagnostic event from {@link LiveChestDropAggregator.feed}, for logging in
+ * the main layer. Emitted every feed call so the caller can reconstruct the
+ * cross-tick burst behavior and confirm whether bursts straddle ticks (the
+ * duplicate-drop root cause this aggregator guards against).
+ */
+export interface ChestAggregatorFeedEvent {
+  /** Wall-clock seconds passed to this feed. */
+  at: number;
+  /** Raw categories fed this tick (before collapse). */
+  inputCategories: ChestDropCategory[];
+  /** Collapsed categories returned this tick (the drops to record). */
+  flushedCategories: ChestDropCategory[];
+  /** Buffer length after this feed (pending categories not yet flushed). */
+  bufferSizeAfter: number;
+  /** True when this feed flushed a stale buffer before accumulating input. */
+  flushedStale: boolean;
+}
+
+/**
+ * Stateful aggregator that buffers live chest-drop categories across reader
+ * ticks and collapses a burst exactly once when it goes silent.
+ *
+ * The game appends a burst of `GetBoxLog` entries per chest-drop event, but the
+ * burst can straddle multiple reader ticks (the reader polls at ~25 Hz while
+ * the game appends entries across frames). Per-tick collapsing alone would
+ * record one drop per tick whenever a burst splits — this aggregator
+ * accumulates categories across ticks and only collapses (via
+ * {@link collapseLiveChestDrops}) once `burstGapSec` has passed with no new
+ * entries, so a single drop is recorded exactly once even when its burst
+ * straddles ticks.
+ *
+ * Typical usage (caller owns wall-clock seconds):
+ *
+ * ```ts
+ * for (const tick of readerTicks) {
+ *   for (const category of agg.feed(tick.chestDrops ?? [], tick.at / 1000)) {
+ *     tracker.recordLiveChestDrop(category, tick.at / 1000);
+ *   }
+ * }
+ * ```
+ */
+export class LiveChestDropAggregator {
+  private buffer: ChestDropCategory[] = [];
+  private lastFeedAt: number | null = null;
+
+  constructor(
+    private readonly burstGapSec: number = 0.5,
+    private readonly onFeed?: (e: ChestAggregatorFeedEvent) => void,
+  ) {}
+
+  reset(): void {
+    this.buffer = [];
+    this.lastFeedAt = null;
+  }
+
+  /**
+   * Feed one tick's raw categories at wall-clock time `at` (seconds). Returns
+   * the collapsed categories to record this tick:
+   *   - When the pending buffer has gone stale (gap > burstGapSec since the
+   *     last entry), the previous burst is flushed (collapsed) and returned
+   *     before this tick's categories seed a new buffer.
+   *   - Otherwise (categories flowing within the gap, or first feed), the
+   *     categories accumulate into the buffer and `[]` is returned.
+   *   - An empty tick with a stale buffer flushes it; an empty tick within
+   *     the gap keeps the buffer pending.
+   *
+   * Call every tick (even when `categories` is empty) so silence-based flushes
+   * fire promptly. Use {@link flush} to force the pending buffer out (e.g.
+   * before reading stats or on teardown).
+   */
+  feed(categories: ChestDropCategory[], at: number): ChestDropCategory[] {
+    let flushedStale = false;
+    let flushed: ChestDropCategory[] = [];
+    if (
+      this.buffer.length > 0 &&
+      this.lastFeedAt != null &&
+      at - this.lastFeedAt > this.burstGapSec
+    ) {
+      flushedStale = true;
+      flushed = collapseLiveChestDrops(this.buffer);
+      this.buffer = [];
+    }
+
+    if (categories.length > 0) {
+      this.buffer.push(...categories);
+      this.lastFeedAt = at;
+    } else if (flushed.length > 0 || this.buffer.length === 0) {
+      this.lastFeedAt = null;
+    }
+
+    this.onFeed?.({
+      at,
+      inputCategories: categories,
+      flushedCategories: flushed,
+      bufferSizeAfter: this.buffer.length,
+      flushedStale,
+    });
+
+    return flushed;
+  }
+
+  /** Force-flush the pending buffer; returns the collapsed categories. */
+  flush(): ChestDropCategory[] {
+    if (this.buffer.length === 0) {
+      this.lastFeedAt = null;
+      return [];
+    }
+    const collapsed = collapseLiveChestDrops(this.buffer);
+    this.buffer = [];
+    this.lastFeedAt = null;
+    return collapsed;
+  }
 }
 
 export class ChestDropTracker {

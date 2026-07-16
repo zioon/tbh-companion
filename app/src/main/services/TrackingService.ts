@@ -3,7 +3,7 @@ import { SaveWatcher } from "../saveWatcher";
 import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
-import { ChestDropTracker, collapseLiveChestDrops } from "../../core/chestDropTracker";
+import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
@@ -32,6 +32,7 @@ const LIVE_BROADCAST_INTERVAL_MS = 200;
 export class TrackingService {
   private tracker!: XpTracker;
   private chestDropTracker!: ChestDropTracker;
+  private chestAggregator!: LiveChestDropAggregator;
   private boxOpenTracker!: BoxOpenTracker;
   private dpsTracker!: DpsTracker;
   private watcher: SaveWatcher | null = null;
@@ -89,6 +90,26 @@ export class TrackingService {
     this.config = config;
     this.tracker = new XpTracker(config.rollingWindowMinutes * 60);
     this.chestDropTracker = new ChestDropTracker();
+    this.chestAggregator = new LiveChestDropAggregator(0.5, (e) => {
+      // Diagnostic logging for chest-drop burst aggregation. Only logs on
+      // meaningful events (input arriving or a flush firing), never on idle
+      // ticks, so it can't flood the log. Uses info (not debug) so the lines
+      // land in app.log even in packaged builds — file transport level is
+      // "info" (see log.ts), so debug would only show on the console.
+      if (e.inputCategories.length > 0) {
+        log.info(
+          `chestAgg feed: in=[${e.inputCategories.join(",")}] ` +
+            `buf=${e.bufferSizeAfter} flushed=[${e.flushedCategories.join(",")}]` +
+            (e.flushedStale ? " (stale-flush)" : ""),
+        );
+      }
+      if (e.flushedCategories.length > 0) {
+        log.info(
+          `chestAgg flushed: [${e.flushedCategories.join(",")}] ` +
+            `(buf_after=${e.bufferSizeAfter})`,
+        );
+      }
+    });
     this.boxOpenTracker = new BoxOpenTracker();
     this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
@@ -144,6 +165,7 @@ export class TrackingService {
   reset(): void {
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
@@ -302,6 +324,7 @@ export class TrackingService {
     this.sessionState?.invalidatePending();
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
@@ -324,6 +347,7 @@ export class TrackingService {
     this.lastLiveFrame = null;
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
@@ -379,17 +403,34 @@ export class TrackingService {
     }
 
     // Live chest drops from the GetBox battle log. The game appends a burst of
-    // GetBoxLog entries per drop event, so collapse the per-tick burst before
-    // recording: each category becomes a single drop, and a lone singleton
-    // riding another category's burst (e.g. a stray "rare" amid a common-chest
-    // burst) is suppressed as noise. A kept "rare" fires onLiveStageBossDrop,
-    // which is also idempotent across ticks (BoxTimerService skips when the box
-    // is already on cooldown).
-    if (snap.chestDrops && snap.chestDrops.length > 0) {
-      for (const category of collapseLiveChestDrops(snap.chestDrops)) {
-        if (this.chestDropTracker.recordLiveChestDrop(category, snap.at / 1000)) {
-          if (category === "rare" && snap.stageKey != null && snap.stageKey > 0) {
-            this.onLiveStageBossDrop?.(snap.stageKey);
+    // GetBoxLog entries per chest-drop event, and that burst can straddle
+    // multiple reader ticks (the reader polls at ~25 Hz while the game appends
+    // entries across frames). The aggregator buffers categories across ticks
+    // and collapses a burst exactly once when it goes silent — so a single drop
+    // is recorded exactly once even when its burst splits across ticks. A kept
+    // "rare" fires onLiveStageBossDrop, which is idempotent across ticks
+    // (BoxTimerService skips when the box is already on cooldown).
+    const chestAt = snap.at / 1000;
+    // Warn when the GetBox log shrank since the last tick — the tail restarts
+    // from 0 and re-reads old entries as new, which can duplicate recordings.
+    // This is the signature the aggregator cannot fully defend against.
+    if (snap.chestLogDebug && snap.chestLogDebug.count < snap.chestLogDebug.lastCountBefore) {
+      log.warn(
+        `chest log shrank: count=${snap.chestLogDebug.count} ` +
+          `lastCountBefore=${snap.chestLogDebug.lastCountBefore} ` +
+          `start=${snap.chestLogDebug.start} entriesRead=${snap.chestLogDebug.entriesRead} ` +
+          `in=[${(snap.chestDrops ?? []).join(",")}]`,
+      );
+    }
+    const chestCategories = this.chestAggregator.feed(snap.chestDrops ?? [], chestAt);
+    for (const category of chestCategories) {
+      if (this.chestDropTracker.recordLiveChestDrop(category, chestAt)) {
+        if (category === "rare") {
+          // A delayed flush may land on a tick whose snap has no stageKey
+          // (e.g. reader between battles); fall back to the last live stage.
+          const stageKey = snap.stageKey ?? this.lastLiveStage?.stageKey;
+          if (stageKey != null && stageKey > 0) {
+            this.onLiveStageBossDrop?.(stageKey);
           }
         }
       }

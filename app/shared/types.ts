@@ -1049,6 +1049,14 @@ export interface LiveMemorySnapshot {
   chestDrops: ("common" | "rare")[] | null;
   /** Diagnostics: why `chestDrops` is null this tick. Dev-only. */
   chestDropsStatus?: string;
+  /**
+   * Tail-position diagnostics for the chest log, for investigating duplicate-
+   * drop bugs. Present only when `chestDrops` is a real per-tick delta (not
+   * `null`). `count` < `lastCountBefore` indicates the log shrank (new run
+   * cleared it) and the tail restarted from 0 — which re-reads old entries as
+   * new and can cause duplicate recordings.
+   */
+  chestLogDebug?: { count: number; lastCountBefore: number; start: number; entriesRead: number };
   /** Live inventory items from PlayerSaveData.itemSaveDatas snapshot (null ⇒ unavailable). */
   inventoryItems: LiveInventoryItem[] | null;
   /** Diagnostics: why `inventoryItems` is null this tick. Dev-only. */

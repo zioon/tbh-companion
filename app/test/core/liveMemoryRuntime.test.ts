@@ -480,13 +480,18 @@ describe("readRuntimeChestLog", () => {
     expect(result.drops).toEqual(["rare"]);
   });
 
-  it("restarts the tail from 0 when the log shrinks (new run cleared it)", () => {
+  it("realigns the tail and returns no drops when the log shrinks", () => {
+    // A shrink is either a memory-read race, a ring-buffer eviction, or a new
+    // run clearing the log. In every case the tail must NOT re-read history
+    // from 0 — that would classify the entire backlog as new drops and fire
+    // phantom chest-drop events. The tail realigns to `count` and returns [].
     const pin = makeChestLogPinState();
     pin.primed = true;
     pin.lastCount = 5; // pretend we had seen 5 entries
-    const m = seedLogChain(new FakeMemory(), [1]); // log now shorter → reset
+    const m = seedLogChain(new FakeMemory(), [1]); // log now shorter (count=1)
     const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
-    expect(result.drops).toEqual(["rare"]);
+    expect(result.drops).toEqual([]);
+    expect(pin.lastCount).toBe(1); // realigned, not reset to 0
   });
 });
 
@@ -566,12 +571,13 @@ describe("readRuntimeStageClears", () => {
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([85]);
   });
 
-  it("restarts the tail from 0 when the log shrinks (new run cleared it)", () => {
+  it("realigns the tail and returns no clears when the log shrinks", () => {
     const pin = makeStageClearPinState();
     pin.primed = true;
     pin.lastCount = 5;
     const m = seedStageClearChain(new FakeMemory(), [12]);
-    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([12]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
+    expect(pin.lastCount).toBe(1);
   });
 });
 
@@ -688,14 +694,14 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(result.opens![0].level).toBe(5);
   });
 
-  it("restarts the tail from 0 when the log shrinks", () => {
+  it("realigns the tail and returns no opens when the log shrinks", () => {
     const pin = makeBoxOpenPinState();
     pin.primed = true;
     pin.lastCount = 5;
     const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001, boxType: 1 }]);
     const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
-    expect(result.opens).toHaveLength(1);
-    expect(result.opens![0].itemKey).toBe(1001);
+    expect(result.opens).toEqual([]);
+    expect(pin.lastCount).toBe(1);
   });
 });
 

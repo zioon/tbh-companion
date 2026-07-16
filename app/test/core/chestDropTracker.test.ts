@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { ChestDropTracker, resolveStageBoxDrop } from "../../src/core/chestDropTracker";
+import {
+  ChestDropTracker,
+  LiveChestDropAggregator,
+  resolveStageBoxDrop,
+} from "../../src/core/chestDropTracker";
 
 describe("resolveStageBoxDrop", () => {
   it("resolves common and rare stage boxes from catalog", () => {
@@ -158,5 +162,123 @@ describe("ChestDropTracker.recordLiveChestDrop", () => {
     expect(stats.combinedTotal).toBe(1);
     expect(stats.history).toHaveLength(1);
     expect(tracker.captureSnapshot().countsByKey).toEqual({ "900910": 1 });
+  });
+});
+
+describe("LiveChestDropAggregator", () => {
+  // Reader ticks at ~25 Hz (40 ms). A single chest-drop burst can straddle
+  // multiple ticks because the game appends GetBoxLog entries across frames.
+  // The aggregator must buffer categories across ticks and collapse a burst
+  // exactly once when it goes silent — not record a drop per tick.
+
+  it("flushes nothing while a burst is still flowing within the gap", () => {
+    const agg = new LiveChestDropAggregator(0.5);
+    // Three ticks, 40 ms apart, all part of one common burst.
+    expect(agg.feed(["common", "common", "common"], 1.0)).toEqual([]);
+    expect(agg.feed(["common", "common"], 1.04)).toEqual([]);
+    expect(agg.feed(["common"], 1.08)).toEqual([]);
+  });
+
+  it("collapses a cross-tick burst into a single recorded drop on flush", () => {
+    // Reproduces the bug: one common drop whose 5-entry burst splits across
+    // two ticks must record exactly one common drop, not two.
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["common", "common", "common"], 1.0);
+    agg.feed(["common", "common"], 1.04);
+    // Silent tick beyond the gap flushes the burst.
+    expect(agg.feed([], 1.6)).toEqual(["common"]);
+  });
+
+  it("does not double-record when the same burst keeps trickling across ticks", () => {
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["common"], 1.0);
+    agg.feed(["common"], 1.04);
+    agg.feed(["common"], 1.08);
+    agg.feed(["common"], 1.12);
+    agg.feed(["common"], 1.16);
+    // One burst, five ticks — exactly one common drop on flush.
+    expect(agg.feed([], 1.7)).toEqual(["common"]);
+    // Subsequent silent ticks must not re-flush.
+    expect(agg.feed([], 1.8)).toEqual([]);
+    expect(agg.feed([], 2.0)).toEqual([]);
+  });
+
+  it("flushes the prior burst when a new burst starts after the gap", () => {
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["common", "common"], 1.0);
+    // New rare burst after silence — flush the common burst first, then seed rare.
+    expect(agg.feed(["rare"], 2.0)).toEqual(["common"]);
+    // Rare burst still pending.
+    expect(agg.feed([], 2.1)).toEqual([]);
+    // Flush rare.
+    expect(agg.feed([], 2.7)).toEqual(["rare"]);
+  });
+
+  it("suppresses a stray singleton riding another category's cross-tick burst", () => {
+    // One common drop (5 entries split across ticks) + 1 stray rare entry in
+    // the middle tick. The rare singleton must be suppressed as noise.
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["common", "common", "common"], 1.0);
+    agg.feed(["common", "common", "rare"], 1.04);
+    agg.feed(["common"], 1.08);
+    expect(agg.feed([], 1.7)).toEqual(["common"]);
+  });
+
+  it("keeps a genuine 1:1 mix as two distinct drops", () => {
+    // Two singletons of different categories in the same burst with no burst
+    // backing either — treated as two real single drops.
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["common", "rare"], 1.0);
+    expect(agg.feed([], 1.6)).toEqual(["common", "rare"]);
+  });
+
+  it("flush() forces the pending buffer out immediately", () => {
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["rare", "rare"], 1.0);
+    expect(agg.flush()).toEqual(["rare"]);
+    expect(agg.flush()).toEqual([]);
+  });
+
+  it("reset() clears the pending buffer", () => {
+    const agg = new LiveChestDropAggregator(0.5);
+    agg.feed(["common", "common"], 1.0);
+    agg.reset();
+    expect(agg.feed([], 1.6)).toEqual([]);
+    expect(agg.flush()).toEqual([]);
+  });
+
+  it("treats the first feed as a fresh burst (no spurious flush)", () => {
+    const agg = new LiveChestDropAggregator(0.5);
+    expect(agg.feed(["common", "common"], 100.0)).toEqual([]);
+    expect(agg.flush()).toEqual(["common"]);
+  });
+
+  it("onFeed callback reports input, flush, and buffer state", () => {
+    const events: {
+      inputCategories: string[];
+      flushedCategories: string[];
+      bufferSizeAfter: number;
+      flushedStale: boolean;
+    }[] = [];
+    const agg = new LiveChestDropAggregator(0.5, (e) =>
+      events.push({
+        inputCategories: [...e.inputCategories],
+        flushedCategories: [...e.flushedCategories],
+        bufferSizeAfter: e.bufferSizeAfter,
+        flushedStale: e.flushedStale,
+      }),
+    );
+
+    // Burst flowing — accumulates, no flush.
+    agg.feed(["common", "common"], 1.0);
+    agg.feed(["common"], 1.04);
+    // Silent tick beyond gap — stale flush.
+    agg.feed([], 1.6);
+
+    expect(events).toEqual([
+      { inputCategories: ["common", "common"], flushedCategories: [], bufferSizeAfter: 2, flushedStale: false },
+      { inputCategories: ["common"], flushedCategories: [], bufferSizeAfter: 3, flushedStale: false },
+      { inputCategories: [], flushedCategories: ["common"], bufferSizeAfter: 0, flushedStale: true },
+    ]);
   });
 });
