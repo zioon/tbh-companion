@@ -105,18 +105,27 @@ function gaScanRegions(proc: WinProcess, ga: { base: bigint; size: number }): Sc
  * Critical anchors: stage manager (+ HeroList offset), stage-cache manager,
  * currency manager. Enrichment: log manager (chest drops), player save data
  * (pets/inventory).
+ *
+ * When `enrichmentOnly` is true, critical anchors are skipped — the caller
+ * already has them in a supported base table. Only enrichment fields are
+ * derived. This lets the healer fill gaps (e.g. boxOpenLog) even when a
+ * critical anchor probe is temporarily failing (e.g. gold probe during game
+ * loading). The returned table has 0 for critical fields; mergeOffsets keeps
+ * the base values.
  */
 export function extractOffsets(
   proc: WinProcess,
   ga: { base: bigint; size: number },
   version: string,
   log: ExtractorLog = noopLog,
+  enrichmentOnly = false,
 ): LiveOffsets | null {
   const t0 = Date.now();
   const regions = gaScanRegions(proc, ga);
   const totalBytes = regions.reduce((sum, r) => sum + r.size, 0);
   log(
-    `extract: scanning ${regions.length} readable GA regions (${Math.round(totalBytes / 1024)} KiB)`,
+    `extract: scanning ${regions.length} readable GA regions (${Math.round(totalBytes / 1024)} KiB)` +
+      (enrichmentOnly ? " (enrichment-only)" : ""),
   );
 
   const ctx = new ScanContext(proc);
@@ -127,32 +136,39 @@ export function extractOffsets(
   );
 
   // ── Critical anchors (structural) ──────────────────────────────────────────
-  const sm = findStageManager(ctx, entries);
-  if (!sm) {
-    log(`extract: FAILED — no StageManager singleton (static slot with HeroList field)`);
-    return null;
-  }
-  log(
-    `extract: stageManager rva=0x${sm.slotRva.toString(16)} heroList=0x${sm.heroList.toString(16)}`,
-  );
+  // Skipped in enrichment-only mode — the base table already has them.
+  let sm: { slotRva: bigint; heroList: number } | null = null;
+  let scm: { slotRva: bigint; currentCache: number } | null = null;
+  let cm: { slotRva: bigint } | null = null;
 
-  const scm = findStageCacheManagerStatic(ctx, entries) ?? findStageCacheManager(ctx, entries);
-  if (!scm) {
-    log(`extract: FAILED — no stage-cache static store (vb.uu / StageCache at +0x88)`);
-    return null;
-  }
-  log(
-    `extract: stageCacheManager rva=0x${scm.slotRva.toString(16)} currentCache=0x${scm.currentCache.toString(16)}`,
-  );
+  if (!enrichmentOnly) {
+    sm = findStageManager(ctx, entries);
+    if (!sm) {
+      log(`extract: FAILED — no StageManager singleton (static slot with HeroList field)`);
+      return null;
+    }
+    log(
+      `extract: stageManager rva=0x${sm.slotRva.toString(16)} heroList=0x${sm.heroList.toString(16)}`,
+    );
 
-  const cm =
-    findCurrencyManagerStatic(ctx, entries, GOLD_KEY) ??
-    findCurrencyManager(ctx, entries, GOLD_KEY);
-  if (!cm) {
-    log(`extract: FAILED — no currency manager passed the gold probe (key ${GOLD_KEY})`);
-    return null;
+    scm = findStageCacheManagerStatic(ctx, entries) ?? findStageCacheManager(ctx, entries);
+    if (!scm) {
+      log(`extract: FAILED — no stage-cache static store (vb.uu / StageCache at +0x88)`);
+      return null;
+    }
+    log(
+      `extract: stageCacheManager rva=0x${scm.slotRva.toString(16)} currentCache=0x${scm.currentCache.toString(16)}`,
+    );
+
+    cm =
+      findCurrencyManagerStatic(ctx, entries, GOLD_KEY) ??
+      findCurrencyManager(ctx, entries, GOLD_KEY);
+    if (!cm) {
+      log(`extract: FAILED — no currency manager passed the gold probe (key ${GOLD_KEY})`);
+      return null;
+    }
+    log(`extract: currencyManager rva=0x${cm.slotRva.toString(16)}`);
   }
-  log(`extract: currencyManager rva=0x${cm.slotRva.toString(16)}`);
 
   // ── Enrichment anchors (zero-value fallback, retried while incomplete) ─────
   const lm = findLogManager(ctx, entries);
@@ -194,9 +210,9 @@ export function extractOffsets(
 
     typeInfoRva: {
       commonSaveData: player?.commonSaveData ?? 0n,
-      currencyManager: cm.slotRva,
-      stageCacheManager: scm.slotRva,
-      stageManager: sm.slotRva,
+      currencyManager: cm?.slotRva ?? 0n,
+      stageCacheManager: scm?.slotRva ?? 0n,
+      stageManager: sm?.slotRva ?? 0n,
       localInventoryManager: 0n, // unused; inventory reads via the player save snapshot
       logManager: lm?.slotRva ?? 0n,
       monsterSpawnManager: msm?.slotRva ?? 0n,
@@ -248,14 +264,14 @@ export function extractOffsets(
     runtime: {
       currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
       stage: {
-        currentCache: scm.currentCache,
+        currentCache: scm?.currentCache ?? 0,
         cacheInfoData: 0x10,
         stageKey: 0x30,
         waveAmount: 0x54,
         runtimeWave: STRUCT_RUNTIME_WAVE,
       },
       currencyInfoKey: 0x30,
-      heroList: sm.heroList,
+      heroList: sm?.heroList ?? 0,
       log: {
         logByType: lm?.logByType ?? STRUCT_LOG_BY_TYPE,
         getBoxTypeKey: lm?.getBoxTypeKey ?? STRUCT_GETBOX_KEY,

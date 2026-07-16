@@ -302,7 +302,7 @@ export class LiveMemoryReader {
             ? `resolve: running extractor for enrichment (supported, budget bypassed)`
             : `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})`,
         );
-        const derived = extractOffsets(proc, ga, version, (msg) => this.log(msg));
+        const derived = extractOffsets(proc, ga, version, (msg) => this.log(msg), isSupported);
         if (derived) {
           const merged = base ? mergeOffsets(base, derived) : derived;
           saveCachedOffsets(cacheDir, merged);
@@ -310,7 +310,11 @@ export class LiveMemoryReader {
           this.log(`resolve: extractor ok → ${mergedSource}, persisted cache`);
           return { table: merged, source: mergedSource };
         }
-        this.log("resolve: extractor returned null (critical anchor failed)");
+        this.log(
+          isSupported
+            ? "resolve: extractor returned null (enrichment extraction failed)"
+            : "resolve: extractor returned null (critical anchor failed)",
+        );
       } else {
         this.log(
           `resolve: extractor skipped (budget exhausted: ${extractionAttempts(cacheDir, version, appBuild)} attempts)`,
