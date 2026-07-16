@@ -111,6 +111,7 @@ export class BoxTimerService {
       this.catalogFile,
     );
     if (boxId == null) return false;
+    if (this.isBoxOnCooldown(boxId)) return true;
 
     log.info(
       `Stage boss drop detected from Player.log (ItemKey ${itemKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"})`,
@@ -128,6 +129,7 @@ export class BoxTimerService {
       this.idealStageKeyByBoxId,
     );
     if (boxId == null) return false;
+    if (this.isBoxOnCooldown(boxId)) return true;
 
     log.info(
       `Stage boss drop detected from live memory (stage ${stageKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"})`,
@@ -218,6 +220,13 @@ export class BoxTimerService {
 
   private isEnabledRoute(boxId: number): boolean {
     return this.routeById.has(boxId) && this.enabledBoxIds.has(boxId);
+  }
+
+  /** True when the box has a live (unexpired) cooldown timer. */
+  private isBoxOnCooldown(boxId: number): boolean {
+    const droppedAt = this.timers.get(boxId);
+    if (droppedAt === undefined) return false;
+    return Date.now() - droppedAt < this.resolveCooldownSeconds(boxId) * 1000;
   }
 
   private commitState(): BoxTimerState {

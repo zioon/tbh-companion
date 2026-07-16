@@ -378,7 +378,10 @@ export class TrackingService {
       this.dpsTracker.update(snap.monsterHp, snap.deadMonsterCount, timestamp);
     }
 
-    // Diagnostic: throttle log to every 5s
+    // Live chest drops from the GetBox battle log. Each "rare" entry fires
+    // onLiveStageBossDrop, which is idempotent (BoxTimerService skips when the
+    // box is already on cooldown) so a burst of entries won't spam the log or
+    // reset the cooldown timer.
     if (snap.chestDrops && snap.chestDrops.length > 0) {
       for (const category of snap.chestDrops) {
         if (this.chestDropTracker.recordLiveChestDrop(category, snap.at / 1000)) {

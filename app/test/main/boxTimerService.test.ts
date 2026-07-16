@@ -160,6 +160,55 @@ describe("BoxTimerService", () => {
     expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(false);
   });
 
+  it("does not reset cooldown or re-fire callback on duplicate live stage drop", async () => {
+    const onDropped = vi.fn();
+    const svc = await loadService();
+    svc.setEnabledBoxIds([920801]);
+    svc.setCooldownSeconds(920801, 600);
+    svc.setOnChestDropped(onDropped);
+
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(true);
+    expect(onDropped).toHaveBeenCalledTimes(1);
+    const remainingAfterFirst = svc.getState().rows.find(
+      (r) => r.boxId === 920801,
+    )!.remainingSeconds;
+
+    // 30s later — a duplicate drop signal arrives (e.g. GetBox log burst).
+    vi.setSystemTime(t0 + 30_000);
+    expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(true);
+    expect(onDropped).toHaveBeenCalledTimes(1); // not re-fired
+    const remainingAfterSecond = svc.getState().rows.find(
+      (r) => r.boxId === 920801,
+    )!.remainingSeconds;
+
+    // Cooldown was NOT reset: remaining should be ~30s less, not back to 600.
+    expect(remainingAfterSecond).toBeLessThan(remainingAfterFirst);
+    expect(remainingAfterSecond).toBe(remainingAfterFirst - 30);
+    vi.useRealTimers();
+  });
+
+  it("re-marks dropped after cooldown expires on a new live stage drop", async () => {
+    const onDropped = vi.fn();
+    const svc = await loadService();
+    svc.setEnabledBoxIds([920801]);
+    svc.setCooldownSeconds(920801, 60);
+    svc.setOnChestDropped(onDropped);
+
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    svc.tryMarkDroppedFromLiveStage(4103);
+    expect(onDropped).toHaveBeenCalledTimes(1);
+
+    // After cooldown expires, a new drop should re-mark and re-fire.
+    vi.setSystemTime(t0 + 61_000);
+    svc.getState(); // expire + delete the timer
+    expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(true);
+    expect(onDropped).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it("defaults notifyWhenReady to true and persists opt-out", async () => {
     const svc = await loadService();
     svc.setEnabledBoxIds([920151]);
