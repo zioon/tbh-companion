@@ -5,6 +5,7 @@ import {
   boxLabel,
   categoryFromBoxKey,
   levelFromBoxKey,
+  UNCLASSIFIED_BOX_KEY,
 } from "../../src/core/boxOpenLog";
 
 describe("boxCategoryFromType", () => {
@@ -47,6 +48,7 @@ describe("boxLabel", () => {
     expect(boxLabel("common")).toBe("Common chest");
     expect(boxLabel("rare")).toBe("Stage boss chest");
     expect(boxLabel("act")).toBe("Act boss chest");
+    expect(boxLabel(UNCLASSIFIED_BOX_KEY)).toBe("Unclassified");
   });
 
   it("labels levelled keys", () => {
@@ -68,6 +70,7 @@ describe("categoryFromBoxKey", () => {
   it("returns the category for category-only keys", () => {
     expect(categoryFromBoxKey("common")).toBe("common");
     expect(categoryFromBoxKey("act")).toBe("act");
+    expect(categoryFromBoxKey(UNCLASSIFIED_BOX_KEY)).toBe("unclassified");
   });
 
   it("returns null for unknown categories", () => {

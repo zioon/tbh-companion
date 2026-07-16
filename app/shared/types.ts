@@ -130,7 +130,7 @@ export interface BoxOpenStats {
   boxKey: string;
   /** "Common chest" | "Stage boss chest Lv3" | ... */
   label: string;
-  category: "common" | "rare" | "act";
+  category: "common" | "rare" | "act" | "unclassified";
   /** null = category-only fallback (BoxOpenLog lacks level). */
   level: number | null;
   totalOpens: number;
@@ -1180,4 +1180,5 @@ export interface TbhApi {
   onStageRuns(cb: (stats: StageRunStats) => void): () => void;
   resetLootBox(boxKey: string): Promise<void>;
   resetLootAll(): Promise<void>;
+  reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void>;
 }

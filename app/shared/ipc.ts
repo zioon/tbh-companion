@@ -56,6 +56,7 @@ export const IPC = {
   GET_STAGE_RUNS: "get-stage-runs",
   LOOT_RESET_BOX: "loot-reset-box",
   LOOT_RESET_ALL: "loot-reset-all",
+  LOOT_RECLASSIFY_ITEM: "loot-reclassify-item",
 
   // Send (renderer → main, no response)
   RESET: "reset",
@@ -111,6 +112,7 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.GET_STAGE_RUNS,
   IPC.LOOT_RESET_BOX,
   IPC.LOOT_RESET_ALL,
+  IPC.LOOT_RECLASSIFY_ITEM,
 ] as const;
 
 export const IPC_SEND_CHANNELS = [

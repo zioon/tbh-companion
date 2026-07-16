@@ -3,7 +3,7 @@ import { cn } from "../../lib/variants";
 
 export interface DataTableColumn {
   label: string;
-  align?: "left" | "right";
+  align?: "left" | "right" | "center";
   /** Fixed column width (e.g. "88px"); omit to let the column size to its content. */
   width?: string;
 }
@@ -45,7 +45,7 @@ export function DataTable({
         <thead>
           <tr>
             {columns.map((col, i) => (
-              <th key={i} className={cn(thClass, col.align === "right" && "text-right")}>
+              <th key={i} className={cn(thClass, col.align === "right" && "text-right", col.align === "center" && "text-center")}>
                 {col.label}
               </th>
             ))}
@@ -59,7 +59,7 @@ export function DataTable({
 
 export interface DataTableCell {
   content: ReactNode;
-  align?: "left" | "right";
+  align?: "left" | "right" | "center";
   className?: string;
 }
 
@@ -72,6 +72,7 @@ export function DataTableRow({ index, cells }: { index: number; cells: DataTable
           className={cn(
             "whitespace-nowrap px-3 py-2",
             cell.align === "right" && "text-right",
+            cell.align === "center" && "text-center",
             cell.className,
           )}
         >

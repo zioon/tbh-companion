@@ -49,6 +49,7 @@ describe("IPC channel registry", () => {
     expect(preload).toContain("IPC.STAGE_RUNS");
     expect(preload).toContain("IPC.LOOT_RESET_BOX");
     expect(preload).toContain("IPC.LOOT_RESET_ALL");
+    expect(preload).toContain("IPC.LOOT_RECLASSIFY_ITEM");
   });
 
   it("IPC handlers wire invoke and send channels", () => {
@@ -88,6 +89,7 @@ describe("IPC channel registry", () => {
     const lootHandler = readHandler("loot");
     expect(lootHandler).toContain("IPC.LOOT_RESET_BOX");
     expect(lootHandler).toContain("IPC.LOOT_RESET_ALL");
+    expect(lootHandler).toContain("IPC.LOOT_RECLASSIFY_ITEM");
   });
 
   it("services broadcast on IPC push constants", () => {

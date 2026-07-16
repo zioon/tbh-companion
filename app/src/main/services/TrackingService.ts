@@ -5,7 +5,7 @@ import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
 import { ChestDropTracker } from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
-import { resolveBoxKey } from "../../core/boxOpenLog";
+import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
 import { marketHashName } from "../../core/marketName";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
@@ -222,19 +222,31 @@ export class TrackingService {
     this.pushStats();
   }
 
+  reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): void {
+    this.boxOpenTracker.reclassifyItem(fromBoxKey, itemKey, toBoxKey);
+    this.sessionState?.flush(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.lastSnap,
+      this.config,
+    );
+    this.pushStats();
+  }
+
   /**
    * Resolve a raw BoxOpenEntry into a tracker record: derive boxKey from
-   * boxType/level, look up item name/grade from gamedata. Returns null when
-   * the boxType is unknown or the item can't be resolved.
+   * boxType/level, look up item name/grade from gamedata. When boxType is
+   * unknown (offsets not derived), records under "unclassified" so the user
+   * can manually reclassify later.
    */
   private resolveBoxOpenEntry(entry: BoxOpenEntry): {
     boxKey: string;
     itemKey: number;
     name: string;
     grade: string | null;
-  } | null {
-    const boxKey = resolveBoxKey(entry.boxType, entry.level);
-    if (boxKey == null) return null;
+  } {
+    const boxKey = resolveBoxKey(entry.boxType, entry.level) ?? UNCLASSIFIED_BOX_KEY;
 
     const catalogId = catalogItemKeyFromSave(entry.itemKey);
     const item = this.gameDataLookup?.get(catalogId);
@@ -415,16 +427,14 @@ export class TrackingService {
     if (snap.boxOpens && snap.boxOpens.length > 0) {
       for (const entry of snap.boxOpens) {
         const resolved = this.resolveBoxOpenEntry(entry);
-        if (resolved) {
-          this.boxOpenTracker.recordOpen(
-            resolved.boxKey,
-            resolved.itemKey,
-            resolved.name,
-            resolved.grade,
-            1,
-            snap.at / 1000,
-          );
-        }
+        this.boxOpenTracker.recordOpen(
+          resolved.boxKey,
+          resolved.itemKey,
+          resolved.name,
+          resolved.grade,
+          1,
+          snap.at / 1000,
+        );
       }
     }
 

@@ -11,6 +11,7 @@ import {
   MultiSelect,
   type MultiSelectOption,
 } from "../../design-system/primitives/MultiSelect/MultiSelect";
+import { Select, type SelectOption } from "../../design-system/primitives/Select/Select";
 import {
   DEFAULT_LOOT_FILTER_STATE,
   filterAndSortLoot,
@@ -32,27 +33,76 @@ function fmtGoldPerHour(value: number | null): string {
   return `${Math.round(value).toLocaleString("en-US")}/h`;
 }
 
+const RECLASSIFY_CATEGORY_OPTIONS: SelectOption[] = [
+  { value: "common", label: "Common" },
+  { value: "rare", label: "Stage boss" },
+  { value: "act", label: "Act boss" },
+];
+
+interface ReclassifyRowState {
+  category: string;
+  level: string;
+}
+
 export function LootBoxSection({
   stats,
   onReset,
+  onReclassify,
 }: {
   stats: BoxOpenStats;
   onReset: (boxKey: string) => void;
+  onReclassify?: (itemKey: number, fromBoxKey: string, toBoxKey: string) => void;
 }) {
   const [filter, setFilter] = useState<LootFilterState>(DEFAULT_LOOT_FILTER_STATE);
   const [confirming, setConfirming] = useState(false);
+  const [reclassifyState, setReclassifyState] = useState<Record<number, ReclassifyRowState>>({});
 
   const rows = filterAndSortLoot(stats.breakdown, filter);
   const gradeOptions = gradeOptionsFromLoot(stats.breakdown);
   const gradeSelectOptions: MultiSelectOption[] = gradeOptions.map((g) => ({ value: g, label: g }));
+  const isUnclassified = stats.category === "unclassified" && onReclassify;
 
-  const columns = [
-    { label: "Item" },
-    { label: "Count", align: "right" as const, width: "64px" },
-    { label: "Drop%", align: "right" as const, width: "72px" },
-    { label: "Buyout", align: "right" as const, width: "96px" },
-    { label: "Hourly", align: "right" as const, width: "104px" },
-  ];
+  const columns = isUnclassified
+    ? [
+        { label: "Item" },
+        { label: "Count", align: "right" as const, width: "64px" },
+        { label: "Drop%", align: "right" as const, width: "72px" },
+        { label: "Buyout", align: "right" as const, width: "96px" },
+        { label: "Assign to", align: "center" as const, width: "200px" },
+      ]
+    : [
+        { label: "Item" },
+        { label: "Count", align: "right" as const, width: "64px" },
+        { label: "Drop%", align: "right" as const, width: "72px" },
+        { label: "Buyout", align: "right" as const, width: "96px" },
+        { label: "Hourly", align: "right" as const, width: "104px" },
+      ];
+
+  function getReclassifyRow(itemKey: number): ReclassifyRowState {
+    return reclassifyState[itemKey] ?? { category: "common", level: "" };
+  }
+
+  function setReclassifyRow(itemKey: number, patch: Partial<ReclassifyRowState>): void {
+    setReclassifyState((prev) => ({
+      ...prev,
+      [itemKey]: { ...getReclassifyRow(itemKey), ...patch },
+    }));
+  }
+
+  function handleAssign(itemKey: number): void {
+    const state = getReclassifyRow(itemKey);
+    const levelNum = Number.parseInt(state.level, 10);
+    const toBoxKey =
+      Number.isFinite(levelNum) && levelNum > 0
+        ? `${state.category}:${levelNum}`
+        : state.category;
+    onReclassify?.(itemKey, stats.boxKey, toBoxKey);
+    setReclassifyState((prev) => {
+      const next = { ...prev };
+      delete next[itemKey];
+      return next;
+    });
+  }
 
   return (
     <Card padding="default" className="flex flex-col gap-2">
@@ -68,6 +118,13 @@ export function LootBoxSection({
           Reset
         </Button>
       </div>
+
+      {isUnclassified && (
+        <p className="m-0 text-xs text-muted">
+          Box type couldn't be read from memory. Assign each item to a chest category to include it
+          in the stats.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-end gap-2">
         <Input
@@ -93,13 +150,53 @@ export function LootBoxSection({
           <DataTableRow
             key={row.itemKey}
             index={i}
-            cells={[
-              { content: row.name },
-              { content: String(row.count), align: "right" },
-              { content: fmtPct(row.dropPct), align: "right" },
-              { content: fmtGold(row.buyOrderUnit), align: "right" },
-              { content: fmtGoldPerHour(row.hourlyValue), align: "right" },
-            ]}
+            cells={
+              isUnclassified
+                ? [
+                    { content: row.name },
+                    { content: String(row.count), align: "right" },
+                    { content: fmtPct(row.dropPct), align: "right" },
+                    { content: fmtGold(row.buyOrderUnit), align: "right" },
+                    {
+                      content: (
+                        <div className="flex items-center gap-1">
+                          <Select
+                            className="min-w-0 flex-1"
+                            triggerClassName="py-1 text-xs"
+                            options={RECLASSIFY_CATEGORY_OPTIONS}
+                            value={getReclassifyRow(row.itemKey).category}
+                            onValueChange={(v) =>
+                              setReclassifyRow(row.itemKey, { category: String(v) })
+                            }
+                          />
+                          <Input
+                            className="w-12 text-xs"
+                            placeholder="Lv"
+                            value={getReclassifyRow(row.itemKey).level}
+                            onChange={(e) =>
+                              setReclassifyRow(row.itemKey, { level: e.target.value })
+                            }
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleAssign(row.itemKey)}
+                          >
+                            Assign
+                          </Button>
+                        </div>
+                      ),
+                      align: "center",
+                    },
+                  ]
+                : [
+                    { content: row.name },
+                    { content: String(row.count), align: "right" },
+                    { content: fmtPct(row.dropPct), align: "right" },
+                    { content: fmtGold(row.buyOrderUnit), align: "right" },
+                    { content: fmtGoldPerHour(row.hourlyValue), align: "right" },
+                  ]
+            }
           />
         ))}
       </DataTable>
