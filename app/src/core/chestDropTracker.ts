@@ -71,11 +71,19 @@ export class ChestDropTracker {
   private categoriesByKey = new Map<string, ChestDropCategory>();
   private history: ChestDropHistoryEntry[] = [];
 
+  // Cached arrays — only rebuilt when drops are recorded. getStats() is called
+  // at 5 Hz but the breakdown/history content changes rarely, so caching avoids
+  // ~10 array allocations/sec.
+  private breakdownCache: ChestDropBreakdownRow[] | null = null;
+  private historyCache: ChestDropHistoryEntry[] | null = null;
+
   reset(): void {
     this.countsByKey.clear();
     this.namesByKey.clear();
     this.categoriesByKey.clear();
     this.history = [];
+    this.breakdownCache = null;
+    this.historyCache = null;
   }
 
   /**
@@ -96,6 +104,8 @@ export class ChestDropTracker {
     if (this.history.length > HISTORY_LIMIT) {
       this.history.splice(0, this.history.length - HISTORY_LIMIT);
     }
+    this.breakdownCache = null;
+    this.historyCache = null;
     return true;
   }
 
@@ -118,32 +128,52 @@ export class ChestDropTracker {
       this.history.splice(0, this.history.length - HISTORY_LIMIT);
     }
 
+    this.breakdownCache = null;
+    this.historyCache = null;
     return true;
   }
 
   getStats(elapsedSeconds: number): ChestDropStats {
     let commonTotal = 0;
     let rareTotal = 0;
-    const breakdown: ChestDropBreakdownRow[] = [];
 
-    for (const [key, count] of this.countsByKey) {
-      if (count <= 0) continue;
-      const category = this.categoriesByKey.get(key);
-      const name = this.namesByKey.get(key);
-      if (!category || !name) continue;
+    // Reuse cached breakdown array when no new drops were recorded since the
+    // last call — avoids rebuilding the array at 5 Hz when content is unchanged.
+    if (this.breakdownCache === null) {
+      const breakdown: ChestDropBreakdownRow[] = [];
+      for (const [key, count] of this.countsByKey) {
+        if (count <= 0) continue;
+        const category = this.categoriesByKey.get(key);
+        const name = this.namesByKey.get(key);
+        if (!category || !name) continue;
 
-      if (category === "common") commonTotal += count;
-      else rareTotal += count;
+        if (category === "common") commonTotal += count;
+        else rareTotal += count;
 
-      breakdown.push({
-        itemKey: Number.parseInt(key, 10),
-        name,
-        category,
-        count,
-      });
+        breakdown.push({
+          itemKey: Number.parseInt(key, 10),
+          name,
+          category,
+          count,
+        });
+      }
+      breakdown.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+      this.breakdownCache = breakdown;
+    } else {
+      // Recompute totals from the cached breakdown (cheap, no allocation).
+      for (const row of this.breakdownCache) {
+        if (row.category === "common") commonTotal += row.count;
+        else rareTotal += row.count;
+      }
     }
 
-    breakdown.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    const breakdown = this.breakdownCache;
+
+    // Reuse cached visible-history array when no new drops were recorded.
+    if (this.historyCache === null) {
+      this.historyCache = this.history.slice(-HISTORY_VISIBLE).reverse();
+    }
+    const history = this.historyCache;
 
     const combinedTotal = commonTotal + rareTotal;
     const hours = elapsedSeconds > 0 ? elapsedSeconds / 3600 : 0;
@@ -165,7 +195,7 @@ export class ChestDropTracker {
       commonPerHour,
       rarePerHour,
       breakdown,
-      history: this.history.slice(-HISTORY_VISIBLE).reverse(),
+      history,
       lastDropWallTime: lastRareWallTime,
       readerRequired: true,
     };
@@ -193,5 +223,7 @@ export class ChestDropTracker {
     this.countsByKey = new Map(Object.entries(data.countsByKey).filter(([key]) => keepKey(key)));
     this.namesByKey = new Map(Object.entries(data.namesByKey).filter(([key]) => keepKey(key)));
     this.history = (data.history ?? []).filter((entry) => isTracked(entry.category));
+    this.breakdownCache = null;
+    this.historyCache = null;
   }
 }

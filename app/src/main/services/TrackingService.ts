@@ -44,6 +44,10 @@ export class TrackingService {
    * compute this run's gained XP/gold as a delta. `null` means the next clear
    * is the first since attach/reset — its true start is unknown, so it seeds
    * the baseline without being recorded (mirrors filtering out a partial run).
+   *
+   * XP uses `tracker.cumulativeGained` (cap-filtered: perHeroGain returns 0 at
+   * max level) rather than `currentTotalXp` (raw hero exp sum, which keeps
+   * growing at the cap — phantom XP).
    */
   private stageEventBaseline: { xp: number; gold: number } | null = null;
   /** Last stage seen in a live frame — used to detect stage/wave changes for per-map DPS. */
@@ -380,7 +384,10 @@ export class TrackingService {
 
       const stageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
       if (stageKey > 0) {
-        const xp = this.tracker.currentTotalXp;
+        // Use cumulativeGained (cap-filtered) instead of currentTotalXp (raw
+        // hero exp sum). At max level, perHeroGain returns 0 so cumulativeGained
+        // stays constant — no phantom XP attributed to stage clears.
+        const xp = this.tracker.cumulativeGained;
         const gold = this.tracker.currentGold;
         const clears = snap.stageClears;
         if (this.stageEventBaseline) {

@@ -60,8 +60,17 @@ export function Inventory() {
   useEffect(() => {
     if (!inv) return;
     // Drop any selected grade/type no longer present in the catalog.
-    setGradeFilter((prev) => prev.filter((grade) => inv.rows.some((r) => r.grade === grade)));
-    setTypeFilter((prev) => prev.filter((type) => inv.rows.some((r) => r.type === type)));
+    // Only update state when the filter actually changes to avoid cascading re-renders.
+    const grades = new Set(inv.rows.map((r) => r.grade));
+    const types = new Set(inv.rows.map((r) => r.type));
+    setGradeFilter((prev) => {
+      const next = prev.filter((grade) => grades.has(grade));
+      return next.length === prev.length ? prev : next;
+    });
+    setTypeFilter((prev) => {
+      const next = prev.filter((type) => types.has(type));
+      return next.length === prev.length ? prev : next;
+    });
   }, [inv]);
 
   const gradeOptions = useMemo(() => (inv ? gradeOptionsFromInventory(inv) : []), [inv]);

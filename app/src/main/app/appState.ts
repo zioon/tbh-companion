@@ -137,7 +137,10 @@ export function startTracking(): SessionUiSnapshot {
 export function restoreSessionWindows(ui: SessionUiSnapshot): void {
   if (ui.miniOverlayOpen) {
     openOverlayWindow();
-    mainWindow?.hide();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.destroy();
+      mainWindow = null;
+    }
     sessionState.setMiniOverlayOpen(true);
   } else {
     openMainWindow();
@@ -319,7 +322,12 @@ export function getAppServices() {
     },
     openOverlay: () => {
       openOverlayWindow();
-      mainWindow?.hide();
+      // Destroy the main window to release renderer resources while in mini
+      // mode. The window is re-created on next showMain().
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.destroy();
+        mainWindow = null;
+      }
       sessionState.setMiniOverlayOpen(true);
       tracking.flushSession();
     },

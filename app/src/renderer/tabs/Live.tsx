@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStats } from "../lib/useStats";
 import { useInventory } from "../lib/useInventory";
 import { useChests } from "../lib/useChests";
 import { useStageRuns } from "../lib/useStageRuns";
-import { useLiveMemory } from "../lib/useLiveMemory";
+import { useLiveMemoryScalars } from "../lib/useLiveMemory";
 import { blendStage } from "../../core/liveMemory/blend";
 import {
   fmtCompact,
@@ -82,7 +82,7 @@ export function Live() {
   const inventory = useInventory();
   const chests = useChests();
   const stageRuns = useStageRuns();
-  const { snapshot: liveMemory } = useLiveMemory();
+  const liveScalars = useLiveMemoryScalars();
   const [autoOpenEnabled, setAutoOpenEnabled] = useState<ChestAutoOpenPrefs>(DEFAULT_AUTO_OPEN);
 
   useEffect(() => {
@@ -104,15 +104,16 @@ export function Live() {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
 
-  function toggleAutoOpen(key: keyof ChestAutoOpenPrefs, checked: boolean): void {
-    const previous = autoOpenEnabled;
-    const next = { ...previous, [key]: checked };
-    setAutoOpenEnabled(next);
-    void window.tbh.saveConfig({ chestAutoOpenEnabled: next }).catch((err: unknown) => {
-      reportIpcError(err);
-      setAutoOpenEnabled(previous);
+  const toggleAutoOpen = useCallback((key: keyof ChestAutoOpenPrefs, checked: boolean): void => {
+    setAutoOpenEnabled((previous) => {
+      const next = { ...previous, [key]: checked };
+      void window.tbh.saveConfig({ chestAutoOpenEnabled: next }).catch((err: unknown) => {
+        reportIpcError(err);
+        setAutoOpenEnabled(previous);
+      });
+      return next;
     });
-  }
+  }, []);
 
   if (!stats) {
     return (
@@ -125,20 +126,23 @@ export function Live() {
 
   const idle = stats.secondsSinceGain !== null && stats.secondsSinceGain > IDLE_THRESHOLD;
   const showStatus = stats.status !== "Tracking";
-  const liveActive = liveMemory?.connected === true;
+  const liveActive = liveScalars.connected;
   const rateTip = liveActive ? RATE_TIP_LIVE : RATE_TIP_SAVE;
   const goldTip = liveActive ? GOLD_TIP_LIVE : GOLD_TIP_SAVE;
   const intro = liveActive
-    ? liveMemory?.chestDrops != null
+    ? liveScalars.hasChestDrops
       ? "Live memory is on — XP, gold, and chest stats update in real time from the running game."
       : "Live memory is on — XP and gold update in real time. Chest drop rates are not available for this game version yet."
     : "Reads your save on a timer. XP and gold rates update when the game writes new progress—often up to three minutes apart, sometimes longer.";
-  // Per-stat blend: prefer the live memory stage, fall back to the save value.
-  const stage = blendStage(liveMemory, { stageKey: stats.stageKey, stageWave: stats.stageWave });
+
+  const stage = useMemo(
+    () => blendStage(liveScalars, { stageKey: stats.stageKey, stageWave: stats.stageWave }),
+    [liveScalars.stageKey, liveScalars.stageWave, stats.stageKey, stats.stageWave],
+  );
+
   const { commonTotal, rareTotal, commonPerHour, rarePerHour, readerRequired } = stats.chestDrops;
-  const chestReaderOff = readerRequired && !liveMemory?.connected;
-  const chestDetectionPending =
-    readerRequired && liveMemory?.connected && liveMemory.chestDrops == null;
+  const chestReaderOff = readerRequired && !liveScalars.connected;
+  const chestDetectionPending = readerRequired && liveScalars.connected && !liveScalars.hasChestDrops;
   const chestStatsInactive = chestReaderOff || chestDetectionPending;
   const chestRateTip = chestReaderOff
     ? CHEST_TIP_NEED_READER
@@ -151,32 +155,31 @@ export function Live() {
       ? CHEST_TIP_PENDING
       : null;
 
-  const fillSources: ChestFillSource[] = [];
-  if (chests && autoOpenEnabled.common) {
-    fillSources.push({
-      heldChests: chests.common.quantity,
-      autoOpenSecondsPerChest: chests.autoOpen.common,
-      dropsPerHour: commonPerHour,
+  const fillPrediction = useMemo(() => {
+    if (!inventory || !chests) return null;
+    const fillSources: ChestFillSource[] = [];
+    if (autoOpenEnabled.common) {
+      fillSources.push({
+        heldChests: chests.common.quantity,
+        autoOpenSecondsPerChest: chests.autoOpen.common,
+        dropsPerHour: commonPerHour,
+      });
+    }
+    if (autoOpenEnabled.stageBoss) {
+      fillSources.push({
+        heldChests: chests.stageBoss.quantity,
+        autoOpenSecondsPerChest: chests.autoOpen.stageBoss,
+        dropsPerHour: rarePerHour,
+      });
+    }
+    return predictFillTime({
+      inventoryCapacity: inventory.inventoryCapacity,
+      inventoryUsed: inventory.inventoryUsed,
+      sources: fillSources,
     });
-  }
-  if (chests && autoOpenEnabled.stageBoss) {
-    fillSources.push({
-      heldChests: chests.stageBoss.quantity,
-      autoOpenSecondsPerChest: chests.autoOpen.stageBoss,
-      dropsPerHour: rarePerHour,
-    });
-  }
+  }, [inventory, chests, autoOpenEnabled.common, autoOpenEnabled.stageBoss, commonPerHour, rarePerHour]);
 
-  const fillPrediction =
-    inventory && chests
-      ? predictFillTime({
-          inventoryCapacity: inventory.inventoryCapacity,
-          inventoryUsed: inventory.inventoryUsed,
-          sources: fillSources,
-        })
-      : null;
-
-  const renderFillEstimate = (): ReactNode => {
+  const fillEstimateText = useMemo((): ReactNode => {
     if (fillPrediction?.hoursUntilFull === null) {
       return "Turn on an auto-open toggle below and play a session to estimate when it'll be full.";
     }
@@ -194,9 +197,9 @@ export function Live() {
       );
     }
     return null;
-  };
+  }, [fillPrediction]);
 
-  const inventoryFillPrediction = (): ReactNode => (
+  const inventoryFillPrediction = useMemo((): ReactNode => (
     <PanelSection
       title={
         <span className="inline-flex items-center gap-1.5">
@@ -230,7 +233,7 @@ export function Live() {
         ) : null}
         {/* min-h reserves room for the longer "turn on a toggle" message so swapping
             between states doesn't resize the card. */}
-        <p className="m-0 min-h-[2.6em]">{renderFillEstimate()}</p>
+        <p className="m-0 min-h-[2.6em]">{fillEstimateText}</p>
         {/* Always mounted (invisible when empty) so toggling held chests in/out
             doesn't change the card's height. */}
         <p
@@ -258,7 +261,7 @@ export function Live() {
         />
       </div>
     </PanelSection>
-  );
+  ), [inventory, autoOpenEnabled, fillPrediction, toggleAutoOpen, fillEstimateText]);
 
   function fmtTimeToLevel(sec: number | null): string {
     if (sec === null || !Number.isFinite(sec)) return "\u2014";
@@ -274,7 +277,7 @@ export function Live() {
     return fmtCompact(n);
   }
 
-  const heroesPanel: ReactNode = (
+  const heroesPanel = useMemo((): ReactNode => (
     <PanelSection title="Heroes" boxed>
       <LivePanelList empty={stats.heroes.length === 0 ? "No active heroes yet." : undefined}>
         {stats.heroes.length > 0 && (
@@ -331,7 +334,7 @@ export function Live() {
         ))}
       </LivePanelList>
     </PanelSection>
-  );
+  ), [stats.heroes]);
 
   return (
     <TabPage>
@@ -462,7 +465,7 @@ export function Live() {
       ) : null}
 
       <LiveMatchedPair
-        left={inventoryFillPrediction()}
+        left={inventoryFillPrediction}
         right={
           <ChestDropPanel chestDrops={stats.chestDrops} inactiveMessage={chestInactiveMessage} />
         }

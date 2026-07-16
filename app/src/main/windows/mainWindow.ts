@@ -65,7 +65,13 @@ export function createMainWindow(
   win.on("close", (event) => {
     if (!isAppQuitting()) {
       event.preventDefault();
-      win.hide();
+      // Destroy the window instead of hiding it. The main window's renderer
+      // accumulates heap from high-frequency IPC + React re-renders; keeping
+      // it alive in the background (mini mode) causes unbounded memory growth.
+      // Destroying forces a clean re-create on next show, releasing all
+      // renderer resources.
+      win.destroy();
+      setWindow(null);
     }
   });
 

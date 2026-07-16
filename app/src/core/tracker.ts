@@ -215,6 +215,11 @@ export class XpTracker {
   private samples!: Array<[number, number]>;
   private initialized!: boolean;
 
+  // Cached visible-history array — rebuilt only when `history` grows.
+  // buildStats() calls this at 5 Hz; without caching it allocates a new
+  // 50-element array every tick regardless of whether history changed.
+  private visibleHistoryCache: HistoryEntry[] | null = null;
+
   private readonly liveXp = new LiveSessionMeter();
   private readonly liveGold = new LiveSessionMeter();
 
@@ -257,6 +262,7 @@ export class XpTracker {
     this.rollingRateValue = 0;
     this.sessionRateValue = 0;
     this.history = [];
+    this.visibleHistoryCache = null;
     this.xpLiveOwning = false;
     this.goldLiveOwning = false;
     this.lastLiveXpSec = null;
@@ -357,6 +363,7 @@ export class XpTracker {
           };
           this.history.push(entry);
           if (this.history.length > HISTORY_LIMIT) this.history.shift();
+          this.visibleHistoryCache = null;
           if (this.onHistory) {
             try {
               this.onHistory(entry);
@@ -500,12 +507,19 @@ export class XpTracker {
         }
 
         if (!plausibleLiveHeroGain(heroGain)) {
-          this.prevHero.set(key, { level: h.level, exp: h.exp });
+          // Only allocate a new prevHero object when values actually changed —
+          // at 25 Hz × ~6 heroes this avoids ~150 small object allocations/sec.
+          if (!prev || prev.level !== h.level || prev.exp !== h.exp) {
+            this.prevHero.set(key, { level: h.level, exp: h.exp });
+          }
           meter.refreshRolling(wallTimeSec);
           continue;
         }
 
-        this.prevHero.set(key, { level: h.level, exp: h.exp });
+        // Only allocate when values actually changed.
+        if (!prev || prev.level !== h.level || prev.exp !== h.exp) {
+          this.prevHero.set(key, { level: h.level, exp: h.exp });
+        }
         gainSum += heroGain;
         if (heroGain > 0) meter.add(heroGain, wallTimeSec);
         else meter.refreshRolling(wallTimeSec);
@@ -534,6 +548,7 @@ export class XpTracker {
       };
       this.history.push(entry);
       if (this.history.length > HISTORY_LIMIT) this.history.shift();
+      this.visibleHistoryCache = null;
       if (this.onHistory) {
         try {
           this.onHistory(entry);
@@ -683,6 +698,18 @@ export class XpTracker {
     return nowSeconds() - this.lastGainMtime;
   }
 
+  /**
+   * Return the most recent `limit` history entries in reverse chronological
+   * order. Cached — the same array reference is returned until `history` grows,
+   * avoiding per-tick allocation in `buildStats` (called at 5 Hz).
+   */
+  getVisibleHistory(limit: number): HistoryEntry[] {
+    if (this.visibleHistoryCache === null) {
+      this.visibleHistoryCache = this.history.slice(-limit).reverse();
+    }
+    return this.visibleHistoryCache;
+  }
+
   /** Capture tracker internals for session persistence. */
   captureSnapshot(): TrackerSnapshot {
     const heroMeters: Record<string, TrackerRateMeterSnapshot> = {};
@@ -725,6 +752,7 @@ export class XpTracker {
     this.goldGained = snapshot.goldGained;
     this.heroes = snapshot.heroes.map((h) => ({ ...h }));
     this.history = snapshot.history.map((e) => ({ ...e }));
+    this.visibleHistoryCache = null;
     this.lastGainMtime = snapshot.lastGainMtime;
     this.heroMeters = new Map(
       Object.entries(snapshot.heroMeters).map(

@@ -135,7 +135,7 @@ export function buildStats(
 
     heroes,
 
-    history: tracker.history.slice(-HISTORY_VISIBLE).reverse(),
+    history: tracker.getVisibleHistory(HISTORY_VISIBLE),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
     boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
 
