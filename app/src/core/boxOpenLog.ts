@@ -1,7 +1,10 @@
 // Helpers for resolving BoxOpenLog entries to tracker keys and labels.
 // Pure: no Electron, no React, no fs.
 
-export type BoxCategory = "common" | "rare" | "act";
+export type BoxCategory = "common" | "rare" | "act" | "unclassified";
+
+/** Special boxKey for entries whose boxType couldn't be resolved from memory. */
+export const UNCLASSIFIED_BOX_KEY = "unclassified";
 
 /** Map a numeric boxType (from BoxOpenLog) to a category. Returns null for unknown. */
 export function boxCategoryFromType(boxType: number | undefined | null): BoxCategory | null {
@@ -29,6 +32,7 @@ export function boxLabel(boxKey: string): string {
   if (boxKey === "common") return "Common chest";
   if (boxKey === "rare") return "Stage boss chest";
   if (boxKey === "act") return "Act boss chest";
+  if (boxKey === "unclassified") return "Unclassified";
   const colonIdx = boxKey.indexOf(":");
   if (colonIdx > 0) {
     const category = boxKey.slice(0, colonIdx);
@@ -46,7 +50,7 @@ export function boxLabel(boxKey: string): string {
 export function categoryFromBoxKey(boxKey: string): BoxCategory | null {
   const colonIdx = boxKey.indexOf(":");
   const cat = colonIdx > 0 ? boxKey.slice(0, colonIdx) : boxKey;
-  if (cat === "common" || cat === "rare" || cat === "act") return cat;
+  if (cat === "common" || cat === "rare" || cat === "act" || cat === "unclassified") return cat;
   return null;
 }
 

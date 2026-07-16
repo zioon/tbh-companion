@@ -371,6 +371,8 @@ export function getAppServices() {
     getStageRuns: () => stageRuns.getStats(),
     resetLootBox: (boxKey: string) => tracking.resetLootBox(boxKey),
     resetLootAll: () => tracking.resetLootAll(),
+    reclassifyLootItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) =>
+      tracking.reclassifyLootItem(itemKey, fromBoxKey, toBoxKey),
   };
 }
 

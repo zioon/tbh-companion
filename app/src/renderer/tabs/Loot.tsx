@@ -9,7 +9,7 @@ import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LootBoxSection } from "../components/loot/LootBoxSection";
 
 export function Loot() {
-  const { boxOpens, resetBox, resetAll } = useLoot();
+  const { boxOpens, resetBox, resetAll, reclassifyItem } = useLoot();
   const [confirmingAll, setConfirmingAll] = useState(false);
 
   return (
@@ -33,7 +33,12 @@ export function Loot() {
       ) : (
         <div className="flex flex-col gap-3">
           {boxOpens.map((stats) => (
-            <LootBoxSection key={stats.boxKey} stats={stats} onReset={resetBox} />
+            <LootBoxSection
+              key={stats.boxKey}
+              stats={stats}
+              onReset={resetBox}
+              onReclassify={reclassifyItem}
+            />
           ))}
         </div>
       )}

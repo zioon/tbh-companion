@@ -118,8 +118,74 @@ describe("BoxOpenTracker", () => {
     t.recordOpen("rare:5", 2002, "Gem", "MAGIC", 1, 2000);
     t.recordOpen("common", 1001, "Sword", "RARE", 1, 3000);
     t.recordOpen("rare:3", 2002, "Gem", "MAGIC", 1, 4000);
+    t.recordOpen("unclassified", 4004, "Unknown", null, 1, 5000);
 
     const stats = t.getStats(3600, () => null);
-    expect(stats.map((s) => s.boxKey)).toEqual(["common", "rare:3", "rare:5", "act"]);
+    expect(stats.map((s) => s.boxKey)).toEqual(["common", "rare:3", "rare:5", "act", "unclassified"]);
+  });
+
+  it("includes unclassified entries in stats", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("unclassified", 1001, "Sword", "RARE", 1, 1000);
+    const stats = t.getStats(3600, () => null);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].boxKey).toBe("unclassified");
+    expect(stats[0].category).toBe("unclassified");
+    expect(stats[0].label).toBe("Unclassified");
+  });
+
+  it("reclassifies an item from one boxKey to another", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("unclassified", 1001, "Sword", "RARE", 3, 1000);
+    t.recordOpen("unclassified", 2002, "Gem", "MAGIC", 1, 2000);
+
+    t.reclassifyItem("unclassified", 1001, "common");
+
+    const stats = t.getStats(3600, () => null);
+    const common = stats.find((s) => s.boxKey === "common")!;
+    expect(common).toBeDefined();
+    expect(common.totalOpens).toBe(3);
+    expect(common.breakdown[0].name).toBe("Sword");
+
+    const unclassified = stats.find((s) => s.boxKey === "unclassified")!;
+    expect(unclassified).toBeDefined();
+    expect(unclassified.totalOpens).toBe(1);
+    expect(unclassified.breakdown[0].name).toBe("Gem");
+  });
+
+  it("reclassify moves history entries too", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("unclassified", 1001, "Sword", "RARE", 1, 1000);
+    t.recordOpen("unclassified", 1001, "Sword", "RARE", 1, 2000);
+
+    t.reclassifyItem("unclassified", 1001, "rare:3");
+
+    const stats = t.getStats(3600, () => null);
+    const rare = stats.find((s) => s.boxKey === "rare:3")!;
+    expect(rare.history).toHaveLength(2);
+    expect(rare.history.every((h) => h.boxKey === "rare:3")).toBe(true);
+    expect(t.getStats(3600, () => null).find((s) => s.boxKey === "unclassified")).toBeUndefined();
+  });
+
+  it("reclassify is a no-op when source item doesn't exist", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("unclassified", 1001, "Sword", "RARE", 1, 1000);
+    t.reclassifyItem("unclassified", 9999, "common");
+    const stats = t.getStats(3600, () => null);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].boxKey).toBe("unclassified");
+  });
+
+  it("reclassify merges into an existing target boxKey", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("common", 1001, "Sword", "RARE", 2, 1000);
+    t.recordOpen("unclassified", 1001, "Sword", "RARE", 3, 2000);
+
+    t.reclassifyItem("unclassified", 1001, "common");
+
+    const stats = t.getStats(3600, () => null);
+    const common = stats.find((s) => s.boxKey === "common")!;
+    expect(common.totalOpens).toBe(5);
+    expect(common.breakdown[0].count).toBe(5);
   });
 });

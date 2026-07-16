@@ -136,7 +136,7 @@ export class BoxOpenTracker {
 
     stats.sort((a, b) => {
       if (a.category !== b.category) {
-        const order: Record<string, number> = { common: 0, rare: 1, act: 2 };
+        const order: Record<string, number> = { common: 0, rare: 1, act: 2, unclassified: 3 };
         return (order[a.category] ?? 9) - (order[b.category] ?? 9);
       }
       const al = a.level ?? -1;
@@ -159,6 +159,38 @@ export class BoxOpenTracker {
     this.namesByKey.clear();
     this.gradesByKey.clear();
     this.history = [];
+  }
+
+  /**
+   * Move a single item's count and history entries from one boxKey to another.
+   * Used to manually reclassify unclassified items after the user selects a
+   * box category/level. No-op when the source boxKey or item doesn't exist.
+   */
+  reclassifyItem(fromBoxKey: string, itemKey: number, toBoxKey: string): void {
+    const srcMap = this.countsByKey.get(fromBoxKey);
+    if (!srcMap) return;
+    const key = String(itemKey);
+    const count = srcMap.get(key);
+    if (count == null || count <= 0) return;
+
+    // Remove from source.
+    srcMap.delete(key);
+    if (srcMap.size === 0) this.countsByKey.delete(fromBoxKey);
+
+    // Add to target.
+    let dstMap = this.countsByKey.get(toBoxKey);
+    if (!dstMap) {
+      dstMap = new Map();
+      this.countsByKey.set(toBoxKey, dstMap);
+    }
+    dstMap.set(key, (dstMap.get(key) ?? 0) + count);
+
+    // Update history entries.
+    for (const h of this.history) {
+      if (h.boxKey === fromBoxKey && h.itemKey === itemKey) {
+        h.boxKey = toBoxKey;
+      }
+    }
   }
 
   /** Serialize for session_state.json. */

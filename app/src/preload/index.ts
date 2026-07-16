@@ -235,6 +235,9 @@ const api: TbhApi = {
   resetLootAll(): Promise<void> {
     return ipcRenderer.invoke(IPC.LOOT_RESET_ALL);
   },
+  reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void> {
+    return ipcRenderer.invoke(IPC.LOOT_RECLASSIFY_ITEM, itemKey, fromBoxKey, toBoxKey);
+  },
 };
 
 contextBridge.exposeInMainWorld("tbh", api);
