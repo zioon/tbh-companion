@@ -20,10 +20,12 @@ const parentPort = (
 const POLL_ATTACHED_MS = 40; // ~25 Hz while attached (read costs ~0.2 ms)
 const POLL_DETACHED_MS = 1500; // retry attach while the game is closed
 const HEAL_UNSUPPORTED_MS = 10_000; // re-try offset resolution while degraded
+const HEAL_ENRICHMENT_MS = 15_000; // re-try enrichment fields while supported-but-incomplete
 
 let reader: LiveMemoryReader | null = null;
 let loadError: string | null = null;
 let healDueAt = 0;
+let enrichmentHealDueAt = 0;
 
 try {
   reader = new LiveMemoryReader();
@@ -81,6 +83,27 @@ function maybeHealUnsupported(): void {
   }
 }
 
+/**
+ * Heal enrichment fields (e.g. boxOpenLog offsets) even when the reader is
+ * already supported. These often fail on the first extraction because the
+ * game's LogManager dictionary has no BoxOpenLog entries yet (player hasn't
+ * opened a box). Once the player opens one, the dictionary becomes non-empty
+ * and a re-extraction can derive the key.
+ */
+function maybeHealEnrichment(): void {
+  if (!reader?.attached || !reader.supported || reader.enrichmentComplete) {
+    enrichmentHealDueAt = 0;
+    return;
+  }
+  const now = Date.now();
+  if (enrichmentHealDueAt === 0) enrichmentHealDueAt = now + HEAL_ENRICHMENT_MS;
+  if (now >= enrichmentHealDueAt) {
+    reader.healOffsets();
+    postStatusIfChanged();
+    enrichmentHealDueAt = now + HEAL_ENRICHMENT_MS;
+  }
+}
+
 function loop(): void {
   try {
     if (!reader) {
@@ -93,6 +116,7 @@ function loop(): void {
       postStatusIfChanged();
     } else {
       maybeHealUnsupported();
+      maybeHealEnrichment();
     }
     if (reader.attached && reader.supported) {
       const snap = reader.read();

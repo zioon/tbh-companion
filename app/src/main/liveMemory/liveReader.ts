@@ -13,7 +13,7 @@ import {
 } from "../../core/liveMemory/offsetCompleteness";
 import { extractOffsets } from "./offsetExtractor";
 import { loadCachedOffsets, saveCachedOffsets } from "./offsetCache";
-import { extractionAttempts, mayAttemptExtraction, recordExtractionAttempt } from "./offsetHealing";
+import { extractionAttempts, mayAttemptExtraction, recordExtractionAttempt, MAX_EXTRACTION_ATTEMPTS } from "./offsetHealing";
 import {
   resolveLiveMemoryOffsetCacheDir,
   resolveLiveMemoryUserDataDir,
@@ -153,6 +153,11 @@ export class LiveMemoryReader {
     return this.proc != null && this.proc.isAlive();
   }
 
+  /** True when every wanted field (critical + enrichment) is present. */
+  get enrichmentComplete(): boolean {
+    return this.offsets != null && isOffsetTableComplete(this.offsets);
+  }
+
   get pid(): number | null {
     return this.proc?.pid ?? null;
   }
@@ -228,6 +233,10 @@ export class LiveMemoryReader {
     this.offsets = resolved.table;
     this.offsetSource = resolved.source;
     this.supported = this.offsets != null && this.ga != null && hasCriticalOffsets(this.offsets);
+    if (this.supported && this.offsets && !isOffsetTableComplete(this.offsets)) {
+      const missing = missingOffsetFields(this.offsets).join(", ");
+      this.log(`offsets: supported but enrichment incomplete — missing ${missing}`);
+    }
     if (!this.supported && this.attached) {
       const missing = this.offsets
         ? missingOffsetFields(this.offsets, "critical").join(", ")
@@ -283,24 +292,30 @@ export class LiveMemoryReader {
     const missing = base ? missingOffsetFields(base).join(", ") : "entire table";
     this.log(`resolve: incomplete — missing ${missing}`);
 
-    if (ga && version && cacheDir && mayAttemptExtraction(cacheDir, version, appBuild)) {
-      recordExtractionAttempt(cacheDir, version, appBuild);
-      this.log(
-        `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${3})`,
-      );
-      const derived = extractOffsets(proc, ga, version, (msg) => this.log(msg));
-      if (derived) {
-        const merged = base ? mergeOffsets(base, derived) : derived;
-        saveCachedOffsets(cacheDir, merged);
-        const mergedSource: OffsetResolutionSource = base ? "merged" : "extracted";
-        this.log(`resolve: extractor ok → ${mergedSource}, persisted cache`);
-        return { table: merged, source: mergedSource };
+    if (ga && version && cacheDir) {
+      const isSupported = base != null && hasCriticalOffsets(base);
+      const mayExtract = isSupported || mayAttemptExtraction(cacheDir, version, appBuild);
+      if (mayExtract) {
+        if (!isSupported) recordExtractionAttempt(cacheDir, version, appBuild);
+        this.log(
+          isSupported
+            ? `resolve: running extractor for enrichment (supported, budget bypassed)`
+            : `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})`,
+        );
+        const derived = extractOffsets(proc, ga, version, (msg) => this.log(msg));
+        if (derived) {
+          const merged = base ? mergeOffsets(base, derived) : derived;
+          saveCachedOffsets(cacheDir, merged);
+          const mergedSource: OffsetResolutionSource = base ? "merged" : "extracted";
+          this.log(`resolve: extractor ok → ${mergedSource}, persisted cache`);
+          return { table: merged, source: mergedSource };
+        }
+        this.log("resolve: extractor returned null (critical anchor failed)");
+      } else {
+        this.log(
+          `resolve: extractor skipped (budget exhausted: ${extractionAttempts(cacheDir, version, appBuild)} attempts)`,
+        );
       }
-      this.log("resolve: extractor returned null (critical anchor failed)");
-    } else if (ga && version && cacheDir) {
-      this.log(
-        `resolve: extractor skipped (budget exhausted: ${extractionAttempts(cacheDir, version, appBuild)} attempts)`,
-      );
     } else {
       this.log("resolve: extractor skipped (missing ga, version, or install dir)");
     }
