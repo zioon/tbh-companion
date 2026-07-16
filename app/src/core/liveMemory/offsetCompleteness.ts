@@ -47,8 +47,8 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   // boxType/level are intentionally excluded: obfuscated field names mean the
   // extractor can never derive them, so listing them would perpetually mark the
   // table incomplete and trigger fruitless re-extraction.
-  { path: "runtime.boxOpenLog.itemStringKey", get: (o) => o.runtime.boxOpenLog.itemStringKey },
-  { path: "runtime.boxOpenLog.itemGradeType", get: (o) => o.runtime.boxOpenLog.itemGradeType },
+  { path: "runtime.boxOpenLog.itemStringKey", get: (o) => o.runtime.boxOpenLog?.itemStringKey ?? 0 },
+  { path: "runtime.boxOpenLog.itemGradeType", get: (o) => o.runtime.boxOpenLog?.itemGradeType ?? 0 },
 ];
 
 const ALL_FIELDS: readonly FieldCheck[] = [...CRITICAL_FIELDS, ...ENRICHMENT_FIELDS];
@@ -133,6 +133,10 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
           base.runtime.log.stageClearTypeKey,
           derived.runtime.log.stageClearTypeKey,
         ),
+        getItemWithBoxOpenTypeKey: pickN(
+          base.runtime.log.getItemWithBoxOpenTypeKey ?? 0,
+          derived.runtime.log.getItemWithBoxOpenTypeKey,
+        ),
       },
       getBoxLog: {
         ...base.runtime.getBoxLog,
@@ -144,11 +148,11 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       boxOpenLog: {
         ...base.runtime.boxOpenLog,
         itemStringKey: pickN(
-          base.runtime.boxOpenLog.itemStringKey,
+          base.runtime.boxOpenLog?.itemStringKey ?? 0,
           derived.runtime.boxOpenLog.itemStringKey,
         ),
         itemGradeType: pickN(
-          base.runtime.boxOpenLog.itemGradeType,
+          base.runtime.boxOpenLog?.itemGradeType ?? 0,
           derived.runtime.boxOpenLog.itemGradeType,
         ),
       },
