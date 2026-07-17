@@ -46,6 +46,7 @@ const baseConfig: AppConfig = {
   notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
   inventoryAlmostFullThresholdPercent: 90,
   chestAutoOpenEnabled: { common: false, stageBoss: false },
+  lootAutoClassifyEnabled: false,
 };
 
 describe("NotificationService", () => {

@@ -31,6 +31,7 @@ const config: AppConfig = {
   notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
   inventoryAlmostFullThresholdPercent: 90,
   chestAutoOpenEnabled: { common: false, stageBoss: false },
+  lootAutoClassifyEnabled: false,
   liveMemory: { enabled: false, consentAccepted: false },
 };
 
