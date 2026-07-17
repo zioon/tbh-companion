@@ -3,6 +3,10 @@
 // time until the chest auto-opens, and when the queue entry expires (TTL).
 // Pure presentational component — the data comes from `useLoot`'s polling
 // of `getAutoClassifyState` (1 Hz).
+//
+// Uses a real <table> (not fl/grid) so the columns (chest / opens in / expires)
+// align vertically across rows — and across the sibling Recent drops card,
+// which uses the same column structure (name / count / source / time).
 
 import type { AutoClassifyQueueItem } from "../../../../shared/types";
 import { boxLabel } from "../../../core/boxOpenLog";
@@ -25,24 +29,25 @@ export function LootQueueList({ items }: { items: ReadonlyArray<AutoClassifyQueu
       {items.length === 0 ? (
         <p className="m-0 text-[13px] text-muted">No chests waiting.</p>
       ) : (
-        <ul className="m-0 flex flex-col gap-1 p-0">
-          {items.map((item, i) => (
-            <li
-              key={`${item.boxKey}-${item.droppedAtMs}-${i}`}
-              className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px]"
-            >
-              <span className="font-medium text-text">{boxLabel(item.boxKey)}</span>
-              <span className="text-muted">·</span>
-              <span className="text-muted">opens in</span>
-              <span className="tabular-nums font-medium text-ideal">
-                {formatCountdown(item.autoOpenInMs)}
-              </span>
-              <span className="text-muted">·</span>
-              <span className="text-muted">expires in</span>
-              <span className="text-muted tabular-nums">{formatCountdown(item.expiresInMs)}</span>
-            </li>
-          ))}
-        </ul>
+        <table className="m-0 w-full border-collapse text-[13px]">
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={`${item.boxKey}-${item.droppedAtMs}-${i}`} className="align-baseline">
+                <td className="truncate py-0.5 pr-3 font-medium text-text">
+                  {boxLabel(item.boxKey)}
+                </td>
+                <td className="whitespace-nowrap py-0.5 pr-3 text-right text-muted">opens in</td>
+                <td className="whitespace-nowrap py-0.5 pr-3 text-right tabular-nums font-medium text-ideal">
+                  {formatCountdown(item.autoOpenInMs)}
+                </td>
+                <td className="whitespace-nowrap py-0.5 pr-3 text-right text-muted">expires in</td>
+                <td className="whitespace-nowrap py-0.5 text-right text-muted tabular-nums">
+                  {formatCountdown(item.expiresInMs)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </Card>
   );

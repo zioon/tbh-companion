@@ -41,10 +41,61 @@ describe("enqueue", () => {
     expect(queue[0]?.expiresAtMs).toBe(now + 1_230_000);
     expect(queue[0]?.autoOpenAtMs).toBe(now + 600_000);
   });
-  it("keeps queue sorted by autoOpenAtMs ascending (soonest-opening first)", () => {
-    // common@1000s autoOpen=300s → autoOpenAtMs=301000 (sooner)
-    // rare@2000s   autoOpen=600s → autoOpenAtMs=602000 (later)
-    // Despite rare being enqueued first, common should be at the head.
+  it("queues same-boxKey chests serially (each opens one cycle after the previous)", () => {
+    // Three common chests dropped at 1000, 1100, 1200 — all with autoOpen=300s.
+    // Without serial queuing, all three would compute autoOpenAtMs=301000/301100/301200
+    // (essentially simultaneous). With serial queuing:
+    //   1st: 1000 + 300*1000 = 301000
+    //   2nd: 301000 + 300*1000 = 601000
+    //   3rd: 601000 + 300*1000 = 901000
+    let q = enqueue([], {
+      boxKey: "common:5",
+      droppedAtMs: 1000,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    q = enqueue(q, {
+      boxKey: "common:5",
+      droppedAtMs: 1100,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    q = enqueue(q, {
+      boxKey: "common:5",
+      droppedAtMs: 1200,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    expect(q.map((i) => i.autoOpenAtMs)).toEqual([301_000, 601_000, 901_000]);
+    // Order is still insertion order (each new one has a later autoOpenAtMs).
+    expect(q.map((i) => i.droppedAtMs)).toEqual([1000, 1100, 1200]);
+  });
+
+  it("does NOT chain across different boxKeys (different chest types open independently)", () => {
+    // common:5 and rare:5 are different boxKeys — their autoOpenAtMs are
+    // computed from their own drop times, not chained.
+    const q1 = enqueue([], {
+      boxKey: "common:5",
+      droppedAtMs: 1000,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    const q2 = enqueue(q1, {
+      boxKey: "rare:5",
+      droppedAtMs: 1100,
+      stageKey: 1101,
+      autoOpenSeconds: 600,
+    });
+    // common:5 → 1000 + 300*1000 = 301000
+    // rare:5   → 1100 + 600*1000 = 601100 (NOT chained to common's autoOpenAtMs)
+    expect(q2[0]).toMatchObject({ boxKey: "common:5", autoOpenAtMs: 301_000 });
+    expect(q2[1]).toMatchObject({ boxKey: "rare:5", autoOpenAtMs: 601_100 });
+  });
+
+  it("keeps queue sorted by autoOpenAtMs ascending across categories", () => {
+    // common@1000s autoOpen=300s → autoOpenAtMs=301000
+    // rare@2000s   autoOpen=600s → autoOpenAtMs=602000
+    // Despite rare being enqueued first, common should sort to the head.
     const q1 = enqueue([], {
       boxKey: "rare:3",
       droppedAtMs: 2000,
@@ -59,22 +110,6 @@ describe("enqueue", () => {
     });
     expect(q2.map((i) => i.boxKey)).toEqual(["common", "rare:3"]);
     expect(q2[0]?.autoOpenAtMs).toBeLessThan(q2[1]?.autoOpenAtMs ?? Infinity);
-  });
-  it("preserves stable order for items with equal autoOpenAtMs", () => {
-    // Two commons with identical autoOpenAtMs: insertion order preserved.
-    const q1 = enqueue([], {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1101,
-      autoOpenSeconds: 300,
-    });
-    const q2 = enqueue(q1, {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1102,
-      autoOpenSeconds: 300,
-    });
-    expect(q2.map((i) => i.stageKey)).toEqual([1101, 1102]);
   });
   it("inserts act boss (short autoOpen) before common (long autoOpen) even when dropped later", () => {
     // common@1000s autoOpen=300s → autoOpenAtMs=301000

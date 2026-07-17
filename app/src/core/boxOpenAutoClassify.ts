@@ -48,10 +48,34 @@ export interface EnqueueInput {
  * the head is the soonest-opening chest, not the oldest drop. This matches
  * the game's behavior: a chest dropped later with a shorter auto-open
  * cooldown will open before an earlier drop with a longer cooldown.
+ *
+ * Multiple chests of the same `boxKey` are queued serially: the game opens
+ * one chest slot at a time per boxKey (auto-open doesn't fire two chests of
+ * the same type simultaneously), so the second chest's actual open time is
+ * `previousSameBoxKeyAutoOpenAtMs + autoOpenSeconds`, not
+ * `droppedAtMs + autoOpenSeconds`. Without this, a burst of same-boxKey
+ * drops (e.g. three common chests within a minute) would all compute the
+ * same `autoOpenAtMs`, breaking the dequeue order and over-counting when
+ * reconciling against slots.
  */
 export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   const ttlMs = computeTtlMs(input.autoOpenSeconds);
-  const autoOpenAtMs = input.droppedAtMs + input.autoOpenSeconds * 1000;
+  // Find the latest same-boxKey entry already queued — the new chest opens
+  // strictly after it (one auto-open cycle later). If none exists, the chest
+  // opens `autoOpenSeconds` after its own drop time.
+  let prevSameBoxKeyAutoOpenAtMs: number | null = null;
+  for (const existing of queue) {
+    if (
+      existing.boxKey === input.boxKey &&
+      existing.autoOpenAtMs > (prevSameBoxKeyAutoOpenAtMs ?? 0)
+    ) {
+      prevSameBoxKeyAutoOpenAtMs = existing.autoOpenAtMs;
+    }
+  }
+  const autoOpenAtMs =
+    prevSameBoxKeyAutoOpenAtMs != null
+      ? prevSameBoxKeyAutoOpenAtMs + input.autoOpenSeconds * 1000
+      : input.droppedAtMs + input.autoOpenSeconds * 1000;
   const item: QueueItem = {
     boxKey: input.boxKey,
     droppedAtMs: input.droppedAtMs,
