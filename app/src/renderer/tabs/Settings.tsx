@@ -10,6 +10,7 @@ import { cn } from "../lib/cn";
 import { Accordion } from "../design-system/primitives/Accordion/Accordion";
 import { NotificationSoundAccordion } from "../components/NotificationKindRow";
 import { LiveMemorySettings } from "../components/LiveMemorySettings";
+import { CatalogRefreshButton } from "../components/CatalogRefreshButton";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Card } from "../design-system/primitives/Card/Card";
 import { Checkbox } from "../design-system/primitives/Checkbox/Checkbox";
@@ -20,6 +21,7 @@ import { Section } from "../design-system/primitives/Section/Section";
 import { Select } from "../design-system/primitives/Select/Select";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
+import { useTbhContext } from "../context/tbhContext";
 
 const CLEAR_ACTIONS: {
   target: AppDataClearTarget;
@@ -110,6 +112,7 @@ export function Settings() {
   const volumeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingThresholdRef = useRef<number | null>(null);
   const thresholdSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { catalogStatus, refreshCatalog } = useTbhContext();
 
   async function refreshDataPaths(): Promise<void> {
     if (typeof window.tbh?.getDataPaths !== "function") return;
@@ -609,6 +612,18 @@ export function Settings() {
             </ul>
           </Section>
         </Accordion>
+
+        <Section title="Item catalog">
+          <p className="m-0 text-xs text-muted">
+            Catalog version: {catalogStatus?.catalogVersion ?? "unknown"}
+            {catalogStatus?.gameVersion ? ` · Game version: ${catalogStatus.gameVersion}` : ""}
+            {catalogStatus?.stale ? " · outdated" : ""}
+          </p>
+          <p className="m-0 text-xs text-muted">
+            {catalogStatus?.itemCount ?? 0} items loaded from {catalogStatus?.source ?? "bundled"}.
+          </p>
+          <CatalogRefreshButton status={catalogStatus} onRefresh={refreshCatalog} />
+        </Section>
 
         {message && <p className="m-0 text-[13px] text-accent">{message}</p>}
       </div>
