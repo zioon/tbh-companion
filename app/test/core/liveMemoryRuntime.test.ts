@@ -6,6 +6,7 @@ import {
   readRuntimeChestLog,
   readRuntimeStageClears,
   readRuntimeBoxOpenLog,
+  peekBoxOpenLogCount,
   readRuntimeInventory,
   readRuntimePets,
   resolveStageManager,
@@ -83,15 +84,15 @@ describe("readRuntimeStage", () => {
     });
   });
 
-  it("ignores an implausible wave value", () => {
+  it("preserves wave 0 (challenge-fail reset / pre-wave state)", () => {
     const m = seedStageChain(new FakeMemory()).writeI32(
       STAGE_INFO + BigInt(O.runtime.stage.stageKey),
       77,
     );
-    m.writeI32(SM_SINGLETON + BigInt(O.runtime.stage.runtimeWave), 0); // wave 0 is implausible
+    m.writeI32(SM_SINGLETON + BigInt(O.runtime.stage.runtimeWave), 0); // wave 0 is legitimate
     expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O, SM_SINGLETON)).toEqual({
       stageKey: 77,
-      wave: null,
+      wave: 0,
       waveTotal: null,
     });
   });
@@ -462,22 +463,22 @@ describe("readRuntimeChestLog", () => {
     expect(pin.lastCount).toBe(2);
   });
 
-  it("classifies new drops by EMonsterLogType (0 common, 1 rare; act boss ignored)", () => {
+  it("classifies new drops by EMonsterLogType (0 common, 1 rare, 2 act boss)", () => {
     const pin = makeChestLogPinState();
     pin.primed = true; // skip priming so all entries are treated as new
     pin.lastCount = 0;
     const m = seedLogChain(new FakeMemory(), [0, 1, 2]);
     const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
-    expect(result.drops).toEqual(["common", "rare"]);
+    expect(result.drops).toEqual(["common", "rare", "act"]);
   });
 
   it("returns only drops appended since the last read", () => {
     const pin = makeChestLogPinState();
     const m = seedLogChain(new FakeMemory(), [0]);
     readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin); // prime at length 1
-    seedLogChain(m, [0, 1, 2]); // two new drops appended (act boss entry ignored)
+    seedLogChain(m, [0, 1, 2]); // two new drops appended (rare + act boss)
     const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
-    expect(result.drops).toEqual(["rare"]);
+    expect(result.drops).toEqual(["rare", "act"]);
   });
 
   it("realigns the tail and returns no drops when the log shrinks", () => {
@@ -592,7 +593,14 @@ const BOX_LOG_O = {
   runtime: {
     ...LOG_O.runtime,
     log: { ...LOG_O.runtime.log, getItemWithBoxOpenTypeKey: 99 },
-    boxOpenLog: { itemStringKey: 0x10, itemGradeType: 0x0, boxType: 0x14, level: 0x18 },
+    boxOpenLog: {
+      itemStringKey: 0x10,
+      itemGradeType: 0x0,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+      boxType: 0x14,
+      level: 0x18,
+    },
   },
 };
 
@@ -673,7 +681,7 @@ describe("readRuntimeBoxOpenLog", () => {
 
   it("primes to the current log length on first read (backlog not counted)", () => {
     const pin = makeBoxOpenPinState();
-    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001 }]);
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017 }]);
     const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
     expect(result.opens).toEqual([]);
     expect(pin.lastCount).toBe(1);
@@ -681,15 +689,15 @@ describe("readRuntimeBoxOpenLog", () => {
 
   it("reads new entries since the last read", () => {
     const pin = makeBoxOpenPinState();
-    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001, boxType: 1, level: 3 }]);
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1, level: 3 }]);
     readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime
     seedBoxOpenChain(m, [
-      { itemKey: 1001, boxType: 1, level: 3 },
-      { itemKey: 2002, boxType: 0, level: 5 },
+      { itemKey: 530017, boxType: 1, level: 3 },
+      { itemKey: 530018, boxType: 0, level: 5 },
     ]);
     const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
     expect(result.opens).toHaveLength(1);
-    expect(result.opens![0].itemKey).toBe(2002);
+    expect(result.opens![0].itemKey).toBe(530018);
     expect(result.opens![0].boxType).toBe(0);
     expect(result.opens![0].level).toBe(5);
   });
@@ -698,10 +706,270 @@ describe("readRuntimeBoxOpenLog", () => {
     const pin = makeBoxOpenPinState();
     pin.primed = true;
     pin.lastCount = 5;
-    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001, boxType: 1 }]);
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
     const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
     expect(result.opens).toEqual([]);
     expect(pin.lastCount).toBe(1);
+  });
+
+  // Regression: v1.00.28 stores itemStringKey as a System.String pointer.
+  // readI32 on the pointer's low 4 bytes returns a non-negative garbage int
+  // (e.g. 0x65909340 = 1703973696) that is NOT a plausible catalog itemKey.
+  // The String-pointer path is tried FIRST, so the field is decoded from the
+  // IL2CPP String's localization key ("ItemName_530017" → 530017) instead of
+  // the garbage low dword. This also keeps the itemKey stable across app
+  // restarts (heap address changes but the extracted id doesn't), so
+  // reclassify persists across sessions.
+  it("decodes itemStringKey from the String pointer even when the low dword is non-plausible", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+
+    const m = new FakeMemory();
+    // itemStringKey field at +0x10 holds a System.String pointer. The pointer's
+    // low 32 bits = 0x65909340 (positive as int32, but NOT a plausible catalog
+    // itemKey). The String object lives at the pointer's full 64-bit value.
+    // We use STRING_OBJ as both the pointer value AND the object address.
+    const STRING_OBJ = 0x0000_0001_6590_9340n;
+
+    // Seed LogManager -> logByType dict -> GetItemWithBoxOpen List<BoxOpenLog>
+    // with a single entry whose itemStringKey field holds a String pointer.
+    m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+      .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+      .writePtr(LOG_BLOCK, LM_INSTANCE);
+    m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+      .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+      .writeI32(LOG_DICT + BigInt(O.dict.count), 2);
+    const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+    m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+      .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+    m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+      GETBOX_LIST + BigInt(O.container.listSize),
+      0,
+    );
+    const de1 = de0 + BigInt(O.dict.entrySize);
+    m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de1 + BigInt(O.dict.entryKey), 99)
+      .writePtr(de1 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+    m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+      BOX_OPEN_LIST + BigInt(O.container.listSize),
+      1,
+    );
+    const entry = 0xeb0000n;
+    m.writePtr(BOX_OPEN_ARR + BigInt(O.container.arrayFirst), entry);
+    // itemStringKey at +0x10 = String pointer (low dword = 0x65909340, non-plausible)
+    m.writePtr(entry + BigInt(0x10), STRING_OBJ);
+    // String object at STRING_OBJ: +0x10 = char length, +0x14 = UTF-16 chars
+    const content = "ItemName_530017";
+    m.writeI32(STRING_OBJ + 0x10n, content.length);
+    m.writeBytes(STRING_OBJ + 0x14n, Buffer.from(content, "utf16le"));
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(1);
+    // Extracted from "ItemName_530017" trailing digits, NOT 0x65909340.
+    expect(result.opens![0].itemKey).toBe(530017);
+  });
+
+  // Regression: v1.00.28 String pointer's low 32 bits can coincidentally fall
+  // IN the catalog id range (e.g. 600017, which is in 110001-939999). The
+  // String-pointer path must still be tried FIRST — otherwise the garbage
+  // 600017 would be accepted as a "plausible" itemKey and the loot table
+  // would show #600017 (catalog has no such id) instead of the real item.
+  // This is the root cause of #600017 appearing as an unknown item.
+  it("decodes itemStringKey from the String pointer even when the low dword lands in the catalog range", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+
+    const m = new FakeMemory();
+    // Pointer low dword = 0x92711 = 600017 (IN catalog range, plausible as
+    // int32). High dword makes the full pointer a plausible heap addr.
+    const STRING_OBJ = 0x0000_0001_0009_2711n;
+
+    m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+      .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+      .writePtr(LOG_BLOCK, LM_INSTANCE);
+    m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+      .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+      .writeI32(LOG_DICT + BigInt(O.dict.count), 2);
+    const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+    m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+      .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+    m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+      GETBOX_LIST + BigInt(O.container.listSize),
+      0,
+    );
+    const de1 = de0 + BigInt(O.dict.entrySize);
+    m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de1 + BigInt(O.dict.entryKey), 99)
+      .writePtr(de1 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+    m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+      BOX_OPEN_LIST + BigInt(O.container.listSize),
+      1,
+    );
+    const entry = 0xeb0000n;
+    m.writePtr(BOX_OPEN_ARR + BigInt(O.container.arrayFirst), entry);
+    // itemStringKey at +0x10 = String pointer (low dword = 600017, plausible)
+    m.writePtr(entry + BigInt(0x10), STRING_OBJ);
+    // String object at STRING_OBJ: localization key "ItemName_601171"
+    // (Ethereal Amulet UNCOMMON — catalog id 601171, NOT 600017)
+    const content = "ItemName_601171";
+    m.writeI32(STRING_OBJ + 0x10n, content.length);
+    m.writeBytes(STRING_OBJ + 0x14n, Buffer.from(content, "utf16le"));
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(1);
+    // Extracted from "ItemName_601171" → 601171 (real catalog id), NOT 600017.
+    expect(result.opens![0].itemKey).toBe(601171);
+  });
+
+  // Plain-int32 layout (v1.00.21/23/27): itemStringKey is a real int32 field.
+  // The String-pointer path is tried first but fails (the int32 value isn't a
+  // plausible heap pointer to a real String), so we fall back to the raw
+  // int32. This guards against regressing older game versions.
+  it("falls back to plain int32 when the String-pointer path fails (plain-int32 layout)", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+
+    const m = new FakeMemory();
+    // Seed a plain int32 itemKey (no String object backing it).
+    m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+      .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+      .writePtr(LOG_BLOCK, LM_INSTANCE);
+    m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+      .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+      .writeI32(LOG_DICT + BigInt(O.dict.count), 2);
+    const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+    m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+      .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+    m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+      GETBOX_LIST + BigInt(O.container.listSize),
+      0,
+    );
+    const de1 = de0 + BigInt(O.dict.entrySize);
+    m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de1 + BigInt(O.dict.entryKey), 99)
+      .writePtr(de1 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+    m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+      BOX_OPEN_LIST + BigInt(O.container.listSize),
+      1,
+    );
+    const entry = 0xeb0000n;
+    m.writePtr(BOX_OPEN_ARR + BigInt(O.container.arrayFirst), entry);
+    // itemStringKey at +0x10 = plain int32 = 530017 (no String object).
+    // readPtr will read 8 bytes but the address isn't a real String → null.
+    m.writeI32(entry + BigInt(0x10), 530017);
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(1);
+    expect(result.opens![0].itemKey).toBe(530017);
+  });
+});
+
+// ── peekBoxOpenLogCount ──────────────────────────────────────────────────────
+
+// Same as BOX_LOG_O but with boxOpenLog.itemStringKey = 0 — exactly the
+// scenario where readRuntimeBoxOpenLog early-returns null but the heal
+// scheduler still needs to observe the list length to detect a box-open event.
+const PEEK_O = {
+  ...LOG_O,
+  runtime: {
+    ...LOG_O.runtime,
+    log: { ...LOG_O.runtime.log, getItemWithBoxOpenTypeKey: 99 },
+    boxOpenLog: {
+      itemStringKey: 0,
+      itemGradeType: 0,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+      boxType: 0,
+      level: 0,
+    },
+  },
+};
+
+describe("peekBoxOpenLogCount", () => {
+  it("returns null when logManager RVA is 0 (not derived)", () => {
+    const result = peekBoxOpenLogCount(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      O,
+      makeBoxOpenPinState(),
+    );
+    expect(result.count).toBeNull();
+    expect(result.status).toMatch(/logManager RVA = 0/i);
+  });
+
+  it("returns null when getItemWithBoxOpenTypeKey is 0 (not derived)", () => {
+    // LOG_O has logManager set but getItemWithBoxOpenTypeKey = 0
+    const result = peekBoxOpenLogCount(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      makeBoxOpenPinState(),
+    );
+    expect(result.count).toBeNull();
+    expect(result.status).toMatch(/getItemWithBoxOpenTypeKey/i);
+  });
+
+  it("returns the list count without requiring boxOpenLog.itemStringKey", () => {
+    // PEEK_O: logManager + getItemWithBoxOpenTypeKey derived, itemStringKey = 0.
+    // This is the exact scenario the heal scheduler faces on v1.00.28 before the
+    // player opens a box: readRuntimeBoxOpenLog early-returns null, but peek
+    // must still see the list length to detect the 0→>0 transition.
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1001 }]);
+    const result = peekBoxOpenLogCount(m, GA_BASE, GA_SIZE, PEEK_O, pin);
+    expect(result.count).toBe(1);
+    expect(result.status).toBe("");
+  });
+
+  it("reports count=0 when the list is walkable but empty", () => {
+    // List walkable + count 0 is a valid state (player hasn't opened a box).
+    // The heal scheduler treats 0→>0 as the box-open trigger, so 0 must be a
+    // real number here, not null (null means "we couldn't even look").
+    const m = seedBoxOpenChain(new FakeMemory(), []);
+    const result = peekBoxOpenLogCount(m, GA_BASE, GA_SIZE, PEEK_O, makeBoxOpenPinState());
+    expect(result.count).toBe(0);
+    expect(result.status).toBe("");
+  });
+
+  it("does not touch the pin's lastCount/primed (independent of tail bookkeeping)", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 42;
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1 }, { itemKey: 2 }]);
+    peekBoxOpenLogCount(m, GA_BASE, GA_SIZE, PEEK_O, pin);
+    expect(pin.primed).toBe(true);
+    expect(pin.lastCount).toBe(42);
+  });
+
+  it("caches the resolved LogManager pointer on the pin across calls", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 1 }]);
+    expect(pin.ptr).toBeNull();
+    peekBoxOpenLogCount(m, GA_BASE, GA_SIZE, PEEK_O, pin);
+    expect(pin.ptr).not.toBeNull();
+    // A second peek on the same memory should reuse the cached ptr.
+    const before = pin.ptr;
+    peekBoxOpenLogCount(m, GA_BASE, GA_SIZE, PEEK_O, pin);
+    expect(pin.ptr).toBe(before);
+  });
+
+  it("returns null when the LogManager singleton cannot be resolved", () => {
+    // PEEK_O has logManager RVA set, but the memory is empty — static block
+    // scan cannot find a live LogManager. resolveLogManager returns null.
+    const m = new FakeMemory();
+    m.writePtr(GA_BASE + PEEK_O.typeInfoRva.logManager, LOG_CLASS);
+    // Don't seed the static block / instance — singleton scan fails.
+    const result = peekBoxOpenLogCount(m, GA_BASE, GA_SIZE, PEEK_O, makeBoxOpenPinState());
+    expect(result.count).toBeNull();
+    expect(result.status).toMatch(/LogManager singleton unresolved|list not walkable/i);
   });
 });
 
