@@ -115,8 +115,22 @@ export interface LiveOffsets {
     boxOpenLog: {
       /** Produced item key (int) or string-key pointer; resolved at read time. */
       itemStringKey: number;
-      /** ItemGradeType enum value. */
+      /**
+       * ItemGradeType enum value (plain int field on v1.00.21/23/27).
+       * On v1.00.28 this field is 0 — the actual grade moved to a GradeSO
+       * ScriptableObject reference (see `gradeSO`), which must be dereferenced
+       * and read at `gradeSOGrade` inside it.
+       */
       itemGradeType: number;
+      /**
+       * Offset to the GradeSO* reference inside BoxOpenLog (v1.00.28 only).
+       * The pointed-at GradeSO has an `eGRADE` int field at `gradeSOGrade`.
+       * 0 = not derived; the reader falls back to `itemGradeType` then to the
+       * catalog grade.
+       */
+      gradeSO: number;
+      /** Offset of the `eGRADE` int field inside the GradeSO object. 0 = not derived. */
+      gradeSOGrade: number;
       /** Source box type (0=common, 1=rare, 2=act); 0 = not available in struct. */
       boxType: number;
       /** Source box level; 0 = not available in struct. */
@@ -184,11 +198,13 @@ const RUNTIME_V1_00_21 = {
     getItemWithBoxOpenTypeKey: 0, // ELogType.GetItemWithBoxOpen — not yet derived for v1.00.21/23/27
   },
   getBoxLog: {
-    monsterType: 0x50, // GetBoxLog EMonsterLogType (0 common, 1 stage boss; 2 act boss ignored)
+    monsterType: 0x50, // GetBoxLog EMonsterLogType (0 common, 1 stage boss, 2 act boss)
   },
   boxOpenLog: {
     itemStringKey: 0, // not yet derived — reader returns null when 0
     itemGradeType: 0,
+    gradeSO: 0,
+    gradeSOGrade: 0,
     boxType: 0,
     level: 0,
   },
@@ -394,5 +410,10 @@ export function plausibleGold(v: number | null): boolean {
 }
 
 export function plausibleWave(v: number | null): boolean {
-  return v != null && v > 0 && v < 1000;
+  // 0 is a legitimate state: "not in any wave" — game-internal
+  // StageManager.runtimeWave is 0 before the first wave and resets to 0 on
+  // challenge failure. Treating 0 as implausible caused the mini overlay's
+  // wave counter to stick at the pre-failure value (liveFrame.stageWave was
+  // null'd here, so stats.ts fell back to the stale save snapshot).
+  return v != null && v >= 0 && v < 1000;
 }

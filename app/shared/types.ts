@@ -56,7 +56,7 @@ export interface HeroRate {
 export interface ChestDropBreakdownRow {
   itemKey: number;
   name: string;
-  category: "common" | "rare";
+  category: "common" | "rare" | "act";
   count: number;
 }
 
@@ -64,15 +64,17 @@ export interface ChestDropHistoryEntry {
   wallTime: number;
   itemKey: number;
   name: string;
-  category: "common" | "rare";
+  category: "common" | "rare" | "act";
 }
 
 export interface ChestDropStats {
   commonTotal: number;
   rareTotal: number;
+  actTotal: number;
   combinedTotal: number;
   commonPerHour: number;
   rarePerHour: number;
+  actPerHour: number;
   breakdown: ChestDropBreakdownRow[];
   history: ChestDropHistoryEntry[];
   /** Epoch seconds of the most recent chest drop. null = no drops yet. */
@@ -88,7 +90,7 @@ export interface ChestDropStats {
 export interface ChestDropTrackerSnapshot {
   countsByKey: Record<string, number>;
   namesByKey: Record<string, string>;
-  categoriesByKey: Record<string, "common" | "rare">;
+  categoriesByKey: Record<string, "common" | "rare" | "act">;
   history: ChestDropHistoryEntry[];
 }
 
@@ -1143,10 +1145,11 @@ export interface LiveMemorySnapshot {
   heroesStatus?: string;
   /**
    * Chest drops observed since the previous tick, classified from the GetBox
-   * battle log (common / rare = stage boss). `[]` = reader active, no
-   * new drops; `null` = chest log unavailable (offset not derived / no battle).
+   * battle log (common / rare = stage boss / act = act boss). `[]` = reader
+   * active, no new drops; `null` = chest log unavailable (offset not derived
+   * / no battle).
    */
-  chestDrops: ("common" | "rare")[] | null;
+  chestDrops: ("common" | "rare" | "act")[] | null;
   /** Diagnostics: why `chestDrops` is null this tick. Dev-only. */
   chestDropsStatus?: string;
   /**

@@ -113,6 +113,26 @@ describe("AutoClassifyService", () => {
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
   });
 
+  it("queues act boss drops as category-only boxKey and matches unclassified opens", () => {
+    const { chestDropTracker, boxOpenTracker, broadcasts } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop an act boss chest → queue item with boxKey "act" (no level)
+    chestDropTracker.recordLiveChestDrop("act", 1.0);
+    // Open it (lands in unclassified)
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    // The item should have been reclassified to "act" (category-only, no level)
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "act")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    // No prompt should have been broadcast (FIFO matched)
+    expect(broadcasts.filter((b) => b.channel === "loot:prompt:classify")).toHaveLength(0);
+  });
+
   it("prompts when queue is empty and auto-classify is enabled", () => {
     const { boxOpenTracker, broadcasts } = makeService({
       enabled: true,
@@ -262,6 +282,23 @@ describe("AutoClassifyService.getQueueSnapshot", () => {
     const common = snap.byCategory.find((r) => r.category === "common");
     expect(common?.count).toBe(1);
     expect(common?.nextAutoOpenInMs).toBe(0);
+  });
+
+  it("reports act boss queue with actBoss auto-open countdown", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("act", 1.0); // droppedAtMs=1000
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    const act = snap.byCategory.find((r) => r.category === "act");
+    expect(act?.count).toBe(1);
+    // Head dropped at 1000ms; actBoss autoOpen=60s → autoOpenAt=61000ms; now=10000
+    // → remaining = 51000ms
+    expect(act?.nextAutoOpenInMs).toBe(51_000);
   });
 
   it("uses fallback auto-open seconds when ChestService returns null", () => {

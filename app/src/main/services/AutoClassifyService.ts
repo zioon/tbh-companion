@@ -210,11 +210,12 @@ export class AutoClassifyService {
     event: { category: ChestDropCategory; itemKey?: number },
     stageKey: number,
   ): string | null {
-    // ChestDropCategory is "common" | "rare" only — live drops and log drops
-    // never carry "act" (act-boss chests aren't tracked as drops). Level comes
-    // from the stage catalog; falls back to category-only when no match.
+    // ChestDropCategory is "common" | "rare" | "act". Level comes from the
+    // stage catalog; falls back to category-only when no match. Act boss
+    // chests have no level (single per-act drop), so they stay category-only.
+    const cat: BoxCategory = event.category;
+    if (cat === "act") return "act";
     const level = this.levelForStage(stageKey);
-    const cat: BoxCategory = event.category === "common" ? "common" : "rare";
     return level != null ? `${cat}:${level}` : cat;
   }
 

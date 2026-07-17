@@ -23,8 +23,11 @@ describe("resolveStageBoxDrop", () => {
     expect(resolveStageBoxDrop(910651)?.name).toBe("Normal Monster Box Lv65");
   });
 
-  it("ignores act boss boxes", () => {
-    expect(resolveStageBoxDrop(930151)).toBeNull();
+  it("resolves act boss boxes by prefix", () => {
+    const resolved = resolveStageBoxDrop(930151);
+    expect(resolved?.category).toBe("act");
+    expect(resolved?.itemKey).toBe(930151);
+    expect(resolved?.name).toContain("Act boss");
   });
 
   it("falls back to prefix for unknown keys in range", () => {
@@ -44,15 +47,17 @@ describe("ChestDropTracker", () => {
     const tracker = new ChestDropTracker();
     expect(tracker.recordLogDrop(910151)).toBe(true);
     expect(tracker.recordLogDrop(920151)).toBe(true);
-    expect(tracker.recordLogDrop(930151)).toBe(false);
+    expect(tracker.recordLogDrop(930151)).toBe(true);
 
     const stats = tracker.getStats(3600);
     expect(stats.commonTotal).toBe(1);
     expect(stats.rareTotal).toBe(1);
-    expect(stats.combinedTotal).toBe(2);
+    expect(stats.actTotal).toBe(1);
+    expect(stats.combinedTotal).toBe(3);
     expect(stats.commonPerHour).toBe(1);
     expect(stats.rarePerHour).toBe(1);
-    expect(stats.breakdown).toHaveLength(2);
+    expect(stats.actPerHour).toBe(1);
+    expect(stats.breakdown).toHaveLength(3);
     expect(stats.breakdown.every((row) => row.itemKey > 0)).toBe(true);
   });
 
@@ -162,6 +167,39 @@ describe("ChestDropTracker.recordLiveChestDrop", () => {
     expect(stats.combinedTotal).toBe(1);
     expect(stats.history).toHaveLength(1);
     expect(tracker.captureSnapshot().countsByKey).toEqual({ "900910": 1 });
+  });
+
+  it("records an act boss (act) drop into the act bucket", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLiveChestDrop("act", 1000);
+    const stats = tracker.getStats(3600);
+    expect(stats.actTotal).toBe(1);
+    expect(stats.commonTotal).toBe(0);
+    expect(stats.rareTotal).toBe(0);
+    expect(stats.combinedTotal).toBe(1);
+    expect(stats.actPerHour).toBe(1);
+    expect(stats.breakdown).toHaveLength(1);
+    expect(stats.breakdown[0].category).toBe("act");
+    expect(stats.breakdown[0].name).toBe("Act boss chest");
+  });
+
+  it("preserves act rows when restoring a snapshot with act category", () => {
+    const tracker = new ChestDropTracker();
+    tracker.applySnapshot({
+      countsByKey: { "900910": 1, "900930": 2 },
+      namesByKey: { "900910": "Common chest", "900930": "Act boss chest" },
+      categoriesByKey: { "900910": "common", "900930": "act" },
+      history: [
+        { wallTime: 1000, itemKey: 900910, name: "Common chest", category: "common" },
+        { wallTime: 1001, itemKey: 900930, name: "Act boss chest", category: "act" },
+      ],
+    });
+
+    const stats = tracker.getStats(3600);
+    expect(stats.commonTotal).toBe(1);
+    expect(stats.actTotal).toBe(2);
+    expect(stats.combinedTotal).toBe(3);
+    expect(stats.history).toHaveLength(2);
   });
 });
 

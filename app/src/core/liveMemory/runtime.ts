@@ -2,7 +2,16 @@
 // (CurrencyManager Dictionary<int,T> → ACTk ObscuredLong). Pure: operates over
 // an injected MemoryReader so it is unit-testable over synthetic memory maps.
 
-import { readF32, readI32, readI64, readPtr, readU32, readU64, type MemoryReader } from "./memory";
+import {
+  readF32,
+  readI32,
+  readI64,
+  readIl2CppString,
+  readPtr,
+  readU32,
+  readU64,
+  type MemoryReader,
+} from "./memory";
 import { plausibleGold, plausibleStage, plausibleWave, type LiveOffsets } from "./offsets";
 import { readStaticFieldPtr, readStaticFieldsBlock, resolveClassPtr } from "./statics";
 import { STRUCT_CONTAINER } from "./il2cppScanner";
@@ -496,7 +505,7 @@ export function resolveStageManager(
 // ── Live chest drops (LogManager → Dictionary<ELogType, List<GetBoxLog>>) ─────
 
 /** Chest drop category derived from GetBoxLog's EMonsterLogType field. */
-export type LiveChestCategory = "common" | "rare";
+export type LiveChestCategory = "common" | "rare" | "act";
 
 /** Per-reader pin for a resolved LogManager instance pointer. */
 export interface LogManagerPinState {
@@ -521,10 +530,11 @@ export function makeChestLogPinState(): ChestLogPinState {
 const MAX_CHEST_LOG = 5_000;
 const LM_STATIC_SCAN_MAX = 0x100;
 
-/** EMonsterLogType → chest category (0 common, 1 stage boss; act boss ignored). */
+/** EMonsterLogType → chest category (0 common, 1 stage boss, 2 act boss). */
 function chestCategoryFromMonsterType(t: number): LiveChestCategory | null {
   if (t === 0) return "common";
   if (t === 1) return "rare";
+  if (t === 2) return "act";
   return null;
 }
 
@@ -797,6 +807,50 @@ export interface ReadBoxOpenLogResult {
   status: string;
 }
 
+export interface PeekBoxOpenLogCountResult {
+  count: number | null;
+  status: string;
+}
+
+/**
+ * Lightweight probe of the BoxOpenLog list length WITHOUT reading entries.
+ *
+ * Used by the heal scheduler to detect "player just opened a box" so it can
+ * re-trigger enrichment extraction (which only succeeds once the game has
+ * instantiated `BoxOpenLog`). Unlike {@link readRuntimeBoxOpenLog}, this does
+ * NOT require `boxOpenLog.itemStringKey`/`itemGradeType` — only the
+ * already-derived `logManager` + `logByType` + `getItemWithBoxOpenTypeKey`.
+ * When those are 0 (very first launch, no anchor yet), the function returns
+ * `{count: null}` and the caller treats it as "no signal yet".
+ *
+ * `pin` is used purely to cache the resolved LogManager pointer across ticks;
+ * `lastCount`/`primed` are not touched (this probe is independent of the
+ * tail-position bookkeeping used by {@link readRuntimeBoxOpenLog}).
+ */
+export function peekBoxOpenLogCount(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: LogManagerPinState,
+): PeekBoxOpenLogCountResult {
+  if (o.typeInfoRva.logManager === 0n) {
+    return { count: null, status: "typeInfoRva.logManager RVA = 0" };
+  }
+  if (!o.runtime.log.getItemWithBoxOpenTypeKey) {
+    return { count: null, status: "getItemWithBoxOpenTypeKey = 0" };
+  }
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) {
+    return { count: null, status: "LogManager singleton unresolved" };
+  }
+  const list = boxOpenLogList(reader, lmPtr, o);
+  if (list == null) {
+    return { count: null, status: "BoxOpenLog list not walkable" };
+  }
+  return { count: list.count, status: "" };
+}
+
 /**
  * Box opens added to the GetItemWithBoxOpen log since the last read. Tails the
  * log by index the same way {@link readRuntimeChestLog} tails GetBox: primes
@@ -859,22 +913,104 @@ export function readRuntimeBoxOpenLog(
   for (let i = start; i < count; i++) {
     const entryPtr = readPtr(reader, first + BigInt(i * 8));
     if (entryPtr == null) continue;
-    const itemKey = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.itemStringKey));
+    const itemKey = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemStringKey, true);
     if (itemKey == null || itemKey <= 0) continue;
 
     const entry: BoxOpenEntry = { itemKey };
     if (o.runtime.boxOpenLog.boxType) {
-      const boxType = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.boxType));
+      const boxType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.boxType);
       if (boxType != null) entry.boxType = boxType;
     }
     if (o.runtime.boxOpenLog.level) {
-      const level = readI32(reader, entryPtr + BigInt(o.runtime.boxOpenLog.level));
+      const level = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.level);
       if (level != null && level > 0) entry.level = level;
+    }
+    // Grade: v1.00.28 moved this to a GradeSO ScriptableObject reference.
+    // Pre-1.00.28 has it as a plain int field (itemGradeType).
+    if (o.runtime.boxOpenLog.gradeSO && o.runtime.boxOpenLog.gradeSOGrade) {
+      const gradeSO = readPtr(reader, entryPtr + BigInt(o.runtime.boxOpenLog.gradeSO));
+      if (gradeSO != null) {
+        const gradeType = readI32(reader, gradeSO + BigInt(o.runtime.boxOpenLog.gradeSOGrade));
+        if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
+      }
+    } else if (o.runtime.boxOpenLog.itemGradeType) {
+      const gradeType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemGradeType);
+      if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
     }
     opens.push(entry);
   }
   pin.lastCount = count;
   return { opens, status: "" };
+}
+
+/**
+ * Read one BoxOpenLog int field, transparently handling three field layouts
+ * seen across game versions:
+ *  - plain int32 (v1.00.21/23/27): non-negative int passes through unchanged.
+ *  - System.String pointer (v1.00.28 itemStringKey): pointer → IL2CPP String
+ *    → UTF-16 chars → parse as int. The string may be a localization key like
+ *    "ItemName_530017"; trailing digits are extracted as the catalog itemKey.
+ *    Only attempted when `allowString` is true (itemStringKey field) — boxType
+ *    and level fields are never string pointers, so passing false avoids
+ *    misreading unrelated managed-object pointers as strings.
+ *  - ACTk ObscuredInt (v1.00.28+ renamed fields): hiddenValue + currentCryptoKey
+ *    8-byte struct, decoded via local `decodeObscuredInt(hidden, key)`.
+ *
+ * For itemStringKey (`allowString=true`), the String-pointer path is tried
+ * FIRST. This is critical because v1.00.28's String pointer's low 32 bits can
+ * coincidentally fall in the catalog id range (e.g. 600017) — a plain
+ * `readI32` would accept that garbage value as a "plausible" itemKey and
+ * never reach the String decoder. Trying String first lets the IL2CPP String
+ * reader validate the pointer: real String pointers decode to a stable
+ * catalog id (so reclassify persists across app restarts — the heap address
+ * changes each launch but the extracted id doesn't), while plain-int32 fields
+ * fail the String read (address isn't a real String object) and fall back to
+ * the raw int32.
+ */
+function readBoxOpenLogField(
+  reader: MemoryReader,
+  entryPtr: bigint,
+  offset: number,
+  allowString = false,
+): number | null {
+  if (offset <= 0) return null;
+
+  // For itemStringKey: try String pointer path first. readPtr reads the full
+  // 8-byte pointer and rejects implausibly-low values (< 0x10000). If the
+  // field is actually a plain int32 (older game versions), the "pointer" read
+  // either fails readPtr's plausibility gate or the target isn't a real
+  // IL2CPP String, so we fall back to the raw int32 below. This ordering means
+  // String-pointer fields always decode to the catalog id embedded in the
+  // localization key, regardless of whether the pointer's low dword happens
+  // to look like a plausible itemKey.
+  if (allowString) {
+    const ptrVal = readPtr(reader, entryPtr + BigInt(offset));
+    if (ptrVal != null) {
+      const s = readIl2CppString(reader, ptrVal);
+      if (s != null) {
+        // Accept pure-numeric strings ("530017") OR localization keys whose
+        // trailing digit run is the catalog itemKey ("ItemName_530017" → 530017).
+        const direct = /^[0-9]+$/.test(s) ? s : (s.match(/(\d+)$/) ?? [])[1];
+        if (direct != null) {
+          const parsed = Number.parseInt(direct, 10);
+          if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
+        }
+      }
+    }
+  }
+
+  // Plain int32 (v1.00.21/23/27): accept any non-negative value. For
+  // boxType/level (allowString=false) this is the primary path — grade=0
+  // and small boxType values are valid. For itemStringKey, this is the
+  // fallback when the String-pointer path didn't apply (plain-int32 field
+  // layout) or failed to decode.
+  const raw = readI32(reader, entryPtr + BigInt(offset));
+  if (raw != null && raw >= 0) return raw;
+
+  // Negative or null: try ObscuredInt decode (hiddenValue + currentCryptoKey).
+  const hidden = readI32(reader, entryPtr + BigInt(offset));
+  const key = readI32(reader, entryPtr + BigInt(offset + 4));
+  return decodeObscuredInt(hidden, key);
 }
 
 // ── Inventory (PlayerSaveData.itemSaveDatas → ItemSaveData entries) ───────────
