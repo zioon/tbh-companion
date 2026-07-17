@@ -6,6 +6,8 @@ import type {
   AppConfig,
   BoxTimerState,
   ChestState,
+  ClassifyPromptPayload,
+  ClassifyPromptResolvePayload,
   ClearAppDataResult,
   ClearDiagnosticLogResult,
   LiveMemorySnapshot,
@@ -237,6 +239,17 @@ const api: TbhApi = {
   },
   reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void> {
     return ipcRenderer.invoke(IPC.LOOT_RECLASSIFY_ITEM, itemKey, fromBoxKey, toBoxKey);
+  },
+  setLootAutoClassifyEnabled(enabled: boolean): Promise<void> {
+    return ipcRenderer.invoke(IPC.LOOT_AUTO_CLASSIFY_TOGGLE, enabled);
+  },
+  onClassifyPrompt(cb: (payload: ClassifyPromptPayload) => void): () => void {
+    const listener = (_e: unknown, payload: ClassifyPromptPayload): void => cb(payload);
+    ipcRenderer.on(IPC.LOOT_PROMPT_CLASSIFY, listener);
+    return () => ipcRenderer.removeListener(IPC.LOOT_PROMPT_CLASSIFY, listener);
+  },
+  resolveClassifyPrompt(payload: ClassifyPromptResolvePayload): void {
+    ipcRenderer.send(IPC.LOOT_PROMPT_RESOLVE, payload);
   },
 };
 
