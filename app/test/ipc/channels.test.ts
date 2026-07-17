@@ -50,6 +50,9 @@ describe("IPC channel registry", () => {
     expect(preload).toContain("IPC.LOOT_RESET_BOX");
     expect(preload).toContain("IPC.LOOT_RESET_ALL");
     expect(preload).toContain("IPC.LOOT_RECLASSIFY_ITEM");
+    expect(preload).toContain("IPC.LOOT_AUTO_CLASSIFY_TOGGLE");
+    expect(preload).toContain("IPC.LOOT_PROMPT_CLASSIFY");
+    expect(preload).toContain("IPC.LOOT_PROMPT_RESOLVE");
   });
 
   it("IPC handlers wire invoke and send channels", () => {
@@ -90,6 +93,8 @@ describe("IPC channel registry", () => {
     expect(lootHandler).toContain("IPC.LOOT_RESET_BOX");
     expect(lootHandler).toContain("IPC.LOOT_RESET_ALL");
     expect(lootHandler).toContain("IPC.LOOT_RECLASSIFY_ITEM");
+    expect(lootHandler).toContain("IPC.LOOT_AUTO_CLASSIFY_TOGGLE");
+    expect(lootHandler).toContain("IPC.LOOT_PROMPT_RESOLVE");
   });
 
   it("services broadcast on IPC push constants", () => {
@@ -174,5 +179,11 @@ describe("IPC channel registry", () => {
   it("registers the stage-runs channels in the correct registries", () => {
     expect(IPC_PUSH_CHANNELS).toContain(IPC.STAGE_RUNS);
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_STAGE_RUNS);
+  });
+
+  it("registers the auto-classify channels in the correct registries", () => {
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.LOOT_AUTO_CLASSIFY_TOGGLE);
+    expect(IPC_PUSH_CHANNELS).toContain(IPC.LOOT_PROMPT_CLASSIFY);
+    expect(IPC_SEND_CHANNELS).toContain(IPC.LOOT_PROMPT_RESOLVE);
   });
 });
