@@ -169,6 +169,86 @@ describe("TrackingService.reset vs clearSession", () => {
   });
 });
 
+describe("TrackingService.resolveBoxOpenEntry grade", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  it("uses runtime gradeType over catalog grade when available", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    // Same itemKey but different runtime gradeType (0=COMMON, 2=RARE).
+    // Without gameDataLookup, name falls back to #itemKey but grade must
+    // come from runtime gradeType, not null.
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: [
+        { itemKey: 530017, boxType: 0, level: 5, gradeType: 0 },
+        { itemKey: 530017, boxType: 0, level: 5, gradeType: 2 },
+      ],
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    // Verify the tracker recorded both opens with distinct grades.
+    const trackerStats = svc.getBoxOpenTracker().getStats(3600, () => null);
+    expect(trackerStats).toHaveLength(1);
+    const breakdown = trackerStats[0].breakdown;
+    expect(breakdown).toHaveLength(2);
+    const grades = breakdown.map((r) => r.grade).sort();
+    expect(grades).toEqual(["COMMON", "RARE"]);
+    svc.stop();
+  });
+
+  it("falls back to catalog grade when gradeType is undefined", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: [{ itemKey: 530017, boxType: 0, level: 5 }],
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    const trackerStats = svc.getBoxOpenTracker().getStats(3600, () => null);
+    expect(trackerStats).toHaveLength(1);
+    expect(trackerStats[0].breakdown).toHaveLength(1);
+    expect(trackerStats[0].breakdown[0].grade).toBeNull();
+    svc.stop();
+  });
+});
+
 describe("TrackingService.onLiveMemoryToggled", () => {
   beforeEach(() => {
     onSnapshot = undefined;

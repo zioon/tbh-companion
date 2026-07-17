@@ -9,6 +9,8 @@ import { Switch } from "../design-system/primitives/Switch/Switch";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LootBoxSection } from "../components/loot/LootBoxSection";
+import { LootRecentDrops } from "../components/loot/LootRecentDrops";
+import { LootQueueList } from "../components/loot/LootQueueList";
 import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 
 const CATEGORY_LABELS: Record<BoxCategory, string> = {
@@ -35,6 +37,7 @@ export function Loot() {
     boxOpens,
     lootStatus,
     currentStageKey,
+    recentDrops,
     resetBox,
     resetAll,
     reclassifyItem,
@@ -78,6 +81,16 @@ export function Loot() {
         </label>
       </div>
 
+      {/* Queue list and recent drops sit side-by-side. Both cards stretch to
+          the row's height so the two columns stay visually aligned even when
+          one has more rows than the other. */}
+      {(autoClassifyEnabled || recentDrops.length > 0) && (
+        <div className="grid grid-cols-2 items-stretch gap-3 max-[720px]:grid-cols-1">
+          {autoClassifyEnabled && <LootQueueList items={autoClassifyState.items} />}
+          {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} />}
+        </div>
+      )}
+
       {boxOpens.length === 0 ? (
         <HintBanner>
           {lootStatus
@@ -85,18 +98,20 @@ export function Loot() {
             : "No boxes opened yet this session. Open a chest in-game with the live reader running to see recorded loot here."}
         </HintBanner>
       ) : (
-        <div className="grid grid-cols-2 items-start gap-3 max-[720px]:grid-cols-1">
-          {boxOpens.map((stats) => (
-            <LootBoxSection
-              key={stats.boxKey}
-              stats={stats}
-              currentStageKey={currentStageKey}
-              onReset={resetBox}
-              onReclassify={reclassifyItem}
-              className={stats.category === "unclassified" ? "col-span-2" : undefined}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 items-start gap-3 max-[720px]:grid-cols-1">
+            {boxOpens.map((stats) => (
+              <LootBoxSection
+                key={stats.boxKey}
+                stats={stats}
+                currentStageKey={currentStageKey}
+                onReset={resetBox}
+                onReclassify={reclassifyItem}
+                className={stats.category === "unclassified" ? "col-span-2" : undefined}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {boxOpens.length > 0 && (

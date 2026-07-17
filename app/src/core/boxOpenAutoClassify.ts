@@ -25,6 +25,13 @@ export interface QueueItem {
   droppedAtMs: number;
   stageKey: number;
   expiresAtMs: number;
+  /**
+   * Wall-clock ms when this chest is expected to auto-open
+   * (`droppedAtMs + autoOpenSeconds * 1000`). The queue is kept sorted by
+   * this field ascending so the head is always the next chest to open —
+   * `dequeue` consumes the soonest-opening chest first, not the oldest drop.
+   */
+  autoOpenAtMs: number;
 }
 
 /** Input for {@link enqueue}; TTL is derived from `autoOpenSeconds`. */
@@ -35,18 +42,34 @@ export interface EnqueueInput {
   autoOpenSeconds: number;
 }
 
-/** Append a new item, computing its expiry from the chest's auto-open time. */
+/**
+ * Insert a new item in `autoOpenAtMs` ascending order. Keeping the queue
+ * sorted on insert means `dequeue` can still pop from the head — but now
+ * the head is the soonest-opening chest, not the oldest drop. This matches
+ * the game's behavior: a chest dropped later with a shorter auto-open
+ * cooldown will open before an earlier drop with a longer cooldown.
+ */
 export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   const ttlMs = computeTtlMs(input.autoOpenSeconds);
-  return [
-    ...queue,
-    {
-      boxKey: input.boxKey,
-      droppedAtMs: input.droppedAtMs,
-      stageKey: input.stageKey,
-      expiresAtMs: input.droppedAtMs + ttlMs,
-    },
-  ];
+  const autoOpenAtMs = input.droppedAtMs + input.autoOpenSeconds * 1000;
+  const item: QueueItem = {
+    boxKey: input.boxKey,
+    droppedAtMs: input.droppedAtMs,
+    stageKey: input.stageKey,
+    expiresAtMs: input.droppedAtMs + ttlMs,
+    autoOpenAtMs,
+  };
+  // Find the first item whose autoOpenAtMs is strictly greater than the new
+  // item's — insert before it to keep ascending order. Items with equal
+  // autoOpenAtMs keep their existing relative order (stable insertion).
+  let insertIdx = queue.length;
+  for (let i = 0; i < queue.length; i++) {
+    if (queue[i]!.autoOpenAtMs > autoOpenAtMs) {
+      insertIdx = i;
+      break;
+    }
+  }
+  return [...queue.slice(0, insertIdx), item, ...queue.slice(insertIdx)];
 }
 
 /**

@@ -123,6 +123,8 @@ export interface BoxOpenBreakdownRow {
   buyOrderUnit: number | null;
   /** count * buyOrderUnit. */
   buyOrderValue: number | null;
+  /** Units actually covered by buyOrderValue, capped at count (may be less when the order book runs dry). */
+  coveredCount: number | null;
   /** buyOrderValue / sessionHours. */
   hourlyValue: number | null;
 }
@@ -193,6 +195,25 @@ export interface AutoClassifyStatePayload {
      */
     nextAutoOpenInMs: number | null;
   }>;
+  /**
+   * Per-item view of the queue, oldest-first. Each entry corresponds to one
+   * dropped chest awaiting its open event. The renderer uses this for the
+   * detailed queue list; `byCategory` remains for the compact summary.
+   */
+  items: ReadonlyArray<AutoClassifyQueueItem>;
+}
+
+/** One queued chest drop in {@link AutoClassifyStatePayload.items}. */
+export interface AutoClassifyQueueItem {
+  boxKey: string;
+  category: BoxCategory;
+  /** Wall-clock ms when the chest dropped (matches `QueueItem.droppedAtMs`). */
+  droppedAtMs: number;
+  stageKey: number;
+  /** Remaining ms until this chest's auto-open fires (clamped to >= 0). */
+  autoOpenInMs: number;
+  /** Remaining ms until this queue entry expires and is pruned (clamped to >= 0). */
+  expiresInMs: number;
 }
 
 /** Raw entry from the live-memory BoxOpenLog tail. */

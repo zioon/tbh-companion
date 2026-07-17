@@ -312,6 +312,14 @@ export class ChestDropTracker {
   private breakdownCache: ChestDropBreakdownRow[] | null = null;
   private historyCache: ChestDropHistoryEntry[] | null = null;
 
+  /**
+   * Snapshot of countsByKey taken at the last session reset. perHour rates are
+   * computed from (currentCounts - baselineCounts) so that resetting a session
+   * zeroes the rates without wiping the cumulative drop history. An empty map
+   * means everything counts toward the session (fresh start).
+   */
+  private sessionBaselineByKey = new Map<string, number>();
+
   constructor(callbacks?: ChestDropTrackerCallbacks) {
     this.callbacks = callbacks;
   }
@@ -323,6 +331,17 @@ export class ChestDropTracker {
     this.history = [];
     this.breakdownCache = null;
     this.historyCache = null;
+    this.sessionBaselineByKey.clear();
+  }
+
+  /**
+   * Reset perHour rates without clearing cumulative drops. Snapshots the
+   * current countsByKey as the session baseline — subsequent getStats() calls
+   * compute perHour from (current - baseline). Preserves counts/history so
+   * the Loot tab keeps its full drop log across session resets.
+   */
+  resetRates(): void {
+    this.sessionBaselineByKey = new Map(this.countsByKey);
   }
 
   /**
@@ -425,9 +444,36 @@ export class ChestDropTracker {
 
     const combinedTotal = commonTotal + rareTotal + actTotal;
     const hours = elapsedSeconds > 0 ? elapsedSeconds / 3600 : 0;
-    const commonPerHour = hours > 0 ? commonTotal / hours : 0;
-    const rarePerHour = hours > 0 ? rareTotal / hours : 0;
-    const actPerHour = hours > 0 ? actTotal / hours : 0;
+
+    // perHour rates use the session delta (current - baseline) so that a
+    // session reset zeroes rates without wiping cumulative totals. Totals
+    // (commonTotal/rareTotal/actTotal) remain cumulative for the breakdown.
+    let sessionCommon = 0;
+    let sessionRare = 0;
+    let sessionAct = 0;
+    if (hours > 0) {
+      for (const [key, baselineCount] of this.sessionBaselineByKey) {
+        const currentCount = this.countsByKey.get(key) ?? 0;
+        const delta = currentCount - baselineCount;
+        if (delta <= 0) continue;
+        const category = this.categoriesByKey.get(key);
+        if (category === "common") sessionCommon += delta;
+        else if (category === "rare") sessionRare += delta;
+        else if (category === "act") sessionAct += delta;
+      }
+      // Keys absent from the baseline (new drops since reset) also count.
+      for (const [key, count] of this.countsByKey) {
+        if (this.sessionBaselineByKey.has(key)) continue;
+        if (count <= 0) continue;
+        const category = this.categoriesByKey.get(key);
+        if (category === "common") sessionCommon += count;
+        else if (category === "rare") sessionRare += count;
+        else if (category === "act") sessionAct += count;
+      }
+    }
+    const commonPerHour = hours > 0 ? sessionCommon / hours : 0;
+    const rarePerHour = hours > 0 ? sessionRare / hours : 0;
+    const actPerHour = hours > 0 ? sessionAct / hours : 0;
 
     let lastDropWallTime: number | null = null;
     for (let i = this.history.length - 1; i >= 0; i--) {
@@ -479,5 +525,8 @@ export class ChestDropTracker {
     this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
     this.breakdownCache = null;
     this.historyCache = null;
+    // Restored counts are pre-existing history — they should not inflate the
+    // session perHour rates. Snapshot them as the baseline.
+    this.sessionBaselineByKey = new Map(this.countsByKey);
   }
 }

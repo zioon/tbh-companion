@@ -10,9 +10,16 @@ import type { LookupItem } from "../../../../shared/types";
 export const ItemCard = memo(function ItemCard({
   item,
   onSelect,
+  gradeOverride,
 }: {
   item: LookupItem;
   onSelect?: (item: LookupItem) => void;
+  /**
+   * Runtime grade to display instead of the catalog base grade. Used by peeks
+   * (Loot's ItemLink) where the drop's actual grade is known and may differ
+   * from the catalog. Grid cards leave this undefined to show the catalog grade.
+   */
+  gradeOverride?: string | null;
 }) {
   const hasBody = lookupItemCardHasBody(item);
   // Price sits top-right of the header — a Steam link on grid cards (onSelect),
@@ -29,6 +36,7 @@ export const ItemCard = memo(function ItemCard({
         <ItemCardHeader
           item={item}
           iconSize="md"
+          gradeOverride={gradeOverride}
           trailing={<LookupPrice item={item} interactive={interactive} />}
         />
       </CardHeader>

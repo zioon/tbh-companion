@@ -112,6 +112,64 @@ describe("ChestDropTracker", () => {
     const tracker = new ChestDropTracker();
     expect(tracker.getStats(3600).readerRequired).toBe(true);
   });
+
+  it("resetRates zeroes perHour but preserves cumulative totals", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(920151);
+
+    const before = tracker.getStats(3600);
+    expect(before.commonTotal).toBe(2);
+    expect(before.rareTotal).toBe(1);
+    expect(before.commonPerHour).toBe(2);
+    expect(before.rarePerHour).toBe(1);
+
+    tracker.resetRates();
+
+    const afterReset = tracker.getStats(3600);
+    // Totals preserved.
+    expect(afterReset.commonTotal).toBe(2);
+    expect(afterReset.rareTotal).toBe(1);
+    expect(afterReset.combinedTotal).toBe(3);
+    // Rates zeroed (no new drops since reset).
+    expect(afterReset.commonPerHour).toBe(0);
+    expect(afterReset.rarePerHour).toBe(0);
+    expect(afterReset.actPerHour).toBe(0);
+
+    // New drop after reset should only count toward the session rate.
+    tracker.recordLogDrop(910151);
+    const afterNewDrop = tracker.getStats(3600);
+    expect(afterNewDrop.commonTotal).toBe(3);
+    expect(afterNewDrop.commonPerHour).toBe(1); // only the post-reset drop
+    expect(afterNewDrop.rarePerHour).toBe(0);
+  });
+
+  it("resetRates called multiple times keeps the latest baseline", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(910151);
+    tracker.resetRates();
+    tracker.recordLogDrop(910151); // 1 session drop
+    tracker.resetRates(); // re-baseline at 3 total
+    tracker.recordLogDrop(910151); // 0 session drops relative to new baseline
+    const stats = tracker.getStats(3600);
+    expect(stats.commonTotal).toBe(4);
+    expect(stats.commonPerHour).toBe(1); // only the drop between the two resets
+  });
+
+  it("applySnapshot baselines restored counts so rates start at zero", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(910151);
+    const snap = tracker.captureSnapshot();
+
+    const restored = new ChestDropTracker();
+    restored.applySnapshot(snap);
+    const stats = restored.getStats(3600);
+    expect(stats.commonTotal).toBe(2);
+    expect(stats.commonPerHour).toBe(0); // restored counts are pre-session
+  });
 });
 
 describe("ChestDropTracker.recordLiveChestDrop", () => {

@@ -27,7 +27,7 @@ describe("computeTtlMs", () => {
 });
 
 describe("enqueue", () => {
-  it("appends a new item with computed expiresAtMs", () => {
+  it("inserts a new item with computed expiresAtMs and autoOpenAtMs", () => {
     const now = 1_000_000;
     const queue = enqueue([], {
       boxKey: "rare:3",
@@ -39,8 +39,29 @@ describe("enqueue", () => {
     expect(queue[0]?.boxKey).toBe("rare:3");
     expect(queue[0]?.droppedAtMs).toBe(now);
     expect(queue[0]?.expiresAtMs).toBe(now + 1_230_000);
+    expect(queue[0]?.autoOpenAtMs).toBe(now + 600_000);
   });
-  it("preserves FIFO order across multiple enqueues", () => {
+  it("keeps queue sorted by autoOpenAtMs ascending (soonest-opening first)", () => {
+    // common@1000s autoOpen=300s → autoOpenAtMs=301000 (sooner)
+    // rare@2000s   autoOpen=600s → autoOpenAtMs=602000 (later)
+    // Despite rare being enqueued first, common should be at the head.
+    const q1 = enqueue([], {
+      boxKey: "rare:3",
+      droppedAtMs: 2000,
+      stageKey: 3303,
+      autoOpenSeconds: 600,
+    });
+    const q2 = enqueue(q1, {
+      boxKey: "common",
+      droppedAtMs: 1000,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    expect(q2.map((i) => i.boxKey)).toEqual(["common", "rare:3"]);
+    expect(q2[0]?.autoOpenAtMs).toBeLessThan(q2[1]?.autoOpenAtMs ?? Infinity);
+  });
+  it("preserves stable order for items with equal autoOpenAtMs", () => {
+    // Two commons with identical autoOpenAtMs: insertion order preserved.
     const q1 = enqueue([], {
       boxKey: "common",
       droppedAtMs: 1000,
@@ -48,12 +69,29 @@ describe("enqueue", () => {
       autoOpenSeconds: 300,
     });
     const q2 = enqueue(q1, {
-      boxKey: "rare:3",
-      droppedAtMs: 2000,
-      stageKey: 3303,
-      autoOpenSeconds: 600,
+      boxKey: "common",
+      droppedAtMs: 1000,
+      stageKey: 1102,
+      autoOpenSeconds: 300,
     });
-    expect(q2.map((i) => i.boxKey)).toEqual(["common", "rare:3"]);
+    expect(q2.map((i) => i.stageKey)).toEqual([1101, 1102]);
+  });
+  it("inserts act boss (short autoOpen) before common (long autoOpen) even when dropped later", () => {
+    // common@1000s autoOpen=300s → autoOpenAtMs=301000
+    // act@5000s    autoOpen=60s  → autoOpenAtMs=56000 (sooner despite later drop)
+    const q1 = enqueue([], {
+      boxKey: "common",
+      droppedAtMs: 1000,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    const q2 = enqueue(q1, {
+      boxKey: "act",
+      droppedAtMs: 5000,
+      stageKey: 0,
+      autoOpenSeconds: 60,
+    });
+    expect(q2.map((i) => i.boxKey)).toEqual(["act", "common"]);
   });
 });
 
@@ -64,15 +102,39 @@ describe("dequeue", () => {
     expect(queue).toEqual([]);
   });
   it("returns the head item and a queue without it", () => {
-    const a: QueueItem = { boxKey: "common", droppedAtMs: 1000, stageKey: 1, expiresAtMs: 9999 };
-    const b: QueueItem = { boxKey: "rare:3", droppedAtMs: 2000, stageKey: 2, expiresAtMs: 9999 };
+    const a: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 1000,
+      stageKey: 1,
+      expiresAtMs: 9999,
+      autoOpenAtMs: 5000,
+    };
+    const b: QueueItem = {
+      boxKey: "rare:3",
+      droppedAtMs: 2000,
+      stageKey: 2,
+      expiresAtMs: 9999,
+      autoOpenAtMs: 6000,
+    };
     const { queue, item } = dequeue([a, b], 1500);
     expect(item).toBe(a);
     expect(queue).toEqual([b]);
   });
   it("skips expired head items and returns the first live one", () => {
-    const expired: QueueItem = { boxKey: "common", droppedAtMs: 0, stageKey: 1, expiresAtMs: 500 };
-    const live: QueueItem = { boxKey: "rare:3", droppedAtMs: 600, stageKey: 2, expiresAtMs: 9999 };
+    const expired: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: 500,
+      autoOpenAtMs: 1000,
+    };
+    const live: QueueItem = {
+      boxKey: "rare:3",
+      droppedAtMs: 600,
+      stageKey: 2,
+      expiresAtMs: 9999,
+      autoOpenAtMs: 2000,
+    };
     const { queue, item } = dequeue([expired, live], 1000);
     expect(item).toBe(live);
     expect(queue).toEqual([]);
@@ -84,12 +146,30 @@ describe("pruneExpired", () => {
     expect(pruneExpired([], 1000)).toEqual([]);
   });
   it("drops items whose expiresAtMs <= now", () => {
-    const a: QueueItem = { boxKey: "common", droppedAtMs: 0, stageKey: 1, expiresAtMs: 500 };
-    const b: QueueItem = { boxKey: "rare:3", droppedAtMs: 0, stageKey: 2, expiresAtMs: 1500 };
+    const a: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: 500,
+      autoOpenAtMs: 1000,
+    };
+    const b: QueueItem = {
+      boxKey: "rare:3",
+      droppedAtMs: 0,
+      stageKey: 2,
+      expiresAtMs: 1500,
+      autoOpenAtMs: 2000,
+    };
     expect(pruneExpired([a, b], 1000)).toEqual([b]);
   });
   it("keeps items whose expiresAtMs > now", () => {
-    const a: QueueItem = { boxKey: "common", droppedAtMs: 0, stageKey: 1, expiresAtMs: 1001 };
+    const a: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: 1001,
+      autoOpenAtMs: 2000,
+    };
     expect(pruneExpired([a], 1000)).toEqual([a]);
   });
 });

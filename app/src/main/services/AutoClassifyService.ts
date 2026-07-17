@@ -1,4 +1,5 @@
 import type {
+  AutoClassifyQueueItem,
   AutoClassifyStatePayload,
   BoxCategory,
   BoxOpenHistoryEntry,
@@ -89,8 +90,9 @@ export class AutoClassifyService {
 
   /**
    * Snapshot of the queue for renderer display. Grouped by BoxCategory with
-   * the head item's remaining auto-open time. Called via IPC at 1 Hz by the
-   * renderer when auto-classify is enabled.
+   * the head item's remaining auto-open time, plus a per-item view for the
+   * detailed queue list. Called via IPC at 1 Hz by the renderer when
+   * auto-classify is enabled.
    */
   getQueueSnapshot(): AutoClassifyStatePayload {
     const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
@@ -106,7 +108,23 @@ export class AutoClassifyService {
       }
       return { category, count: items.length, nextAutoOpenInMs };
     });
-    return { enabled: this.enabled, totalQueued: this.queue.length, byCategory };
+    const items: AutoClassifyQueueItem[] = this.queue.map((q) => {
+      const autoOpenSeconds = this.autoOpenForBoxKey(q.boxKey, autoOpen);
+      // Queue items are only ever enqueued with valid category boxKeys (see
+      // resolveDropBoxKey), so categoryFromBoxKey won't return null here in
+      // practice — but it returns `BoxCategory | null` at the type level, so
+      // fall back to "unclassified" to satisfy the non-null item shape.
+      const category = categoryFromBoxKey(q.boxKey) ?? "unclassified";
+      return {
+        boxKey: q.boxKey,
+        category,
+        droppedAtMs: q.droppedAtMs,
+        stageKey: q.stageKey,
+        autoOpenInMs: Math.max(0, q.droppedAtMs + autoOpenSeconds * 1000 - now),
+        expiresInMs: Math.max(0, q.expiresAtMs - now),
+      };
+    });
+    return { enabled: this.enabled, totalQueued: this.queue.length, byCategory, items };
   }
 
   /** Called by TrackingService when a chest drop is recorded. */
@@ -140,6 +158,58 @@ export class AutoClassifyService {
     );
     for (const evt of events) {
       this.processEvent(evt.itemKeys);
+    }
+  }
+
+  /**
+   * Reconcile the queue against the current chest-slot counts from the save.
+   * Called by ChestService on every save parse. For each category, if the
+   * queue holds more items than the actual slot count, the excess (oldest
+   * `autoOpenAtMs` first — those should have opened already) is pruned. This
+   * keeps the queue accurate even when:
+   *   - a chest opened with correctly-classified runtime offsets (no
+   *     unclassified burst fired to consume the entry via `processEvent`),
+   *   - a chest was opened manually mid-session,
+   *   - or a queue entry's TTL lapped without being consumed.
+   *
+   * When the queue holds fewer items than the slot count (chests that existed
+   * before the live reader attached, or drops the live reader missed), the
+   * queue is left alone — we can't synthesize drop metadata, and those chests
+   * will still open on their own; only the loot-classification prompt path is
+   * affected (the open will be classified via the unclassified-burst flow or
+   * left under "unclassified" for manual reclassification).
+   */
+  reconcileWithChestSlots(slots: { common: number; rare: number; act: number }): void {
+    if (!this.enabled) return;
+    const order = ["common", "rare", "act"] as const;
+    let prunedTotal = 0;
+    for (const category of order) {
+      const slotCount = slots[category];
+      const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
+      const queueCount = matching.length;
+      if (queueCount <= slotCount) {
+        if (queueCount < slotCount) {
+          log.info(
+            `reconcile: ${category} queue (${queueCount}) < slots (${slotCount}); ` +
+              `${slotCount - queueCount} chest(s) predate live tracking or were missed`,
+          );
+        }
+        continue;
+      }
+      const excess = queueCount - slotCount;
+      // Queue is already sorted by autoOpenAtMs ascending (see enqueue), so
+      // matching items in array order are the soonest-opening ones. Prune the
+      // first `excess` of them — those should have opened already.
+      const toRemove = new Set(matching.slice(0, excess));
+      this.queue = this.queue.filter((q) => !toRemove.has(q));
+      prunedTotal += excess;
+      log.info(
+        `reconcile: pruned ${excess} excess ${category} item(s) ` +
+          `(queue ${queueCount} > slots ${slotCount})`,
+      );
+    }
+    if (prunedTotal > 0) {
+      log.info(`reconcile: total pruned ${prunedTotal} item(s) across categories`);
     }
   }
 

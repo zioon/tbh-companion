@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStats } from "./useStats";
 import type {
   AutoClassifyStatePayload,
   BoxCategory,
+  BoxOpenHistoryEntry,
   BoxOpenStats,
   ClassifyPromptPayload,
 } from "../../../shared/types";
+
+/** Max number of recent-drop entries to surface in the Loot UI. */
+const RECENT_DROPS_LIMIT = 3;
 
 const EMPTY_STATE: AutoClassifyStatePayload = {
   enabled: false,
@@ -15,6 +19,7 @@ const EMPTY_STATE: AutoClassifyStatePayload = {
     { category: "rare", count: 0, nextAutoOpenInMs: null },
     { category: "act", count: 0, nextAutoOpenInMs: null },
   ],
+  items: [],
 };
 
 export function useLoot(): {
@@ -22,6 +27,8 @@ export function useLoot(): {
   lootStatus: string | undefined;
   /** Current stage key (difficulty*1000 + act*100 + stage), or null when live memory isn't running. */
   currentStageKey: number | null;
+  /** Most recent drops across all boxKeys, newest first (capped at RECENT_DROPS_LIMIT). */
+  recentDrops: BoxOpenHistoryEntry[];
   resetBox: (boxKey: string) => Promise<void>;
   resetAll: () => Promise<void>;
   reclassifyItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) => Promise<void>;
@@ -38,6 +45,17 @@ export function useLoot(): {
   // stageKey is 0 in the default Stats shape before live memory connects; treat
   // that as "no stage" so LootBoxSection doesn't pre-fill an invalid level.
   const currentStageKey = stats?.stageKey ? stats.stageKey : null;
+  // Merge every boxKey's visible history slice (already newest-first per
+  // BoxOpenTracker) and take the top N by wallTime. Each boxKey contributes
+  // up to HISTORY_VISIBLE (50) entries, so the merge is bounded.
+  const recentDrops = useMemo<BoxOpenHistoryEntry[]>(() => {
+    const all: BoxOpenHistoryEntry[] = [];
+    for (const b of boxOpens) {
+      for (const h of b.history) all.push(h);
+    }
+    all.sort((a, b) => b.wallTime - a.wallTime);
+    return all.slice(0, RECENT_DROPS_LIMIT);
+  }, [boxOpens]);
 
   const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState<boolean>(false);
   const [classifyPrompt, setClassifyPrompt] = useState<ClassifyPromptPayload | null>(null);
@@ -114,6 +132,7 @@ export function useLoot(): {
     boxOpens,
     lootStatus,
     currentStageKey,
+    recentDrops,
     resetBox,
     resetAll,
     reclassifyItem,

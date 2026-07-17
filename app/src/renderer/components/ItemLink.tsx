@@ -44,7 +44,7 @@ export function ItemLink({
   const boxPeek = node.type === "box" ? boxMeta : undefined;
   const peek =
     peekItemData != null ? (
-      <ItemCard item={peekItemData} />
+      <ItemCard item={peekItemData} gradeOverride={grade} />
     ) : boxPeek != null ? (
       <BoxPeekCard box={boxPeek} boxItemKey={node.id} />
     ) : undefined;

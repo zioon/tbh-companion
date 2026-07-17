@@ -7,6 +7,7 @@ import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropT
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
+import { GRADE_ORDER } from "../../core/grades";
 import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
@@ -187,15 +188,16 @@ export class TrackingService {
   }
 
   /**
-   * Reset session rates (XP / gold / DPS / stage-event baseline) but preserve
-   * loot history (chest drops + box opens). Loot is cumulative across session
-   * resets — players often reset rates mid-session to measure a new farming
-   * stretch without wiping their drop log. Use {@link clearSession} (Settings →
-   * Clear session snapshot) or {@link onSavePathChanged} for a full wipe
-   * including loot.
+   * Reset session rates (XP / gold / DPS / chest-drop rates / stage-event
+   * baseline) but preserve loot history (chest drops + box opens). Loot is
+   * cumulative across session resets — players often reset rates mid-session
+   * to measure a new farming stretch without wiping their drop log. Use
+   * {@link clearSession} (Settings → Clear session snapshot) or
+   * {@link onSavePathChanged} for a full wipe including loot.
    */
   reset(): void {
     this.tracker.reset();
+    this.chestDropTracker.resetRates();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.onTrackerReset(
@@ -356,7 +358,14 @@ export class TrackingService {
     const catalogId = catalogItemKeyFromSave(entry.itemKey);
     const item = this.gameDataLookup?.get(catalogId);
     const name = item?.name ?? `#${entry.itemKey}`;
-    const grade = item?.grade ?? null;
+    // Prefer the runtime grade (actual drop grade read from GetBoxLog) over
+    // the catalog base grade. v1.00.28 can drop the same itemKey at different
+    // grades, so the catalog grade is only a fallback when the runtime grade
+    // offset is unavailable.
+    const grade =
+      entry.gradeType != null && entry.gradeType >= 0
+        ? (GRADE_ORDER[entry.gradeType] ?? item?.grade ?? null)
+        : (item?.grade ?? null);
     return { boxKey, itemKey: catalogId, name, grade };
   }
 

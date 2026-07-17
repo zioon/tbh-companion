@@ -152,6 +152,13 @@ export function startTracking(): SessionUiSnapshot {
     getCurrentStageKey: () => tracking.getCurrentStageKey(),
     broadcast,
   });
+  // On every save parse, ChestService reports the current per-category slot
+  // counts; AutoClassifyService reconciles its queue against those counts —
+  // pruning entries whose chest already opened (queue > slots) and logging
+  // when drops were missed (queue < slots). This keeps the loot queue accurate
+  // even when chests open via auto-open (no unclassified burst) or manually.
+  const autoClassifyRef = autoClassify;
+  chests.setOnReconcile((slots) => autoClassifyRef.reconcileWithChestSlots(slots));
   autoClassify.setEnabled(config.lootAutoClassifyEnabled);
   tracking.setAutoClassifyService(autoClassify);
   return ui;
@@ -415,6 +422,7 @@ export function getAppServices() {
           { category: "rare", count: 0, nextAutoOpenInMs: null },
           { category: "act", count: 0, nextAutoOpenInMs: null },
         ],
+        items: [],
       },
   };
 }

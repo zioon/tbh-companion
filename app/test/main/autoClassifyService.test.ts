@@ -95,7 +95,7 @@ describe("AutoClassifyService", () => {
     expect(broadcasts).toEqual([]);
   });
 
-  it("matches unclassified opens to the queued drop via FIFO", () => {
+  it("matches unclassified opens to the queued drop (soonest-opening first)", () => {
     const { chestDropTracker, boxOpenTracker } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -111,6 +111,31 @@ describe("AutoClassifyService", () => {
     const stats = boxOpenTracker.getStats(100, null);
     expect(stats.find((s) => s.boxKey === "rare:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+  });
+
+  it("dequeues the soonest-opening chest first across categories", () => {
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop a rare chest (autoOpen=600s) and a common chest (autoOpen=300s).
+    // Despite rare being dropped first, common has an earlier autoOpenAtMs
+    // (1000 + 300*1000 = 301000 vs 1000 + 600*1000 = 601000), so common
+    // should be at the head of the queue.
+    chestDropTracker.recordLiveChestDrop("rare", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    // An unclassified burst arrives — should match the common (head), not rare.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    // The rare chest should still be queued (only the common was consumed).
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]?.boxKey).toBe("rare:5");
   });
 
   it("queues act boss drops as category-only boxKey and matches unclassified opens", () => {
@@ -313,5 +338,189 @@ describe("AutoClassifyService.getQueueSnapshot", () => {
     const rare = snap.byCategory.find((r) => r.category === "rare");
     // droppedAtMs=1000 + 600*1000 - 10000 = 591000
     expect(rare?.nextAutoOpenInMs).toBe(591_000);
+  });
+
+  it("exposes per-item view via items field, sorted by autoOpenInMs ascending", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop chests across categories: rare@1s, common@2s, act@3s.
+    // autoOpenAtMs:
+    //   rare:  1000 + 600*1000 = 601000
+    //   common: 2000 + 300*1000 = 302000  ← soonest
+    //   act:   3000 + 60*1000  = 63000    ← even sooner
+    // Expected sort order (ascending autoOpenAtMs): act, common, rare
+    chestDropTracker.recordLiveChestDrop("rare", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    chestDropTracker.recordLiveChestDrop("act", 3.0);
+
+    const snap = service.getQueueSnapshot();
+    expect(snap.items).toHaveLength(3);
+    // Sorted by autoOpenAtMs ascending: act (63000), common (302000), rare (601000).
+    expect(snap.items.map((i) => i.boxKey)).toEqual(["act", "common:5", "rare:5"]);
+    // autoOpenInMs must also be ascending (it's autoOpenAtMs - now).
+    for (let i = 1; i < snap.items.length; i++) {
+      expect(snap.items[i]!.autoOpenInMs).toBeGreaterThanOrEqual(snap.items[i - 1]!.autoOpenInMs);
+    }
+
+    // Verify the act item's fields.
+    expect(snap.items[0]!.category).toBe("act");
+    expect(snap.items[0]!.droppedAtMs).toBe(3000);
+    expect(snap.items[0]!.stageKey).toBe(1105);
+    // act: 3000 + 60*1000 - 10000 = 53000
+    expect(snap.items[0]!.autoOpenInMs).toBe(53_000);
+    // expiresInMs = expiresAtMs - now = (droppedAtMs + ttlMs) - now
+    // ttlMs = max(60*2*1000, 60000) + 30000 = 150000
+    // expiresAtMs = 3000 + 150000 = 153000; - 10000 = 143000
+    expect(snap.items[0]!.expiresInMs).toBe(143_000);
+  });
+
+  it("clamps per-item countdowns to 0 when expired", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // droppedAtMs=1000
+    // Advance past both auto-open and TTL.
+    vi.setSystemTime(FIXED_NOW_MS + 2_000_000);
+    const snap = service.getQueueSnapshot();
+    // Queue was pruned by TTL on the last tick; if not pruned, snapshot still
+    // clamps remaining times to 0. Either way, items array is empty here
+    // because pruneExpired runs in tick(). Without a tick, the item survives
+    // but its countdowns clamp to 0.
+    for (const item of snap.items) {
+      expect(item.autoOpenInMs).toBe(0);
+      expect(item.expiresInMs).toBe(0);
+    }
+  });
+});
+
+describe("AutoClassifyService.reconcileWithChestSlots", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("prunes excess entries when queue > slots (soonest autoOpen first)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop two common chests → queue has 2 common items.
+    // autoOpenAtMs: common@1.0 (301000) < common@2.0 (302000)
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    expect(service.getQueueSnapshot().totalQueued).toBe(2);
+
+    // Save shows only 1 common chest remaining — the earliest-dropped one
+    // (autoOpenAtMs=301000) should have opened already; prune it.
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.droppedAtMs).toBe(2000);
+  });
+
+  it("prunes across multiple categories in one reconcile", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // autoOpenAtMs: rare=601000, common=302000, act=63000
+    // Sorted queue: [act, common, rare]
+    chestDropTracker.recordLiveChestDrop("rare", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    chestDropTracker.recordLiveChestDrop("act", 3.0);
+
+    // Slots: common=0 (1 excess), rare=1 (0 excess, matches), act=0 (1 excess)
+    service.reconcileWithChestSlots({ common: 0, rare: 1, act: 0 });
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    // common and act pruned; rare remains.
+    expect(snap.items[0]!.boxKey).toBe("rare:5");
+  });
+
+  it("leaves queue alone when queue <= slots (no excess)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+
+    // Slots hold 3 commons — queue (2) < slots (3), no pruning.
+    service.reconcileWithChestSlots({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().totalQueued).toBe(2);
+  });
+
+  it("does not prune when queue == slots (exact match)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("rare", 2.0);
+
+    service.reconcileWithChestSlots({ common: 1, rare: 1, act: 0 });
+    expect(service.getQueueSnapshot().totalQueued).toBe(2);
+  });
+
+  it("prunes soonest-opening entries first when excess > 1", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Three commons: autoOpenAtMs 301000, 302000, 303000
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    chestDropTracker.recordLiveChestDrop("common", 3.0);
+
+    // Slots: 1 common → prune 2 earliest (autoOpenAtMs 301000, 302000)
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.droppedAtMs).toBe(3000);
+  });
+
+  it("is a no-op when disabled", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: false,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    // Queue was never populated (disabled); reconcile is a no-op.
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
+  });
+
+  it("handles empty queue gracefully", () => {
+    const { service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // No drops enqueued; slots show 5 chests (queue < slots, deficit logged).
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
   });
 });

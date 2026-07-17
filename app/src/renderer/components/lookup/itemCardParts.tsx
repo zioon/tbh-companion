@@ -90,18 +90,27 @@ export function ItemCardHeader({
   item,
   iconSize,
   trailing,
+  gradeOverride,
 }: {
   item: LookupItem;
   iconSize: "md" | "lg";
   /** Optional element pinned to the header's right edge (e.g. the Steam price). */
   trailing?: ReactNode;
+  /**
+   * When the caller knows the actual runtime grade of this drop (which may
+   * differ from the catalog base grade), override the catalog grade in the
+   * icon color and subtitle. Used by Loot's ItemLink so the peek tooltip
+   * matches the row's runtime grade.
+   */
+  gradeOverride?: string | null;
 }) {
   const metaLine = itemMetaLine(item);
   const isDetail = iconSize === "lg";
+  const effectiveGrade = gradeOverride ?? item.grade;
 
   return (
     <>
-      <ItemIcon src={iconSrc(item.iconPath)} color={gradeColor(item.grade)} size={iconSize} />
+      <ItemIcon src={iconSrc(item.iconPath)} color={gradeColor(effectiveGrade)} size={iconSize} />
       <div className="min-w-0 flex-1">
         {isDetail ? (
           <h2 className="m-0 truncate text-base font-semibold text-fg">{item.name}</h2>
@@ -110,9 +119,9 @@ export function ItemCardHeader({
         )}
         <p
           className={cn("m-0 truncate", isDetail ? "text-xs" : "text-[11px]")}
-          style={{ color: gradeColor(item.grade) }}
+          style={{ color: gradeColor(effectiveGrade) }}
         >
-          {gradeLabel(item.grade)} · {itemDescriptor(item)}
+          {gradeLabel(effectiveGrade)} · {itemDescriptor(item)}
         </p>
         {metaLine ? (
           <p className={cn("m-0 truncate text-muted", isDetail ? "text-xs" : "text-[11px]")}>
