@@ -23,6 +23,7 @@ import { broadcast } from "./broadcast";
 import { detectHeroLevelUps, type HeroLevelUpEvent } from "../../core/heroes/detectLevelUps";
 import { createLogger } from "../log";
 import type { SessionStateService } from "./SessionStateService";
+import { AutoClassifyService } from "./AutoClassifyService";
 
 const log = createLogger("tracking");
 
@@ -64,6 +65,13 @@ export class TrackingService {
   private inventorySnapshot: ResolvedInventory | null = null;
   /** Latest lookup-price snapshot for fallback price resolution. */
   private lookupPriceSnapshot: LookupPriceSnapshot | null = null;
+  /**
+   * AutoClassifyService instance wired via `setAutoClassifyService`. The
+   * tracker callbacks (chest-drop onDrop, box-open onUnclassified) reference
+   * this field with `?.` so it can be set after `start()` runs — appState
+   * calls `setAutoClassifyService` right after `tracking.start`.
+   */
+  private autoClassify: AutoClassifyService | null = null;
 
   constructor(
     onInventory: (snap: InventorySnapshot) => void,
@@ -89,7 +97,9 @@ export class TrackingService {
     this.stop();
     this.config = config;
     this.tracker = new XpTracker(config.rollingWindowMinutes * 60);
-    this.chestDropTracker = new ChestDropTracker();
+    this.chestDropTracker = new ChestDropTracker({
+      onDrop: (e) => this.autoClassify?.handleChestDrop(e),
+    });
     this.chestAggregator = new LiveChestDropAggregator(0.5, (e) => {
       // Diagnostic logging for chest-drop burst aggregation. Only logs on
       // meaningful events (input arriving or a flush firing), never on idle
@@ -110,7 +120,9 @@ export class TrackingService {
         );
       }
     });
-    this.boxOpenTracker = new BoxOpenTracker();
+    this.boxOpenTracker = new BoxOpenTracker({
+      onUnclassified: (entries) => this.autoClassify?.handleUnclassifiedBatch(entries),
+    });
     this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
     this.lastLiveStage = null;
@@ -121,6 +133,10 @@ export class TrackingService {
     this.watcher = this.createWatcher();
     this.watcher.start();
     this.tickTimer = setInterval(() => {
+      // autoClassify tick runs every second regardless of the broadcast gate so
+      // queue pruning and prompt timeouts stay accurate even when stats pushes
+      // are suppressed by the live-memory throttle.
+      this.autoClassify?.tick();
       // Skip the redundant push if a live-memory frame already broadcast recently —
       // avoids the 1 Hz safety-net tick doubling up with the ~5 Hz live broadcast.
       if (Date.now() - this.lastLiveBroadcastMs < LIVE_BROADCAST_INTERVAL_MS) return;
@@ -216,8 +232,32 @@ export class TrackingService {
     this.lookupPriceSnapshot = snap;
   }
 
+  /**
+   * Inject the AutoClassifyService. The chest-drop and box-open trackers were
+   * constructed in `start()` with callbacks that delegate to
+   * `this.autoClassify?.handle*`, so setting this field is enough to enable
+   * the flow — no re-wiring needed. Toggling `setEnabled` on the service
+   * itself decides whether events are processed.
+   */
+  setAutoClassifyService(svc: AutoClassifyService): void {
+    this.autoClassify = svc;
+  }
+
   getBoxOpenTracker(): BoxOpenTracker {
     return this.boxOpenTracker;
+  }
+
+  getChestDropTracker(): ChestDropTracker {
+    return this.chestDropTracker;
+  }
+
+  /**
+   * Current stage key from the most recent live frame or save snapshot.
+   * Used by AutoClassifyService to infer chest level for queue entries and
+   * prompt resolution. Returns null when no frame/snap has been ingested.
+   */
+  getCurrentStageKey(): number | null {
+    return this.lastLiveFrame?.stageKey ?? this.lastSnap?.stageKey ?? null;
   }
 
   resetLootBox(boxKey: string): void {

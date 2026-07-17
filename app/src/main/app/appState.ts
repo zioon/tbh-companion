@@ -18,6 +18,8 @@ import { SessionStateService } from "../services/SessionStateService";
 import { LookupService } from "../services/LookupService";
 import { LookupPriceService } from "../services/LookupPriceService";
 import { LiveMemoryService } from "../services/LiveMemoryService";
+import { AutoClassifyService } from "../services/AutoClassifyService";
+import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
 import { clearAppDataFiles, getAppDataPaths } from "../services/appData";
@@ -26,6 +28,7 @@ import { NotificationService } from "../services/NotificationService";
 import type {
   AppDataClearTarget,
   BoxTrackerSortOrder,
+  ClassifyPromptResolvePayload,
   RendererLogPayload,
   SessionUiSnapshot,
   WindowLayoutPrefs,
@@ -48,6 +51,13 @@ const stageRuns = new StageRunService();
 const lookup = new LookupService();
 const lookupPrices = new LookupPriceService();
 const liveMemory = new LiveMemoryService();
+/**
+ * AutoClassifyService instance, created in `startTracking()` after
+ * `tracking.start()` has instantiated the chest-drop and box-open trackers.
+ * Disposed in `stopTracking()`. Held as `let` so the toggle IPC handler can
+ * reach it via closure.
+ */
+let autoClassify: AutoClassifyService | null = null;
 
 function focusMainWindow(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -130,6 +140,20 @@ export function startTracking(): SessionUiSnapshot {
   inventory.setOnInventoryUpdated((snap) => tracking.setInventorySnapshot(snap));
   tracking.setLookupPriceSnapshot(lookupPrices.getSnapshot());
   lookupPrices.setOnSnapshotUpdated((snap) => tracking.setLookupPriceSnapshot(snap));
+  // AutoClassifyService wires its callbacks into the trackers via the service
+  // setter; the trackers query the service at call time, so toggling enabled/
+  // disabled doesn't require re-wiring. Must be created after `tracking.start`
+  // so the tracker instances exist for the deps getters to return.
+  autoClassify = new AutoClassifyService({
+    chestDropTracker: tracking.getChestDropTracker(),
+    boxOpenTracker: tracking.getBoxOpenTracker(),
+    chestService: chests,
+    stageBoxCatalog: () => boxTimers.getState().catalog,
+    getCurrentStageKey: () => tracking.getCurrentStageKey(),
+    broadcast,
+  });
+  autoClassify.setEnabled(config.lootAutoClassifyEnabled);
+  tracking.setAutoClassifyService(autoClassify);
   return ui;
 }
 
@@ -154,6 +178,8 @@ export function restoreSessionWindows(ui: SessionUiSnapshot): void {
 export function stopTracking(): void {
   tracking.flushSession();
   tracking.stop();
+  autoClassify?.setEnabled(false);
+  autoClassify = null;
   boxTimers.stopTick();
   lookupPrices.stop();
   liveMemory.stop();
@@ -373,6 +399,13 @@ export function getAppServices() {
     resetLootAll: () => tracking.resetLootAll(),
     reclassifyLootItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) =>
       tracking.reclassifyLootItem(itemKey, fromBoxKey, toBoxKey),
+    setLootAutoClassifyEnabled: (enabled: boolean) => {
+      autoClassify?.setEnabled(enabled);
+      config = { ...config, lootAutoClassifyEnabled: enabled };
+      saveConfig(config);
+    },
+    resolveClassifyPrompt: (payload: ClassifyPromptResolvePayload) =>
+      autoClassify?.resolvePrompt(payload),
   };
 }
 
