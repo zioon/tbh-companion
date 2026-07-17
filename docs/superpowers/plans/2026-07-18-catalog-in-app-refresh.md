@@ -159,7 +159,7 @@ describe("scanMarkerEntries", () => {
   });
 
   it("rejects strings with non-printable chars", () => {
-    const strBuf = Buffer.from([0x01, 0x02, 0x03], "binary"); // non-printable
+    const strBuf = Buffer.from([0x01, 0x02, 0x03]); // non-printable
     const header = Buffer.from([
       0, 0, 0, 0,  // keyId
       0, 0, 0, 0,  // hash
@@ -175,9 +175,9 @@ describe("scanMarkerEntries", () => {
       0, 0, 0, 0,
       0, 0, 0, 0,
       14, 0, 0, 0,
-      0x00, 0x01, 0x00, 0x00, // len = 256
+      0x01, 0x01, 0x00, 0x00, // len = 257 (> MAX_LEN)
     ]);
-    const buf = Buffer.concat([header, Buffer.alloc(256, 0x41)]);
+    const buf = Buffer.concat([header, Buffer.alloc(257, 0x41)]);
     expect(scanMarkerEntries(buf)).toEqual([]);
   });
 });
