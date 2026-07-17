@@ -118,3 +118,38 @@ export function resolveTrackedDropBoxIdForStage(
   pool.sort((a, b) => b.level - a.level || b.boxId - a.boxId);
   return pool[0]?.boxId ?? null;
 }
+
+/**
+ * Infer the chest level for the player's current stage, using the tracker
+ * catalog. Mirrors `resolveTrackedDropBoxIdForStage`'s strategy: pick the
+ * highest level whose `farmStageOptions` includes `currentStageKey`. Falls
+ * back to the lowest catalog level when no route drops on this stage (e.g.
+ * an act-boss stage) or the catalog hasn't loaded. Returns null only when
+ * the catalog is empty.
+ *
+ * Accepts the same catalog shape that `BoxTimerState.catalog` exposes, so
+ * the AutoClassifyService and the renderer's `useChestLevelDefaults` can
+ * share one implementation.
+ */
+export function inferLevelFromStage(
+  catalog: ReadonlyArray<{
+    level: number;
+    farmStageOptions: ReadonlyArray<{ stageKey: number }> | readonly number[];
+  }>,
+  currentStageKey: number,
+): number | null {
+  if (catalog.length === 0) return null;
+  const fallback = catalog.reduce(
+    (min, entry) => (entry.level < min ? entry.level : min),
+    catalog[0]!.level,
+  );
+  if (!Number.isFinite(currentStageKey) || currentStageKey <= 0) return fallback;
+
+  const matches = catalog.filter((entry) =>
+    entry.farmStageOptions.some((opt) =>
+      typeof opt === "number" ? opt === currentStageKey : opt.stageKey === currentStageKey,
+    ),
+  );
+  if (matches.length === 0) return fallback;
+  return matches.reduce((max, entry) => (entry.level > max ? entry.level : max), 0) || fallback;
+}

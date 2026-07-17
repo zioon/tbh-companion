@@ -4,6 +4,7 @@ import {
   canonicalTrackerBoxId,
   resolveTrackedDropBoxId,
   resolveTrackedDropBoxIdForStage,
+  inferLevelFromStage,
 } from "../../src/core/stageBoxTracker";
 
 describe("stageBoxTracker", () => {
@@ -38,5 +39,35 @@ describe("stageBoxTracker", () => {
     expect(resolveTrackedDropBoxIdForStage(4103, enabled, routes)).toBe(920801);
     expect(resolveTrackedDropBoxIdForStage(4103, new Set(), routes)).toBeNull();
     expect(resolveTrackedDropBoxIdForStage(9999, enabled, routes)).toBeNull();
+  });
+});
+
+describe("inferLevelFromStage", () => {
+  const catalog = [
+    { level: 3, farmStageOptions: [{ stageKey: 1103 }, { stageKey: 1104 }] },
+    { level: 5, farmStageOptions: [{ stageKey: 1105 }] },
+    { level: 8, farmStageOptions: [{ stageKey: 3308 }] },
+  ] as const;
+
+  it("returns the highest matching level when stageKey matches", () => {
+    // 1105 only matches level 5
+    expect(inferLevelFromStage(catalog, 1105)).toBe(5);
+  });
+  it("returns highest level when multiple match", () => {
+    const multi = [
+      { level: 3, farmStageOptions: [{ stageKey: 1101 }] },
+      { level: 7, farmStageOptions: [{ stageKey: 1101 }] },
+    ];
+    expect(inferLevelFromStage(multi, 1101)).toBe(7);
+  });
+  it("falls back to lowest catalog level when no match", () => {
+    expect(inferLevelFromStage(catalog, 9999)).toBe(3);
+  });
+  it("returns null when catalog is empty", () => {
+    expect(inferLevelFromStage([], 1105)).toBeNull();
+  });
+  it("returns fallback when stageKey is 0 or negative", () => {
+    expect(inferLevelFromStage(catalog, 0)).toBe(3);
+    expect(inferLevelFromStage(catalog, -1)).toBe(3);
   });
 });
