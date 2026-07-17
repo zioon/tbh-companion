@@ -89,7 +89,7 @@ describe("ChestDropTracker", () => {
     restored.applySnapshot(snap);
     restored.recordLogDrop(920151);
 
-    const stats = restored.getStats(7200, true);
+    const stats = restored.getStats(7200);
     expect(stats.commonTotal).toBe(1);
     expect(stats.rareTotal).toBe(1);
   });
@@ -280,5 +280,38 @@ describe("LiveChestDropAggregator", () => {
       { inputCategories: ["common"], flushedCategories: [], bufferSizeAfter: 3, flushedStale: false },
       { inputCategories: [], flushedCategories: ["common"], bufferSizeAfter: 0, flushedStale: true },
     ]);
+  });
+});
+
+describe("ChestDropTracker onDrop callback", () => {
+  it("fires onDrop with category when recordLiveChestDrop succeeds", () => {
+    const events: Array<{ category: string; wallTime: number }> = [];
+    const tracker = new ChestDropTracker({
+      onDrop: (e) => events.push({ category: e.category, wallTime: e.wallTime }),
+    });
+    tracker.recordLiveChestDrop("rare", 1234.5);
+    expect(events).toEqual([{ category: "rare", wallTime: 1234.5 }]);
+  });
+  it("fires onDrop with itemKey + category when recordLogDrop succeeds", () => {
+    // Use a known RARE itemKey from stage_boxes.json (920151 is canonical Lv5).
+    const events: Array<{ category: string; itemKey?: number }> = [];
+    const tracker = new ChestDropTracker({
+      onDrop: (e) => events.push({ category: e.category, itemKey: e.itemKey }),
+    });
+    tracker.recordLogDrop(920151, 2000);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.category).toBe("rare");
+    expect(events[0]?.itemKey).toBe(920151);
+  });
+  it("does not fire onDrop when recordLogDrop rejects an unknown itemKey", () => {
+    const events: unknown[] = [];
+    const tracker = new ChestDropTracker({ onDrop: () => events.push({}) });
+    // 99999999 is not a stage box id
+    expect(tracker.recordLogDrop(99999999, 3000)).toBe(false);
+    expect(events).toEqual([]);
+  });
+  it("does not fire onDrop when disabled (no callback provided)", () => {
+    const tracker = new ChestDropTracker();
+    expect(() => tracker.recordLiveChestDrop("common", 4000)).not.toThrow();
   });
 });

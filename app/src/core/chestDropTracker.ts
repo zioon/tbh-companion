@@ -4,9 +4,25 @@ import type {
   ChestDropStats,
   ChestDropTrackerSnapshot,
 } from "../../shared/types";
-import { canonicalTrackerBoxId, loadStageBoxCatalogFile } from "./stageBoxTracker";
+import {
+  loadStageBoxCatalogFile,
+  type StageBoxCatalogFile,
+  type StageBoxCatalogItem,
+} from "./stageBoxTracker";
 
 export type ChestDropCategory = "common" | "rare";
+
+/** Optional subscriber hook for chest-drop events. */
+export interface ChestDropTrackerCallbacks {
+  onDrop?: (event: {
+    category: ChestDropCategory;
+    wallTime: number;
+    /** Resolved itemKey for Player.log drops; undefined for live GetBox drops. */
+    itemKey?: number;
+    /** Current stageKey if known to the caller; undefined if not. */
+    stageKey?: number;
+  }) => void;
+}
 
 /**
  * Live chest drops from the GetBox battle log carry no item key, only a
@@ -40,12 +56,71 @@ function categoryFromPrefix(itemKey: number): ChestDropCategory | null {
   return null;
 }
 
+/**
+ * Cached catalog + lookup indexes for `resolveStageBoxDrop`.
+ *
+ * `loadStageBoxCatalogFile()` does a synchronous `readFileSync` + `JSON.parse`
+ * on every call (see `core/bundledData.ts`). Player.log can surface one drop
+ * per second during farming, and burst drops surface N at once — without
+ * caching, that is N fs reads + N O(catalog.length) scans per second on the
+ * main process. The catalog file is immutable for the process lifetime, so we
+ * load it once lazily and build:
+ *   - `byId`: O(1) lookup of any catalog item by id
+ *   - `canonicalByLevel`: O(1) lookup of the canonical tracker box id for a
+ *     given rare-box level (replaces the O(N) scan inside
+ *     `canonicalTrackerBoxId`).
+ */
+interface StageBoxCatalogIndex {
+  catalog: StageBoxCatalogFile;
+  byId: Map<number, StageBoxCatalogItem>;
+  canonicalByLevel: Map<number, number>;
+}
+
+let cachedCatalogIndex: StageBoxCatalogIndex | null = null;
+
+function getStageBoxCatalogIndex(): StageBoxCatalogIndex {
+  if (cachedCatalogIndex === null) {
+    const catalog = loadStageBoxCatalogFile();
+    const byId = new Map<number, StageBoxCatalogItem>();
+    const canonicalByLevel = new Map<number, number>();
+    for (const item of catalog.items) {
+      byId.set(item.id, item);
+      if (
+        item.tracker?.canonical === true &&
+        item.grade === "RARE" &&
+        item.obtainable &&
+        item.level != null
+      ) {
+        canonicalByLevel.set(item.level, item.id);
+      }
+    }
+    cachedCatalogIndex = { catalog, byId, canonicalByLevel };
+  }
+  return cachedCatalogIndex;
+}
+
+/**
+ * Resolve a Player.log ItemKey to its canonical tracker box id, using the
+ * cached index for O(1) lookups. Mirrors `canonicalTrackerBoxId` in
+ * `stageBoxTracker.ts` but skips the per-call catalog reload and linear scans.
+ */
+function canonicalTrackerBoxIdFromIndex(
+  itemKey: number,
+  index: StageBoxCatalogIndex,
+): number | null {
+  const item = index.byId.get(itemKey);
+  if (!item || item.grade !== "RARE" || !item.obtainable) return null;
+  if (item.tracker?.canonical) return item.id;
+  if (item.level == null) return null;
+  return index.canonicalByLevel.get(item.level) ?? null;
+}
+
 /** Resolve a Player.log ItemKey to a tracked common or rare stage box. */
 export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | null {
-  const catalog = loadStageBoxCatalogFile();
-  const canonicalId = canonicalTrackerBoxId(itemKey, catalog);
+  const index = getStageBoxCatalogIndex();
+  const canonicalId = canonicalTrackerBoxIdFromIndex(itemKey, index);
   const lookupKey = canonicalId ?? itemKey;
-  const item = catalog.items.find((entry) => entry.id === lookupKey);
+  const item = index.byId.get(lookupKey);
   if (item) {
     if (item.grade === "COMMON") {
       return { itemKey: lookupKey, name: item.name, category: "common" };
@@ -222,12 +297,17 @@ export class ChestDropTracker {
   private namesByKey = new Map<string, string>();
   private categoriesByKey = new Map<string, ChestDropCategory>();
   private history: ChestDropHistoryEntry[] = [];
+  private readonly callbacks?: ChestDropTrackerCallbacks;
 
   // Cached arrays — only rebuilt when drops are recorded. getStats() is called
   // at 5 Hz but the breakdown/history content changes rarely, so caching avoids
   // ~10 array allocations/sec.
   private breakdownCache: ChestDropBreakdownRow[] | null = null;
   private historyCache: ChestDropHistoryEntry[] | null = null;
+
+  constructor(callbacks?: ChestDropTrackerCallbacks) {
+    this.callbacks = callbacks;
+  }
 
   reset(): void {
     this.countsByKey.clear();
@@ -258,6 +338,7 @@ export class ChestDropTracker {
     }
     this.breakdownCache = null;
     this.historyCache = null;
+    this.callbacks?.onDrop?.({ category, wallTime });
     return true;
   }
 
@@ -282,6 +363,11 @@ export class ChestDropTracker {
 
     this.breakdownCache = null;
     this.historyCache = null;
+    this.callbacks?.onDrop?.({
+      category: resolved.category,
+      wallTime,
+      itemKey: resolved.itemKey,
+    });
     return true;
   }
 
@@ -374,7 +460,13 @@ export class ChestDropTracker {
     this.categoriesByKey = categoriesByKey;
     this.countsByKey = new Map(Object.entries(data.countsByKey).filter(([key]) => keepKey(key)));
     this.namesByKey = new Map(Object.entries(data.namesByKey).filter(([key]) => keepKey(key)));
-    this.history = (data.history ?? []).filter((entry) => isTracked(entry.category));
+    // P1-8: cap restored history at HISTORY_LIMIT so a bloated or hand-edited
+    // snapshot can't pin memory and make the `lastRareWallTime` reverse scan
+    // unbounded. `recordLogDrop`/`recordLiveChestDrop` already truncate on
+    // insert; this mirrors that bound on the restore path.
+    const restored = (data.history ?? []).filter((entry) => isTracked(entry.category));
+    this.history =
+      restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
     this.breakdownCache = null;
     this.historyCache = null;
   }
