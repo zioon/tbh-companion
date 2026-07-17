@@ -27,10 +27,18 @@ export class LiveMemoryService {
   private lastStatus: LiveMemoryStatus | null = null;
   private snapshotCb: ((snap: LiveMemorySnapshot) => void) | null = null;
   private lastBroadcastMs = 0;
+  private onGameVersionChanged?: () => void;
 
   /** Register a callback invoked on every snapshot frame from the reader worker. */
   setOnSnapshot(cb: (snap: LiveMemorySnapshot) => void): void {
     this.snapshotCb = cb;
+  }
+
+  /** Register a callback invoked once when the worker reports a new gameVersion
+   * different from the previous one. Used by CatalogRefreshService to broadcast
+   * stale-catalog status so the Loot tab can show a refresh banner. */
+  setOnGameVersionChanged(cb: () => void): void {
+    this.onGameVersionChanged = cb;
   }
 
   get running(): boolean {
@@ -82,8 +90,13 @@ export class LiveMemoryService {
           }
         }
       } else if (msg.type === "status") {
+        const prevVersion = this.lastStatus?.gameVersion ?? null;
         this.lastStatus = msg.status;
         broadcast(IPC.LIVE_MEMORY_STATUS, msg.status);
+        const newVersion = msg.status.gameVersion ?? null;
+        if (prevVersion !== null && newVersion !== null && prevVersion !== newVersion) {
+          this.onGameVersionChanged?.();
+        }
       } else if (msg.type === "log") {
         log.info(`[worker] ${msg.message}`);
       }
@@ -99,9 +112,7 @@ export class LiveMemoryService {
 
     this.child.on("exit", (code) => {
       const stderr = stderrChunks.join("").trim();
-      log.warn(
-        `Live-memory worker exited (code ${code}).${stderr ? `\n  stderr: ${stderr}` : ""}`,
-      );
+      log.warn(`Live-memory worker exited (code ${code}).${stderr ? `\n  stderr: ${stderr}` : ""}`);
       const crashed: LiveMemoryStatus = {
         running: false,
         attached: false,

@@ -58,6 +58,7 @@ const catalogRefresh = new CatalogRefreshService(
   resolveUserDataDir(),
   (channel, payload) => broadcast(channel, payload),
 );
+liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged());
 /**
  * AutoClassifyService instance, created in `startTracking()` after
  * `tracking.start()` has instantiated the chest-drop and box-open trackers.
