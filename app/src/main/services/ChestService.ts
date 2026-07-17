@@ -26,6 +26,16 @@ export class ChestService {
     return this.lastChests;
   }
 
+  /**
+   * Effective auto-open seconds for each chest category, for the
+   * AutoClassifyService's queue TTL computation. Returns null when no save
+   * has been parsed yet; the caller falls back to constants in that case.
+   */
+  getAutoOpenSeconds(): { common: number; stageBoss: number; actBoss: number } | null {
+    if (!this.lastChests) return null;
+    return this.lastChests.autoOpen;
+  }
+
   private resolveAndPush(chests: ChestHolding[], text: string, mtime: number): void {
     try {
       const purchases = parseRuneSaveData(text);
