@@ -29,9 +29,18 @@ export const QA_GATE_BUNDLED_DATA_FILES = [
 
 export type BundledDataFile = (typeof REQUIRED_BUNDLED_DATA_FILES)[number];
 
-/** Search order: packaged resources, repo dev (app/../data), cwd/data. */
-export function bundledDataCandidates(filename: string): string[] {
+/**
+ * Search order:
+ *   1. userData (if provided — refreshed catalog goes here)
+ *   2. packaged resources (electron-builder extraResources)
+ *   3. repo dev (app/../data — for `pnpm dev`)
+ *   4. cwd/data (fallback)
+ */
+export function bundledDataCandidates(filename: string, userDataDir?: string): string[] {
   const candidates: string[] = [];
+  if (userDataDir) {
+    candidates.push(join(userDataDir, filename));
+  }
   if (process.resourcesPath) {
     candidates.push(join(process.resourcesPath, "data", filename));
   }

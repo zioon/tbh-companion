@@ -24,7 +24,8 @@ describe("bundledData paths", () => {
 
   afterEach(() => {
     const proc = process as ProcessWithResources;
-    if (previousResourcesPath === undefined) delete proc.resourcesPath;
+    if (previousResourcesPath === undefined)
+      (proc as { resourcesPath?: string }).resourcesPath = undefined;
     else proc.resourcesPath = previousResourcesPath;
     rmSync(tempResources, { recursive: true, force: true });
   });
@@ -47,7 +48,7 @@ describe("bundledData paths", () => {
   });
 
   it("loads every required bundled file from the repo in dev", () => {
-    delete (process as ProcessWithResources).resourcesPath;
+    (process as { resourcesPath?: string }).resourcesPath = undefined;
     for (const file of REQUIRED_BUNDLED_DATA_FILES) {
       expect(() => resolveBundledDataPath(file)).not.toThrow();
       expect(readBundledJson(file)).toBeTruthy();
@@ -55,8 +56,23 @@ describe("bundledData paths", () => {
   });
 
   it("throws with tried paths when a file is missing", () => {
-    delete (process as ProcessWithResources).resourcesPath;
+    (process as { resourcesPath?: string }).resourcesPath = undefined;
     expect(() => resolveBundledDataPath("missing-file.json")).toThrow(/Tried:/);
+  });
+
+  it("puts userDataDir first when provided", () => {
+    (process as ProcessWithResources).resourcesPath = tempResources;
+    const candidates = bundledDataCandidates("gamedata.json", "/custom/userData");
+    expect(candidates[0]).toBe(join("/custom/userData", "gamedata.json"));
+    // resourcesPath should still be second
+    expect(candidates[1]).toBe(join(tempResources, "data", "gamedata.json"));
+  });
+
+  it("omits userData entry when userDataDir is undefined", () => {
+    (process as ProcessWithResources).resourcesPath = tempResources;
+    const candidates = bundledDataCandidates("gamedata.json");
+    expect(candidates[0]).toBe(join(tempResources, "data", "gamedata.json"));
+    expect(candidates.some((c) => c.includes("userData"))).toBe(false);
   });
 });
 
