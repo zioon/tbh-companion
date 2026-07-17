@@ -92,6 +92,32 @@ describe("enqueue", () => {
     expect(q2[1]).toMatchObject({ boxKey: "rare:5", autoOpenAtMs: 601_100 });
   });
 
+  it("chains serially for each of the three chest categories (common / rare / act)", () => {
+    // Drop two of each category, all at the same wall time (1000ms). Each
+    // category must chain independently using its own autoOpenSeconds:
+    //   common (300s): 1st=301000, 2nd=601000
+    //   rare   (600s): 1st=601000, 2nd=1201000
+    //   act     (60s): 1st=61000,  2nd=121000
+    // Final queue sorted by autoOpenAtMs ascending:
+    //   act(61000) → act(121000) → common(301000) → common(601000) → rare(601000) → rare(1201000)
+    let q: QueueItem[] = [];
+    q = enqueue(q, { boxKey: "common:5", droppedAtMs: 1000, stageKey: 1105, autoOpenSeconds: 300 });
+    q = enqueue(q, { boxKey: "common:5", droppedAtMs: 1000, stageKey: 1105, autoOpenSeconds: 300 });
+    q = enqueue(q, { boxKey: "rare:5", droppedAtMs: 1000, stageKey: 1105, autoOpenSeconds: 600 });
+    q = enqueue(q, { boxKey: "rare:5", droppedAtMs: 1000, stageKey: 1105, autoOpenSeconds: 600 });
+    q = enqueue(q, { boxKey: "act", droppedAtMs: 1000, stageKey: 0, autoOpenSeconds: 60 });
+    q = enqueue(q, { boxKey: "act", droppedAtMs: 1000, stageKey: 0, autoOpenSeconds: 60 });
+
+    expect(q.map((i) => `${i.boxKey}@${i.autoOpenAtMs}`)).toEqual([
+      "act@61000",
+      "act@121000",
+      "common:5@301000",
+      "common:5@601000",
+      "rare:5@601000",
+      "rare:5@1201000",
+    ]);
+  });
+
   it("keeps queue sorted by autoOpenAtMs ascending across categories", () => {
     // common@1000s autoOpen=300s → autoOpenAtMs=301000
     // rare@2000s   autoOpen=600s → autoOpenAtMs=602000
