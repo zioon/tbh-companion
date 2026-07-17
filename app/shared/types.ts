@@ -210,8 +210,13 @@ export interface AutoClassifyQueueItem {
   /** Wall-clock ms when the chest dropped (matches `QueueItem.droppedAtMs`). */
   droppedAtMs: number;
   stageKey: number;
-  /** Remaining ms until this chest's auto-open fires (clamped to >= 0). */
-  autoOpenInMs: number;
+  /**
+   * Remaining ms until this chest's auto-open fires (clamped to >= 0), or
+   * `null` when this chest is waiting behind another chest of the same
+   * boxKey (serial per-slot auto-open — its timer starts only when its
+   * predecessor is actually opened).
+   */
+  autoOpenInMs: number | null;
   /** Remaining ms until this queue entry expires and is pruned (clamped to >= 0). */
   expiresInMs: number;
 }
@@ -1318,6 +1323,10 @@ export interface TbhApi {
   getAutoClassifyState(): Promise<AutoClassifyStatePayload>;
   onClassifyPrompt(cb: (payload: ClassifyPromptPayload) => void): () => void;
   resolveClassifyPrompt(payload: ClassifyPromptResolvePayload): void;
+  // Catalog refresh
+  getCatalogStatus(): Promise<CatalogStatus | null>;
+  refreshCatalog(): Promise<CatalogRefreshResult>;
+  onCatalogStatus(cb: (status: CatalogStatus) => void): () => void;
 }
 
 export interface CatalogStatus {

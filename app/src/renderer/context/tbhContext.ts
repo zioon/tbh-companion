@@ -1,10 +1,12 @@
 import { createContext, useContext } from "react";
-import type { ResolvedInventory } from "../../../shared/types";
+import type { CatalogRefreshResult, CatalogStatus, ResolvedInventory } from "../../../shared/types";
 
 export interface TbhContextValue {
   inventory: ResolvedInventory | null;
   lastPriceRefreshMessage: string | null;
   clearLastPriceRefreshMessage: () => void;
+  catalogStatus: CatalogStatus | null;
+  refreshCatalog: () => Promise<CatalogRefreshResult>;
 }
 
 export const TbhContext = createContext<TbhContextValue | null>(null);

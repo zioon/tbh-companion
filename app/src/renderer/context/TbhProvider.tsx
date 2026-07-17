@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ResolvedInventory } from "../../../shared/types";
 import { handleNotificationSoundPayload } from "../lib/notificationSounds";
 import { reportIpcError } from "../lib/reportError";
+import { useCatalogStatus } from "../lib/useCatalogStatus";
 import { TbhContext } from "./tbhContext";
 
 export function TbhProvider({ children }: { children: ReactNode }) {
   const [inventory, setInventory] = useState<ResolvedInventory | null>(null);
   const [lastPriceRefreshMessage, setLastPriceRefreshMessage] = useState<string | null>(null);
+  const { status: catalogStatus, refresh: refreshCatalog } = useCatalogStatus();
 
   useEffect(() => {
     let mounted = true;
@@ -51,8 +53,10 @@ export function TbhProvider({ children }: { children: ReactNode }) {
       inventory,
       lastPriceRefreshMessage,
       clearLastPriceRefreshMessage: () => setLastPriceRefreshMessage(null),
+      catalogStatus,
+      refreshCatalog,
     }),
-    [inventory, lastPriceRefreshMessage],
+    [inventory, lastPriceRefreshMessage, catalogStatus, refreshCatalog],
   );
 
   return <TbhContext.Provider value={value}>{children}</TbhContext.Provider>;

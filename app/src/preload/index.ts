@@ -6,6 +6,8 @@ import type {
   AppConfig,
   AutoClassifyStatePayload,
   BoxTimerState,
+  CatalogRefreshResult,
+  CatalogStatus,
   ChestState,
   ClassifyPromptPayload,
   ClassifyPromptResolvePayload,
@@ -254,6 +256,17 @@ const api: TbhApi = {
   },
   resolveClassifyPrompt(payload: ClassifyPromptResolvePayload): void {
     ipcRenderer.send(IPC.LOOT_PROMPT_RESOLVE, payload);
+  },
+  getCatalogStatus(): Promise<CatalogStatus | null> {
+    return ipcRenderer.invoke(IPC.GET_CATALOG_STATUS);
+  },
+  refreshCatalog(): Promise<CatalogRefreshResult> {
+    return ipcRenderer.invoke(IPC.CATALOG_REFRESH);
+  },
+  onCatalogStatus(cb: (status: CatalogStatus) => void): () => void {
+    const listener = (_e: unknown, status: CatalogStatus): void => cb(status);
+    ipcRenderer.on(IPC.CATALOG_STATUS, listener);
+    return () => ipcRenderer.removeListener(IPC.CATALOG_STATUS, listener);
   },
 };
 
