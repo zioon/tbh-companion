@@ -4,12 +4,26 @@ import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
 import { DialogClose, DialogTitle } from "../design-system/primitives/Dialog/DialogParts";
 import { HintBanner } from "../design-system/primitives/HintBanner/HintBanner";
+import { Switch } from "../design-system/primitives/Switch/Switch";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LootBoxSection } from "../components/loot/LootBoxSection";
+import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 
 export function Loot() {
-  const { boxOpens, resetBox, resetAll, reclassifyItem } = useLoot();
+  const {
+    boxOpens,
+    lootStatus,
+    currentStageKey,
+    resetBox,
+    resetAll,
+    reclassifyItem,
+    autoClassifyEnabled,
+    setAutoClassifyEnabled,
+    classifyPrompt,
+    resolveClassifyPrompt,
+    dismissClassifyPrompt,
+  } = useLoot();
   const [confirmingAll, setConfirmingAll] = useState(false);
 
   return (
@@ -17,29 +31,47 @@ export function Loot() {
       <TabHeader
         title="Loot"
         intro="Live box-opening outcomes, aggregated by chest type and level."
-      >
-        {boxOpens.length > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => setConfirmingAll(true)}>
-            Reset all
-          </Button>
-        )}
-      </TabHeader>
+      />
+      <div className="flex justify-end">
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <Switch
+            checked={autoClassifyEnabled}
+            onCheckedChange={(c) => void setAutoClassifyEnabled(c)}
+            aria-label="Auto-classify loot"
+          />
+          Auto-classify
+        </label>
+      </div>
 
       {boxOpens.length === 0 ? (
         <HintBanner>
-          No boxes opened yet this session. Open a chest in-game with the live reader running to see
-          recorded loot here.
+          {lootStatus
+            ? `Loot tracking unavailable: ${lootStatus}. Open a chest in-game — the reader will re-derive the required offsets and start recording.`
+            : "No boxes opened yet this session. Open a chest in-game with the live reader running to see recorded loot here."}
         </HintBanner>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-2 items-start gap-3 max-[720px]:grid-cols-1">
           {boxOpens.map((stats) => (
             <LootBoxSection
               key={stats.boxKey}
               stats={stats}
+              currentStageKey={currentStageKey}
               onReset={resetBox}
               onReclassify={reclassifyItem}
+              className={stats.category === "unclassified" ? "col-span-2" : undefined}
             />
           ))}
+        </div>
+      )}
+
+      {boxOpens.length > 0 && (
+        // Reset-all lives at the bottom-right, deliberately away from the
+        // top header area so it can't be mis-tapped while interacting with
+        // stats. Confirmation dialog gates the destructive action.
+        <div className="mt-1 flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => setConfirmingAll(true)}>
+            Reset all
+          </Button>
         </div>
       )}
 
@@ -77,6 +109,13 @@ export function Loot() {
           </div>
         </Dialog>
       )}
+
+      <ClassifyPromptDialog
+        open={classifyPrompt != null}
+        itemCount={classifyPrompt?.itemKeys.length ?? 0}
+        onClose={dismissClassifyPrompt}
+        onResolve={resolveClassifyPrompt}
+      />
     </TabPage>
   );
 }
