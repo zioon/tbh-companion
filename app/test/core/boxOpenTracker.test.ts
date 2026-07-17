@@ -123,7 +123,13 @@ describe("BoxOpenTracker", () => {
     const stats = t.getStats(3600, () => null);
     // unclassified sorts first so items needing manual reclassification are
     // visible without scrolling; then common → rare → act.
-    expect(stats.map((s) => s.boxKey)).toEqual(["unclassified", "common", "rare:3", "rare:5", "act"]);
+    expect(stats.map((s) => s.boxKey)).toEqual([
+      "unclassified",
+      "common",
+      "rare:3",
+      "rare:5",
+      "act",
+    ]);
   });
 
   it("includes unclassified entries in stats", () => {
@@ -195,22 +201,28 @@ describe("BoxOpenTracker", () => {
 describe("BoxOpenTracker.reResolveNames", () => {
   /**
    * Stand-in for TrackingService's normalizer: catalogItemKeyFromSave +
-   * gameDataLookup.get(catalogId). Drops garbage itemKeys that have no
-   * catalog match (the v1.00.28 String-pointer-bits-as-int bug).
+   * gameDataLookup.get(catalogId). Drops garbage itemKeys that fall outside
+   * the catalog id range (the v1.00.28 String-pointer-bits-as-int bug);
+   * preserves real ids the catalog hasn't indexed yet with a `#id` name.
    */
+  const CATALOG_MIN = 110_001;
+  const CATALOG_MAX = 939_999;
   function makeNormalizer(catalog: Map<number, { name: string; grade: string | null }>) {
     return (rawItemKey: number) => {
       const catalogId = rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
       const item = catalog.get(catalogId);
-      if (!item) return null;
+      if (!item) {
+        if (catalogId >= CATALOG_MIN && catalogId <= CATALOG_MAX) {
+          return { itemKey: catalogId, name: `#${catalogId}` };
+        }
+        return null;
+      }
       return { itemKey: catalogId, name: item.name };
     };
   }
 
   it("drops garbage itemKeys that have no catalog match", () => {
-    const catalog = new Map([
-      [530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }],
-    ]);
+    const catalog = new Map([[530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }]]);
     const t = new BoxOpenTracker();
     // Simulate a v1.00.28 corrupted snapshot: 1703973696 is a heap-address
     // low 32 bits misread as int32; 530017 is the real catalog id.
@@ -231,9 +243,7 @@ describe("BoxOpenTracker.reResolveNames", () => {
   });
 
   it("re-resolves name for surviving itemKeys (grade preserved)", () => {
-    const catalog = new Map([
-      [530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }],
-    ]);
+    const catalog = new Map([[530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }]]);
     const t = new BoxOpenTracker();
     // Recorded with a stale `#xxx` name fallback from a prior session.
     t.recordOpen("rare:3", 530017, "#530017", "RARE", 1, 1000);
@@ -249,9 +259,7 @@ describe("BoxOpenTracker.reResolveNames", () => {
   it("remaps raw itemKey to catalogId and merges counts under the new key", () => {
     // Save-encoded itemKey 530017001 → catalogItemKeyFromSave → 530017.
     // Both entries should merge under catalogId 530017 with count 3.
-    const catalog = new Map([
-      [530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }],
-    ]);
+    const catalog = new Map([[530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }]]);
     const t = new BoxOpenTracker();
     t.recordOpen("rare:3", 530017, "#530017", null, 1, 1000);
     t.recordOpen("rare:3", 530017001, "#530017001", null, 2, 2000);
@@ -265,9 +273,7 @@ describe("BoxOpenTracker.reResolveNames", () => {
   });
 
   it("updates history entries in place (itemKey, name; grade preserved)", () => {
-    const catalog = new Map([
-      [530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }],
-    ]);
+    const catalog = new Map([[530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }]]);
     const t = new BoxOpenTracker();
     t.recordOpen("rare:3", 530017, "#530017", "RARE", 1, 5000);
     t.recordOpen("rare:3", 1703973696, "#1703973696", null, 1, 6000); // garbage
@@ -283,16 +289,41 @@ describe("BoxOpenTracker.reResolveNames", () => {
   });
 
   it("removes a boxKey entirely when all its items are dropped", () => {
-    // Both itemKeys are garbage (not in catalog). The whole `rare:3` bucket
-    // should disappear from stats, not show up with 0 opens.
+    // Both itemKeys are out-of-range garbage (heap-address misreads). The whole
+    // `rare:3` bucket should disappear from stats, not show up with 0 opens.
     const catalog = new Map<number, { name: string; grade: string | null }>([]);
     const t = new BoxOpenTracker();
     t.recordOpen("rare:3", 1703973696, "#1703973696", null, 1, 1000);
-    t.recordOpen("common", 530017, "#530017", null, 1, 2000); // also garbage here
+    t.recordOpen("common", 9999999, "#9999999", null, 1, 2000); // out of range
 
     t.reResolveNames(makeNormalizer(catalog));
 
     expect(t.getStats(3600, () => null)).toEqual([]);
+  });
+
+  it("preserves in-range itemKeys the catalog hasn't indexed yet", () => {
+    // 620017 is a genuine game id (from "ItemName_620017") that the bundled
+    // catalog doesn't have yet. It must survive reResolveNames so loot isn't
+    // lost on restart — mirroring resolveBoxOpenEntry's `#id` fallback.
+    const catalog = new Map<number, { name: string; grade: string | null }>([
+      [530017, { name: "Ethereal Amulet", grade: "UNCOMMON" }],
+    ]);
+    const t = new BoxOpenTracker();
+    t.recordOpen("rare:3", 620017, "#620017", "RARE", 1, 1000);
+    t.recordOpen("rare:3", 530017, "#530017", "RARE", 1, 2000);
+
+    t.reResolveNames(makeNormalizer(catalog));
+
+    const stats = t.getStats(3600, () => null);
+    expect(stats).toHaveLength(1);
+    const breakdown = stats[0].breakdown;
+    expect(breakdown).toHaveLength(2);
+    const unknown = breakdown.find((r) => r.itemKey === 620017)!;
+    expect(unknown.name).toBe("#620017");
+    expect(unknown.grade).toBe("RARE");
+    expect(unknown.count).toBe(1);
+    const known = breakdown.find((r) => r.itemKey === 530017)!;
+    expect(known.name).toBe("Ethereal Amulet");
   });
 });
 

@@ -20,17 +20,20 @@ vi.mock("../../src/main/log", () => ({
 // instantly since droppedAtMs (~1000) is decades in the past.
 const FIXED_NOW_MS = 10_000;
 
-function makeService(opts: {
-  enabled?: boolean;
-  autoOpen?: { common: number; stageBoss: number; actBoss: number } | null;
-  catalog?: BoxTimerCatalogEntry[];
-  currentStageKey?: number | null;
-  broadcast?: (channel: string, payload: unknown) => void;
-} = {}) {
+function makeService(
+  opts: {
+    enabled?: boolean;
+    autoOpen?: { common: number; stageBoss: number; actBoss: number } | null;
+    catalog?: BoxTimerCatalogEntry[];
+    currentStageKey?: number | null;
+    broadcast?: (channel: string, payload: unknown) => void;
+  } = {},
+) {
   const broadcasts: Array<{ channel: string; payload: unknown }> = [];
   // `service` is assigned after construction; closures below read it at call time.
   // This breaks the chicken-and-egg between trackers (constructed with callbacks
   // that reference the service) and the service (constructed with the trackers).
+  // eslint-disable-next-line prefer-const -- assigned after construction to break chicken-and-egg
   let service: AutoClassifyService | undefined;
   const chestDropTracker = new ChestDropTracker({
     onDrop: (e) => service?.handleChestDrop(e),

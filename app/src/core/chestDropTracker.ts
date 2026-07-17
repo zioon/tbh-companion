@@ -158,9 +158,7 @@ export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | nul
  * buffer once the burst goes silent. Calling it per-tick on a split burst would
  * record one drop per tick.
  */
-export function collapseLiveChestDrops(
-  categories: ChestDropCategory[],
-): ChestDropCategory[] {
+export function collapseLiveChestDrops(categories: ChestDropCategory[]): ChestDropCategory[] {
   if (categories.length === 0) return [];
   const counts = new Map<ChestDropCategory, number>();
   for (const c of categories) counts.set(c, (counts.get(c) ?? 0) + 1);
@@ -465,8 +463,7 @@ export class ChestDropTracker {
     // unbounded. `recordLogDrop`/`recordLiveChestDrop` already truncate on
     // insert; this mirrors that bound on the restore path.
     const restored = (data.history ?? []).filter((entry) => isTracked(entry.category));
-    this.history =
-      restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
+    this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
     this.breakdownCache = null;
     this.historyCache = null;
   }

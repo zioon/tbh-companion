@@ -123,7 +123,8 @@ describe("lootAutoClassifyEnabled", () => {
       mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: 1 } as never).lootAutoClassifyEnabled,
     ).toBe(false);
     expect(
-      mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: null } as never).lootAutoClassifyEnabled,
+      mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: null } as never)
+        .lootAutoClassifyEnabled,
     ).toBe(false);
   });
 });

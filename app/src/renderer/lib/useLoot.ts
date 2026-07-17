@@ -28,7 +28,9 @@ export function useLoot(): {
 
   // Load initial auto-classify setting from config.
   useEffect(() => {
-    void window.tbh.getConfig().then((cfg) => setAutoClassifyEnabledState(cfg.lootAutoClassifyEnabled));
+    void window.tbh
+      .getConfig()
+      .then((cfg) => setAutoClassifyEnabledState(cfg.lootAutoClassifyEnabled));
   }, []);
 
   // Subscribe to classify prompts from the main process.

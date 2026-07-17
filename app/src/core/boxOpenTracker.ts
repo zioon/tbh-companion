@@ -412,8 +412,7 @@ export class BoxOpenTracker {
     // snapshot can't pin the tracker's memory and `lastOpenWallTime` scan cost
     // forever. Matches ChestDropTracker's behavior.
     const restored = data.history ?? [];
-    this.history =
-      restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : [...restored];
+    this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : [...restored];
     this.baseAggregateCache = null;
   }
 

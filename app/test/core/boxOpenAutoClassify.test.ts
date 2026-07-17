@@ -41,8 +41,18 @@ describe("enqueue", () => {
     expect(queue[0]?.expiresAtMs).toBe(now + 1_230_000);
   });
   it("preserves FIFO order across multiple enqueues", () => {
-    const q1 = enqueue([], { boxKey: "common", droppedAtMs: 1000, stageKey: 1101, autoOpenSeconds: 300 });
-    const q2 = enqueue(q1, { boxKey: "rare:3", droppedAtMs: 2000, stageKey: 3303, autoOpenSeconds: 600 });
+    const q1 = enqueue([], {
+      boxKey: "common",
+      droppedAtMs: 1000,
+      stageKey: 1101,
+      autoOpenSeconds: 300,
+    });
+    const q2 = enqueue(q1, {
+      boxKey: "rare:3",
+      droppedAtMs: 2000,
+      stageKey: 3303,
+      autoOpenSeconds: 600,
+    });
     expect(q2.map((i) => i.boxKey)).toEqual(["common", "rare:3"]);
   });
 });

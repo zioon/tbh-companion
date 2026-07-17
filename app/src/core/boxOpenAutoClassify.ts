@@ -113,7 +113,7 @@ export function groupBoxOpenEvents(
 
   for (let i = 1; i < sorted.length; i++) {
     const entry = sorted[i]!;
-    const gapSeconds = (gapMs / 1000);
+    const gapSeconds = gapMs / 1000;
     if (entry.wallTime - currentEnd > gapSeconds) {
       events.push({ itemKeys: currentItemKeys, startMs: currentStart, endMs: currentEnd });
       currentItemKeys = [entry.itemKey];

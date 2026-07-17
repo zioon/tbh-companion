@@ -276,9 +276,24 @@ describe("LiveChestDropAggregator", () => {
     agg.feed([], 1.6);
 
     expect(events).toEqual([
-      { inputCategories: ["common", "common"], flushedCategories: [], bufferSizeAfter: 2, flushedStale: false },
-      { inputCategories: ["common"], flushedCategories: [], bufferSizeAfter: 3, flushedStale: false },
-      { inputCategories: [], flushedCategories: ["common"], bufferSizeAfter: 0, flushedStale: true },
+      {
+        inputCategories: ["common", "common"],
+        flushedCategories: [],
+        bufferSizeAfter: 2,
+        flushedStale: false,
+      },
+      {
+        inputCategories: ["common"],
+        flushedCategories: [],
+        bufferSizeAfter: 3,
+        flushedStale: false,
+      },
+      {
+        inputCategories: [],
+        flushedCategories: ["common"],
+        bufferSizeAfter: 0,
+        flushedStale: true,
+      },
     ]);
   });
 });
