@@ -7,11 +7,15 @@ import {
 } from "../core/gamedata";
 import { buildStageBoxCatalog, isStageBoxItemKey, stageBoxIdSet } from "../core/stageBoxes";
 import { resolveBundledDataPath } from "../core/bundledData";
+import { createLogger } from "./log";
+
+const log = createLogger("gameData");
 
 export class GameDataProvider {
   private index = new Map<number, GameItem>();
   private stageBoxIds = stageBoxIdSet();
   private loaded = false;
+  private gameVersion: string | null = null;
 
   private mergeStageBoxes(items: GameItem[]): void {
     this.stageBoxIds = stageBoxIdSet(items);
@@ -32,17 +36,23 @@ export class GameDataProvider {
           return;
         }
       }
-    } catch {
-      // fall through to in-code catalog
+      // P2-10: surface structural problems (missing/empty items array) instead
+      // of silently falling through to the in-code catalog. The fallback still
+      // runs so the app stays functional, but the operator sees why.
+      log.warn("stage_boxes.json: missing or empty items array, falling back to in-code catalog");
+    } catch (e) {
+      // P2-10: log the actual error so a corrupt or missing stage_boxes.json is
+      // diagnosable. The in-code catalog fallback keeps the app functional.
+      log.warn(`stage_boxes.json load failed, using in-code catalog: ${(e as Error).message}`);
     }
     this.mergeStageBoxes(buildStageBoxCatalog().items);
   }
 
-  /** Load bundled gamedata. Throws if missing or invalid. */
-  load(): void {
-    const path = resolveBundledDataPath("gamedata.json");
+  /** Load gamedata.json, preferring userDataDir if provided. */
+  load(userDataDir?: string): void {
+    const path = resolveBundledDataPath("gamedata.json", userDataDir);
     const raw = readFileSync(path, "utf-8").replace(/^\uFEFF/, "");
-    let parsed: { source?: string; fetchedUtc?: string; items?: unknown[] };
+    let parsed: { gameVersion?: string; items?: unknown[] };
     try {
       parsed = JSON.parse(raw) as typeof parsed;
     } catch {
@@ -60,8 +70,14 @@ export class GameDataProvider {
     }
 
     this.index = indexById(items);
+    this.gameVersion = parsed.gameVersion ?? null;
     this.loaded = true;
     this.loadStageBoxes();
+  }
+
+  /** Re-read from disk. Safe to call after load(). */
+  reload(userDataDir?: string): void {
+    this.load(userDataDir);
   }
 
   get(itemKey: number): GameItem | undefined {
@@ -78,6 +94,11 @@ export class GameDataProvider {
 
   itemCount(): number {
     return this.index.size;
+  }
+
+  /** Catalog's bundled gameVersion (e.g. "1.00.28"). null if unknown. */
+  getVersion(): string | null {
+    return this.gameVersion;
   }
 
   /** Read-only view of the catalog-id → GameItem index. Keys are catalog ids (already normalized). */

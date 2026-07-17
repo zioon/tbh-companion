@@ -19,7 +19,8 @@ describe("GameDataProvider", () => {
 
   afterEach(() => {
     const proc = process as ProcessWithResources;
-    if (previousResourcesPath === undefined) delete proc.resourcesPath;
+    if (previousResourcesPath === undefined)
+      (proc as { resourcesPath?: string }).resourcesPath = undefined;
     else proc.resourcesPath = previousResourcesPath;
     rmSync(tempResources, { recursive: true, force: true });
   });
@@ -99,5 +100,61 @@ describe("GameDataProvider", () => {
     writeBundledData({ items: [{ name: "no id" }] });
     const provider = new GameDataProvider();
     expect(() => provider.load()).toThrow(/no valid item rows/);
+  });
+
+  it("loads bundled catalog when userData is empty", () => {
+    // Point resourcesPath at an empty temp dir so the search falls through
+    // to the repo's bundled data/gamedata.json (cwd/../data/gamedata.json).
+    const emptyTmp = mkdtempSync(join(tmpdir(), "tbh-gamedata-empty-"));
+    try {
+      (process as ProcessWithResources).resourcesPath = emptyTmp;
+      const provider = new GameDataProvider();
+      provider.load(emptyTmp);
+      expect(provider.itemCount()).toBeGreaterThan(5000);
+      expect(provider.getVersion()).toBe("1.00.28");
+    } finally {
+      (process as ProcessWithResources).resourcesPath = tempResources;
+      rmSync(emptyTmp, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers userData/gamedata.json when present", () => {
+    const userCatalog = {
+      gameVersion: "9.9.99",
+      items: [
+        { id: 1, name: "Test Item", grade: "COMMON", type: "MATERIAL", level: null, marketTradable: false },
+      ],
+    };
+    const userDataDir = mkdtempSync(join(tmpdir(), "tbh-userdata-"));
+    try {
+      writeFileSync(join(userDataDir, "gamedata.json"), JSON.stringify(userCatalog));
+      const provider = new GameDataProvider();
+      provider.load(userDataDir);
+      expect(provider.getVersion()).toBe("9.9.99");
+      expect(provider.get(1)?.name).toBe("Test Item");
+    } finally {
+      rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reload re-reads from disk", () => {
+    const userDataDir = mkdtempSync(join(tmpdir(), "tbh-reload-"));
+    try {
+      const provider = new GameDataProvider();
+      provider.load(userDataDir);
+
+      const newCatalog = {
+        gameVersion: "9.9.99",
+        items: [
+          { id: 1, name: "Reloaded", grade: "COMMON", type: "MATERIAL", level: null, marketTradable: false },
+        ],
+      };
+      writeFileSync(join(userDataDir, "gamedata.json"), JSON.stringify(newCatalog));
+      provider.reload(userDataDir);
+      expect(provider.getVersion()).toBe("9.9.99");
+      expect(provider.get(1)?.name).toBe("Reloaded");
+    } finally {
+      rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 });

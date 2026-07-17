@@ -49,8 +49,8 @@ export function bundledDataCandidates(filename: string, userDataDir?: string): s
   return candidates;
 }
 
-export function resolveBundledDataPath(filename: string): string {
-  const candidates = bundledDataCandidates(filename);
+export function resolveBundledDataPath(filename: string, userDataDir?: string): string {
+  const candidates = bundledDataCandidates(filename, userDataDir);
   const found = candidates.find((p) => existsSync(p));
   if (found) return found;
   throw new Error(
