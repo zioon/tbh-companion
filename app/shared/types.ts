@@ -130,7 +130,8 @@ export interface BoxOpenStats {
   boxKey: string;
   /** "Common chest" | "Stage boss chest Lv3" | ... */
   label: string;
-  category: "common" | "rare" | "act" | "unclassified";
+  /** Tracker-side category. See {@link BoxCategory} / {@link toLookupCategory}. */
+  category: BoxCategory;
   /** null = category-only fallback (BoxOpenLog lacks level). */
   level: number | null;
   totalOpens: number;
@@ -147,19 +148,46 @@ export interface BoxOpenStats {
 
 /** Serialized box open tracker for session_state.json restore. */
 export interface BoxOpenTrackerSnapshot {
-  /** boxKey -> itemKey -> count. */
+  /**
+   * boxKey -> compositeKey -> count. Composite key format is
+   * `"${itemKey}|${grade ?? ""}"` (see `compositeKey` in boxOpenTracker.ts).
+   * Legacy snapshots may use bare `"${itemKey}"` keys — applySnapshot migrates
+   * them using gradesByKey.
+   */
   countsByKey: Record<string, Record<string, number>>;
-  /** itemKey -> name (shared across all boxKeys). */
+  /** compositeKey -> name (shared across all boxKeys). */
   namesByKey: Record<string, string>;
-  /** itemKey -> grade (shared across all boxKeys). */
+  /** compositeKey -> grade (shared across all boxKeys). */
   gradesByKey: Record<string, string | null>;
   history: BoxOpenHistoryEntry[];
+}
+
+/** main → renderer: prompt the user to pick a category for unclassified loot. */
+export interface ClassifyPromptPayload {
+  promptId: number;
+  itemKeys: number[];
+  /** Suggested category when the queue has a hint; undefined otherwise. */
+  defaultCategory?: BoxCategory;
+}
+
+/** renderer → main: user's category choice for a pending prompt. */
+export interface ClassifyPromptResolvePayload {
+  promptId: number;
+  category: BoxCategory;
+  itemKeys: number[];
 }
 
 /** Raw entry from the live-memory BoxOpenLog tail. */
 export interface BoxOpenEntry {
   /** Produced item id (resolved from itemStringKey). */
   itemKey: number;
+  /**
+   * ItemGradeType enum value (0=COMMON, 1=UNCOMMON, 2=RARE, ...; matches
+   * GRADE_ORDER in core/grades.ts). Read from BoxOpenLog.itemGradeType
+   * (pre-1.00.28) or GradeSO.eGRADE (v1.00.28+). Undefined when neither
+   * offset is derived — the tracker falls back to the catalog grade.
+   */
+  gradeType?: number;
   /** 0=common, 1=rare(stage boss), 2=act; undefined when offset unavailable. */
   boxType?: number;
   /** Box level; undefined when offset unavailable (category-only fallback). */
@@ -187,6 +215,13 @@ export interface Stats {
   chestDrops: ChestDropStats;
   /** Box-opening outcomes aggregated by box type/level. Empty when no opens recorded. */
   boxOpens: BoxOpenStats[];
+  /**
+   * Diagnostics for the loot subsystem when `boxOpens` is empty. Non-empty when
+   * the live reader cannot read the BoxOpenLog (offsets not yet derived for
+   * this game version). Lets the UI distinguish "no boxes opened" from
+   * "loot tracking unavailable". Undefined when loot tracking is working.
+   */
+  lootStatus?: string;
   /** Damage per second (5-second rolling window). Only meaningful when live memory is active. */
   dps: number;
   /** Damage dealt on the current map. Resets when stage changes. Only meaningful when live memory is active. */
@@ -524,6 +559,8 @@ export interface AppConfig {
   notificationPrefs: NotificationPrefs;
   inventoryAlmostFullThresholdPercent: number;
   chestAutoOpenEnabled: ChestAutoOpenPrefs;
+  /** Auto-classify unclassified loot via FIFO drop queue. Default false. */
+  lootAutoClassifyEnabled: boolean;
   liveMemory: LiveMemoryPrefs;
   windowLayout?: WindowLayoutPrefs;
   inventoryTable?: InventoryTablePrefs;
@@ -933,7 +970,54 @@ export interface LookupBoxDrop {
 
 export type LookupBoxDropVia = "monster_box" | "boss_box" | "act_boss";
 
+/**
+ * Canonical box category vocabulary used across the tracker / inventory /
+ * box-open-log domains (P2-1 unification).
+ *
+ * Values:
+ *   - `common`       — common chest (boxType 0)
+ *   - `rare`         — stage boss chest (boxType 1; "rare" is the in-game
+ *                      rarity tag; the player-facing label is "Stage boss")
+ *   - `act`          — act boss chest (boxType 2)
+ *   - `unclassified` — boxType couldn't be read from memory, or the boxType
+ *                      isn't in the catalog. The unified sentinel; previously
+ *                      `catalog.ts` used `"unknown"` and `boxOpenLog.ts` used
+ *                      `"unclassified"` for the same concept.
+ *
+ * This is the single source of truth. `catalog.ts` and `boxOpenLog.ts` both
+ * re-export this alias for backward compatibility.
+ */
+export type BoxCategory = "common" | "rare" | "act" | "unclassified";
+
+/**
+ * Lookup-display-side box category vocabulary. Distinct from {@link BoxCategory}
+ * because the lookup module's data source (tbh-data) uses fully-descriptive
+ * snake_case names (`stage_boss`/`act_boss`) rather than the in-game rarity
+ * tags (`rare`/`act`). Mapped via {@link toLookupCategory}.
+ */
 export type LookupBoxCategory = "common" | "stage_boss" | "act_boss" | "unknown";
+
+/**
+ * Map a canonical {@link BoxCategory} to its {@link LookupBoxCategory}
+ * display equivalent. Use when rendering a box's tracker-side category through
+ * the lookup module's display helpers (e.g. `boxCategoryLabel`).
+ *
+ * `unclassified` (tracker-side "we couldn't classify this") maps to `unknown`
+ * (lookup-side "we don't know what this is") — same semantic, different
+ * vocabulary per module.
+ */
+export function toLookupCategory(category: BoxCategory): LookupBoxCategory {
+  switch (category) {
+    case "common":
+      return "common";
+    case "rare":
+      return "stage_boss";
+    case "act":
+      return "act_boss";
+    case "unclassified":
+      return "unknown";
+  }
+}
 
 export interface LookupBoxStageRef {
   stageKey: number;
@@ -1189,4 +1273,8 @@ export interface TbhApi {
   resetLootBox(boxKey: string): Promise<void>;
   resetLootAll(): Promise<void>;
   reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void>;
+  // Auto-classify
+  setLootAutoClassifyEnabled(enabled: boolean): Promise<void>;
+  onClassifyPrompt(cb: (payload: ClassifyPromptPayload) => void): () => void;
+  resolveClassifyPrompt(payload: ClassifyPromptResolvePayload): void;
 }

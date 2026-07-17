@@ -57,6 +57,9 @@ export const IPC = {
   LOOT_RESET_BOX: "loot-reset-box",
   LOOT_RESET_ALL: "loot-reset-all",
   LOOT_RECLASSIFY_ITEM: "loot-reclassify-item",
+  LOOT_AUTO_CLASSIFY_TOGGLE: "loot:auto-classify:toggle",
+  LOOT_PROMPT_CLASSIFY: "loot:prompt:classify",
+  LOOT_PROMPT_RESOLVE: "loot:prompt:resolve",
 
   // Send (renderer → main, no response)
   RESET: "reset",
@@ -113,6 +116,7 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.LOOT_RESET_BOX,
   IPC.LOOT_RESET_ALL,
   IPC.LOOT_RECLASSIFY_ITEM,
+  IPC.LOOT_AUTO_CLASSIFY_TOGGLE,
 ] as const;
 
 export const IPC_SEND_CHANNELS = [
@@ -124,6 +128,7 @@ export const IPC_SEND_CHANNELS = [
   IPC.SHOW_MAIN,
   IPC.CLOSE_OVERLAY,
   IPC.PRICES_CANCEL,
+  IPC.LOOT_PROMPT_RESOLVE,
 ] as const;
 
 export const IPC_PUSH_CHANNELS = [
@@ -140,4 +145,5 @@ export const IPC_PUSH_CHANNELS = [
   IPC.LIVE_MEMORY,
   IPC.LIVE_MEMORY_STATUS,
   IPC.STAGE_RUNS,
+  IPC.LOOT_PROMPT_CLASSIFY,
 ] as const;
