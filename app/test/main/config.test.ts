@@ -104,3 +104,26 @@ describe("normalizeConfigFromRaw", () => {
     ).toBe(100);
   });
 });
+
+describe("lootAutoClassifyEnabled", () => {
+  it("defaults to false", () => {
+    expect(mod.normalizeConfigFromRaw({}).lootAutoClassifyEnabled).toBe(false);
+  });
+  it("preserves explicit true", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: true }).lootAutoClassifyEnabled,
+    ).toBe(true);
+  });
+  it("coerces non-boolean to false", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: "yes" } as never)
+        .lootAutoClassifyEnabled,
+    ).toBe(false);
+    expect(
+      mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: 1 } as never).lootAutoClassifyEnabled,
+    ).toBe(false);
+    expect(
+      mod.normalizeConfigFromRaw({ lootAutoClassifyEnabled: null } as never).lootAutoClassifyEnabled,
+    ).toBe(false);
+  });
+});

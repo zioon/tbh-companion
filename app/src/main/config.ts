@@ -54,6 +54,7 @@ const DEFAULTS: AppConfig = {
   inventoryAlmostFullThresholdPercent: 90,
   chestAutoOpenEnabled: DEFAULT_CHEST_AUTO_OPEN,
   liveMemory: DEFAULT_LIVE_MEMORY,
+  lootAutoClassifyEnabled: false,
 };
 
 type RawConfig = Partial<AppConfig> & { chestSoundVariant?: LegacyChestSoundVariant };
@@ -82,6 +83,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     inventoryAlmostFullThresholdPercent: _threshold,
     chestAutoOpenEnabled: _autoOpen,
     liveMemory: _liveMemory,
+    lootAutoClassifyEnabled: _ac,
     ...rest
   } = raw;
   const notificationPrefs: NotificationPrefs = migrateNotificationPrefs(raw);
@@ -91,6 +93,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   );
   const chestAutoOpenEnabled = sanitizeChestAutoOpenPrefs(raw.chestAutoOpenEnabled);
   const liveMemory = sanitizeLiveMemoryPrefs(raw.liveMemory);
+  const lootAutoClassifyEnabled = raw.lootAutoClassifyEnabled === true;
   return {
     ...DEFAULTS,
     ...rest,
@@ -99,6 +102,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     inventoryAlmostFullThresholdPercent,
     chestAutoOpenEnabled,
     liveMemory,
+    lootAutoClassifyEnabled,
   };
 }
 
