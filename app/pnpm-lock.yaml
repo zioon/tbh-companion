@@ -32,6 +32,9 @@ importers:
       koffi:
         specifier: ^3.1.0
         version: 3.1.0
+      lz4js:
+        specifier: ^0.2.0
+        version: 0.2.0
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -2638,6 +2641,9 @@ packages:
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
     hasBin: true
+
+  lz4js@0.2.0:
+    resolution: {integrity: sha512-gY2Ia9Lm7Ep8qMiuGRhvUq0Q7qUereeldZPP1PMEJxPtEWHJLqw9pgX68oHajBH0nzJK4MaZEA/YNV3jT8u8Bg==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -5993,6 +5999,8 @@ snapshots:
       yallist: 4.0.0
 
   lz-string@1.5.0: {}
+
+  lz4js@0.2.0: {}
 
   magic-string@0.30.21:
     dependencies:
