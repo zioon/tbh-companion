@@ -1,0 +1,138 @@
+import { describe, it, expect } from "vitest";
+import {
+  computeTtlMs,
+  enqueue,
+  dequeue,
+  pruneExpired,
+  groupBoxOpenEvents,
+  type QueueItem,
+} from "../../src/core/boxOpenAutoClassify";
+
+describe("computeTtlMs", () => {
+  it("returns min 90s (60s floor + 30s buffer) when autoOpen is 0", () => {
+    expect(computeTtlMs(0)).toBe(90_000);
+  });
+  it("returns 2*autoOpen + 30 for typical common (300s)", () => {
+    expect(computeTtlMs(300)).toBe(630_000);
+  });
+  it("returns 2*autoOpen + 30 for stage boss (600s)", () => {
+    expect(computeTtlMs(600)).toBe(1_230_000);
+  });
+  it("returns 2*autoOpen + 30 for act boss (60s)", () => {
+    expect(computeTtlMs(60)).toBe(150_000);
+  });
+  it("handles very large autoOpen without overflow", () => {
+    expect(computeTtlMs(86_400)).toBe(172_830_000);
+  });
+});
+
+describe("enqueue", () => {
+  it("appends a new item with computed expiresAtMs", () => {
+    const now = 1_000_000;
+    const queue = enqueue([], {
+      boxKey: "rare:3",
+      droppedAtMs: now,
+      stageKey: 3303,
+      autoOpenSeconds: 600,
+    });
+    expect(queue).toHaveLength(1);
+    expect(queue[0]?.boxKey).toBe("rare:3");
+    expect(queue[0]?.droppedAtMs).toBe(now);
+    expect(queue[0]?.expiresAtMs).toBe(now + 1_230_000);
+  });
+  it("preserves FIFO order across multiple enqueues", () => {
+    const q1 = enqueue([], { boxKey: "common", droppedAtMs: 1000, stageKey: 1101, autoOpenSeconds: 300 });
+    const q2 = enqueue(q1, { boxKey: "rare:3", droppedAtMs: 2000, stageKey: 3303, autoOpenSeconds: 600 });
+    expect(q2.map((i) => i.boxKey)).toEqual(["common", "rare:3"]);
+  });
+});
+
+describe("dequeue", () => {
+  it("returns null and unchanged queue when empty", () => {
+    const { queue, item } = dequeue([], 1000);
+    expect(item).toBeNull();
+    expect(queue).toEqual([]);
+  });
+  it("returns the head item and a queue without it", () => {
+    const a: QueueItem = { boxKey: "common", droppedAtMs: 1000, stageKey: 1, expiresAtMs: 9999 };
+    const b: QueueItem = { boxKey: "rare:3", droppedAtMs: 2000, stageKey: 2, expiresAtMs: 9999 };
+    const { queue, item } = dequeue([a, b], 1500);
+    expect(item).toBe(a);
+    expect(queue).toEqual([b]);
+  });
+  it("skips expired head items and returns the first live one", () => {
+    const expired: QueueItem = { boxKey: "common", droppedAtMs: 0, stageKey: 1, expiresAtMs: 500 };
+    const live: QueueItem = { boxKey: "rare:3", droppedAtMs: 600, stageKey: 2, expiresAtMs: 9999 };
+    const { queue, item } = dequeue([expired, live], 1000);
+    expect(item).toBe(live);
+    expect(queue).toEqual([]);
+  });
+});
+
+describe("pruneExpired", () => {
+  it("returns empty array for empty input", () => {
+    expect(pruneExpired([], 1000)).toEqual([]);
+  });
+  it("drops items whose expiresAtMs <= now", () => {
+    const a: QueueItem = { boxKey: "common", droppedAtMs: 0, stageKey: 1, expiresAtMs: 500 };
+    const b: QueueItem = { boxKey: "rare:3", droppedAtMs: 0, stageKey: 2, expiresAtMs: 1500 };
+    expect(pruneExpired([a, b], 1000)).toEqual([b]);
+  });
+  it("keeps items whose expiresAtMs > now", () => {
+    const a: QueueItem = { boxKey: "common", droppedAtMs: 0, stageKey: 1, expiresAtMs: 1001 };
+    expect(pruneExpired([a], 1000)).toEqual([a]);
+  });
+});
+
+describe("groupBoxOpenEvents", () => {
+  it("returns empty array for empty input", () => {
+    expect(groupBoxOpenEvents([])).toEqual([]);
+  });
+  it("groups entries within the gap into one event", () => {
+    const events = groupBoxOpenEvents([
+      { itemKey: 100, wallTime: 1.0 },
+      { itemKey: 101, wallTime: 1.02 },
+      { itemKey: 102, wallTime: 1.04 },
+    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.itemKeys).toEqual([100, 101, 102]);
+    expect(events[0]?.startMs).toBe(1.0);
+    expect(events[0]?.endMs).toBe(1.04);
+  });
+  it("splits into two events when gap exceeds threshold", () => {
+    const events = groupBoxOpenEvents([
+      { itemKey: 100, wallTime: 1.0 },
+      { itemKey: 101, wallTime: 1.1 },
+      { itemKey: 200, wallTime: 5.0 }, // 3.9s gap > 2s default
+      { itemKey: 201, wallTime: 5.05 },
+    ]);
+    expect(events).toHaveLength(2);
+    expect(events[0]?.itemKeys).toEqual([100, 101]);
+    expect(events[1]?.itemKeys).toEqual([200, 201]);
+  });
+  it("handles a single entry as one event", () => {
+    const events = groupBoxOpenEvents([{ itemKey: 42, wallTime: 7.0 }]);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.itemKeys).toEqual([42]);
+  });
+  it("sorts unsorted input by wallTime before grouping", () => {
+    const events = groupBoxOpenEvents([
+      { itemKey: 200, wallTime: 5.0 },
+      { itemKey: 100, wallTime: 1.0 },
+      { itemKey: 101, wallTime: 1.1 },
+    ]);
+    expect(events).toHaveLength(2);
+    expect(events[0]?.itemKeys).toEqual([100, 101]);
+    expect(events[1]?.itemKeys).toEqual([200]);
+  });
+  it("honors a custom gapMs", () => {
+    const events = groupBoxOpenEvents(
+      [
+        { itemKey: 100, wallTime: 1.0 },
+        { itemKey: 101, wallTime: 1.5 },
+      ],
+      400, // 0.4s gap; 0.5s difference > 0.4s → split
+    );
+    expect(events).toHaveLength(2);
+  });
+});
