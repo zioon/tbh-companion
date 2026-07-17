@@ -1319,3 +1319,21 @@ export interface TbhApi {
   onClassifyPrompt(cb: (payload: ClassifyPromptPayload) => void): () => void;
   resolveClassifyPrompt(payload: ClassifyPromptResolvePayload): void;
 }
+
+export interface CatalogStatus {
+  catalogVersion: string | null;
+  gameVersion: string | null;
+  stale: boolean;
+  source: "bundled" | "userData";
+  itemCount: number;
+  lastRefreshMs: number | null;
+  lastError: string | null;
+}
+
+export interface CatalogRefreshResult {
+  ok: boolean;
+  gameVersion: string | null;
+  itemCount: number;
+  resolvedNames: number;
+  error?: string;
+}

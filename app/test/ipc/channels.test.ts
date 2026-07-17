@@ -189,4 +189,10 @@ describe("IPC channel registry", () => {
     expect(IPC_PUSH_CHANNELS).toContain(IPC.LOOT_PROMPT_CLASSIFY);
     expect(IPC_SEND_CHANNELS).toContain(IPC.LOOT_PROMPT_RESOLVE);
   });
+
+  it("registers the catalog channels in the correct registries", () => {
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.CATALOG_REFRESH);
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_CATALOG_STATUS);
+    expect(IPC_PUSH_CHANNELS).toContain(IPC.CATALOG_STATUS);
+  });
 });
