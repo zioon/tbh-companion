@@ -118,6 +118,57 @@ describe("TrackingService hero level-up callback", () => {
   });
 });
 
+describe("TrackingService.reset vs clearSession", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  it("reset() preserves chest drops and box opens while clearing rates", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    // Seed loot directly via the trackers (bypasses aggregator timing).
+    svc.getChestDropTracker().recordLogDrop(910151, 3000);
+    svc.getChestDropTracker().recordLogDrop(910151, 3100);
+    svc.getBoxOpenTracker().recordOpen("common:5", 100, "Sword", "COMMON", 1, 3500);
+
+    const before = svc.getStats();
+    expect(before.chestDrops.combinedTotal).toBe(2);
+    expect(before.boxOpens.reduce((s, b) => s + b.totalOpens, 0)).toBe(1);
+
+    svc.reset();
+
+    const after = svc.getStats();
+    // Loot preserved.
+    expect(after.chestDrops.combinedTotal).toBe(2);
+    expect(after.chestDrops.commonTotal).toBe(2);
+    expect(after.boxOpens.reduce((s, b) => s + b.totalOpens, 0)).toBe(1);
+    // Rates cleared (no heroes/gold means 0 rates).
+    expect(after.sessionRate).toBe(0);
+    expect(after.goldRate).toBe(0);
+    svc.stop();
+  });
+
+  it("clearSession() wipes chest drops and box opens along with rates", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    svc.getChestDropTracker().recordLogDrop(910151, 3000);
+    svc.getBoxOpenTracker().recordOpen("common:5", 100, "Sword", "COMMON", 1, 3500);
+
+    svc.clearSession();
+
+    const after = svc.getStats();
+    expect(after.chestDrops.combinedTotal).toBe(0);
+    expect(after.boxOpens).toHaveLength(0);
+    expect(after.sessionRate).toBe(0);
+    svc.stop();
+  });
+});
+
 describe("TrackingService.onLiveMemoryToggled", () => {
   beforeEach(() => {
     onSnapshot = undefined;
@@ -159,6 +210,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -191,6 +244,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: ["common", "rare"],
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -229,6 +284,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: ["common", "rare"],
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -267,6 +324,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: ["common", "common", "common"],
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -305,6 +364,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: ["common", "rare", "common", "common"],
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -342,6 +403,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: ["rare", "rare", "rare"],
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -381,6 +444,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       inventoryItems: null,
       stageClears: [42],
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -417,6 +482,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       inventoryItems: null,
       stageClears: [42],
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -434,6 +501,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       inventoryItems: null,
       stageClears: [85, 63],
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -471,6 +540,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       inventoryItems: null,
       stageClears: [85],
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,
@@ -506,6 +577,8 @@ describe("TrackingService live-frame broadcast throttling", () => {
       chestDrops: null,
       inventoryItems: null,
       stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
       petData: null,
       monsterHp: null,
       deadMonsterCount: null,

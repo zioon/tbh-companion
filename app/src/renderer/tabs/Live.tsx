@@ -142,7 +142,8 @@ export function Live() {
 
   const { commonTotal, rareTotal, commonPerHour, rarePerHour, readerRequired } = stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
-  const chestDetectionPending = readerRequired && liveScalars.connected && !liveScalars.hasChestDrops;
+  const chestDetectionPending =
+    readerRequired && liveScalars.connected && !liveScalars.hasChestDrops;
   const chestStatsInactive = chestReaderOff || chestDetectionPending;
   const chestRateTip = chestReaderOff
     ? CHEST_TIP_NEED_READER
@@ -177,7 +178,14 @@ export function Live() {
       inventoryUsed: inventory.inventoryUsed,
       sources: fillSources,
     });
-  }, [inventory, chests, autoOpenEnabled.common, autoOpenEnabled.stageBoss, commonPerHour, rarePerHour]);
+  }, [
+    inventory,
+    chests,
+    autoOpenEnabled.common,
+    autoOpenEnabled.stageBoss,
+    commonPerHour,
+    rarePerHour,
+  ]);
 
   const fillEstimateText = useMemo((): ReactNode => {
     if (fillPrediction?.hoursUntilFull === null) {
@@ -199,69 +207,72 @@ export function Live() {
     return null;
   }, [fillPrediction]);
 
-  const inventoryFillPrediction = useMemo((): ReactNode => (
-    <PanelSection
-      title={
-        <span className="inline-flex items-center gap-1.5">
-          Inventory fill prediction
-          <Tooltip
-            trigger={
-              <span
-                className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-border text-[10px] normal-case leading-none tracking-normal text-muted"
-                tabIndex={0}
-              >
-                ?
-              </span>
-            }
-          >
-            {INVENTORY_PREDICTION_TIP}
-          </Tooltip>
-        </span>
-      }
-      boxed
-      contentClassName="flex flex-col gap-3 p-3"
-    >
-      <div className="flex flex-col gap-1.5 text-[13px] text-muted">
-        {inventory && inventory.inventoryCapacity > 0 ? (
-          <p className="m-0">
-            Inventory:{" "}
-            <span className="font-semibold text-fg">
-              {inventory.inventoryUsed}/{inventory.inventoryCapacity}
-            </span>{" "}
-            slots used.
-          </p>
-        ) : null}
-        {/* min-h reserves room for the longer "turn on a toggle" message so swapping
+  const inventoryFillPrediction = useMemo(
+    (): ReactNode => (
+      <PanelSection
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            Inventory fill prediction
+            <Tooltip
+              trigger={
+                <span
+                  className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-border text-[10px] normal-case leading-none tracking-normal text-muted"
+                  tabIndex={0}
+                >
+                  ?
+                </span>
+              }
+            >
+              {INVENTORY_PREDICTION_TIP}
+            </Tooltip>
+          </span>
+        }
+        boxed
+        contentClassName="flex flex-col gap-3 p-3"
+      >
+        <div className="flex flex-col gap-1.5 text-[13px] text-muted">
+          {inventory && inventory.inventoryCapacity > 0 ? (
+            <p className="m-0">
+              Inventory:{" "}
+              <span className="font-semibold text-fg">
+                {inventory.inventoryUsed}/{inventory.inventoryCapacity}
+              </span>{" "}
+              slots used.
+            </p>
+          ) : null}
+          {/* min-h reserves room for the longer "turn on a toggle" message so swapping
             between states doesn't resize the card. */}
-        <p className="m-0 min-h-[2.6em]">{fillEstimateText}</p>
-        {/* Always mounted (invisible when empty) so toggling held chests in/out
+          <p className="m-0 min-h-[2.6em]">{fillEstimateText}</p>
+          {/* Always mounted (invisible when empty) so toggling held chests in/out
             doesn't change the card's height. */}
-        <p
-          className={cn(
-            "m-0",
-            (!fillPrediction || fillPrediction.heldChestItems <= 0) && "invisible",
-          )}
-        >
-          Includes{" "}
-          <span className="font-semibold text-fg">{fillPrediction?.heldChestItems ?? 0}</span> held
-          chest{fillPrediction?.heldChestItems === 1 ? "" : "s"} waiting to auto-open.
-        </p>
-      </div>
+          <p
+            className={cn(
+              "m-0",
+              (!fillPrediction || fillPrediction.heldChestItems <= 0) && "invisible",
+            )}
+          >
+            Includes{" "}
+            <span className="font-semibold text-fg">{fillPrediction?.heldChestItems ?? 0}</span>{" "}
+            held chest{fillPrediction?.heldChestItems === 1 ? "" : "s"} waiting to auto-open.
+          </p>
+        </div>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-3">
-        <Checkbox
-          label="Common chests auto-open"
-          checked={autoOpenEnabled.common}
-          onCheckedChange={(checked) => toggleAutoOpen("common", checked)}
-        />
-        <Checkbox
-          label="Stage boss chests auto-open"
-          checked={autoOpenEnabled.stageBoss}
-          onCheckedChange={(checked) => toggleAutoOpen("stageBoss", checked)}
-        />
-      </div>
-    </PanelSection>
-  ), [inventory, autoOpenEnabled, fillPrediction, toggleAutoOpen, fillEstimateText]);
+        <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-3">
+          <Checkbox
+            label="Common chests auto-open"
+            checked={autoOpenEnabled.common}
+            onCheckedChange={(checked) => toggleAutoOpen("common", checked)}
+          />
+          <Checkbox
+            label="Stage boss chests auto-open"
+            checked={autoOpenEnabled.stageBoss}
+            onCheckedChange={(checked) => toggleAutoOpen("stageBoss", checked)}
+          />
+        </div>
+      </PanelSection>
+    ),
+    [inventory, autoOpenEnabled, fillPrediction, toggleAutoOpen, fillEstimateText],
+  );
 
   function fmtTimeToLevel(sec: number | null): string {
     if (sec === null || !Number.isFinite(sec)) return "\u2014";
@@ -277,64 +288,67 @@ export function Live() {
     return fmtCompact(n);
   }
 
-  const heroesPanel = useMemo((): ReactNode => (
-    <PanelSection title="Heroes" boxed>
-      <LivePanelList empty={stats.heroes.length === 0 ? "No active heroes yet." : undefined}>
-        {stats.heroes.length > 0 && (
-          <div className="grid grid-cols-[1fr_72px_72px_64px_56px] items-center gap-3 px-3 pt-2 pb-1 text-[11px] text-muted/60 uppercase tracking-wide border-b border-border/40">
-            <span>Name</span>
-            <span className="text-right">Lv</span>
-            <span className="text-right">Rate</span>
-            <Tooltip
-              trigger={
-                <span className="cursor-help underline decoration-dotted underline-offset-2 text-right">
-                  Remaining
-                </span>
-              }
+  const heroesPanel = useMemo(
+    (): ReactNode => (
+      <PanelSection title="Heroes" boxed>
+        <LivePanelList empty={stats.heroes.length === 0 ? "No active heroes yet." : undefined}>
+          {stats.heroes.length > 0 && (
+            <div className="grid grid-cols-[1fr_72px_72px_64px_56px] items-center gap-3 px-3 pt-2 pb-1 text-[11px] text-muted/60 uppercase tracking-wide border-b border-border/40">
+              <span>Name</span>
+              <span className="text-right">Lv</span>
+              <span className="text-right">Rate</span>
+              <Tooltip
+                trigger={
+                  <span className="cursor-help underline decoration-dotted underline-offset-2 text-right">
+                    Remaining
+                  </span>
+                }
+              >
+                Remaining XP needed to reach next level (level curve minus current exp).
+              </Tooltip>
+              <Tooltip
+                trigger={
+                  <span className="cursor-help underline decoration-dotted underline-offset-2 text-right">
+                    ETA
+                  </span>
+                }
+              >
+                Estimated time to next level-up at the current rolling XP rate.
+              </Tooltip>
+            </div>
+          )}
+          {stats.heroes.map((h, i) => (
+            <DataListRow
+              key={h.key}
+              index={i}
+              className="grid grid-cols-[1fr_72px_72px_64px_56px] items-center gap-3"
             >
-              Remaining XP needed to reach next level (level curve minus current exp).
-            </Tooltip>
-            <Tooltip
-              trigger={
-                <span className="cursor-help underline decoration-dotted underline-offset-2 text-right">
-                  ETA
-                </span>
-              }
-            >
-              Estimated time to next level-up at the current rolling XP rate.
-            </Tooltip>
-          </div>
-        )}
-        {stats.heroes.map((h, i) => (
-          <DataListRow
-            key={h.key}
-            index={i}
-            className="grid grid-cols-[1fr_72px_72px_64px_56px] items-center gap-3"
-          >
-            <span className="font-semibold">{h.name}</span>
-            <span className="tabular-nums text-right text-muted">Lv {h.level}</span>
-            <span className="tabular-nums text-right text-accent">{fmtCompact(h.rate)}/hr</span>
-            <span className="tabular-nums text-right text-muted text-xs">
-              {fmtSafeCompact(h.xpToNextLevel)}
-            </span>
-            <Tooltip
-              trigger={
-                <span className="tabular-nums text-right text-xs text-muted cursor-help">
-                  {fmtTimeToLevel(h.timeToLevelSec)}
-                </span>
-              }
-            >
-              {h.timeToLevelSec !== null
-                ? `At ${fmtCompact(h.rate)} XP/hr, ${fmtShortDuration(h.timeToLevelSec)} until level ${h.level + 1}`
-                : h.xpToNextLevel === null
-                  ? "Max level — no further progression defined."
-                  : "Rate is zero or not yet established."}
-            </Tooltip>
-          </DataListRow>
-        ))}
-      </LivePanelList>
-    </PanelSection>
-  ), [stats.heroes]);
+              <span className="font-semibold">{h.name}</span>
+              <span className="tabular-nums text-right text-muted">Lv {h.level}</span>
+              <span className="tabular-nums text-right text-accent">{fmtCompact(h.rate)}/hr</span>
+              <span className="tabular-nums text-right text-muted text-xs">
+                {fmtSafeCompact(h.xpToNextLevel)}
+              </span>
+              <Tooltip
+                trigger={
+                  <span className="tabular-nums text-right text-xs text-muted cursor-help">
+                    {fmtTimeToLevel(h.timeToLevelSec)}
+                  </span>
+                }
+              >
+                {h.timeToLevelSec !== null
+                  ? `At ${fmtCompact(h.rate)} XP/hr, ${fmtShortDuration(h.timeToLevelSec)} until level ${h.level + 1}`
+                  : h.xpToNextLevel === null
+                    ? "Max level — no further progression defined."
+                    : "Rate is zero or not yet established."}
+              </Tooltip>
+            </DataListRow>
+          ))}
+        </LivePanelList>
+      </PanelSection>
+    ),
+    [stats.heroes],
+  );
 
   return (
     <TabPage>
@@ -398,7 +412,11 @@ export function Live() {
           </>
         }
         action={
-          <Button size="sm" title="Reset session stats" onClick={() => window.tbh.reset()}>
+          <Button
+            size="sm"
+            title="Reset session rates (loot history kept)"
+            onClick={() => window.tbh.reset()}
+          >
             {"\u21bb"} Reset
           </Button>
         }

@@ -331,7 +331,7 @@ export function getAppServices() {
       if (reloadStageRuns) stageRuns.resetStorage();
       if (reloadSession) {
         tracking.onSessionFileDeleted();
-        tracking.reset();
+        tracking.clearSession();
       }
 
       return result;

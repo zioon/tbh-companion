@@ -7,6 +7,7 @@ import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropT
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
+import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import type {
@@ -16,6 +17,7 @@ import type {
   LiveMemorySnapshot,
   LookupPriceSnapshot,
   ResolvedInventory,
+  ResolvedInventoryRow,
   SaveSnapshot,
 } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
@@ -61,8 +63,14 @@ export class TrackingService {
   private readonly parseInventorySnapshot?: (text: string, mtime: number) => InventorySnapshot;
   /** GameData index for resolving box-open item names/grades; set by appState. */
   private gameDataLookup: Map<number, GameItem> | null = null;
-  /** Latest resolved inventory snapshot for buy-order price resolution. */
-  private inventorySnapshot: ResolvedInventory | null = null;
+  /**
+   * Index over the latest resolved inventory's `rows`, keyed by `itemKey`.
+   * Rebuilt on every `setInventorySnapshot` so `buildBoxOpenPriceResolver`
+   * is O(1) per lookup instead of O(rows). Inventory can reach tens of
+   * thousands of rows, and a burst of box opens used to scan the full array
+   * for each entry.
+   */
+  private inventoryByItemKey: Map<number, ResolvedInventoryRow> | null = null;
   /** Latest lookup-price snapshot for fallback price resolution. */
   private lookupPriceSnapshot: LookupPriceSnapshot | null = null;
   /**
@@ -178,7 +186,34 @@ export class TrackingService {
     );
   }
 
+  /**
+   * Reset session rates (XP / gold / DPS / stage-event baseline) but preserve
+   * loot history (chest drops + box opens). Loot is cumulative across session
+   * resets — players often reset rates mid-session to measure a new farming
+   * stretch without wiping their drop log. Use {@link clearSession} (Settings →
+   * Clear session snapshot) or {@link onSavePathChanged} for a full wipe
+   * including loot.
+   */
   reset(): void {
+    this.tracker.reset();
+    this.dpsTracker.reset();
+    this.stageEventBaseline = null;
+    this.sessionState?.onTrackerReset(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.config,
+      this.lastSnap,
+    );
+    this.pushStats();
+  }
+
+  /**
+   * Full wipe: rates AND loot history. Called when the user clears the saved
+   * session snapshot from Settings (the session_state.json file is deleted, so
+   * in-memory loot must also go). For rate-only resets, use {@link reset}.
+   */
+  clearSession(): void {
     this.tracker.reset();
     this.chestDropTracker.reset();
     this.chestAggregator.reset();
@@ -224,7 +259,15 @@ export class TrackingService {
 
   /** Provide the latest resolved inventory for buy-order price resolution. */
   setInventorySnapshot(snap: ResolvedInventory | null): void {
-    this.inventorySnapshot = snap;
+    // Rebuild the lookup index in one pass; subsequent per-item lookups during
+    // box-open bursts become O(1) instead of O(rows) each.
+    if (snap) {
+      const idx = new Map<number, ResolvedInventoryRow>();
+      for (const row of snap.rows) idx.set(row.itemKey, row);
+      this.inventoryByItemKey = idx;
+    } else {
+      this.inventoryByItemKey = null;
+    }
   }
 
   /** Provide the latest lookup-price snapshot for fallback price resolution. */
@@ -318,19 +361,27 @@ export class TrackingService {
   }
 
   /**
-   * Build the price resolver for box-open stats: inventory buy-order first,
-   * lookup-price snapshot (lowest ask) as fallback for consumed items.
+   * Build the price resolver for box-open stats. Mirrors the inventory page's
+   * "Instant sell" column: walks the Steam buy-order book level-by-level and
+   * returns the wallet proceeds for selling `count` units (depth-aware, so
+   * large drops that exceed the book return a partial `coveredCount`).
+   * Falls back to the lookup-price snapshot's lowest ask (unit × count) when
+   * the inventory has no buy-order levels yet — typical for items the user
+   * has never owned.
    */
   private buildBoxOpenPriceResolver(): BoxOpenPriceResolver {
-    return (itemKey: number) => {
-      // 1. Inventory buy-order (precise instant-sell).
-      if (this.inventorySnapshot) {
-        const invRow = this.inventorySnapshot.rows.find((r) => r.itemKey === itemKey);
-        if (invRow?.buyOrderUnit != null) {
-          return { buyOrderUnit: invRow.buyOrderUnit };
+    return (itemKey: number, count: number) => {
+      // 1. Inventory buy-order levels (depth-aware instant-sell proceeds).
+      if (this.inventoryByItemKey) {
+        const invRow = this.inventoryByItemKey.get(itemKey);
+        if (invRow?.buyOrderLevels?.length) {
+          const result = instantSellValue(count, invRow.buyOrderLevels);
+          if (result.value != null) {
+            return { buyOrderValue: result.value, coveredCount: result.coveredCount };
+          }
         }
       }
-      // 2. Lookup-price snapshot (lowest ask as proxy).
+      // 2. Lookup-price snapshot (lowest ask as proxy, unit * count).
       if (this.lookupPriceSnapshot && this.gameDataLookup) {
         const catalogId = catalogItemKeyFromSave(itemKey);
         const item = this.gameDataLookup.get(catalogId);
@@ -338,7 +389,9 @@ export class TrackingService {
           const hash = marketHashName(item);
           if (hash) {
             const usd = this.lookupPriceSnapshot.prices[hash] ?? null;
-            if (usd != null) return { buyOrderUnit: usd };
+            if (usd != null) {
+              return { buyOrderValue: usd * count, coveredCount: count };
+            }
           }
         }
       }
