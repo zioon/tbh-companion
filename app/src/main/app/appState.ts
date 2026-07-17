@@ -18,11 +18,12 @@ import { SessionStateService } from "../services/SessionStateService";
 import { LookupService } from "../services/LookupService";
 import { LookupPriceService } from "../services/LookupPriceService";
 import { LiveMemoryService } from "../services/LiveMemoryService";
+import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
 import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
-import { clearAppDataFiles, getAppDataPaths } from "../services/appData";
+import { clearAppDataFiles, getAppDataPaths, resolveUserDataDir } from "../services/appData";
 import { UpdateService } from "../services/UpdateService";
 import { NotificationService } from "../services/NotificationService";
 import type {
@@ -51,6 +52,12 @@ const stageRuns = new StageRunService();
 const lookup = new LookupService();
 const lookupPrices = new LookupPriceService();
 const liveMemory = new LiveMemoryService();
+const catalogRefresh = new CatalogRefreshService(
+  inventory.getGameData(),
+  liveMemory,
+  resolveUserDataDir(),
+  (channel, payload) => broadcast(channel, payload),
+);
 /**
  * AutoClassifyService instance, created in `startTracking()` after
  * `tracking.start()` has instantiated the chest-drop and box-open trackers.
@@ -402,6 +409,8 @@ export function getAppServices() {
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),
+    getCatalogStatus: () => catalogRefresh.getStatus(),
+    refreshCatalog: () => catalogRefresh.refresh(),
     resetLootBox: (boxKey: string) => tracking.resetLootBox(boxKey),
     resetLootAll: () => tracking.resetLootAll(),
     reclassifyLootItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) =>

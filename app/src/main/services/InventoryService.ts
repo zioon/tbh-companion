@@ -1,11 +1,8 @@
 import { GameDataProvider } from "../gameDataProvider";
 import { SteamMarketProvider } from "../steamMarketProvider";
-import {
-  resolveInventory,
-  ownedPriceTargets,
-  ownedPriceTargetForItem,
-  parseInventory,
-} from "../../core/inventory";
+import { ownedPriceTargets, ownedPriceTargetForItem, parseInventory } from "../../core/inventory";
+import { flattenOwnedHashes } from "../../core/inventory/ownedPriceTargets";
+import { getTbhMarketFeeRates } from "../../core/steamMarketFeeBundled";
 import type { OwnedPriceTarget } from "../../core/inventory/ownedPriceTargets";
 import type { GameItem } from "../../core/gamedata";
 import type {
@@ -19,6 +16,7 @@ import type {
 import { IPC } from "../../../shared/ipc";
 import { broadcast } from "./broadcast";
 import { createLogger } from "../log";
+import { InventoryWorker } from "./inventoryWorker";
 
 const log = createLogger("inventory");
 
@@ -34,6 +32,14 @@ export class InventoryService {
   private getAlmostFullThresholdPercent: () => number = () => 90;
   private wasAboveAlmostFullThreshold = false;
   private onInventoryUpdated?: (snap: ResolvedInventory) => void;
+  /**
+   * P1-6: utility-process host for the heavy `resolveInventory` call. Falls
+   * back to the synchronous path (the pre-P1-6 behavior) when the worker is
+   * still starting up, has crashed, or is otherwise unavailable — so the UI
+   * never loses inventory updates. Owned here so the worker's lifetime matches
+   * the service's lifetime.
+   */
+  private readonly worker = new InventoryWorker(getTbhMarketFeeRates());
 
   initMarket(currency: string): void {
     this.market = new SteamMarketProvider(currency);
@@ -41,11 +47,38 @@ export class InventoryService {
 
   loadGameData(): void {
     this.gameData.load();
+    // Spawn the worker asynchronously. The first `resolveAndPushInventory`
+    // below will run on the sync fallback path because `init` hasn't
+    // resolved yet — that's intentional, it keeps startup latency low for
+    // small inventories and lets the worker take over once ready.
+    void this.worker.init(this.gameData.asMap(), getTbhMarketFeeRates()).catch((err) => {
+      log.warn(`Inventory worker init failed: ${String(err)}`);
+    });
     this.resolveAndPushInventory();
+  }
+
+  /**
+   * Re-push gameData + feeRates into the running worker without re-spawning.
+   * Called after `reloadPriceCache` (cache cleared) or `setCurrency` (currency
+   * changed, fee rates unchanged but worker cache for owned hashes may have
+   * rotated). Idempotent: a no-op when the worker isn't running.
+   */
+  private refreshWorkerState(): void {
+    if (this.gameData.isLoaded()) {
+      void this.worker
+        .init(this.gameData.asMap(), getTbhMarketFeeRates())
+        .catch((err) => log.warn(`Inventory worker re-init failed: ${String(err)}`));
+    }
+  }
+
+  /** Stop the worker. Called on app shutdown to release the utility process. */
+  async disposeWorker(): Promise<void> {
+    await this.worker.stop();
   }
 
   reloadPriceCache(): void {
     this.market?.reloadFromDisk();
+    this.refreshWorkerState();
     this.resolveAndPushInventory();
     this.pushPricesStatus();
   }
@@ -74,6 +107,22 @@ export class InventoryService {
   /** Expose the game-data catalog (catalog-id → GameItem) for box-open item resolution. */
   getGameDataLookup(): Map<number, GameItem> {
     return this.gameData.asMap();
+  }
+
+  /** Expose the GameDataProvider so CatalogRefreshService can reload + query version. */
+  getGameData(): GameDataProvider {
+    return this.gameData;
+  }
+
+  /**
+   * Reload gamedata.json (after CatalogRefreshService wrote a fresh copy to
+   * userData). Re-inits the inventory worker with the new catalog and re-resolves
+   * the current inventory so item names/types update immediately.
+   */
+  reloadGameData(userDataDir?: string): void {
+    this.gameData.reload(userDataDir);
+    this.refreshWorkerState();
+    this.resolveAndPushInventory();
   }
 
   private checkAlmostFull(snap: InventorySnapshot): void {
@@ -112,7 +161,10 @@ export class InventoryService {
   }
 
   pricesStatus(): PriceStatus {
-    return this.market!.status(this.currentOwnedPriceTargets());
+    if (!this.market) {
+      return this.emptyPriceStatus("USD");
+    }
+    return this.market.status(this.currentOwnedPriceTargets());
   }
 
   cancelPrices(): void {
@@ -120,7 +172,11 @@ export class InventoryService {
   }
 
   setCurrency(iso: string): PriceStatus {
-    this.market!.setCurrency(iso);
+    if (!this.market) {
+      log.warn("setCurrency called before initMarket");
+      return this.emptyPriceStatus(iso);
+    }
+    this.market.setCurrency(iso);
     this.resolveAndPushInventory();
     void this.ensureOwnedPrices(true);
     return this.pricesStatus();
@@ -149,15 +205,19 @@ export class InventoryService {
   }
 
   async refreshPrices(force?: boolean): Promise<PriceRefreshResult & { status: PriceStatus }> {
+    if (!this.market) {
+      log.warn("refreshPrices called before initMarket");
+      return { ...this.emptyRefreshResult(), status: this.emptyPriceStatus("USD") };
+    }
     const wantsForce = Boolean(force);
-    if (this.market!.status().running) {
+    if (this.market.status().running) {
       return this.queuePriceRefresh(wantsForce);
     }
 
     const targets = this.currentOwnedPriceTargets();
-    this.market!.pruneCacheTargets(targets);
+    this.market.pruneCacheTargets(targets);
 
-    const result = await this.market!.refresh(targets, this.priceRefreshCallbacks(wantsForce));
+    const result = await this.market.refresh(targets, this.priceRefreshCallbacks(wantsForce));
     this.resolveAndPushInventory();
     const status = this.pricesStatus();
     if (result.ok && !result.queued && !result.noop) {
@@ -171,7 +231,11 @@ export class InventoryService {
   }
 
   async refreshItemPrices(itemKey: number): Promise<PriceRefreshResult & { status: PriceStatus }> {
-    const currency = this.market!.status().currency;
+    if (!this.market) {
+      log.warn("refreshItemPrices called before initMarket");
+      return { ...this.emptyRefreshResult(), status: this.emptyPriceStatus("USD") };
+    }
+    const currency = this.market.status().currency;
     if (!Number.isFinite(itemKey) || itemKey <= 0) {
       return {
         ok: false,
@@ -248,22 +312,80 @@ export class InventoryService {
 
   resolveAndPushInventory(): void {
     if (!this.lastInventoryRaw || !this.market) return;
-    try {
-      const currency = this.market.status().currency;
-      this.lastInventory = resolveInventory(
-        this.lastInventoryRaw,
-        (key) => this.gameData.get(key),
-        this.gameData.isLoaded(),
-        (name) => this.priceLookup(name),
-        { excludeItemKey: (key) => this.excludeFromInventoryListing(key) },
-      );
-      this.lastInventory.currency = currency;
-      this.lastInventory.composition.currency = currency;
-      broadcast(IPC.INVENTORY, this.lastInventory);
-      this.onInventoryUpdated?.(this.lastInventory);
-    } catch (err) {
-      log.error(`resolveAndPushInventory failed: ${String(err)}`);
+    const snapshot = this.lastInventoryRaw;
+    const priceLookupMap = this.buildOwnedPriceLookupMap();
+    const excludeItemKeys = this.collectExcludedItemKeys();
+
+    if (this.worker.isReady()) {
+      // Async path: worker handles the heavy resolve. publishResolved runs
+      // once the worker posts back. If the worker rejects (crash, timeout),
+      // we fall back to the sync path so the broadcast still happens.
+      void this.worker
+        .resolve(snapshot, priceLookupMap, excludeItemKeys)
+        .then((resolved) => this.publishResolved(resolved))
+        .catch((err) => {
+          log.warn(`worker resolve failed, falling back to sync: ${String(err)}`);
+          this.resolveAndPublishSync(snapshot, priceLookupMap, excludeItemKeys);
+        });
+      return;
     }
+
+    // Sync fallback path: identical to the pre-P1-6 implementation. Kept as
+    // the startup path (worker still spawning) and the worker-crash path so
+    // `getInventory()` callers always see a fresh value after this returns.
+    this.resolveAndPublishSync(snapshot, priceLookupMap, excludeItemKeys);
+  }
+
+  /**
+   * Build the `Map<hash, InventoryPriceInfo>` payload shipped to the worker.
+   * Restricted to owned items' market hash names so we don't ship the entire
+   * price cache across IPC — typical inventory has tens of distinct hashes,
+   * the cache may have hundreds.
+   */
+  private buildOwnedPriceLookupMap(): Map<string, InventoryPriceInfo> {
+    const map = new Map<string, InventoryPriceInfo>();
+    if (!this.market) return map;
+    const ownedHashes = flattenOwnedHashes(this.currentOwnedPriceTargets());
+    for (const hash of ownedHashes) {
+      const info = this.priceLookup(hash);
+      if (info) map.set(hash, info);
+    }
+    return map;
+  }
+
+  /** Snapshot of stage-box itemKeys that the listing filter excludes from
+   *  rows + composition. Pre-computed per resolve so the worker receives a
+   *  flat array (callbacks don't survive IPC). */
+  private collectExcludedItemKeys(): number[] {
+    if (!this.gameData.isLoaded()) return [];
+    const keys: number[] = [];
+    for (const itemKey of this.gameData.asMap().keys()) {
+      if (this.excludeFromInventoryListing(itemKey)) keys.push(itemKey);
+    }
+    return keys;
+  }
+
+  private resolveAndPublishSync(
+    snapshot: InventorySnapshot,
+    priceLookupMap: Map<string, InventoryPriceInfo>,
+    excludeItemKeys: number[],
+  ): void {
+    try {
+      const resolved = this.worker.resolveSync(snapshot, priceLookupMap, excludeItemKeys);
+      this.publishResolved(resolved);
+    } catch (err) {
+      log.error(`resolveAndPushInventory (sync) failed: ${String(err)}`);
+    }
+  }
+
+  private publishResolved(resolved: ResolvedInventory): void {
+    if (!this.market) return;
+    const currency = this.market.status().currency;
+    resolved.currency = currency;
+    resolved.composition.currency = currency;
+    this.lastInventory = resolved;
+    broadcast(IPC.INVENTORY, resolved);
+    this.onInventoryUpdated?.(resolved);
   }
 
   async ensureOwnedPrices(force = false): Promise<void> {
@@ -297,8 +419,38 @@ export class InventoryService {
     void this.ensureOwnedPrices(queuedForce);
   }
 
-  getMarket(): SteamMarketProvider {
-    return this.market!;
+  getMarket(): SteamMarketProvider | null {
+    return this.market;
+  }
+
+  /**
+   * Empty `PriceStatus` used when `market` is not yet initialized (e.g. IPC
+   * handlers fire before `initMarket`). Keeps the public surface total —
+   * callers always get a well-typed response instead of a thrown error.
+   */
+  private emptyPriceStatus(currency: string): PriceStatus {
+    return {
+      currency,
+      count: 0,
+      ownedTargets: 0,
+      freshCount: 0,
+      staleCount: 0,
+      fetchedUtc: null,
+      running: false,
+    };
+  }
+
+  /** Empty `PriceRefreshResult` mirroring `queuePriceRefreshResult` but unqueued. */
+  private emptyRefreshResult(): PriceRefreshResult {
+    return {
+      ok: true,
+      priced: 0,
+      skipped: 0,
+      failed: 0,
+      stopped: "completed",
+      currency: "USD",
+      noop: true,
+    };
   }
 
   private priceLookup(name: string): InventoryPriceInfo | undefined {
