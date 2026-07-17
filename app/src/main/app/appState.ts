@@ -406,6 +406,16 @@ export function getAppServices() {
     },
     resolveClassifyPrompt: (payload: ClassifyPromptResolvePayload) =>
       autoClassify?.resolvePrompt(payload),
+    getAutoClassifyState: () =>
+      autoClassify?.getQueueSnapshot() ?? {
+        enabled: false,
+        totalQueued: 0,
+        byCategory: [
+          { category: "common", count: 0, nextAutoOpenInMs: null },
+          { category: "rare", count: 0, nextAutoOpenInMs: null },
+          { category: "act", count: 0, nextAutoOpenInMs: null },
+        ],
+      },
   };
 }
 

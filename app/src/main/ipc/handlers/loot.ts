@@ -56,6 +56,7 @@ export function registerLootHandlers(ipc: IpcMain, services: AppServices): void 
     if (typeof enabled !== "boolean") return;
     return services.setLootAutoClassifyEnabled(enabled);
   });
+  ipc.handle(IPC.LOOT_AUTO_CLASSIFY_STATE, () => services.getAutoClassifyState());
   ipc.on(IPC.LOOT_PROMPT_RESOLVE, (_e, payload: unknown) => {
     if (!isClassifyResolvePayload(payload)) return;
     services.resolveClassifyPrompt(payload);

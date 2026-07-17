@@ -1,4 +1,9 @@
-import type { BoxCategory, BoxOpenHistoryEntry, BoxTimerCatalogEntry } from "../../../shared/types";
+import type {
+  AutoClassifyStatePayload,
+  BoxCategory,
+  BoxOpenHistoryEntry,
+  BoxTimerCatalogEntry,
+} from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
 import type { ChestDropCategory, ChestDropTracker } from "../../core/chestDropTracker";
 import type { BoxOpenTracker } from "../../core/boxOpenTracker";
@@ -80,6 +85,28 @@ export class AutoClassifyService {
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /**
+   * Snapshot of the queue for renderer display. Grouped by BoxCategory with
+   * the head item's remaining auto-open time. Called via IPC at 1 Hz by the
+   * renderer when auto-classify is enabled.
+   */
+  getQueueSnapshot(): AutoClassifyStatePayload {
+    const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+    const now = Date.now();
+    const order: ReadonlyArray<BoxCategory> = ["common", "rare", "act"];
+    const byCategory = order.map((category) => {
+      const items = this.queue.filter((item) => categoryFromBoxKey(item.boxKey) === category);
+      const head = items[0];
+      let nextAutoOpenInMs: number | null = null;
+      if (head) {
+        const autoOpenSeconds = this.autoOpenForBoxKey(head.boxKey, autoOpen);
+        nextAutoOpenInMs = Math.max(0, head.droppedAtMs + autoOpenSeconds * 1000 - now);
+      }
+      return { category, count: items.length, nextAutoOpenInMs };
+    });
+    return { enabled: this.enabled, totalQueued: this.queue.length, byCategory };
   }
 
   /** Called by TrackingService when a chest drop is recorded. */

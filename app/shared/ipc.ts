@@ -58,6 +58,7 @@ export const IPC = {
   LOOT_RESET_ALL: "loot-reset-all",
   LOOT_RECLASSIFY_ITEM: "loot-reclassify-item",
   LOOT_AUTO_CLASSIFY_TOGGLE: "loot:auto-classify:toggle",
+  LOOT_AUTO_CLASSIFY_STATE: "loot:auto-classify:state",
   LOOT_PROMPT_CLASSIFY: "loot:prompt:classify",
   LOOT_PROMPT_RESOLVE: "loot:prompt:resolve",
 
@@ -117,6 +118,7 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.LOOT_RESET_ALL,
   IPC.LOOT_RECLASSIFY_ITEM,
   IPC.LOOT_AUTO_CLASSIFY_TOGGLE,
+  IPC.LOOT_AUTO_CLASSIFY_STATE,
 ] as const;
 
 export const IPC_SEND_CHANNELS = [

@@ -177,6 +177,22 @@ export interface ClassifyPromptResolvePayload {
   itemKeys: number[];
 }
 
+/** main → renderer: snapshot of the auto-classify queue, polled at 1 Hz by the renderer. */
+export interface AutoClassifyStatePayload {
+  enabled: boolean;
+  totalQueued: number;
+  byCategory: ReadonlyArray<{
+    category: BoxCategory;
+    count: number;
+    /**
+     * Remaining ms until the head item of this category auto-opens
+     * (`droppedAtMs + autoOpenSeconds*1000 - now`, clamped to >= 0).
+     * `null` when the category has no queued items.
+     */
+    nextAutoOpenInMs: number | null;
+  }>;
+}
+
 /** Raw entry from the live-memory BoxOpenLog tail. */
 export interface BoxOpenEntry {
   /** Produced item id (resolved from itemStringKey). */
@@ -1275,6 +1291,7 @@ export interface TbhApi {
   reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void>;
   // Auto-classify
   setLootAutoClassifyEnabled(enabled: boolean): Promise<void>;
+  getAutoClassifyState(): Promise<AutoClassifyStatePayload>;
   onClassifyPrompt(cb: (payload: ClassifyPromptPayload) => void): () => void;
   resolveClassifyPrompt(payload: ClassifyPromptResolvePayload): void;
 }

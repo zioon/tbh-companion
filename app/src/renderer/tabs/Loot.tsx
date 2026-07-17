@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { BoxCategory } from "../../../shared/types";
 import { useLoot } from "../lib/useLoot";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
@@ -10,6 +11,25 @@ import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LootBoxSection } from "../components/loot/LootBoxSection";
 import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 
+const CATEGORY_LABELS: Record<BoxCategory, string> = {
+  common: "Common",
+  rare: "Stage boss",
+  act: "Act boss",
+  unclassified: "Unclassified",
+};
+
+function categoryLabel(category: BoxCategory): string {
+  return CATEGORY_LABELS[category] ?? category;
+}
+
+/** Format ms as m:ss, clamping negatives to 0. */
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export function Loot() {
   const {
     boxOpens,
@@ -20,6 +40,7 @@ export function Loot() {
     reclassifyItem,
     autoClassifyEnabled,
     setAutoClassifyEnabled,
+    autoClassifyState,
     classifyPrompt,
     resolveClassifyPrompt,
     dismissClassifyPrompt,
@@ -32,7 +53,21 @@ export function Loot() {
         title="Loot"
         intro="Live box-opening outcomes, aggregated by chest type and level."
       />
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {autoClassifyEnabled && (
+          <div className="flex items-center gap-3 rounded border border-border bg-panel px-3 py-1.5 text-xs">
+            <span className="font-medium text-text">Queue: {autoClassifyState.totalQueued}</span>
+            {autoClassifyState.byCategory.map((row) => (
+              <span key={row.category} className="text-muted">
+                <span className="font-medium text-text">{row.count}</span>{" "}
+                {categoryLabel(row.category)}
+                {row.nextAutoOpenInMs != null && (
+                  <span className="ml-1 text-muted">({formatCountdown(row.nextAutoOpenInMs)})</span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
         <label className="flex items-center gap-2 text-xs text-muted">
           <Switch
             checked={autoClassifyEnabled}

@@ -196,3 +196,85 @@ describe("AutoClassifyService", () => {
     expect(() => service.tick()).not.toThrow();
   });
 });
+
+describe("AutoClassifyService.getQueueSnapshot", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns empty snapshot when queue is empty", () => {
+    const { service } = makeService({ enabled: true, catalog: CATALOG, currentStageKey: 1105 });
+    const snap = service.getQueueSnapshot();
+    expect(snap.enabled).toBe(true);
+    expect(snap.totalQueued).toBe(0);
+    expect(snap.byCategory).toHaveLength(3);
+    for (const row of snap.byCategory) {
+      expect(row.count).toBe(0);
+      expect(row.nextAutoOpenInMs).toBeNull();
+    }
+  });
+
+  it("returns disabled flag when service is disabled", () => {
+    const { service } = makeService({ enabled: false, catalog: CATALOG, currentStageKey: 1105 });
+    expect(service.getQueueSnapshot().enabled).toBe(false);
+  });
+
+  it("groups queued drops by category with head countdown", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop two rare chests (stageKey 1105 → level 5 → boxKey "rare:5")
+    // at wallTime 1.0s and 2.0s.
+    chestDropTracker.recordLiveChestDrop("rare", 1.0);
+    chestDropTracker.recordLiveChestDrop("rare", 2.0);
+
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(2);
+    const rare = snap.byCategory.find((r) => r.category === "rare");
+    expect(rare?.count).toBe(2);
+    // Head dropped at 1000ms; autoOpen=600s → autoOpenAt=601000ms; now=10000
+    // → remaining = 591000ms
+    expect(rare?.nextAutoOpenInMs).toBe(591_000);
+    const common = snap.byCategory.find((r) => r.category === "common");
+    expect(common?.count).toBe(0);
+    expect(common?.nextAutoOpenInMs).toBeNull();
+  });
+
+  it("clamps negative countdown to 0", () => {
+    // Drop a common chest, then advance system time past autoOpen.
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // droppedAtMs=1000
+    // Advance to well past 301s (droppedAtMs + 300s autoOpen).
+    vi.setSystemTime(FIXED_NOW_MS + 400_000);
+    const snap = service.getQueueSnapshot();
+    const common = snap.byCategory.find((r) => r.category === "common");
+    expect(common?.count).toBe(1);
+    expect(common?.nextAutoOpenInMs).toBe(0);
+  });
+
+  it("uses fallback auto-open seconds when ChestService returns null", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: null, // triggers FALLBACK_AUTO_OPEN
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("rare", 1.0); // fallback stageBoss=600s
+    const snap = service.getQueueSnapshot();
+    const rare = snap.byCategory.find((r) => r.category === "rare");
+    // droppedAtMs=1000 + 600*1000 - 10000 = 591000
+    expect(rare?.nextAutoOpenInMs).toBe(591_000);
+  });
+});

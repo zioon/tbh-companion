@@ -1,6 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStats } from "./useStats";
-import type { BoxCategory, BoxOpenStats, ClassifyPromptPayload } from "../../../shared/types";
+import type {
+  AutoClassifyStatePayload,
+  BoxCategory,
+  BoxOpenStats,
+  ClassifyPromptPayload,
+} from "../../../shared/types";
+
+const EMPTY_STATE: AutoClassifyStatePayload = {
+  enabled: false,
+  totalQueued: 0,
+  byCategory: [
+    { category: "common", count: 0, nextAutoOpenInMs: null },
+    { category: "rare", count: 0, nextAutoOpenInMs: null },
+    { category: "act", count: 0, nextAutoOpenInMs: null },
+  ],
+};
 
 export function useLoot(): {
   boxOpens: BoxOpenStats[];
@@ -12,6 +27,7 @@ export function useLoot(): {
   reclassifyItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) => Promise<void>;
   autoClassifyEnabled: boolean;
   setAutoClassifyEnabled: (enabled: boolean) => Promise<void>;
+  autoClassifyState: AutoClassifyStatePayload;
   classifyPrompt: ClassifyPromptPayload | null;
   resolveClassifyPrompt: (category: BoxCategory) => void;
   dismissClassifyPrompt: () => void;
@@ -25,6 +41,8 @@ export function useLoot(): {
 
   const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState<boolean>(false);
   const [classifyPrompt, setClassifyPrompt] = useState<ClassifyPromptPayload | null>(null);
+  const [autoClassifyState, setAutoClassifyState] = useState<AutoClassifyStatePayload>(EMPTY_STATE);
+  const stateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Load initial auto-classify setting from config.
   useEffect(() => {
@@ -37,6 +55,34 @@ export function useLoot(): {
   useEffect(() => {
     return window.tbh.onClassifyPrompt((payload) => setClassifyPrompt(payload));
   }, []);
+
+  // Poll the auto-classify queue state at 1 Hz while enabled; stop when disabled.
+  useEffect(() => {
+    if (!autoClassifyEnabled) {
+      setAutoClassifyState(EMPTY_STATE);
+      if (stateTimerRef.current) {
+        clearInterval(stateTimerRef.current);
+        stateTimerRef.current = null;
+      }
+      return;
+    }
+    // Fetch immediately on enable, then every second.
+    let cancelled = false;
+    const tick = (): void => {
+      void window.tbh.getAutoClassifyState().then((s) => {
+        if (!cancelled) setAutoClassifyState(s);
+      });
+    };
+    tick();
+    stateTimerRef.current = setInterval(tick, 1000);
+    return () => {
+      cancelled = true;
+      if (stateTimerRef.current) {
+        clearInterval(stateTimerRef.current);
+        stateTimerRef.current = null;
+      }
+    };
+  }, [autoClassifyEnabled]);
 
   const resetBox = useCallback((boxKey: string) => window.tbh.resetLootBox(boxKey), []);
   const resetAll = useCallback(() => window.tbh.resetLootAll(), []);
@@ -73,6 +119,7 @@ export function useLoot(): {
     reclassifyItem,
     autoClassifyEnabled,
     setAutoClassifyEnabled,
+    autoClassifyState,
     classifyPrompt,
     resolveClassifyPrompt,
     dismissClassifyPrompt,

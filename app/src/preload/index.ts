@@ -4,6 +4,7 @@ import type {
   AppDataClearTarget,
   AppDataPaths,
   AppConfig,
+  AutoClassifyStatePayload,
   BoxTimerState,
   ChestState,
   ClassifyPromptPayload,
@@ -242,6 +243,9 @@ const api: TbhApi = {
   },
   setLootAutoClassifyEnabled(enabled: boolean): Promise<void> {
     return ipcRenderer.invoke(IPC.LOOT_AUTO_CLASSIFY_TOGGLE, enabled);
+  },
+  getAutoClassifyState(): Promise<AutoClassifyStatePayload> {
+    return ipcRenderer.invoke(IPC.LOOT_AUTO_CLASSIFY_STATE);
   },
   onClassifyPrompt(cb: (payload: ClassifyPromptPayload) => void): () => void {
     const listener = (_e: unknown, payload: ClassifyPromptPayload): void => cb(payload);
