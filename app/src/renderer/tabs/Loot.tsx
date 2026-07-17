@@ -12,6 +12,7 @@ import { LootBoxSection } from "../components/loot/LootBoxSection";
 import { LootRecentDrops } from "../components/loot/LootRecentDrops";
 import { LootQueueList } from "../components/loot/LootQueueList";
 import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
+import { useTbhContext } from "../context/tbhContext";
 
 const CATEGORY_LABELS: Record<BoxCategory, string> = {
   common: "Common",
@@ -48,6 +49,7 @@ export function Loot() {
     resolveClassifyPrompt,
     dismissClassifyPrompt,
   } = useLoot();
+  const { catalogStatus } = useTbhContext();
   const [confirmingAll, setConfirmingAll] = useState(false);
 
   return (
@@ -56,6 +58,12 @@ export function Loot() {
         title="Loot"
         intro="Live box-opening outcomes, aggregated by chest type and level."
       />
+      {catalogStatus?.stale && (
+        <HintBanner>
+          Item catalog may be outdated (catalog v{catalogStatus.catalogVersion}, game v
+          {catalogStatus.gameVersion}). Open the Settings tab to refresh.
+        </HintBanner>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-3">
         {autoClassifyEnabled && (
           <div className="flex items-center gap-3 rounded border border-border bg-panel px-3 py-1.5 text-xs">
