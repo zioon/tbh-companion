@@ -26,12 +26,34 @@ export interface QueueItem {
   stageKey: number;
   expiresAtMs: number;
   /**
-   * Wall-clock ms when this chest is expected to auto-open
-   * (`droppedAtMs + autoOpenSeconds * 1000`). The queue is kept sorted by
-   * this field ascending so the head is always the next chest to open —
-   * `dequeue` consumes the soonest-opening chest first, not the oldest drop.
+   * Effective auto-open cooldown (ms) for this chest's boxKey. Stored on the
+   * item so `dequeue` / reconcile can recompute the next head's auto-open
+   * time without re-resolving the category mapping.
    */
-  autoOpenAtMs: number;
+  autoOpenSeconds: number;
+  /**
+   * Serial queueing key (typically the chest category: "common" / "rare" /
+   * "act"). Chests sharing a `serialKey` queue serially — the game opens one
+   * chest slot at a time per category, so the second chest's auto-open timer
+   * only starts after the first chest is actually opened.
+   */
+  serialKey: string;
+  /**
+   * Wall-clock ms when this chest is expected to auto-open, OR `null` when
+   * the chest is waiting behind another chest of the same `serialKey`.
+   *
+   * The game opens chest slots serially per category: the second chest's
+   * auto-open timer only starts after the first chest is actually opened
+   * (not when it was dropped). So only the head of each `serialKey` chain
+   * has a concrete `autoOpenAtMs = droppedAtMs + autoOpenSeconds * 1000`;
+   * non-head items have `null` and receive a concrete value when their
+   * predecessor is consumed (via `dequeue` or reconcile prune).
+   *
+   * The queue is kept sorted with active (non-null) heads first by
+   * `autoOpenAtMs` ascending, then waiting (null) items by `droppedAtMs`
+   * ascending within their `serialKey` chain.
+   */
+  autoOpenAtMs: number | null;
 }
 
 /** Input for {@link enqueue}; TTL is derived from `autoOpenSeconds`. */
@@ -40,55 +62,86 @@ export interface EnqueueInput {
   droppedAtMs: number;
   stageKey: number;
   autoOpenSeconds: number;
+  /**
+   * Serial queueing key (typically the chest category). Chests sharing this
+   * key queue serially; chests with different keys queue in parallel.
+   */
+  serialKey: string;
 }
 
 /**
- * Insert a new item in `autoOpenAtMs` ascending order. Keeping the queue
- * sorted on insert means `dequeue` can still pop from the head — but now
- * the head is the soonest-opening chest, not the oldest drop. This matches
- * the game's behavior: a chest dropped later with a shorter auto-open
+ * Insert a new item, keeping the queue sorted so the head is the next chest
+ * to open. Sorting is by `autoOpenAtMs` ascending among active (non-null)
+ * heads first, then waiting (null) items by `droppedAtMs` ascending. This
+ * matches the game's behavior: a chest dropped later with a shorter auto-open
  * cooldown will open before an earlier drop with a longer cooldown.
  *
- * Multiple chests of the same `boxKey` are queued serially: the game opens
- * one chest slot at a time per boxKey (auto-open doesn't fire two chests of
- * the same type simultaneously), so the second chest's actual open time is
- * `previousSameBoxKeyAutoOpenAtMs + autoOpenSeconds`, not
- * `droppedAtMs + autoOpenSeconds`. Without this, a burst of same-boxKey
- * drops (e.g. three common chests within a minute) would all compute the
- * same `autoOpenAtMs`, breaking the dequeue order and over-counting when
+ * Multiple chests sharing the same `serialKey` are queued serially: the game
+ * opens one chest slot at a time per category (common / rare / act), so the
+ * second chest's auto-open timer only starts after the first chest is
+ * actually opened. We model this by giving only the head of each `serialKey`
+ * chain a concrete `autoOpenAtMs`; non-head items get `null` (waiting) and
+ * receive a concrete value when their predecessor is consumed (via `dequeue`
+ * or reconcile prune). Without this, a burst of same-category drops (e.g.
+ * three common chests of different levels within a minute) would all compute
+ * the same `autoOpenAtMs`, breaking the dequeue order and over-counting when
  * reconciling against slots.
  */
 export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   const ttlMs = computeTtlMs(input.autoOpenSeconds);
-  // Find the latest same-boxKey entry already queued — the new chest opens
-  // strictly after it (one auto-open cycle later). If none exists, the chest
-  // opens `autoOpenSeconds` after its own drop time.
-  let prevSameBoxKeyAutoOpenAtMs: number | null = null;
-  for (const existing of queue) {
-    if (
-      existing.boxKey === input.boxKey &&
-      existing.autoOpenAtMs > (prevSameBoxKeyAutoOpenAtMs ?? 0)
-    ) {
-      prevSameBoxKeyAutoOpenAtMs = existing.autoOpenAtMs;
-    }
-  }
-  const autoOpenAtMs =
-    prevSameBoxKeyAutoOpenAtMs != null
-      ? prevSameBoxKeyAutoOpenAtMs + input.autoOpenSeconds * 1000
-      : input.droppedAtMs + input.autoOpenSeconds * 1000;
+  // If another chest of the same serialKey is already queued, the new chest
+  // must wait behind it — its auto-open timer starts only when its
+  // predecessor is actually opened. We mark it as waiting (null) here; the
+  // predecessor's consumer (dequeue / reconcile) will assign a concrete
+  // `autoOpenAtMs` when that happens. If no same-serialKey entry exists,
+  // this chest is the head of its chain and opens `autoOpenSeconds` after
+  // drop.
+  const tailSameSerial = queue
+    .filter((q) => q.serialKey === input.serialKey)
+    .reduce<QueueItem | null>(
+      (latest, q) => (q.expiresAtMs > (latest?.expiresAtMs ?? 0) ? q : latest),
+      null,
+    );
+  const isHead = tailSameSerial == null;
+  const autoOpenAtMs: number | null = isHead
+    ? input.droppedAtMs + input.autoOpenSeconds * 1000
+    : null;
+  // TTL is anchored to the auto-open time (when the chest's timer actually
+  // starts), not the drop time — this keeps the queue entry alive for one
+  // full auto-open cycle plus buffer after the chest's auto-open fires.
+  // For the head, autoOpenAtMs is known now, so expiresAtMs is concrete.
+  // For waiting items, autoOpenAtMs is null (timer hasn't started), so we
+  // chain expiresAtMs off the tail's expiresAtMs — the waiting chest expires
+  // one full auto-open cycle after the tail's expiry, modeling serial
+  // per-slot auto-open. `promoteNextHead` recomputes `expiresAtMs` from the
+  // concrete `autoOpenAtMs` once the predecessor is consumed (the chain may
+  // shorten if promote fires earlier than expected).
+  const expiresAtMs = isHead
+    ? autoOpenAtMs! + ttlMs
+    : tailSameSerial!.expiresAtMs + input.autoOpenSeconds * 1000;
   const item: QueueItem = {
     boxKey: input.boxKey,
     droppedAtMs: input.droppedAtMs,
     stageKey: input.stageKey,
-    expiresAtMs: input.droppedAtMs + ttlMs,
+    expiresAtMs,
+    autoOpenSeconds: input.autoOpenSeconds,
+    serialKey: input.serialKey,
     autoOpenAtMs,
   };
-  // Find the first item whose autoOpenAtMs is strictly greater than the new
-  // item's — insert before it to keep ascending order. Items with equal
-  // autoOpenAtMs keep their existing relative order (stable insertion).
+  return insertSorted(queue, item);
+}
+
+/**
+ * Insert `item` into `queue` keeping the sort order:
+ *   1. active (autoOpenAtMs != null) items by autoOpenAtMs ascending
+ *   2. waiting (autoOpenAtMs == null) items by droppedAtMs ascending
+ * Stable: equal-key items keep their existing relative order.
+ */
+function insertSorted(queue: QueueItem[], item: QueueItem): QueueItem[] {
+  const key = sortKey(item);
   let insertIdx = queue.length;
   for (let i = 0; i < queue.length; i++) {
-    if (queue[i]!.autoOpenAtMs > autoOpenAtMs) {
+    if (compareItems(queue[i]!, item, key) > 0) {
       insertIdx = i;
       break;
     }
@@ -96,10 +149,54 @@ export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   return [...queue.slice(0, insertIdx), item, ...queue.slice(insertIdx)];
 }
 
+/** Sort key for an item: active items use autoOpenAtMs, waiting use Infinity. */
+function sortKey(item: QueueItem): number {
+  return item.autoOpenAtMs ?? Number.POSITIVE_INFINITY;
+}
+
+/** Comparator using precomputed `key` for the new item. */
+function compareItems(a: QueueItem, b: QueueItem, bKey: number): number {
+  const aKey = sortKey(a);
+  if (aKey !== bKey) return aKey - bKey;
+  // Same active/waiting tier — break ties by droppedAtMs (FIFO within chain).
+  return a.droppedAtMs - b.droppedAtMs;
+}
+
+/**
+ * Promote the next waiting item of `serialKey` to active head: assign it a
+ * concrete `autoOpenAtMs = nowMs + autoOpenSeconds * 1000`. Called by
+ * `dequeue` and `reconcileWithChestSlots` after a head is consumed. If no
+ * waiting item exists for `serialKey`, the queue is unchanged.
+ */
+export function promoteNextHead(queue: QueueItem[], serialKey: string, nowMs: number): QueueItem[] {
+  const nextIdx = queue.findIndex((q) => q.serialKey === serialKey);
+  if (nextIdx < 0) return queue;
+  const next = queue[nextIdx]!;
+  if (next.autoOpenAtMs != null) return queue; // already active
+  const newAutoOpenAtMs = nowMs + next.autoOpenSeconds * 1000;
+  // Recompute expiresAtMs from the new autoOpenAtMs so the TTL covers one
+  // full auto-open cycle plus buffer starting from when the chest's timer
+  // actually starts (now), not from its original drop time.
+  const ttlMs = computeTtlMs(next.autoOpenSeconds);
+  const promoted: QueueItem = {
+    ...next,
+    autoOpenAtMs: newAutoOpenAtMs,
+    expiresAtMs: newAutoOpenAtMs + ttlMs,
+  };
+  // Re-insert to maintain sort order (autoOpenAtMs changed from Infinity to
+  // a concrete value, so the item likely moves toward the head).
+  const without = [...queue.slice(0, nextIdx), ...queue.slice(nextIdx + 1)];
+  return insertSorted(without, promoted);
+}
+
 /**
  * Pop the first live (non-expired) item from the head. Expired items skipped
- * during the pop are dropped. Returns `{ item: null, queue: [] }` when no live
- * items remain.
+ * during the pop are dropped. After consuming a head, the next waiting item
+ * of the same `serialKey` (if any) is promoted to active head with
+ * `autoOpenAtMs = nowMs + autoOpenSeconds * 1000` — this models the game's
+ * serial per-slot auto-open: the second chest's timer starts when the first
+ * chest is actually opened (i.e. now). Returns `{ item: null, queue: [] }`
+ * when no live items remain.
  */
 export function dequeue(
   queue: QueueItem[],
@@ -109,7 +206,8 @@ export function dequeue(
   while (remaining.length > 0) {
     const head = remaining.shift()!;
     if (head.expiresAtMs > nowMs) {
-      return { queue: remaining, item: head };
+      const promoted = promoteNextHead(remaining, head.serialKey, nowMs);
+      return { queue: promoted, item: head };
     }
   }
   return { queue: [], item: null };

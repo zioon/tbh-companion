@@ -14,6 +14,7 @@ import {
   dequeue,
   enqueue,
   groupBoxOpenEvents,
+  promoteNextHead,
   pruneExpired,
   type QueueItem,
 } from "../../core/boxOpenAutoClassify";
@@ -95,32 +96,34 @@ export class AutoClassifyService {
    * auto-classify is enabled.
    */
   getQueueSnapshot(): AutoClassifyStatePayload {
-    const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
     const now = Date.now();
-    const order: ReadonlyArray<BoxCategory> = ["common", "rare", "act"];
+    const order = ["common", "rare", "act"] as const;
     const byCategory = order.map((category) => {
       const items = this.queue.filter((item) => categoryFromBoxKey(item.boxKey) === category);
       const head = items[0];
       let nextAutoOpenInMs: number | null = null;
-      if (head) {
-        const autoOpenSeconds = this.autoOpenForBoxKey(head.boxKey, autoOpen);
-        nextAutoOpenInMs = Math.max(0, head.droppedAtMs + autoOpenSeconds * 1000 - now);
+      if (head?.autoOpenAtMs != null) {
+        nextAutoOpenInMs = Math.max(0, head.autoOpenAtMs - now);
       }
       return { category, count: items.length, nextAutoOpenInMs };
     });
     const items: AutoClassifyQueueItem[] = this.queue.map((q) => {
-      const autoOpenSeconds = this.autoOpenForBoxKey(q.boxKey, autoOpen);
       // Queue items are only ever enqueued with valid category boxKeys (see
       // resolveDropBoxKey), so categoryFromBoxKey won't return null here in
       // practice — but it returns `BoxCategory | null` at the type level, so
       // fall back to "unclassified" to satisfy the non-null item shape.
       const category = categoryFromBoxKey(q.boxKey) ?? "unclassified";
+      // autoOpenAtMs is null when this chest is waiting behind another chest
+      // of the same boxKey (serial per-slot auto-open). In that case the
+      // renderer shows "waiting" instead of a countdown.
+      const autoOpenInMs: number | null =
+        q.autoOpenAtMs != null ? Math.max(0, q.autoOpenAtMs - now) : null;
       return {
         boxKey: q.boxKey,
         category,
         droppedAtMs: q.droppedAtMs,
         stageKey: q.stageKey,
-        autoOpenInMs: Math.max(0, q.droppedAtMs + autoOpenSeconds * 1000 - now),
+        autoOpenInMs,
         expiresInMs: Math.max(0, q.expiresAtMs - now),
       };
     });
@@ -146,6 +149,11 @@ export class AutoClassifyService {
       droppedAtMs: event.wallTime * 1000,
       stageKey,
       autoOpenSeconds: this.autoOpenForBoxKey(boxKey, autoOpen),
+      // Serial queueing is per-category (common / rare / act): the game opens
+      // one chest slot at a time per category regardless of level, so chests
+      // of the same category queue serially while different categories run
+      // in parallel. event.category is already the canonical serialKey.
+      serialKey: event.category,
     });
     log.info(`queued drop boxKey=${boxKey} stageKey=${stageKey} queueLen=${this.queue.length}`);
   }
@@ -182,6 +190,7 @@ export class AutoClassifyService {
   reconcileWithChestSlots(slots: { common: number; rare: number; act: number }): void {
     if (!this.enabled) return;
     const order = ["common", "rare", "act"] as const;
+    const now = Date.now();
     let prunedTotal = 0;
     for (const category of order) {
       const slotCount = slots[category];
@@ -197,12 +206,21 @@ export class AutoClassifyService {
         continue;
       }
       const excess = queueCount - slotCount;
-      // Queue is already sorted by autoOpenAtMs ascending (see enqueue), so
-      // matching items in array order are the soonest-opening ones. Prune the
-      // first `excess` of them — those should have opened already.
+      // Queue is sorted with active heads first (by autoOpenAtMs ascending),
+      // then waiting (null) items by droppedAtMs ascending. The first
+      // `excess` matching items in array order are the ones that should have
+      // opened already (they're either the active head or a waiting item
+      // whose predecessor was among the pruned). Prune them.
       const toRemove = new Set(matching.slice(0, excess));
       this.queue = this.queue.filter((q) => !toRemove.has(q));
       prunedTotal += excess;
+      // After pruning, the next waiting item of this category (if any) must
+      // be promoted to active head — its timer starts now, modeling the
+      // serial per-slot auto-open. Serial queueing is per-category, so a
+      // single promote call covers all chests of this category regardless of
+      // their boxKey levels. `now` is used as an upper bound (the pruned
+      // chests opened at or before now).
+      this.queue = promoteNextHead(this.queue, category, now);
       log.info(
         `reconcile: pruned ${excess} excess ${category} item(s) ` +
           `(queue ${queueCount} > slots ${slotCount})`,
@@ -280,11 +298,18 @@ export class AutoClassifyService {
     event: { category: ChestDropCategory; itemKey?: number },
     stageKey: number,
   ): string | null {
-    // ChestDropCategory is "common" | "rare" | "act". Level comes from the
-    // stage catalog; falls back to category-only when no match. Act boss
-    // chests have no level (single per-act drop), so they stay category-only.
+    // ChestDropCategory is "common" | "rare" | "act". For common and rare,
+    // level comes from the stage-box catalog (the highest-level entry whose
+    // farmStageOptions includes stageKey). For act bosses, the catalog has no
+    // tracker routes (LEGENDARY grade is excluded from trackerRoutes), so we
+    // derive the level from the stage key's act field — each act's boss
+    // chest queues serially per-act (the game opens one act-boss slot at a
+    // time per act), while different acts run independently.
     const cat: BoxCategory = event.category;
-    if (cat === "act") return "act";
+    if (cat === "act") {
+      const actNum = Math.floor(stageKey / 100) % 10;
+      return actNum > 0 ? `act:${actNum}` : "act";
+    }
     const level = this.levelForStage(stageKey);
     return level != null ? `${cat}:${level}` : cat;
   }

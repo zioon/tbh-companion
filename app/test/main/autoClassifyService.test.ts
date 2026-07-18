@@ -138,21 +138,21 @@ describe("AutoClassifyService", () => {
     expect(snap.items[0]?.boxKey).toBe("rare:5");
   });
 
-  it("queues act boss drops as category-only boxKey and matches unclassified opens", () => {
+  it("queues act boss drops with per-act level boxKey and matches unclassified opens", () => {
     const { chestDropTracker, boxOpenTracker, broadcasts } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
-      currentStageKey: 1105,
+      currentStageKey: 1105, // Normal 1-5 → act 1
     });
-    // Drop an act boss chest → queue item with boxKey "act" (no level)
+    // Drop an act boss chest → queue item with boxKey "act:1" (per-act level)
     chestDropTracker.recordLiveChestDrop("act", 1.0);
     // Open it (lands in unclassified)
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
     boxOpenTracker.flushUnclassified();
-    // The item should have been reclassified to "act" (category-only, no level)
+    // The item should have been reclassified to "act:1"
     const stats = boxOpenTracker.getStats(100, null);
-    expect(stats.find((s) => s.boxKey === "act")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "act:1")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     // No prompt should have been broadcast (FIFO matched)
     expect(broadcasts.filter((b) => b.channel === "loot:prompt:classify")).toHaveLength(0);
@@ -359,11 +359,14 @@ describe("AutoClassifyService.getQueueSnapshot", () => {
 
     const snap = service.getQueueSnapshot();
     expect(snap.items).toHaveLength(3);
-    // Sorted by autoOpenAtMs ascending: act (63000), common (302000), rare (601000).
-    expect(snap.items.map((i) => i.boxKey)).toEqual(["act", "common:5", "rare:5"]);
-    // autoOpenInMs must also be ascending (it's autoOpenAtMs - now).
+    // Sorted by autoOpenAtMs ascending: act:1 (63000), common:5 (302000), rare:5 (601000).
+    expect(snap.items.map((i) => i.boxKey)).toEqual(["act:1", "common:5", "rare:5"]);
+    // autoOpenInMs must also be ascending (it's autoOpenAtMs - now). All three
+    // are heads of distinct boxKeys, so none are waiting (null).
     for (let i = 1; i < snap.items.length; i++) {
-      expect(snap.items[i]!.autoOpenInMs).toBeGreaterThanOrEqual(snap.items[i - 1]!.autoOpenInMs);
+      expect(snap.items[i]!.autoOpenInMs).not.toBeNull();
+      expect(snap.items[i - 1]!.autoOpenInMs).not.toBeNull();
+      expect(snap.items[i]!.autoOpenInMs!).toBeGreaterThanOrEqual(snap.items[i - 1]!.autoOpenInMs!);
     }
 
     // Verify the act item's fields.
@@ -372,10 +375,11 @@ describe("AutoClassifyService.getQueueSnapshot", () => {
     expect(snap.items[0]!.stageKey).toBe(1105);
     // act: 3000 + 60*1000 - 10000 = 53000
     expect(snap.items[0]!.autoOpenInMs).toBe(53_000);
-    // expiresInMs = expiresAtMs - now = (droppedAtMs + ttlMs) - now
-    // ttlMs = max(60*2*1000, 60000) + 30000 = 150000
-    // expiresAtMs = 3000 + 150000 = 153000; - 10000 = 143000
-    expect(snap.items[0]!.expiresInMs).toBe(143_000);
+    // expiresInMs = expiresAtMs - now. TTL is anchored to autoOpenAtMs:
+    //   autoOpenAtMs = 3000 + 60*1000 = 63000
+    //   ttlMs = max(60*2*1000, 60000) + 30000 = 150000
+    //   expiresAtMs = 63000 + 150000 = 213000; - 10000 (now) = 203000
+    expect(snap.items[0]!.expiresInMs).toBe(203_000);
   });
 
   it("clamps per-item countdowns to 0 when expired", () => {
