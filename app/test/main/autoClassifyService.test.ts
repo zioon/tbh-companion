@@ -81,32 +81,42 @@ const CATALOG: BoxTimerCatalogEntry[] = [
 ];
 
 // Mock LEGENDARY act boss tracker routes mirroring data/stage_boxes.json.
-// Lv1 ← 1109 (Normal 1-9), Lv20 ← 1209 (Normal 2-9), Lv60 ← 2109 (Nightmare 1-9).
+// Act bosses drop on stage 10 of each act's final stage (not stage 9).
+// Lv1 ← 1110 (Normal 1-10), Lv20 ← 1210 (Normal 2-10), Lv60 ← 3110 (Hell 1-10),
+// Lv90 ← 4210/4310 (Torment 2-10 / 3-10).
 // Used by AutoClassifyService.actBossLevelForStage to infer act chest level.
 const ACT_BOSS_ROUTES: StageBoxTrackerRoute[] = [
   {
     boxId: 930101,
     level: 1,
-    idealStageKey: 1109,
-    idealStageLabel: "Normal 1-9",
-    dropStageKeys: [1109],
-    dropStageRangeLabel: "Normal 1-9",
+    idealStageKey: 1110,
+    idealStageLabel: "Normal 1-10",
+    dropStageKeys: [1110],
+    dropStageRangeLabel: "Normal 1-10",
   },
   {
     boxId: 930201,
     level: 20,
-    idealStageKey: 1209,
-    idealStageLabel: "Normal 2-9",
-    dropStageKeys: [1209],
-    dropStageRangeLabel: "Normal 2-9",
+    idealStageKey: 1210,
+    idealStageLabel: "Normal 2-10",
+    dropStageKeys: [1210],
+    dropStageRangeLabel: "Normal 2-10",
   },
   {
     boxId: 930601,
     level: 60,
-    idealStageKey: 2109,
-    idealStageLabel: "Nightmare 1-9",
-    dropStageKeys: [2109],
-    dropStageRangeLabel: "Nightmare 1-9",
+    idealStageKey: 3110,
+    idealStageLabel: "Hell 1-10",
+    dropStageKeys: [3110],
+    dropStageRangeLabel: "Hell 1-10",
+  },
+  {
+    boxId: 930901,
+    level: 90,
+    idealStageKey: 4210,
+    idealStageLabel: "Torment 2-10",
+    dropStageKeys: [4210, 4310],
+    dropStageRangeLabel: "Torment 2-10 · Torment 3-10",
   },
 ];
 
@@ -176,9 +186,8 @@ describe("AutoClassifyService", () => {
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
-      // stageKey 1105 is not in any route's dropStageKeys, so act boss level
-      // falls back to the lowest route level (1) → boxKey "act:1".
-      currentStageKey: 1105,
+      // stageKey 1110 (Normal 1-10) → matches Lv1 route → boxKey "act:1".
+      currentStageKey: 1110,
     });
     // Drop an act boss chest → queue item with boxKey "act:1" (per-act level)
     chestDropTracker.recordLiveChestDrop("act", 1.0);
@@ -194,12 +203,12 @@ describe("AutoClassifyService", () => {
   });
 
   it("resolves act boss level from LEGENDARY catalog dropStageKeys", () => {
-    // stageKey 1209 (Normal 2-9) → matches Lv20 route → boxKey "act:20".
+    // stageKey 1210 (Normal 2-10) → matches Lv20 route → boxKey "act:20".
     const { chestDropTracker, boxOpenTracker } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
-      currentStageKey: 1209,
+      currentStageKey: 1210,
     });
     chestDropTracker.recordLiveChestDrop("act", 1.0);
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
@@ -209,17 +218,30 @@ describe("AutoClassifyService", () => {
     expect(stats.find((s) => s.boxKey === "act:1")).toBeFalsy();
   });
 
-  it("resolves act boss level for Nightmare stages (Lv60)", () => {
-    // stageKey 2109 (Nightmare 1-9) → matches Lv60 route → boxKey "act:60".
+  it("resolves act boss level for Hell stages (Lv60)", () => {
+    // stageKey 3110 (Hell 1-10) → matches Lv60 route → boxKey "act:60".
     const { service, chestDropTracker } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
-      currentStageKey: 2109,
+      currentStageKey: 3110,
     });
     chestDropTracker.recordLiveChestDrop("act", 1.0);
     const snap = service.getQueueSnapshot();
     expect(snap.items[0]?.boxKey).toBe("act:60");
+  });
+
+  it("resolves act boss level for Torment 3-10 (Lv90, shared with Torment 2-10)", () => {
+    // stageKey 4310 (Torment 3-10) → matches Lv90 route → boxKey "act:90".
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 4310,
+    });
+    chestDropTracker.recordLiveChestDrop("act", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]?.boxKey).toBe("act:90");
   });
 
   it("falls back to category-only boxKey when act boss routes are empty", () => {
@@ -228,7 +250,7 @@ describe("AutoClassifyService", () => {
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
       actBossRoutes: [], // no routes → actBossLevelForStage returns null
-      currentStageKey: 1109,
+      currentStageKey: 1110,
     });
     chestDropTracker.recordLiveChestDrop("act", 1.0);
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);

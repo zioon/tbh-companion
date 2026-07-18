@@ -65,11 +65,19 @@ describe("loadActBossTrackerRoutes", () => {
     expect(actRoutes.every((r) => !rareIds.has(r.boxId))).toBe(true);
   });
 
-  it("maps Normal 1-9 (1109) to Lv1 act boss route", () => {
+  it("maps Normal 1-10 (1110) to Lv1 act boss route", () => {
     const routes = loadActBossTrackerRoutes();
     const lv1 = routes.find((r) => r.level === 1);
     expect(lv1).toBeTruthy();
-    expect(lv1?.dropStageKeys).toContain(1109);
+    expect(lv1?.dropStageKeys).toContain(1110);
+  });
+
+  it("maps Torment 3-10 (4310) to Lv90 act boss route", () => {
+    const routes = loadActBossTrackerRoutes();
+    const lv90 = routes.find((r) => r.level === 90);
+    expect(lv90).toBeTruthy();
+    expect(lv90?.dropStageKeys).toContain(4310);
+    expect(lv90?.dropStageKeys).toContain(4210);
   });
 });
 

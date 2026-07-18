@@ -659,9 +659,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 1109,
-        "dropStageKeys": [1109],
-        "dropStageRangeLabel": "Normal 1-9"
+        "idealStageKey": 1110,
+        "dropStageKeys": [1110],
+        "dropStageRangeLabel": "Normal 1-10"
       }
     },
     {
@@ -674,9 +674,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 1209,
-        "dropStageKeys": [1209],
-        "dropStageRangeLabel": "Normal 2-9"
+        "idealStageKey": 1210,
+        "dropStageKeys": [1210],
+        "dropStageRangeLabel": "Normal 2-10"
       }
     },
     {
@@ -689,9 +689,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 1309,
-        "dropStageKeys": [1309],
-        "dropStageRangeLabel": "Normal 3-9"
+        "idealStageKey": 1310,
+        "dropStageKeys": [1310],
+        "dropStageRangeLabel": "Normal 3-10"
       }
     },
     {
@@ -704,9 +704,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 1409,
-        "dropStageKeys": [1409],
-        "dropStageRangeLabel": "Normal 4-9"
+        "idealStageKey": 2110,
+        "dropStageKeys": [2110],
+        "dropStageRangeLabel": "Nightmare 1-10"
       }
     },
     {
@@ -719,9 +719,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 1509,
-        "dropStageKeys": [1509],
-        "dropStageRangeLabel": "Normal 5-9"
+        "idealStageKey": 2210,
+        "dropStageKeys": [2210],
+        "dropStageRangeLabel": "Nightmare 2-10"
       }
     },
     {
@@ -734,9 +734,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 1609,
-        "dropStageKeys": [1609],
-        "dropStageRangeLabel": "Normal 6-9"
+        "idealStageKey": 2310,
+        "dropStageKeys": [2310],
+        "dropStageRangeLabel": "Nightmare 3-10"
       }
     },
     {
@@ -749,9 +749,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 2109,
-        "dropStageKeys": [2109],
-        "dropStageRangeLabel": "Nightmare 1-9"
+        "idealStageKey": 3110,
+        "dropStageKeys": [3110],
+        "dropStageRangeLabel": "Hell 1-10"
       }
     },
     {
@@ -764,9 +764,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 2209,
-        "dropStageKeys": [2209],
-        "dropStageRangeLabel": "Nightmare 2-9"
+        "idealStageKey": 3210,
+        "dropStageKeys": [3210],
+        "dropStageRangeLabel": "Hell 2-10"
       }
     },
     {
@@ -779,9 +779,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 2309,
-        "dropStageKeys": [2309],
-        "dropStageRangeLabel": "Nightmare 3-9"
+        "idealStageKey": 3310,
+        "dropStageKeys": [3310],
+        "dropStageRangeLabel": "Hell 3-10"
       }
     },
     {
@@ -794,9 +794,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 2409,
-        "dropStageKeys": [2409],
-        "dropStageRangeLabel": "Nightmare 4-9"
+        "idealStageKey": 4110,
+        "dropStageKeys": [4110],
+        "dropStageRangeLabel": "Torment 1-10"
       }
     },
     {
@@ -809,9 +809,9 @@
       "obtainable": true,
       "tracker": {
         "canonical": true,
-        "idealStageKey": 2509,
-        "dropStageKeys": [2509],
-        "dropStageRangeLabel": "Nightmare 5-9"
+        "idealStageKey": 4210,
+        "dropStageKeys": [4210, 4310],
+        "dropStageRangeLabel": "Torment 2-10 · Torment 3-10"
       }
     }
   ]
