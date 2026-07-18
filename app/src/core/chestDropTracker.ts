@@ -346,16 +346,6 @@ export class ChestDropTracker {
   }
 
   /**
-   * Reset perHour rates without clearing cumulative drops. Snapshots the
-   * current countsByKey as the session baseline — subsequent getStats() calls
-   * compute perHour from (current - baseline). Preserves counts/history so
-   * the Loot tab keeps its full drop log across session resets.
-   */
-  resetRates(): void {
-    this.sessionBaselineByKey = new Map(this.countsByKey);
-  }
-
-  /**
    * Record a live chest drop with an explicit category read from the GetBox
    * battle log (`common` / `rare` = stage boss / `act` = act boss). Aggregated
    * per category since the drop's item key is not carried in the log.

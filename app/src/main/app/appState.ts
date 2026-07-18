@@ -144,6 +144,11 @@ export function startTracking(): SessionUiSnapshot {
   tracking.start(config);
   // Feed inventory + lookup-price snapshots to TrackingService for box-open price resolution.
   tracking.setGameDataLookup(inventory.getGameDataLookup());
+  // Inject the lookup catalog so TrackingService.variantIndex is built from
+  // the same source as the renderer's itemIndex (lookup_items.json). Without
+  // this, variant remap could return ids only gamedata.json has — the renderer
+  // would then show "item not found" for high-rarity drops.
+  tracking.setLookupCatalog(lookup.getCatalog());
   tracking.setInventorySnapshot(inventory.getInventory());
   inventory.setOnInventoryUpdated((snap) => tracking.setInventorySnapshot(snap));
   tracking.setLookupPriceSnapshot(lookupPrices.getSnapshot());
@@ -251,7 +256,10 @@ export function openBoxTrackerWindow(): BrowserWindow {
 export function getAppServices() {
   return {
     getStats: () => tracking.getStats(),
-    resetTracker: () => tracking.reset(),
+    resetTracker: () => {
+      tracking.reset();
+      stageRuns.resetStorage();
+    },
     getInventory: () => inventory.getInventory(),
     getChests: () => chests.getChests(),
     getPets: () => pets.getPets(),

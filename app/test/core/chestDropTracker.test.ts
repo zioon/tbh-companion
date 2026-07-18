@@ -99,63 +99,35 @@ describe("ChestDropTracker", () => {
     expect(stats.rareTotal).toBe(1);
   });
 
-  it("reset clears session counts", () => {
+  it("reset clears all counts, history, and perHour rates", () => {
     const tracker = new ChestDropTracker();
     tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(920151);
+    tracker.recordLiveChestDrop("act", 1000);
+
+    const before = tracker.getStats(3600);
+    expect(before.combinedTotal).toBe(3);
+    expect(before.commonPerHour).toBe(1);
+    expect(before.rarePerHour).toBe(1);
+    expect(before.actPerHour).toBe(1);
+
     tracker.reset();
-    const stats = tracker.getStats(3600);
-    expect(stats.combinedTotal).toBe(0);
-    expect(stats.history).toHaveLength(0);
+
+    const after = tracker.getStats(3600);
+    expect(after.commonTotal).toBe(0);
+    expect(after.rareTotal).toBe(0);
+    expect(after.actTotal).toBe(0);
+    expect(after.combinedTotal).toBe(0);
+    expect(after.commonPerHour).toBe(0);
+    expect(after.rarePerHour).toBe(0);
+    expect(after.actPerHour).toBe(0);
+    expect(after.history).toHaveLength(0);
+    expect(after.breakdown).toHaveLength(0);
   });
 
   it("getStats always returns readerRequired: true", () => {
     const tracker = new ChestDropTracker();
     expect(tracker.getStats(3600).readerRequired).toBe(true);
-  });
-
-  it("resetRates zeroes perHour but preserves cumulative totals", () => {
-    const tracker = new ChestDropTracker();
-    tracker.recordLogDrop(910151);
-    tracker.recordLogDrop(910151);
-    tracker.recordLogDrop(920151);
-
-    const before = tracker.getStats(3600);
-    expect(before.commonTotal).toBe(2);
-    expect(before.rareTotal).toBe(1);
-    expect(before.commonPerHour).toBe(2);
-    expect(before.rarePerHour).toBe(1);
-
-    tracker.resetRates();
-
-    const afterReset = tracker.getStats(3600);
-    // Totals preserved.
-    expect(afterReset.commonTotal).toBe(2);
-    expect(afterReset.rareTotal).toBe(1);
-    expect(afterReset.combinedTotal).toBe(3);
-    // Rates zeroed (no new drops since reset).
-    expect(afterReset.commonPerHour).toBe(0);
-    expect(afterReset.rarePerHour).toBe(0);
-    expect(afterReset.actPerHour).toBe(0);
-
-    // New drop after reset should only count toward the session rate.
-    tracker.recordLogDrop(910151);
-    const afterNewDrop = tracker.getStats(3600);
-    expect(afterNewDrop.commonTotal).toBe(3);
-    expect(afterNewDrop.commonPerHour).toBe(1); // only the post-reset drop
-    expect(afterNewDrop.rarePerHour).toBe(0);
-  });
-
-  it("resetRates called multiple times keeps the latest baseline", () => {
-    const tracker = new ChestDropTracker();
-    tracker.recordLogDrop(910151);
-    tracker.recordLogDrop(910151);
-    tracker.resetRates();
-    tracker.recordLogDrop(910151); // 1 session drop
-    tracker.resetRates(); // re-baseline at 3 total
-    tracker.recordLogDrop(910151); // 0 session drops relative to new baseline
-    const stats = tracker.getStats(3600);
-    expect(stats.commonTotal).toBe(4);
-    expect(stats.commonPerHour).toBe(1); // only the drop between the two resets
   });
 
   it("applySnapshot baselines restored counts so rates start at zero", () => {

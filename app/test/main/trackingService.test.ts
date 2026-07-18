@@ -124,7 +124,7 @@ describe("TrackingService.reset vs clearSession", () => {
     vi.clearAllMocks();
   });
 
-  it("reset() preserves chest drops and box opens while clearing rates", () => {
+  it("reset() clears chest drops and rates, preserves box opens", () => {
     const svc = new TrackingService(vi.fn());
     svc.start(baseConfig);
     onSnapshot?.(snap(5, 1000, 0));
@@ -141,9 +141,11 @@ describe("TrackingService.reset vs clearSession", () => {
     svc.reset();
 
     const after = svc.getStats();
-    // Loot preserved.
-    expect(after.chestDrops.combinedTotal).toBe(2);
-    expect(after.chestDrops.commonTotal).toBe(2);
+    // Chest drops wiped (Live page drop log resets to zero).
+    expect(after.chestDrops.combinedTotal).toBe(0);
+    expect(after.chestDrops.commonTotal).toBe(0);
+    expect(after.chestDrops.commonPerHour).toBe(0);
+    // Box opens preserved (Loot tab history spans session resets).
     expect(after.boxOpens.reduce((s, b) => s + b.totalOpens, 0)).toBe(1);
     // Rates cleared (no heroes/gold means 0 rates).
     expect(after.sessionRate).toBe(0);

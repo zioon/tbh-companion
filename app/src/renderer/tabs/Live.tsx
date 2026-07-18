@@ -414,7 +414,7 @@ export function Live() {
         action={
           <Button
             size="sm"
-            title="Reset session rates (loot history kept)"
+            title="Reset session stats (drops, history, stage runs)"
             onClick={() => window.tbh.reset()}
           >
             {"\u21bb"} Reset

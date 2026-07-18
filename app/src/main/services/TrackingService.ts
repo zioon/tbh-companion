@@ -16,6 +16,7 @@ import type {
   BoxOpenEntry,
   InventorySnapshot,
   LiveMemorySnapshot,
+  LookupItem,
   LookupPriceSnapshot,
   ResolvedInventory,
   ResolvedInventoryRow,
@@ -65,7 +66,20 @@ export class TrackingService {
   /** GameData index for resolving box-open item names/grades; set by appState. */
   private gameDataLookup: Map<number, GameItem> | null = null;
   /**
-   * Reverse index `name → grade → variantId` built from `gameDataLookup`.
+   * Lookup-catalog index (`lookup_items.json`) keyed by item id. Source of
+   * truth for variant id remapping — same source the renderer's `itemIndex`
+   * is built from, so any variant id returned by `resolveVariantId` is
+   * guaranteed to exist in the renderer. Set by appState via
+   * {@link setLookupCatalog}. Kept separate from {@link gameDataLookup}
+   * (gamedata.json) because the two files can desync in userData —
+   * `CatalogRefreshService` only refreshes gamedata.json, so gamedata may
+   * contain variant ids lookup_items.json doesn't have yet (which would
+   * render as "item not found" in the entity panel / peek card).
+   */
+  private lookupItems: Map<number, LookupItem> | null = null;
+  /**
+   * Reverse index `name → grade → variantId` built from
+   * {@link lookupItems} (i.e. `lookup_items.json`).
    *
    * Game saves store items as `(baseItemKey, gradeType)` — the base id (e.g.
    * 530017) is shared across all rarity variants of the same item, while
@@ -77,7 +91,7 @@ export class TrackingService {
    * variant. This index lets `resolveBoxOpenEntry` translate the save's
    * (baseId, grade) pair to the correct catalog variant id.
    */
-  private variantIndex: Map<string, Map<string, number>> | null = null;
+  private lookupVariantIndex: Map<string, Map<string, number>> | null = null;
   /**
    * Index over the latest resolved inventory's `rows`, keyed by `itemKey`.
    * Rebuilt on every `setInventorySnapshot` so `buildBoxOpenPriceResolver`
@@ -202,16 +216,16 @@ export class TrackingService {
   }
 
   /**
-   * Reset session rates (XP / gold / DPS / chest-drop rates / stage-event
-   * baseline) but preserve loot history (chest drops + box opens). Loot is
-   * cumulative across session resets — players often reset rates mid-session
-   * to measure a new farming stretch without wiping their drop log. Use
-   * {@link clearSession} (Settings → Clear session snapshot) or
-   * {@link onSavePathChanged} for a full wipe including loot.
+   * Reset session stats: XP / gold / DPS / chest drops (counts + history) /
+   * stage-event baseline. Stage-run history is cleared separately via
+   * {@link StageRunService.resetStorage} in the appState resetTracker
+   * wrapper. The persisted session_state.json and stage_run_history.json
+   * files are not deleted — use {@link clearSession} (Settings → Clear
+   * session snapshot) or {@link onSavePathChanged} for a permanent wipe.
    */
   reset(): void {
     this.tracker.reset();
-    this.chestDropTracker.resetRates();
+    this.chestDropTracker.reset();
     this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
@@ -272,19 +286,6 @@ export class TrackingService {
   /** Provide the GameData index for box-open item name/grade resolution. */
   setGameDataLookup(lookup: Map<number, GameItem>): void {
     this.gameDataLookup = lookup;
-    // Build (name → grade → variantId) index so resolveBoxOpenEntry can remap
-    // the save's (baseId, grade) pair to the correct catalog variant id. See
-    // variantIndex docstring for why this is necessary.
-    const idx = new Map<string, Map<string, number>>();
-    for (const item of lookup.values()) {
-      let byGrade = idx.get(item.name);
-      if (!byGrade) {
-        byGrade = new Map();
-        idx.set(item.name, byGrade);
-      }
-      byGrade.set(item.grade, item.id);
-    }
-    this.variantIndex = idx;
     // If a restore already happened before the catalog was loaded (rare race
     // during startup), the entries recorded then didn't get variant remap or
     // garbage-drop. Run a pass now so they look right.
@@ -292,43 +293,76 @@ export class TrackingService {
   }
 
   /**
-   * Resolve a catalog variant id from a (baseItemKey, grade) pair. Returns the
-   * base id unchanged when no variant with the requested grade exists in the
-   * catalog (e.g. grade is null, or the catalog hasn't indexed that variant).
+   * Provide the lookup catalog (`lookup_items.json`) — the same source the
+   * renderer's `itemIndex` is built from. Used to build
+   * {@link lookupVariantIndex} so any variant id returned by
+   * {@link resolveVariantId} is guaranteed to exist in the renderer (which
+   * would otherwise show "item not found" if gamedata.json had a variant id
+   * lookup_items.json lacked — they can desync because
+   * `CatalogRefreshService` only refreshes gamedata.json).
+   */
+  setLookupCatalog(items: LookupItem[]): void {
+    const byId = new Map<number, LookupItem>();
+    const byNameGrade = new Map<string, Map<string, number>>();
+    for (const item of items) {
+      byId.set(item.id, item);
+      let byGrade = byNameGrade.get(item.name);
+      if (!byGrade) {
+        byGrade = new Map();
+        byNameGrade.set(item.name, byGrade);
+      }
+      byGrade.set(item.grade, item.id);
+    }
+    this.lookupItems = byId;
+    this.lookupVariantIndex = byNameGrade;
+    // If a restore happened before the lookup catalog loaded, re-resolve so
+    // the (baseId, grade) → variantId remap now uses lookup-sourced ids.
+    this.runReResolveNames();
+  }
+
+  /**
+   * Resolve a catalog variant id from a (baseItemKey, grade) pair. Sources
+   * variant ids exclusively from {@link lookupItems} (lookup_items.json) so
+   * the returned id is guaranteed to exist in the renderer's `itemIndex`.
+   * Falls back to `baseItemKey` (COMMON variant) when lookup lacks the
+   * requested grade — strictly better than returning a gamedata variantId
+   * the renderer can't find (which would render as "item not found").
    */
   private resolveVariantId(baseItemKey: number, grade: string | null): number {
     if (grade == null) return baseItemKey;
-    const base = this.gameDataLookup?.get(baseItemKey);
-    if (!base || base.grade === grade) return baseItemKey;
-    const variantId = this.variantIndex?.get(base.name)?.get(grade);
-    return variantId ?? baseItemKey;
+    const lookupBase = this.lookupItems?.get(baseItemKey);
+    if (!lookupBase || lookupBase.grade === grade) return baseItemKey;
+    return this.lookupVariantIndex?.get(lookupBase.name)?.get(grade) ?? baseItemKey;
   }
 
   /**
    * Re-resolve every recorded box-open entry through the catalog. Called once
    * after `tryRestoreOnSnapshot` (so restored snapshot data gets the same
    * (baseId, grade) → variantId remap and garbage drop that fresh drops get
-   * in `resolveBoxOpenEntry`) and again from `setGameDataLookup` if the
-   * catalog wasn't loaded at restore time. Idempotent — safe to call twice.
+   * in `resolveBoxOpenEntry`) and again from `setLookupCatalog` /
+   * `setGameDataLookup` if the catalogs weren't loaded at restore time.
+   * Idempotent — safe to call multiple times.
    */
   private runReResolveNames(): void {
-    if (!this.gameDataLookup || !this.variantIndex) return;
+    if (!this.lookupItems && !this.gameDataLookup) return;
     this.boxOpenTracker.reResolveNames((rawItemKey, grade) => {
-      const catalogId =
-        rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
+      const catalogId = rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
       // Drop garbage itemKeys (e.g. v1.00.28 String-pointer low bits) that
       // don't fall in the catalog id range — they'd otherwise render as
       // `#1703973696` forever.
       if (catalogId < 110_001 || catalogId > 939_999) {
-        if (this.gameDataLookup!.has(catalogId)) {
-          return { itemKey: catalogId, name: this.gameDataLookup!.get(catalogId)!.name };
+        if (this.gameDataLookup?.has(catalogId)) {
+          return { itemKey: catalogId, name: this.gameDataLookup.get(catalogId)!.name };
         }
         return null;
       }
       // Remap (baseId, grade) → catalog variant id so tooltips / peek cards
-      // render the correct rarity variant, not the COMMON one.
+      // render the correct rarity variant, not the COMMON one. Variant id is
+      // sourced from lookup_items.json (same as renderer's itemIndex).
       const variantId = this.resolveVariantId(catalogId, grade);
-      const item = this.gameDataLookup!.get(variantId);
+      // Prefer the lookup catalog for the display name (matches what the
+      // renderer shows); fall back to gamedata when lookup lacks the id.
+      const item = this.lookupItems?.get(variantId) ?? this.gameDataLookup?.get(variantId);
       if (!item) {
         // Catalog doesn't have this id yet (e.g. newer game version): keep
         // the id with a `#id` placeholder name so the entry isn't lost.
@@ -435,7 +469,9 @@ export class TrackingService {
     const boxKey = resolveBoxKey(entry.boxType, entry.level) ?? UNCLASSIFIED_BOX_KEY;
 
     const catalogId = catalogItemKeyFromSave(entry.itemKey);
-    const baseItem = this.gameDataLookup?.get(catalogId);
+    // Prefer lookup catalog for the base item (same source as renderer's
+    // itemIndex); fall back to gamedata for items lookup hasn't indexed yet.
+    const baseItem = this.lookupItems?.get(catalogId) ?? this.gameDataLookup?.get(catalogId);
     // Prefer the runtime grade (actual drop grade read from GetBoxLog) over
     // the catalog base grade. v1.00.28 can drop the same itemKey at different
     // grades, so the catalog grade is only a fallback when the runtime grade
@@ -450,7 +486,9 @@ export class TrackingService {
     // COMMON Dimensional Boots).
     const variantId = this.resolveVariantId(catalogId, grade);
     const variantItem =
-      variantId !== catalogId ? this.gameDataLookup?.get(variantId) : baseItem;
+      variantId !== catalogId
+        ? (this.lookupItems?.get(variantId) ?? this.gameDataLookup?.get(variantId))
+        : baseItem;
     const name = (variantItem ?? baseItem)?.name ?? `#${entry.itemKey}`;
     return { boxKey, itemKey: variantId, name, grade };
   }
