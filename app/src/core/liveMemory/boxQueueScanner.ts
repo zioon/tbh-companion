@@ -38,8 +38,6 @@ const IL2CPP_FIELD_NAME_OFFSET = 0x0n;
 /** Field offset slot inside Il2CppFieldInfo (int32). */
 const IL2CPP_FIELD_OFFSET_OFFSET = 0x18n;
 
-/** Field type string max length we'll read for signature matching. */
-const MAX_TYPE_NAME_LEN = 256;
 /** Max fields to walk per class before giving up. */
 const MAX_FIELDS_PER_CLASS = 200;
 
@@ -228,41 +226,6 @@ function readClassFieldInfos(
 }
 
 /**
- * Read the IL2CPP type name for a field at `classPtr + 0x80 + i * 0x20`.
- * The Il2CppFieldInfo layout on x64 has the type pointer at offset +0x10.
- * Returns null when unreadable.
- *
- * NOTE: We avoid importing the full il2cpp_type_get_name path (which would
- * require IL2CPP API calls). Instead we read the Il2CppType struct directly:
- * on x64, `Il2CppType.type` (1 byte) is at +0x0, and for type strings the
- * `Il2CppType.data.type` pointer (the string literal) sits at +0x8. This is
- * enough for signature matching — we look for substring hits on `Dictionary`,
- * `EBoxType`, `List`, `BoxData` in the decoded string.
- */
-function readFieldTypeName(
-  reader: MemoryReader,
-  classPtr: bigint,
-  fieldIndex: number,
-): string | null {
-  let fieldsPtr = readPtr(reader, classPtr + IL2CPP_CLASS_FIELDS_OFFSET);
-  if (fieldsPtr == null) {
-    fieldsPtr = readPtr(reader, classPtr + IL2CPP_CLASS_FIELDS_ALT_OFFSET);
-  }
-  if (fieldsPtr == null) return null;
-  const base = fieldsPtr + BigInt(fieldIndex * IL2CPP_FIELD_INFO_SIZE);
-  // Il2CppFieldInfo.type: Il2CppType* at offset +0x10 (x64).
-  const typePtr = readPtr(reader, base + 0x10n);
-  if (typePtr == null || !isPlausibleHeapPtr(typePtr)) return null;
-  // Il2CppType.data: union at +0x8. For type strings encoded as
-  // TYPE_STRING (kIl2CppTypeStringGen), `data` holds a char* pointer.
-  // Reading +0x8 as a pointer and treating it as a C string works for the
-  // field-type strings we care about (Dictionary<...>, List<...>, etc.).
-  const strPtr = readPtr(reader, typePtr + 0x8n);
-  if (strPtr == null || !isPlausibleHeapPtr(strPtr)) return null;
-  return readCString(reader, strPtr, MAX_TYPE_NAME_LEN);
-}
-
-/**
  * Read the Il2CppClass* from a class's static-fields block to identify the
  * runtime class of a candidate instance. We compare the candidate's header
  * pointer (`*candidate`) to the resolved class pointer.
@@ -288,43 +251,92 @@ export interface HeapRegion {
  */
 export type HeapRegionProvider = () => HeapRegion[];
 
-// ── Class finder: locate the box-queue class by field-type signature ────────
+// ── Class finder: locate the box-queue class ────────────────────────────────
 
 /**
- * Find the IL2CPP class whose instance field type string contains
- * `Dictionary` + `EBoxType` + `List` + `BoxData` — the obfuscation-immune
- * signature of the runtime box-queue singleton.
+ * Candidate class-name patterns for the box-queue class.
  *
- * Stargaze scans the global IL2CPP image list; here we accept a list of
- * class pointers (typically produced by `collectClassEntries` over GA-static
- * regions, plus a fallback scan over the IL2CPP metadata image). The first
- * class with a matching field wins.
+ * The class name is obfuscated per build. Stargaze's v1.00.28 build uses `vw`;
+ * other builds may use different short random names. We also try stable
+ * descriptive names in case the obfuscator preserves them.
+ *
+ * The match is case-sensitive and matches either the full IL2CPP name
+ * (e.g. `vb.vw`) or the short name after the last `.` (e.g. `vw`).
+ */
+const BOX_QUEUE_NAME_CANDIDATES = [
+  "vw", // stargaze v1.00.28
+  "BoxQueue",
+  "RewardQueue",
+  "DropQueue",
+  "BoxDropQueue",
+  "BoxRewardQueue",
+  "StageBoxQueue",
+];
+
+/**
+ * Find the box-queue class.
+ *
+ * Strategy (in order):
+ *   1. **Class-name match** (preferred): use `classNameLookup` to find a class
+ *      whose name matches one of {@link BOX_QUEUE_NAME_CANDIDATES}. The lookup
+ *      is backed by `ScanContext.className` in main, which reads
+ *      `Il2CppClass.name` at +0x10 — a verified offset.
+ *   2. **Structural fallback**: iterate every class pointer and look for one
+ *      with a single reference-typed instance field whose offset is in a
+ *      plausible range. This is a weak heuristic (many classes match) so it
+ *      only runs when name lookup is unavailable or finds nothing, and the
+ *      caller's heap scan will further validate any hit via
+ *      `validateBoxQueueInstance`.
+ *
+ * The old field-type-signature path (`readFieldTypeName`) was unreliable for
+ * generic types — IL2CPP's `Il2CppType.data` union stores an
+ * `Il2CppClass*`/`Il2CppGenericClass*` for TYPE_GENERICINST, not a string — so
+ * it has been removed.
  *
  * Returns `{ classPtr, dictFieldOffset }` on success, or null.
  */
 export function findBoxQueueClass(
   reader: MemoryReader,
   classPtrs: readonly bigint[],
+  classNameLookup?: (classPtr: bigint) => string | null,
 ): { classPtr: bigint; dictFieldOffset: number } | null {
-  for (const classPtr of classPtrs) {
+  // Strategy 1: class-name match.
+  if (classNameLookup != null) {
+    for (const classPtr of classPtrs) {
+      if (!isPlausibleHeapPtr(classPtr)) continue;
+      const fullName = classNameLookup(classPtr);
+      if (fullName == null) continue;
+      const shortName = fullName.includes(".")
+        ? fullName.slice(fullName.lastIndexOf(".") + 1)
+        : fullName;
+      if (!BOX_QUEUE_NAME_CANDIDATES.includes(shortName)) continue;
+      // Verify the class has at least one instance field we can use as the
+      // dict field. Pick the first field with a plausible offset.
+      const fields = readClassFieldInfos(reader, classPtr);
+      if (fields == null || fields.length === 0) continue;
+      const dictField = fields.find((f) => f.offset >= 0x8 && f.offset <= 0x100);
+      if (dictField == null) continue;
+      return { classPtr, dictFieldOffset: dictField.offset };
+    }
+  }
+
+  // Strategy 2: structural fallback — find a class with exactly 1 reference
+  // field at a plausible offset. This is very weak (many classes match), so
+  // we rely on the downstream heap-scan + validateBoxQueueInstance to reject
+  // false positives. We only check the first N classes to bound cost.
+  const MAX_STRUCTURAL_PROBES = 500;
+  const probed = classPtrs.slice(0, MAX_STRUCTURAL_PROBES);
+  for (const classPtr of probed) {
     if (!isPlausibleHeapPtr(classPtr)) continue;
     const fields = readClassFieldInfos(reader, classPtr);
     if (fields == null) continue;
-    for (let i = 0; i < fields.length; i++) {
-      const field = fields[i];
-      const typeName = readFieldTypeName(reader, classPtr, i);
-      if (typeName == null) continue;
-      // Signature: "Dictionary<EBoxType, List<BoxData>>" (whitespace tolerated).
-      if (
-        typeName.includes("Dictionary") &&
-        typeName.includes("EBoxType") &&
-        typeName.includes("List") &&
-        typeName.includes("BoxData")
-      ) {
-        return { classPtr, dictFieldOffset: field.offset };
-      }
-    }
+    // The box-queue class has exactly 1 instance field (the Dictionary).
+    if (fields.length !== 1) continue;
+    const f = fields[0];
+    if (f == null || f.offset < 0x8 || f.offset > 0x100) continue;
+    return { classPtr, dictFieldOffset: f.offset };
   }
+
   return null;
 }
 
@@ -581,16 +593,20 @@ export function readBoxQueues(
  *   tests inject a small synthetic list.
  * @param heapRegions RW heap regions to scan for the singleton instance.
  * @param pin Pin state, mutated in place across ticks.
+ * @param classNameLookup Optional: resolve an Il2CppClass* to its name. Used
+ *   by {@link findBoxQueueClass} for obfuscation-immune name matching
+ *   (preferred path). When omitted, falls back to the weak structural probe.
  */
 export function scanBoxQueue(
   reader: MemoryReader,
   classPtrs: readonly bigint[],
   heapRegions: readonly HeapRegion[],
   pin: BoxQueuePinState,
+  classNameLookup?: (classPtr: bigint) => string | null,
 ): BoxQueueScanResult {
   // 1. Resolve the box-queue class + dict field offset (cached on pin).
   if (pin.classPtr == null || pin.dictFieldOffset === 0) {
-    const found = findBoxQueueClass(reader, classPtrs);
+    const found = findBoxQueueClass(reader, classPtrs, classNameLookup);
     if (found == null) {
       return { queue: null, status: "class_not_found" };
     }

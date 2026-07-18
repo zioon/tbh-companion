@@ -44,9 +44,16 @@ function seedClass(
   m: FakeMemory,
   classPtr: bigint,
   fields: Array<{ name: string; offset: number; typeName?: string }>,
+  className?: string,
 ): void {
   const fieldsPtr = classPtr + 0x1000n;
   m.writePtr(classPtr + 0x80n, fieldsPtr); // Il2CppClass.fields @ +0x80
+  // Il2CppClass.name @ +0x10 (char*) — used by the name-based class finder.
+  if (className != null) {
+    const nameAddr = fieldsPtr + 0x2000n;
+    writeString(m, nameAddr, className);
+    m.writePtr(classPtr + 0x10n, nameAddr);
+  }
   for (let i = 0; i < fields.length; i++) {
     const base = fieldsPtr + BigInt(i * 0x20);
     const nameAddr = fieldsPtr + 0x1000n + BigInt(i * 0x100);
@@ -93,9 +100,13 @@ function seedBoxQueue(
   const dictFieldOffset = 0x10;
 
   // Class: one field named "queue" of type "Dictionary<EBoxType, List<BoxData>>".
-  seedClass(m, classPtr, [
-    { name: "queue", offset: dictFieldOffset, typeName: "Dictionary<EBoxType, List<BoxData>>" },
-  ]);
+  // Name it "vw" so the name-based finder can locate it (stargaze's name).
+  seedClass(
+    m,
+    classPtr,
+    [{ name: "queue", offset: dictFieldOffset, typeName: "Dictionary<EBoxType, List<BoxData>>" }],
+    "vw",
+  );
 
   // Instance header: write a contiguous 0x100-byte buffer at instancePtr so
   // the heap scanner's readBytes(instancePtr, 0x100) succeeds. The first 8
@@ -159,24 +170,48 @@ function seedBoxQueue(
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("findBoxQueueClass", () => {
-  it("matches a class whose field type string contains Dictionary+EBoxType+List+BoxData", () => {
+  it("matches a class by name (vw) when classNameLookup is provided", () => {
     const m = new FakeMemory();
     const classPtr = 0x1_0000_0000n;
-    seedClass(m, classPtr, [
-      { name: "other", offset: 0x8, typeName: "int32" },
-      { name: "queue", offset: 0x10, typeName: "Dictionary<EBoxType, List<BoxData>>" },
-    ]);
+    seedClass(m, classPtr, [{ name: "queue", offset: 0x10 }], "vw");
+    const lookup = (ptr: bigint) => (ptr === classPtr ? "vw" : null);
+    const found = findBoxQueueClass(m, [classPtr], lookup);
+    expect(found).not.toBeNull();
+    expect(found!.classPtr).toBe(classPtr);
+    expect(found!.dictFieldOffset).toBe(0x10);
+  });
+
+  it("matches a namespaced class name (vb.vw) by short name", () => {
+    const m = new FakeMemory();
+    const classPtr = 0x1_0000_0000n;
+    seedClass(m, classPtr, [{ name: "queue", offset: 0x10 }], "vb.vw");
+    const lookup = (ptr: bigint) => (ptr === classPtr ? "vb.vw" : null);
+    const found = findBoxQueueClass(m, [classPtr], lookup);
+    expect(found).not.toBeNull();
+    expect(found!.classPtr).toBe(classPtr);
+  });
+
+  it("falls back to structural probe when classNameLookup is unavailable", () => {
+    const m = new FakeMemory();
+    const classPtr = 0x1_0000_0000n;
+    // Single field at a plausible offset — matches the structural heuristic.
+    seedClass(m, classPtr, [{ name: "queue", offset: 0x10 }]);
     const found = findBoxQueueClass(m, [classPtr]);
     expect(found).not.toBeNull();
     expect(found!.classPtr).toBe(classPtr);
     expect(found!.dictFieldOffset).toBe(0x10);
   });
 
-  it("returns null when no class has the matching signature", () => {
+  it("returns null when no class has the matching name and structural probe fails", () => {
     const m = new FakeMemory();
     const classPtr = 0x2_0000_0000n;
-    seedClass(m, classPtr, [{ name: "x", offset: 0x8, typeName: "int32" }]);
-    expect(findBoxQueueClass(m, [classPtr])).toBeNull();
+    // Two fields — fails the "exactly 1 field" structural check.
+    seedClass(m, classPtr, [
+      { name: "a", offset: 0x8 },
+      { name: "b", offset: 0x10 },
+    ]);
+    const lookup = () => null;
+    expect(findBoxQueueClass(m, [classPtr], lookup)).toBeNull();
   });
 
   it("returns null for an empty class list", () => {
@@ -279,10 +314,15 @@ describe("scanBoxQueue (end-to-end with FakeMemory)", () => {
     expect(bucketsByType.get(2)?.map((i) => i.itemKey)).toEqual([300, 301]);
   });
 
-  it("returns class_not_found when no class matches the signature", () => {
+  it("returns class_not_found when no class matches name or structure", () => {
     const m = new FakeMemory();
     const classPtr = 0x5_0000_0000n;
-    seedClass(m, classPtr, [{ name: "x", offset: 0x8, typeName: "int32" }]);
+    // Two fields — fails the "exactly 1 field" structural check, and no
+    // classNameLookup is provided so name matching is skipped.
+    seedClass(m, classPtr, [
+      { name: "a", offset: 0x8 },
+      { name: "b", offset: 0x10 },
+    ]);
     const pin = makeBoxQueuePinState();
     const result = scanBoxQueue(m, [classPtr], [], pin);
     expect(result.status).toBe("class_not_found");

@@ -140,6 +140,12 @@ export class LiveMemoryReader {
   private boxQueueState = new BoxQueueState();
   /** Cached list of all Il2CppClass* pointers in GameAssembly.dll (built once). */
   private allClassPointers: bigint[] | null = null;
+  /**
+   * Cached class-name lookup (Il2CppClass* → name) from the same ScanContext
+   * that produced {@link allClassPointers}. Used by the box-queue scanner for
+   * obfuscation-immune name matching.
+   */
+  private classNameLookup: ((classPtr: bigint) => string | null) | null = null;
   /** True once a GA class scan has been attempted this attach session. */
   private classPointersScanAttempted = false;
   private gameInstallDir: string | null = null;
@@ -510,7 +516,9 @@ export class LiveMemoryReader {
     const ga = this.ga;
     if (!p || !ga || !p.isAlive()) return [];
     const t0 = Date.now();
-    this.allClassPointers = collectClassPointers(p, ga);
+    const { classPtrs, classNameLookup } = collectClassPointers(p, ga);
+    this.allClassPointers = classPtrs;
+    this.classNameLookup = classNameLookup;
     this.log(
       `allClassPointers: collected ${this.allClassPointers.length} classes from GA scan (${Date.now() - t0} ms)`,
     );
@@ -538,6 +546,7 @@ export class LiveMemoryReader {
     this.boxQueuePin = makeBoxQueuePinState();
     this.boxQueueState.reset();
     this.allClassPointers = null;
+    this.classNameLookup = null;
     this.classPointersScanAttempted = false;
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
@@ -708,7 +717,25 @@ export class LiveMemoryReader {
           // some koffi builds on read-protected pages).
           .filter((r) => r.protect === 0x04 /* PAGE_READWRITE */)
           .map((r) => ({ base: r.baseAddress, size: r.size }));
-        const scan = scanBoxQueue(p, classPtrs, heapRegions, this.boxQueuePin);
+        const scan = scanBoxQueue(
+          p,
+          classPtrs,
+          heapRegions,
+          this.boxQueuePin,
+          this.classNameLookup ?? undefined,
+        );
+        // Log state transitions so the diagnostics page can show why the
+        // prediction is/isn't appearing.
+        const wasResolved = this.boxQueuePin.classPtr != null;
+        if (scan.status !== "ok") {
+          this.log(
+            `boxQueue: status=${scan.status} classPtrs=${classPtrs.length} regions=${heapRegions.length}`,
+          );
+        } else if (this.boxQueuePin.classPtr != null && !wasResolved) {
+          this.log(
+            `boxQueue: resolved class=0x${this.boxQueuePin.classPtr.toString(16)} dictOff=0x${this.boxQueuePin.dictFieldOffset.toString(16)} instance=0x${this.boxQueuePin.instancePtr?.toString(16) ?? "null"}`,
+          );
+        }
         // Derive per-category consumption from this tick's BoxOpenEntry
         // batch. boxType 0 = common, 1 = rare, 2 = act; entries with no
         // boxType (offset not derived) can't be attributed to a bucket and

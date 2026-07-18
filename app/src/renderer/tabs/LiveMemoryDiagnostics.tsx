@@ -143,6 +143,32 @@ export function LiveMemoryDiagnostics() {
           />
         </section>
 
+        <section>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+            Box queue (stargaze)
+          </p>
+          <StatHealth
+            label="Box queue"
+            value={
+              snapshot?.boxQueue != null
+                ? snapshot.boxQueue.common.length +
+                  snapshot.boxQueue.rare.length +
+                  snapshot.boxQueue.act.length
+                : null
+            }
+          />
+          {snapshot?.boxQueue == null && snapshot?.boxQueueStatus ? (
+            <Row label="↳ reason" value={snapshot.boxQueueStatus} />
+          ) : null}
+          {snapshot?.boxQueue != null ? (
+            <>
+              <Row label="Common" value={String(snapshot.boxQueue.common.length)} />
+              <Row label="Rare" value={String(snapshot.boxQueue.rare.length)} />
+              <Row label="Act" value={String(snapshot.boxQueue.act.length)} />
+            </>
+          ) : null}
+        </section>
+
         {stats ? (
           <section>
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
