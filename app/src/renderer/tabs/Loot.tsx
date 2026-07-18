@@ -30,6 +30,7 @@ export function Loot() {
     recentDrops,
     lastDropWallTimeByCategory,
     boxQueueByBoxKey,
+    boxQueueStatus,
     resetBox,
     resetAll,
     reclassifyItem,
@@ -110,6 +111,7 @@ export function Loot() {
                 onReclassify={reclassifyItem}
                 lastDropWallTime={lastDropWallTimeByCategory[stats.category] ?? null}
                 boxQueueItems={boxQueueByBoxKey.get(stats.boxKey)}
+                boxQueueStatus={boxQueueStatus}
                 className={stats.category === "unclassified" ? "col-span-2" : undefined}
               />
             ))}

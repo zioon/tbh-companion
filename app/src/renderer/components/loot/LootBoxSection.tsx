@@ -3,6 +3,7 @@ import type {
   BoxOpenBreakdownRow,
   BoxOpenStats,
   BoxQueueItem,
+  BoxQueueSnapshot,
   LookupItem,
   LootRingSeconds,
 } from "../../../../shared/types";
@@ -211,6 +212,7 @@ export function LootBoxSection({
   onReclassify,
   lastDropWallTime,
   boxQueueItems,
+  boxQueueStatus,
   className,
 }: {
   stats: BoxOpenStats;
@@ -234,6 +236,8 @@ export function LootBoxSection({
    * below the breakdown table showing the next predicted drops.
    */
   boxQueueItems?: ReadonlyArray<BoxQueueItem>;
+  /** Scanner status from the live reader — drives the empty-state message. */
+  boxQueueStatus?: BoxQueueSnapshot["status"] | null;
   /** Extra class for the section root (e.g. col-span-2 to span a grid row). */
   className?: string;
 }) {
@@ -584,9 +588,11 @@ export function LootBoxSection({
         ))}
       </DataTable>
 
-      {boxQueueItems && boxQueueItems.length > 0 && (
-        <LootQueuePreview items={boxQueueItems} itemIndex={itemIndex} />
-      )}
+      <LootQueuePreview
+        items={boxQueueItems ?? []}
+        itemIndex={itemIndex}
+        status={boxQueueStatus ?? null}
+      />
 
       {confirming && (
         <Dialog

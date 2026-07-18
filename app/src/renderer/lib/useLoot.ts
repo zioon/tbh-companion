@@ -63,6 +63,8 @@ export function useLoot(): {
    * never gets a prediction.
    */
   boxQueueByBoxKey: Map<string, BoxQueueItem[]>;
+  /** Scanner status from the live reader — drives the empty-state message. */
+  boxQueueStatus: BoxQueueSnapshot["status"] | null;
   resetBox: (boxKey: string) => Promise<void>;
   resetAll: () => Promise<void>;
   reclassifyItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) => Promise<void>;
@@ -255,6 +257,7 @@ export function useLoot(): {
     recentDrops,
     lastDropWallTimeByCategory,
     boxQueueByBoxKey,
+    boxQueueStatus: stats?.boxQueue?.status ?? null,
     resetBox,
     resetAll,
     reclassifyItem,

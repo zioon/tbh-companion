@@ -4,10 +4,11 @@
 //
 // Pure presentational: receives an array of BoxQueueItem (itemKey + optional
 // gradeType) plus a lookup itemIndex for name/icon/grade resolution. When
-// the queue is empty, renders nothing.
+// the queue is empty, shows a status line ("waiting for prediction" / reason)
+// so the user knows the feature is active.
 
 import { useState } from "react";
-import type { BoxQueueItem, LookupItem } from "../../../../shared/types";
+import type { BoxQueueItem, BoxQueueSnapshot, LookupItem } from "../../../../shared/types";
 import { GRADE_ORDER } from "../../../core/grades";
 import { gradeColor } from "../../lib/gradeColor";
 import { iconSrc } from "../../lib/iconSrc";
@@ -33,19 +34,39 @@ function gradeFromType(gradeType: number | undefined): string | null {
   return GRADE_ORDER[gradeType]!;
 }
 
+/** Human-readable reason for each non-ok status, shown when the queue is empty. */
+function statusReason(status: BoxQueueSnapshot["status"] | null | undefined): string {
+  switch (status) {
+    case "class_not_found":
+      return "预测类未找到（游戏版本不兼容）";
+    case "instance_lost":
+      return "等待扫描堆内存定位队列实例…";
+    case "scan_failed":
+      return "堆扫描未找到实例，将在 30 秒后重试";
+    case "ok":
+      return "";
+    default:
+      return "等待预测数据…";
+  }
+}
+
 export function LootQueuePreview({
   items,
   itemIndex,
+  status,
 }: {
   /** Predicted drops, head-first (items[0] is the next drop). */
   items: ReadonlyArray<BoxQueueItem>;
   /** Lookup catalog index, keyed by item id — same one LootBoxSection uses. */
   itemIndex: Map<number, LookupItem>;
+  /** Scanner status from the live reader — drives the empty-state message. */
+  status?: BoxQueueSnapshot["status"] | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { open: openEntity } = useEntityPanel();
 
-  if (items.length === 0) return null;
+  const isEmpty = items.length === 0;
+  const reason = isEmpty ? statusReason(status) : "";
 
   // Cap rendered items at MAX_RENDERED_ITEMS to bound DOM size; the container
   // is `overflow-x-auto` so the user can scroll to see every rendered icon.
@@ -60,13 +81,15 @@ export function LootQueuePreview({
         aria-expanded={expanded}
       >
         <span>
-          {expanded
-            ? "Hide predicted drops"
-            : `Next: ${items.length} drop${items.length === 1 ? "" : "s"}`}
+          {isEmpty
+            ? `预测掉落 · ${reason}`
+            : expanded
+              ? "收起预测掉落"
+              : `预测掉落 · 下一件 +${items.length}`}
         </span>
         <span className="text-[10px]">{expanded ? "▲" : "▼"}</span>
       </button>
-      {expanded && (
+      {expanded && !isEmpty && (
         <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
           {rendered.map((item, i) => {
             const catalogItem = itemIndex.get(item.itemKey);
@@ -99,6 +122,7 @@ export function LootQueuePreview({
           })}
         </div>
       )}
+      {expanded && isEmpty && <p className="mt-1.5 text-[10px] text-muted/70">{reason}</p>}
     </div>
   );
 }

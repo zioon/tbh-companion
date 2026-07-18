@@ -148,6 +148,8 @@ export class LiveMemoryReader {
   private classNameLookup: ((classPtr: bigint) => string | null) | null = null;
   /** True once a GA class scan has been attempted this attach session. */
   private classPointersScanAttempted = false;
+  /** Last boxQueue status emitted to the log — used to suppress duplicate logs. */
+  private lastBoxQueueStatus: string | null = null;
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
@@ -548,6 +550,7 @@ export class LiveMemoryReader {
     this.allClassPointers = null;
     this.classNameLookup = null;
     this.classPointersScanAttempted = false;
+    this.lastBoxQueueStatus = null;
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
     this.cachedInventory = null;
@@ -724,17 +727,23 @@ export class LiveMemoryReader {
           this.boxQueuePin,
           this.classNameLookup ?? undefined,
         );
-        // Log state transitions so the diagnostics page can show why the
-        // prediction is/isn't appearing.
+        // Log state transitions only (suppress duplicate `instance_lost` spam
+        // while the 30s rescan cooldown runs).
         const wasResolved = this.boxQueuePin.classPtr != null;
-        if (scan.status !== "ok") {
-          this.log(
-            `boxQueue: status=${scan.status} classPtrs=${classPtrs.length} regions=${heapRegions.length}`,
-          );
-        } else if (this.boxQueuePin.classPtr != null && !wasResolved) {
-          this.log(
-            `boxQueue: resolved class=0x${this.boxQueuePin.classPtr.toString(16)} dictOff=0x${this.boxQueuePin.dictFieldOffset.toString(16)} instance=0x${this.boxQueuePin.instancePtr?.toString(16) ?? "null"}`,
-          );
+        const statusKey = `${scan.status}:${this.boxQueuePin.classPtr != null}:${this.boxQueuePin.instancePtr != null}`;
+        if (statusKey !== this.lastBoxQueueStatus) {
+          this.lastBoxQueueStatus = statusKey;
+          if (scan.status !== "ok") {
+            this.log(
+              `boxQueue: status=${scan.status} classPtrs=${classPtrs.length} regions=${heapRegions.length}`,
+            );
+          } else if (this.boxQueuePin.classPtr != null && !wasResolved) {
+            this.log(
+              `boxQueue: resolved class=0x${this.boxQueuePin.classPtr.toString(16)} dictOff=0x${this.boxQueuePin.dictFieldOffset.toString(16)} instance=0x${this.boxQueuePin.instancePtr?.toString(16) ?? "null"}`,
+            );
+          } else {
+            this.log(`boxQueue: ok (recovered)`);
+          }
         }
         // Derive per-category consumption from this tick's BoxOpenEntry
         // batch. boxType 0 = common, 1 = rare, 2 = act; entries with no
