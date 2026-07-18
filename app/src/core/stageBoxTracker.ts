@@ -54,6 +54,32 @@ export function loadStageBoxTrackerRoutes(
     .sort((a, b) => a.level - b.level || a.boxId - b.boxId);
 }
 
+/**
+ * Load tracker routes for LEGENDARY act boss boxes. Unlike RARE stage boss
+ * boxes, act boss boxes are not shown in the Chests tab (no auto-open timer
+ * tracking), but their `tracker.dropStageKeys` lets the auto-classify queue
+ * infer the act boss level from the current stage key. Returns routes sorted
+ * by level ascending.
+ */
+export function loadActBossTrackerRoutes(
+  catalog: StageBoxCatalogFile = loadStageBoxCatalogFile(),
+): StageBoxTrackerRoute[] {
+  return catalog.items
+    .filter(
+      (item): item is StageBoxCatalogItem & { tracker: StageBoxTrackerMeta } =>
+        item.grade === "LEGENDARY" && item.obtainable && item.tracker?.canonical === true,
+    )
+    .map((item) => ({
+      boxId: item.id,
+      level: item.level ?? 0,
+      idealStageKey: item.tracker.idealStageKey,
+      idealStageLabel: stageName(item.tracker.idealStageKey),
+      dropStageKeys: item.tracker.dropStageKeys,
+      dropStageRangeLabel: item.tracker.dropStageRangeLabel,
+    }))
+    .sort((a, b) => a.level - b.level || a.boxId - b.boxId);
+}
+
 export function trackerRoutesById(
   routes: StageBoxTrackerRoute[],
 ): Map<number, StageBoxTrackerRoute> {

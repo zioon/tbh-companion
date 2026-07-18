@@ -656,7 +656,13 @@
       "type": "STAGEBOX",
       "level": 1,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1109,
+        "dropStageKeys": [1109],
+        "dropStageRangeLabel": "Normal 1-9"
+      }
     },
     {
       "id": 930201,
@@ -665,7 +671,13 @@
       "type": "STAGEBOX",
       "level": 20,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1209,
+        "dropStageKeys": [1209],
+        "dropStageRangeLabel": "Normal 2-9"
+      }
     },
     {
       "id": 930301,
@@ -674,7 +686,13 @@
       "type": "STAGEBOX",
       "level": 30,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1309,
+        "dropStageKeys": [1309],
+        "dropStageRangeLabel": "Normal 3-9"
+      }
     },
     {
       "id": 930401,
@@ -683,7 +701,13 @@
       "type": "STAGEBOX",
       "level": 40,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1409,
+        "dropStageKeys": [1409],
+        "dropStageRangeLabel": "Normal 4-9"
+      }
     },
     {
       "id": 930451,
@@ -692,7 +716,13 @@
       "type": "STAGEBOX",
       "level": 45,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1509,
+        "dropStageKeys": [1509],
+        "dropStageRangeLabel": "Normal 5-9"
+      }
     },
     {
       "id": 930501,
@@ -701,7 +731,13 @@
       "type": "STAGEBOX",
       "level": 50,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1609,
+        "dropStageKeys": [1609],
+        "dropStageRangeLabel": "Normal 6-9"
+      }
     },
     {
       "id": 930601,
@@ -710,7 +746,13 @@
       "type": "STAGEBOX",
       "level": 60,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2109,
+        "dropStageKeys": [2109],
+        "dropStageRangeLabel": "Nightmare 1-9"
+      }
     },
     {
       "id": 930651,
@@ -719,7 +761,13 @@
       "type": "STAGEBOX",
       "level": 65,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2209,
+        "dropStageKeys": [2209],
+        "dropStageRangeLabel": "Nightmare 2-9"
+      }
     },
     {
       "id": 930701,
@@ -728,7 +776,13 @@
       "type": "STAGEBOX",
       "level": 70,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2309,
+        "dropStageKeys": [2309],
+        "dropStageRangeLabel": "Nightmare 3-9"
+      }
     },
     {
       "id": 930851,
@@ -737,7 +791,13 @@
       "type": "STAGEBOX",
       "level": 85,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2409,
+        "dropStageKeys": [2409],
+        "dropStageRangeLabel": "Nightmare 4-9"
+      }
     },
     {
       "id": 930901,
@@ -746,7 +806,13 @@
       "type": "STAGEBOX",
       "level": 90,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2509,
+        "dropStageKeys": [2509],
+        "dropStageRangeLabel": "Nightmare 5-9"
+      }
     }
   ]
 }

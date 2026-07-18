@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   loadStageBoxTrackerRoutes,
+  loadActBossTrackerRoutes,
   canonicalTrackerBoxId,
   resolveTrackedDropBoxId,
   resolveTrackedDropBoxIdForStage,
@@ -39,6 +40,36 @@ describe("stageBoxTracker", () => {
     expect(resolveTrackedDropBoxIdForStage(4103, enabled, routes)).toBe(920801);
     expect(resolveTrackedDropBoxIdForStage(4103, new Set(), routes)).toBeNull();
     expect(resolveTrackedDropBoxIdForStage(9999, enabled, routes)).toBeNull();
+  });
+});
+
+describe("loadActBossTrackerRoutes", () => {
+  it("loads LEGENDARY act boss routes from bundled stage_boxes.json", () => {
+    const routes = loadActBossTrackerRoutes();
+    expect(routes.length).toBeGreaterThan(0);
+    // All routes come from LEGENDARY act boss boxes (id range 930xxx).
+    expect(routes.every((route) => route.boxId >= 930000 && route.boxId < 940000)).toBe(true);
+    // Each route must have at least one dropStageKey for stage-based level inference.
+    expect(routes.every((route) => route.dropStageKeys.length > 0)).toBe(true);
+    // Routes are sorted by level ascending.
+    for (let i = 1; i < routes.length; i++) {
+      expect(routes[i]!.level).toBeGreaterThanOrEqual(routes[i - 1]!.level);
+    }
+  });
+
+  it("excludes RARE stage boss routes (those come from loadStageBoxTrackerRoutes)", () => {
+    const rareRoutes = loadStageBoxTrackerRoutes();
+    const actRoutes = loadActBossTrackerRoutes();
+    const rareIds = new Set(rareRoutes.map((r) => r.boxId));
+    // No overlap between RARE and LEGENDARY route box ids.
+    expect(actRoutes.every((r) => !rareIds.has(r.boxId))).toBe(true);
+  });
+
+  it("maps Normal 1-9 (1109) to Lv1 act boss route", () => {
+    const routes = loadActBossTrackerRoutes();
+    const lv1 = routes.find((r) => r.level === 1);
+    expect(lv1).toBeTruthy();
+    expect(lv1?.dropStageKeys).toContain(1109);
   });
 });
 

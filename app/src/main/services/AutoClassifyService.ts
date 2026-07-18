@@ -9,7 +9,7 @@ import { IPC } from "../../../shared/ipc";
 import type { ChestDropCategory, ChestDropTracker } from "../../core/chestDropTracker";
 import type { BoxOpenTracker } from "../../core/boxOpenTracker";
 import { categoryFromBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
-import { inferLevelFromStage } from "../../core/stageBoxTracker";
+import { inferLevelFromStage, type StageBoxTrackerRoute } from "../../core/stageBoxTracker";
 import {
   dequeue,
   enqueue,
@@ -41,6 +41,8 @@ export interface AutoClassifyServiceDeps {
     getAutoOpenSeconds(): { common: number; stageBoss: number; actBoss: number } | null;
   };
   stageBoxCatalog: () => ReadonlyArray<BoxTimerCatalogEntry>;
+  /** LEGENDARY act boss tracker routes, used to infer act boss level from stageKey. */
+  actBossRoutes: () => ReadonlyArray<StageBoxTrackerRoute>;
   getCurrentStageKey: () => number | null;
   broadcast: (channel: string, payload: unknown) => void;
 }
@@ -298,19 +300,14 @@ export class AutoClassifyService {
     event: { category: ChestDropCategory; itemKey?: number },
     stageKey: number,
   ): string | null {
-    // ChestDropCategory is "common" | "rare" | "act". For common and rare,
-    // level comes from the stage-box catalog (the highest-level entry whose
-    // farmStageOptions includes stageKey). For act bosses, the catalog has no
-    // tracker routes (LEGENDARY grade is excluded from trackerRoutes), so we
-    // derive the level from the stage key's act field — each act's boss
-    // chest queues serially per-act (the game opens one act-boss slot at a
-    // time per act), while different acts run independently.
+    // ChestDropCategory is "common" | "rare" | "act". Level comes from the
+    // tracker catalog: RARE stage boss routes for common/rare, LEGENDARY act
+    // boss routes for act. Falls back to category-only when no match.
     const cat: BoxCategory = event.category;
-    if (cat === "act") {
-      const actNum = Math.floor(stageKey / 100) % 10;
-      return actNum > 0 ? `act:${actNum}` : "act";
-    }
-    const level = this.levelForStage(stageKey);
+    const routes = cat === "act" ? this.deps.actBossRoutes() : null;
+    const level = routes
+      ? this.actBossLevelForStage(stageKey, routes)
+      : this.levelForStage(stageKey);
     return level != null ? `${cat}:${level}` : cat;
   }
 
@@ -326,6 +323,27 @@ export class AutoClassifyService {
         .filter((e): e is BoxTimerCatalogEntry & { level: number } => e.level != null),
       stageKey,
     );
+  }
+
+  /**
+   * Infer the act boss chest level for `stageKey` from the LEGENDARY act boss
+   * tracker routes. Matches the route whose `dropStageKeys` includes
+   * `stageKey`; falls back to the lowest level when no match (e.g. catalog
+   * not loaded or stage is not an act boss stage).
+   */
+  private actBossLevelForStage(
+    stageKey: number,
+    routes: ReadonlyArray<StageBoxTrackerRoute>,
+  ): number | null {
+    if (routes.length === 0) return null;
+    const fallback = routes.reduce(
+      (min, route) => (route.level < min ? route.level : min),
+      routes[0]!.level,
+    );
+    if (!Number.isFinite(stageKey) || stageKey <= 0) return fallback;
+    const matches = routes.filter((route) => route.dropStageKeys.includes(stageKey));
+    if (matches.length === 0) return fallback;
+    return matches.reduce((max, route) => (route.level > max ? route.level : max), 0) || fallback;
   }
 
   private autoOpenForBoxKey(

@@ -20,6 +20,7 @@ import { LookupPriceService } from "../services/LookupPriceService";
 import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
+import { loadActBossTrackerRoutes } from "../../core/stageBoxTracker";
 import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
@@ -162,6 +163,7 @@ export function startTracking(): SessionUiSnapshot {
     boxOpenTracker: tracking.getBoxOpenTracker(),
     chestService: chests,
     stageBoxCatalog: () => boxTimers.getState().catalog,
+    actBossRoutes: () => loadActBossTrackerRoutes(),
     getCurrentStageKey: () => tracking.getCurrentStageKey(),
     broadcast,
   });
