@@ -581,6 +581,18 @@ export interface ChestAutoOpenPrefs {
   stageBoss: boolean;
 }
 
+/**
+ * Loot page chest-card border-ring lap duration (seconds) per tracked
+ * category. `common` is the common-chest drop cooldown (default 5 min),
+ * `stage` is the stage-boss chest cooldown (default 7 min, matches the mini
+ * overlay's boss-chest ring). Keys intentionally use the short category
+ * names so the renderer can index by `BoxCategory` (`"common"` / `"rare"`).
+ */
+export interface LootRingSeconds {
+  common: number;
+  stage: number;
+}
+
 /** Opt-in live game-memory reader preferences (off by default). */
 export interface LiveMemoryPrefs {
   /** Reader enabled — when false no reader process runs and the app is save-only. */
@@ -605,6 +617,14 @@ export interface AppConfig {
   chestAutoOpenEnabled: ChestAutoOpenPrefs;
   /** Auto-classify unclassified loot via FIFO drop queue. Default false. */
   lootAutoClassifyEnabled: boolean;
+  /**
+   * Per-category lap duration (seconds) for the Loot page's "time since last
+   * open" border ring rendered on Common / Stage-boss chest cards. Mirrors the
+   * mini overlay's boss-chest ring (7-min lap there). Defaults: common=300
+   * (5 min), stage=420 (7 min). The `act` category isn't tracked (no fixed
+   * cooldown loop) and unclassified never renders a ring.
+   */
+  lootRingSeconds: LootRingSeconds;
   liveMemory: LiveMemoryPrefs;
   windowLayout?: WindowLayoutPrefs;
   inventoryTable?: InventoryTablePrefs;

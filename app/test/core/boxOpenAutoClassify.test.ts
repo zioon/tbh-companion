@@ -80,13 +80,14 @@ describe("enqueue", () => {
     expect(q.map((i) => i.autoOpenAtMs)).toEqual([301_000, null, null]);
     // Order within the chain is FIFO by drop time.
     expect(q.map((i) => i.droppedAtMs)).toEqual([1000, 1100, 1200]);
-    // TTL also chains serially: each waiting chest's expiresAtMs is one
-    // auto-open cycle after its predecessor's expiry, not its own drop time.
+    // TTL is null for waiting items — the clock hasn't started yet. Only the
+    // active head has a concrete expiresAtMs; waiting items get one when
+    // promoted via dequeue/reconcile.
     //   ttlMs = max(300*2*1000, 60000) + 30000 = 630000
     //   1st expiresAtMs = 301000 + 630000 = 931000
-    //   2nd expiresAtMs = 931000 + 300*1000 = 1231000
-    //   3rd expiresAtMs = 1231000 + 300*1000 = 1531000
-    expect(q.map((i) => i.expiresAtMs)).toEqual([931_000, 1_231_000, 1_531_000]);
+    //   2nd expiresAtMs = null (waiting)
+    //   3rd expiresAtMs = null (waiting)
+    expect(q.map((i) => i.expiresAtMs)).toEqual([931_000, null, null]);
   });
 
   it("queues same-serialKey chests of different boxKey levels serially", () => {
@@ -318,7 +319,7 @@ describe("dequeue", () => {
       boxKey: "common",
       droppedAtMs: 1100,
       stageKey: 1,
-      expiresAtMs: 9999,
+      expiresAtMs: null,
       autoOpenSeconds: 300,
       serialKey: "common",
       autoOpenAtMs: null,
@@ -346,7 +347,7 @@ describe("dequeue", () => {
       boxKey: "common:5",
       droppedAtMs: 1100,
       stageKey: 2,
-      expiresAtMs: 9999,
+      expiresAtMs: null,
       autoOpenSeconds: 300,
       serialKey: "common",
       autoOpenAtMs: null,
@@ -383,7 +384,7 @@ describe("dequeue", () => {
       boxKey: "common",
       droppedAtMs: 3000,
       stageKey: 1,
-      expiresAtMs: 9999,
+      expiresAtMs: null,
       autoOpenSeconds: 300,
       serialKey: "common",
       autoOpenAtMs: null,
@@ -395,6 +396,54 @@ describe("dequeue", () => {
     expect(queue[0]).toMatchObject({ boxKey: "rare", autoOpenAtMs: 6000 });
     expect(queue[1]).toMatchObject({ boxKey: "common", autoOpenAtMs: 301500 });
   });
+  it("returns null when the head is a waiting item (no active head to consume)", () => {
+    // If the queue only has waiting items (no active head), dequeue can't
+    // match — there's no chest currently counting down to auto-open. Return
+    // null and preserve the queue so the caller falls back to the prompt path.
+    const waiting: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 1000,
+      stageKey: 1,
+      expiresAtMs: null,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: null,
+    };
+    const { queue, item } = dequeue([waiting], 5000);
+    expect(item).toBeNull();
+    expect(queue).toEqual([waiting]);
+  });
+  it("promotes next waiting item after skipping an expired head", () => {
+    // Head is expired (expiresAtMs <= now); dequeue drops it and promotes
+    // the next waiting item of the same serialKey to active head, then
+    // returns the promoted item as the match target.
+    const expired: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: 500,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: 1000,
+    };
+    const waiting: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 200,
+      stageKey: 1,
+      expiresAtMs: null,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: null,
+    };
+    const { queue, item } = dequeue([expired, waiting], 1000);
+    // expired is dropped; waiting is promoted to active head with
+    // autoOpenAtMs = 1000 + 300*1000 = 301000, then dequeued as the match.
+    expect(item).not.toBeNull();
+    expect(item?.boxKey).toBe("common");
+    expect(item?.autoOpenAtMs).toBe(301_000);
+    expect(item?.expiresAtMs).toBe(931_000);
+    expect(queue).toEqual([]);
+  });
 });
 
 describe("promoteNextHead", () => {
@@ -403,7 +452,7 @@ describe("promoteNextHead", () => {
       boxKey: "common",
       droppedAtMs: 1000,
       stageKey: 1,
-      expiresAtMs: 9999, // placeholder; promote recomputes from new autoOpenAtMs
+      expiresAtMs: null, // waiting — promote recomputes from new autoOpenAtMs
       autoOpenSeconds: 300,
       serialKey: "common",
       autoOpenAtMs: null,
@@ -420,7 +469,7 @@ describe("promoteNextHead", () => {
       boxKey: "common",
       droppedAtMs: 1000,
       stageKey: 1,
-      expiresAtMs: 9999,
+      expiresAtMs: null,
       autoOpenSeconds: 300,
       serialKey: "common",
       autoOpenAtMs: null,
@@ -482,6 +531,72 @@ describe("pruneExpired", () => {
       autoOpenAtMs: 2000,
     };
     expect(pruneExpired([a], 1000)).toEqual([a]);
+  });
+  it("keeps waiting items (expiresAtMs == null) — their TTL hasn't started", () => {
+    const waiting: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: null,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: null,
+    };
+    // Even at now=9999999, waiting items survive — their clock hasn't started.
+    expect(pruneExpired([waiting], 9_999_999)).toEqual([waiting]);
+  });
+  it("promotes the next waiting item of a pruned serialKey to active head", () => {
+    // Active head expired → pruned. The next waiting item of the same
+    // serialKey is promoted to active head with autoOpenAtMs and expiresAtMs
+    // computed from `now`.
+    const expired: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: 500,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: 1000,
+    };
+    const waiting: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 200,
+      stageKey: 1,
+      expiresAtMs: null,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: null,
+    };
+    const result = pruneExpired([expired, waiting], 1000);
+    expect(result).toHaveLength(1);
+    // Promoted: autoOpenAtMs = 1000 + 300*1000 = 301000
+    expect(result[0]?.autoOpenAtMs).toBe(301_000);
+    // expiresAtMs = 301000 + ttlMs(630000) = 931000
+    expect(result[0]?.expiresAtMs).toBe(931_000);
+  });
+  it("does not promote waiting items of unaffected serialKeys", () => {
+    // common head expired; rare waiting item should be untouched (different
+    // serialKey, so no promotion).
+    const expiredCommon: QueueItem = {
+      boxKey: "common",
+      droppedAtMs: 0,
+      stageKey: 1,
+      expiresAtMs: 500,
+      autoOpenSeconds: 300,
+      serialKey: "common",
+      autoOpenAtMs: 1000,
+    };
+    const waitingRare: QueueItem = {
+      boxKey: "rare",
+      droppedAtMs: 0,
+      stageKey: 2,
+      expiresAtMs: null,
+      autoOpenSeconds: 600,
+      serialKey: "rare",
+      autoOpenAtMs: null,
+    };
+    const result = pruneExpired([expiredCommon, waitingRare], 1000);
+    expect(result).toEqual([waitingRare]);
   });
 });
 

@@ -38,7 +38,7 @@ export function LootQueueList({ items }: { items: ReadonlyArray<AutoClassifyQueu
                 </td>
                 <td className="whitespace-nowrap py-0.5 pr-3 text-right text-muted">opens in</td>
                 <td className="whitespace-nowrap py-0.5 pr-3 text-right tabular-nums font-medium text-ideal">
-                  {formatCountdown(item.autoOpenInMs)}
+                  {item.autoOpenInMs == null ? "waiting" : formatCountdown(item.autoOpenInMs)}
                 </td>
                 <td className="whitespace-nowrap py-0.5 pr-3 text-right text-muted">expires in</td>
                 <td className="whitespace-nowrap py-0.5 text-right text-muted tabular-nums">

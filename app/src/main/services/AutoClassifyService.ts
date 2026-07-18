@@ -126,7 +126,10 @@ export class AutoClassifyService {
         droppedAtMs: q.droppedAtMs,
         stageKey: q.stageKey,
         autoOpenInMs,
-        expiresInMs: Math.max(0, q.expiresAtMs - now),
+        // Waiting items (expiresAtMs == null) have no concrete expiry to
+        // count down from — surface as 0 so the UI shows "waiting" rather
+        // than a garbage countdown.
+        expiresInMs: q.expiresAtMs != null ? Math.max(0, q.expiresAtMs - now) : 0,
       };
     });
     return { enabled: this.enabled, totalQueued: this.queue.length, byCategory, items };

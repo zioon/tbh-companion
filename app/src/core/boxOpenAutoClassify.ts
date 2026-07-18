@@ -24,7 +24,23 @@ export interface QueueItem {
   boxKey: string;
   droppedAtMs: number;
   stageKey: number;
-  expiresAtMs: number;
+  /**
+   * Wall-clock ms when this queue entry expires, OR `null` when the chest is
+   * waiting behind another chest of the same `serialKey`.
+   *
+   * The TTL clock starts when the chest's auto-open timer starts (i.e. when
+   * it becomes the active head), not when it was dropped. So only the head
+   * of each `serialKey` chain has a concrete `expiresAtMs = autoOpenAtMs +
+   * ttlMs`; non-head items have `null` (their TTL hasn't started yet) and
+   * receive a concrete value when their predecessor is consumed (via
+   * `dequeue` or reconcile prune) and they are promoted to active head.
+   *
+   * `pruneExpired` only prunes items with non-null `expiresAtMs <= now`;
+   * waiting items (null) are never pruned by TTL since their clock hasn't
+   * started — they can only be removed by `reconcileWithChestSlots` when the
+   * save reports fewer chest slots than the queue holds.
+   */
+  expiresAtMs: number | null;
   /**
    * Effective auto-open cooldown (ms) for this chest's boxKey. Stored on the
    * item so `dequeue` / reconcile can recompute the next head's auto-open
@@ -96,13 +112,8 @@ export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   // `autoOpenAtMs` when that happens. If no same-serialKey entry exists,
   // this chest is the head of its chain and opens `autoOpenSeconds` after
   // drop.
-  const tailSameSerial = queue
-    .filter((q) => q.serialKey === input.serialKey)
-    .reduce<QueueItem | null>(
-      (latest, q) => (q.expiresAtMs > (latest?.expiresAtMs ?? 0) ? q : latest),
-      null,
-    );
-  const isHead = tailSameSerial == null;
+  const hasSameSerial = queue.some((q) => q.serialKey === input.serialKey);
+  const isHead = !hasSameSerial;
   const autoOpenAtMs: number | null = isHead
     ? input.droppedAtMs + input.autoOpenSeconds * 1000
     : null;
@@ -110,15 +121,12 @@ export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   // starts), not the drop time — this keeps the queue entry alive for one
   // full auto-open cycle plus buffer after the chest's auto-open fires.
   // For the head, autoOpenAtMs is known now, so expiresAtMs is concrete.
-  // For waiting items, autoOpenAtMs is null (timer hasn't started), so we
-  // chain expiresAtMs off the tail's expiresAtMs — the waiting chest expires
-  // one full auto-open cycle after the tail's expiry, modeling serial
-  // per-slot auto-open. `promoteNextHead` recomputes `expiresAtMs` from the
-  // concrete `autoOpenAtMs` once the predecessor is consumed (the chain may
-  // shorten if promote fires earlier than expected).
-  const expiresAtMs = isHead
-    ? autoOpenAtMs! + ttlMs
-    : tailSameSerial!.expiresAtMs + input.autoOpenSeconds * 1000;
+  // For waiting items, autoOpenAtMs is null (timer hasn't started), so
+  // expiresAtMs is also null — the waiting chest's TTL clock hasn't started
+  // yet and will be set by `promoteNextHead` when the predecessor is
+  // consumed. This mirrors the serial auto-open semantics: a waiting chest's
+  // expiry countdown only begins once it becomes the active head.
+  const expiresAtMs: number | null = isHead ? autoOpenAtMs! + ttlMs : null;
   const item: QueueItem = {
     boxKey: input.boxKey,
     droppedAtMs: input.droppedAtMs,
@@ -191,31 +199,66 @@ export function promoteNextHead(queue: QueueItem[], serialKey: string, nowMs: nu
 
 /**
  * Pop the first live (non-expired) item from the head. Expired items skipped
- * during the pop are dropped. After consuming a head, the next waiting item
- * of the same `serialKey` (if any) is promoted to active head with
- * `autoOpenAtMs = nowMs + autoOpenSeconds * 1000` — this models the game's
- * serial per-slot auto-open: the second chest's timer starts when the first
- * chest is actually opened (i.e. now). Returns `{ item: null, queue: [] }`
- * when no live items remain.
+ * during the pop are dropped, and the next waiting item of their
+ * `serialKey` is promoted to active head. After consuming a live head, the
+ * next waiting item of the same `serialKey` (if any) is promoted to active
+ * head with `autoOpenAtMs = nowMs + autoOpenSeconds * 1000` — this models
+ * the game's serial per-slot auto-open: the second chest's timer starts
+ * when the first chest is actually opened (i.e. now).
+ *
+ * If the head is a waiting item (expiresAtMs == null), there is no active
+ * head to consume — the queue is returned unchanged with `item: null`.
+ * Returns `{ item: null, queue: [] }` when no live items remain.
  */
 export function dequeue(
   queue: QueueItem[],
   nowMs: number,
 ): { queue: QueueItem[]; item: QueueItem | null } {
-  const remaining = [...queue];
+  let remaining = [...queue];
   while (remaining.length > 0) {
     const head = remaining.shift()!;
+    // Waiting head: no active chest to match against. Preserve it and
+    // return null — the caller will fall back to the prompt path.
+    if (head.expiresAtMs == null) {
+      remaining.unshift(head);
+      return { queue: remaining, item: null };
+    }
     if (head.expiresAtMs > nowMs) {
       const promoted = promoteNextHead(remaining, head.serialKey, nowMs);
       return { queue: promoted, item: head };
     }
+    // Expired head: drop it and promote the next waiting item of the same
+    // serialKey (if any) so the chain keeps moving. Then continue looping
+    // to find the next live head.
+    remaining = promoteNextHead(remaining, head.serialKey, nowMs);
   }
   return { queue: [], item: null };
 }
 
-/** Drop all items whose `expiresAtMs <= now`. Does not mutate input. */
+/**
+ * Drop all items whose `expiresAtMs` is non-null and `<= nowMs`. Waiting
+ * items (`expiresAtMs == null`) are never pruned by TTL — their clock hasn't
+ * started yet. After pruning, the next waiting item of each affected
+ * `serialKey` is promoted to active head so the chain keeps moving. Does not
+ * mutate input.
+ */
 export function pruneExpired(queue: QueueItem[], nowMs: number): QueueItem[] {
-  return queue.filter((item) => item.expiresAtMs > nowMs);
+  if (queue.length === 0) return queue;
+  const prunedSerialKeys = new Set<string>();
+  const remaining: QueueItem[] = [];
+  for (const item of queue) {
+    if (item.expiresAtMs != null && item.expiresAtMs <= nowMs) {
+      prunedSerialKeys.add(item.serialKey);
+    } else {
+      remaining.push(item);
+    }
+  }
+  if (prunedSerialKeys.size === 0) return queue;
+  let result = remaining;
+  for (const serialKey of prunedSerialKeys) {
+    result = promoteNextHead(result, serialKey, nowMs);
+  }
+  return result;
 }
 
 /** Minimal entry shape for {@link groupBoxOpenEvents}. */
