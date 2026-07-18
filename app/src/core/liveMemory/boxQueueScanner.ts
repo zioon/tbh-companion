@@ -78,8 +78,11 @@ const PLAUSIBLE_ITEM_KEY_MAX = 100_000;
 
 /** Bytes of heap to scan per chunk when looking for class instances. */
 const HEAP_SCAN_CHUNK = 1 << 22; // 4 MiB
-/** Hard ceiling on total heap bytes scanned per pass (avoids multi-GB scans). */
-const HEAP_SCAN_MAX_BYTES = 256 * (1 << 20); // 256 MiB
+/** Minimum region size to bother scanning (small regions are DLL mappings or stacks). */
+const MIN_REGION_SIZE_TO_SCAN = 1 << 20; // 1 MiB
+/** Hard ceiling on total heap bytes scanned per pass. 2GB covers most Unity GC heaps
+ * while still capping sync-read time at ~2–4 seconds on typical hardware. */
+const HEAP_SCAN_MAX_BYTES = 2 * (1 << 30); // 2 GiB
 
 // ── BoxData field-name hints ─────────────────────────────────────────────────
 
@@ -147,8 +150,10 @@ export interface BoxQueuePinState {
   gradePtrOffset: number;
   /** Live singleton instance pointer. Null = needs (re)scan. */
   instancePtr: bigint | null;
-  /** True once a heap scan has been attempted this session. */
-  scanAttempted: boolean;
+  /** Timestamp of the last heap scan attempt (ms since epoch). Used to throttle
+   * re-scans — a new scan is only attempted if enough time has elapsed since
+   * the previous attempt. */
+  lastScanAttemptMs: number;
 }
 
 export function makeBoxQueuePinState(): BoxQueuePinState {
@@ -159,7 +164,7 @@ export function makeBoxQueuePinState(): BoxQueuePinState {
     gradeIntOffset: 0,
     gradePtrOffset: 0,
     instancePtr: null,
-    scanAttempted: false,
+    lastScanAttemptMs: 0,
   };
 }
 
@@ -456,8 +461,8 @@ export function validateBoxQueueInstance(
  *
  * Mirrors stargaze's async `scanForInstance` — synchronous here because koffi
  * ReadProcessMemory is synchronous. Chunks reads at 4 MiB to bound each call.
- * Caps total bytes scanned per pass at 256 MiB to avoid multi-second stalls
- * on processes with huge heaps.
+ * Caps total bytes scanned per pass at 2GB to avoid multi-second stalls on
+ * processes with huge heaps.
  */
 export function scanForBoxQueueInstance(
   reader: MemoryReader,
@@ -468,6 +473,7 @@ export function scanForBoxQueueInstance(
   let totalScanned = 0;
   for (const region of regions) {
     if (totalScanned >= HEAP_SCAN_MAX_BYTES) break;
+    if (region.size < MIN_REGION_SIZE_TO_SCAN) continue;
     const regionSize = Math.min(region.size, HEAP_SCAN_MAX_BYTES - totalScanned);
     for (let off = 0; off < regionSize; off += HEAP_SCAN_CHUNK) {
       const chunkSize = Math.min(HEAP_SCAN_CHUNK, regionSize - off);
@@ -626,14 +632,14 @@ export function scanBoxQueue(
     }
   }
 
-  // 3. If no valid instance, scan the heap (once per pass).
+  // 3. If no valid instance, scan the heap (throttled to avoid hammering).
   if (pin.instancePtr == null) {
-    if (pin.scanAttempted) {
-      // Already tried this session; avoid hammering the heap every tick.
-      // The pin will reset on the next reader re-attach.
+    const now = Date.now();
+    const SCAN_COOLDOWN_MS = 30_000; // 30 seconds between full heap scans
+    if (now - pin.lastScanAttemptMs < SCAN_COOLDOWN_MS) {
       return { queue: null, status: "instance_lost" };
     }
-    pin.scanAttempted = true;
+    pin.lastScanAttemptMs = now;
     const found = scanForBoxQueueInstance(reader, heapRegions, classPtr, dictOff);
     if (found == null) {
       return { queue: null, status: "scan_failed" };

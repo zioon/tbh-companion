@@ -301,10 +301,11 @@ describe("scanBoxQueue (end-to-end with FakeMemory)", () => {
       act: [300, 301],
     });
     const pin = makeBoxQueuePinState();
-    // The heap region includes the instance pointer's location.
-    // The instance lives at instancePtr; we scan a region that contains it.
-    // 8-byte aligned slot at instancePtr holds classPtr (the IL2CPP header).
-    const regions: HeapRegion[] = [{ base: instancePtr, size: 0x100 }];
+    // Region must be >= MIN_REGION_SIZE_TO_SCAN (1MB) to pass the size filter.
+    // FakeMemory.readBytes now returns non-null for ranges that contain at
+    // least one written slot, so the instance data written by seedBoxQueue
+    // is sufficient for the scan to succeed.
+    const regions: HeapRegion[] = [{ base: instancePtr, size: 1 << 20 }];
     const result = scanBoxQueue(m, [classPtr], regions, pin);
     expect(result.status).toBe("ok");
     expect(result.queue).not.toBeNull();
@@ -352,7 +353,18 @@ describe("scanBoxQueue (end-to-end with FakeMemory)", () => {
       act: [],
     });
     const pin = makeBoxQueuePinState();
-    const regions: HeapRegion[] = [{ base: instancePtr, size: 0x100 }];
+    // Use multiple small regions, each covering one allocated address range.
+    // This is more realistic (Windows heap has many small regions) and avoids
+    // the O(n) slot-checking overhead of a single huge region in FakeMemory.
+    const regions: HeapRegion[] = [
+      { base: 0x1_0000_0000n, size: 1 << 20 }, // class + fields
+      { base: 0x2_0000_0000n, size: 1 << 20 }, // instance + dict field
+      { base: 0x3_0000_0000n, size: 1 << 20 }, // dict
+      { base: 0x4_0000_0000n, size: 1 << 20 }, // entries array
+      { base: 0x5_0000_0000n, size: 1 << 20 }, // boxData class
+      { base: 0x6_0000_0000n, size: 1 << 20 }, // boxData instances
+      { base: 0x7_0000_0000n, size: 1 << 20 }, // lists
+    ];
     // First tick: full scan.
     const r1 = scanBoxQueue(m, [classPtr], regions, pin);
     expect(r1.status).toBe("ok");
