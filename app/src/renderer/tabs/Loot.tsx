@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { BoxCategory } from "../../../shared/types";
 import { useLoot } from "../lib/useLoot";
+import { boxLabel } from "../../core/boxOpenLog";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
 import { DialogClose, DialogTitle } from "../design-system/primitives/Dialog/DialogParts";
@@ -13,17 +13,6 @@ import { LootRecentDrops } from "../components/loot/LootRecentDrops";
 import { LootQueueList } from "../components/loot/LootQueueList";
 import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 import { useTbhContext } from "../context/tbhContext";
-
-const CATEGORY_LABELS: Record<BoxCategory, string> = {
-  common: "Common",
-  rare: "Stage boss",
-  act: "Act boss",
-  unclassified: "Unclassified",
-};
-
-function categoryLabel(category: BoxCategory): string {
-  return CATEGORY_LABELS[category] ?? category;
-}
 
 /** Format ms as m:ss, clamping negatives to 0. */
 function formatCountdown(ms: number): string {
@@ -39,6 +28,8 @@ export function Loot() {
     lootStatus,
     currentStageKey,
     recentDrops,
+    lastDropWallTimeByCategory,
+    boxQueueByBoxKey,
     resetBox,
     resetAll,
     reclassifyItem,
@@ -68,12 +59,14 @@ export function Loot() {
         {autoClassifyEnabled && (
           <div className="flex items-center gap-3 rounded border border-border bg-panel px-3 py-1.5 text-xs">
             <span className="font-medium text-text">Queue: {autoClassifyState.totalQueued}</span>
-            {autoClassifyState.byCategory.map((row) => (
-              <span key={row.category} className="text-muted">
-                <span className="font-medium text-text">{row.count}</span>{" "}
-                {categoryLabel(row.category)}
-                {row.nextAutoOpenInMs != null && (
-                  <span className="ml-1 text-muted">({formatCountdown(row.nextAutoOpenInMs)})</span>
+            {/* Show the next 3 queued chests (queue is already sorted
+                head-first by AutoClassifyService). Hides the rest to keep
+                the header compact — full list visible in the queue card below. */}
+            {autoClassifyState.items.slice(0, 3).map((item, i) => (
+              <span key={`${item.boxKey}-${item.droppedAtMs}-${i}`} className="text-muted">
+                <span className="font-medium text-text">{boxLabel(item.boxKey)}</span>
+                {item.autoOpenInMs != null && (
+                  <span className="ml-1 text-muted">({formatCountdown(item.autoOpenInMs)})</span>
                 )}
               </span>
             ))}
@@ -94,7 +87,7 @@ export function Loot() {
           one has more rows than the other. */}
       {(autoClassifyEnabled || recentDrops.length > 0) && (
         <div className="grid grid-cols-2 items-stretch gap-3 max-[720px]:grid-cols-1">
-          {autoClassifyEnabled && <LootQueueList items={autoClassifyState.items} />}
+          {autoClassifyEnabled && <LootQueueList items={autoClassifyState.items.slice(0, 3)} />}
           {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} />}
         </div>
       )}
@@ -115,6 +108,8 @@ export function Loot() {
                 currentStageKey={currentStageKey}
                 onReset={resetBox}
                 onReclassify={reclassifyItem}
+                lastDropWallTime={lastDropWallTimeByCategory[stats.category] ?? null}
+                boxQueueItems={boxQueueByBoxKey.get(stats.boxKey)}
                 className={stats.category === "unclassified" ? "col-span-2" : undefined}
               />
             ))}

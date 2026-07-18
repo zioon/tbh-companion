@@ -11,9 +11,19 @@ import {
   mergeOffsets,
   missingOffsetFields,
 } from "../../core/liveMemory/offsetCompleteness";
-import { extractOffsets } from "./offsetExtractor";
+import { buildClassNameIndex, extractOffsets } from "./offsetExtractor";
 import { loadCachedOffsets, saveCachedOffsets } from "./offsetCache";
-import { extractionAttempts, mayAttemptExtraction, recordExtractionAttempt, MAX_EXTRACTION_ATTEMPTS } from "./offsetHealing";
+import {
+  enrichmentAttempts,
+  extractionAttempts,
+  mayAttemptEnrichment,
+  mayAttemptExtraction,
+  MAX_ENRICHMENT_ATTEMPTS,
+  MAX_EXTRACTION_ATTEMPTS,
+  recordEnrichmentAttempt,
+  recordExtractionAttempt,
+  resetEnrichmentAttempts,
+} from "./offsetHealing";
 import {
   resolveLiveMemoryOffsetCacheDir,
   resolveLiveMemoryUserDataDir,
@@ -25,6 +35,7 @@ import {
   makeMonsterSpawnPinState,
   makeSmPinState,
   makeStageClearPinState,
+  peekBoxOpenLogCount,
   readRuntimeBoxOpenLog,
   readRuntimeChestLog,
   readRuntimeCombatGold,
@@ -47,7 +58,14 @@ import {
 } from "../../core/liveMemory/runtime";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type { BoxQueueSnapshot, LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import {
+  makeBoxQueuePinState,
+  scanBoxQueue,
+  type BoxQueuePinState,
+} from "../../core/liveMemory/boxQueueScanner";
+import { BoxQueueState, type BoxQueueConsumption } from "../../core/liveMemory/boxQueueState";
+import { collectClassPointers } from "./offsetExtractor";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -88,6 +106,14 @@ function detectGameVersion(p: WinProcess): { version: string; installDir: string
   }
 }
 
+/**
+ * Module-level flag: the catalog-dump diagnostic has run once this process
+ * lifetime. Prevents re-running the 8-second extractor on every heal tick
+ * when TBH_DUMP_CATALOG_CANDIDATES=1 — the dump only needs to fire once per
+ * session, and re-running it would starve the live-tracking tick loop.
+ */
+let catalogDumpDone = false;
+
 export class LiveMemoryReader {
   private proc: WinProcess | null = null;
   private ga: { base: bigint; size: number } | null = null;
@@ -99,6 +125,23 @@ export class LiveMemoryReader {
   private stageClearPin: StageClearPinState = makeStageClearPinState();
   private boxOpenPin: BoxOpenPinState = makeBoxOpenPinState();
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
+  /**
+   * Box-queue ("stargaze") scanner pin: caches the resolved box-queue class
+   * pointer, dict field offset, BoxData field offsets, and the live singleton
+   * instance pointer across ticks. Reset on detach.
+   */
+  private boxQueuePin: BoxQueuePinState = makeBoxQueuePinState();
+  /**
+   * Box-queue state machine: advances the predicted drop queue across ticks,
+   * deduplicates identical reads, and consumes the head when the player opens
+   * chests (derived from this tick's own `boxOpens` array — no IPC round-trip
+   * needed since the reader already produces that field). Reset on detach.
+   */
+  private boxQueueState = new BoxQueueState();
+  /** Cached list of all Il2CppClass* pointers in GameAssembly.dll (built once). */
+  private allClassPointers: bigint[] | null = null;
+  /** True once a GA class scan has been attempted this attach session. */
+  private classPointersScanAttempted = false;
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
@@ -108,6 +151,14 @@ export class LiveMemoryReader {
   private playerNameScanAttempted = false;
   /** Resolved PlayerSaveData instance pointer (name-scan fallback cache). */
   private playerPtr: bigint | null = null;
+  /**
+   * Name → Il2CppClass* index built by the last successful extraction. Used as
+   * a fast path for the MonsterSpawnManager / PlayerSaveData name-scan
+   * fallbacks so they can skip the ~30–60s whole-address-space scan when the
+   * class is already in the GA-derived index. Null when the reader attached
+   * from a complete bundled/cache table and never ran the extractor.
+   */
+  private classIndex: Map<string, bigint> | null = null;
   /** True while resolving offsets or scanning for a class name. */
   private _scanning = false;
   /** Optional callback invoked whenever the scanning flag changes. */
@@ -124,6 +175,14 @@ export class LiveMemoryReader {
   private lowFreqLoaded = false;
   private cachedInventory: ReadInventoryResult | null = null;
   private cachedPets: ReadPetsResult | null = null;
+
+  // BoxOpenLog list length observed on the previous tick. Used by the heal
+  // scheduler to detect "player just opened a box" — the only precondition
+  // under which the BoxOpenLog struct field offsets become derivable (the
+  // class must be instantiated at least once). `peekBoxOpenLogCount` is
+  // cheap (a few pointer reads) and only runs while enrichment is incomplete.
+  private boxOpenCountPrev: number | null = null;
+  private boxOpenEventPending = false;
 
   constructor(userDataDir: string = resolveLiveMemoryUserDataDir()) {
     this.userDataDir = userDataDir;
@@ -156,6 +215,48 @@ export class LiveMemoryReader {
   /** True when every wanted field (critical + enrichment) is present. */
   get enrichmentComplete(): boolean {
     return this.offsets != null && isOffsetTableComplete(this.offsets);
+  }
+
+  /**
+   * True when the enrichment extraction budget is not exhausted for this game
+   * version under the current app build. When false, the periodic heal
+   * scheduler stops hammering the extractor — but a detected box-open event
+   * (see {@link consumeBoxOpenEvent}) can reset the budget and re-arm it.
+   */
+  get enrichmentHealAvailable(): boolean {
+    const cacheDir = this.offsetCacheDir();
+    const version = this.gameVersion;
+    if (!cacheDir || !version) return true;
+    return mayAttemptEnrichment(cacheDir, version, resolveAppBuild());
+  }
+
+  /** True when a "player just opened a box" event is pending consumption. */
+  get hasBoxOpenEventPending(): boolean {
+    return this.boxOpenEventPending;
+  }
+
+  /**
+   * Consume and clear the pending box-open event flag. Returns true when an
+   * event was pending (caller should reset the enrichment budget and trigger
+   * an immediate heal). Idempotent — calling twice in a row returns false
+   * the second time.
+   */
+  consumeBoxOpenEvent(): boolean {
+    const pending = this.boxOpenEventPending;
+    this.boxOpenEventPending = false;
+    return pending;
+  }
+
+  /**
+   * Reset the enrichment attempt counter to 0 so the next heal tick is allowed
+   * to retry. Called by the worker after consuming a box-open event.
+   */
+  resetEnrichmentBudget(): void {
+    const cacheDir = this.offsetCacheDir();
+    const version = this.gameVersion;
+    if (cacheDir && version) {
+      resetEnrichmentAttempts(cacheDir, version, resolveAppBuild());
+    }
   }
 
   get pid(): number | null {
@@ -227,11 +328,16 @@ export class LiveMemoryReader {
   }
 
   private applyResolvedOffsets(
-    resolved: { table: LiveOffsets | null; source: OffsetResolutionSource },
+    resolved: {
+      table: LiveOffsets | null;
+      source: OffsetResolutionSource;
+      classIndex: Map<string, bigint> | null;
+    },
     appBuild: string,
   ): void {
     this.offsets = resolved.table;
     this.offsetSource = resolved.source;
+    if (resolved.classIndex) this.classIndex = resolved.classIndex;
     this.supported = this.offsets != null && this.ga != null && hasCriticalOffsets(this.offsets);
     if (this.supported && this.offsets && !isOffsetTableComplete(this.offsets)) {
       const missing = missingOffsetFields(this.offsets).join(", ");
@@ -261,7 +367,11 @@ export class LiveMemoryReader {
   private resolveOffsets(
     proc: WinProcess,
     appBuild: string,
-  ): { table: LiveOffsets | null; source: OffsetResolutionSource } {
+  ): {
+    table: LiveOffsets | null;
+    source: OffsetResolutionSource;
+    classIndex: Map<string, bigint> | null;
+  } {
     const ga = this.ga;
     const version = this.gameVersion;
     const cacheDir = this.offsetCacheDir();
@@ -284,31 +394,65 @@ export class LiveMemoryReader {
     }
 
     const complete = base != null && isOffsetTableComplete(base);
-    if (complete) {
+    // Catalog-dump diagnostic mode (TBH_DUMP_CATALOG_CANDIDATES=1): force the
+    // extractor to run ONCE so the dump can fire, even when the cached table is
+    // complete. After the first run, catalogDumpDone is set and subsequent
+    // resolveOffsets calls take the normal fast path — otherwise the diagnostic
+    // mode would re-run the 8-second extractor on every heal tick, breaking
+    // live tracking.
+    const forceExtractForCatalogDump =
+      process.env.TBH_DUMP_CATALOG_CANDIDATES === "1" && !catalogDumpDone;
+    if (complete && !forceExtractForCatalogDump) {
       this.log(`resolve: table complete (source=${source})`);
-      return { table: base, source };
+      return { table: base, source, classIndex: null };
     }
 
-    const missing = base ? missingOffsetFields(base).join(", ") : "entire table";
-    this.log(`resolve: incomplete — missing ${missing}`);
+    if (complete && forceExtractForCatalogDump) {
+      this.log(
+        `resolve: table complete (source=${source}) — re-running extractor for catalog dump`,
+      );
+    } else {
+      const missing = base ? missingOffsetFields(base).join(", ") : "entire table";
+      this.log(`resolve: incomplete — missing ${missing}`);
+    }
 
     if (ga && version && cacheDir) {
       const isSupported = base != null && hasCriticalOffsets(base);
-      const mayExtract = isSupported || mayAttemptExtraction(cacheDir, version, appBuild);
+      // Enrichment and critical extractions have independent attempt budgets.
+      // Critical (unsupported) scans are bounded by MAX_EXTRACTION_ATTEMPTS;
+      // enrichment (supported) scans are bounded by MAX_ENRICHMENT_ATTEMPTS so
+      // a version where BoxOpenLog is genuinely underivable until the player
+      // opens a box does not get re-scanned every heal tick forever. A detected
+      // box-open event resets the enrichment budget (see consumeBoxOpenEvent).
+      // Catalog-dump mode bypasses the budget so the user can collect diagnostics
+      // even after prior attempts exhausted the cap.
+      const mayExtract =
+        forceExtractForCatalogDump ||
+        (isSupported
+          ? mayAttemptEnrichment(cacheDir, version, appBuild)
+          : mayAttemptExtraction(cacheDir, version, appBuild));
       if (mayExtract) {
-        if (!isSupported) recordExtractionAttempt(cacheDir, version, appBuild);
+        // Catalog-dump mode does not consume the attempt budget — it is a
+        // diagnostic run, not a real extraction attempt.
+        if (!forceExtractForCatalogDump) {
+          if (!isSupported) recordExtractionAttempt(cacheDir, version, appBuild);
+          else recordEnrichmentAttempt(cacheDir, version, appBuild);
+        }
         this.log(
           isSupported
-            ? `resolve: running extractor for enrichment (supported, budget bypassed)`
+            ? `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`
             : `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})`,
         );
         const derived = extractOffsets(proc, ga, version, (msg) => this.log(msg), isSupported);
+        // Catalog dump completes after one extractor run regardless of outcome
+        // (the dump fires inside extractOffsets when the env var is set).
+        if (forceExtractForCatalogDump) catalogDumpDone = true;
         if (derived) {
-          const merged = base ? mergeOffsets(base, derived) : derived;
+          const merged = base ? mergeOffsets(base, derived.offsets) : derived.offsets;
           saveCachedOffsets(cacheDir, merged);
           const mergedSource: OffsetResolutionSource = base ? "merged" : "extracted";
           this.log(`resolve: extractor ok → ${mergedSource}, persisted cache`);
-          return { table: merged, source: mergedSource };
+          return { table: merged, source: mergedSource, classIndex: derived.classIndex };
         }
         this.log(
           isSupported
@@ -316,15 +460,61 @@ export class LiveMemoryReader {
             : "resolve: extractor returned null (critical anchor failed)",
         );
       } else {
-        this.log(
-          `resolve: extractor skipped (budget exhausted: ${extractionAttempts(cacheDir, version, appBuild)} attempts)`,
-        );
+        const attempts = isSupported
+          ? enrichmentAttempts(cacheDir, version, appBuild)
+          : extractionAttempts(cacheDir, version, appBuild);
+        const kind = isSupported ? "enrichment" : "critical";
+        this.log(`resolve: extractor skipped (${kind} budget exhausted: ${attempts} attempts)`);
       }
     } else {
       this.log("resolve: extractor skipped (missing ga, version, or install dir)");
     }
 
-    return { table: base, source };
+    return { table: base, source, classIndex: null };
+  }
+
+  /**
+   * Ensure {@link classIndex} is populated. When the reader attached from a
+   * complete bundled/cache table (extractor skipped) or the extractor failed,
+   * classIndex is still null — but the MonsterSpawnManager / PlayerSaveData
+   * name-scan fallbacks need it. This builds the index on demand by scanning
+   * only the GameAssembly.dll region (a few seconds), which is dramatically
+   * faster than `resolveClassByName`'s whole-address-space scan (30–60s).
+   * No-op when the index is already built or the GA/process is gone.
+   */
+  private ensureClassIndex(): void {
+    if (this.classIndex != null) return;
+    const p = this.proc;
+    const ga = this.ga;
+    if (!p || !ga || !p.isAlive()) return;
+    const t0 = Date.now();
+    this.classIndex = buildClassNameIndex(p, ga);
+    this.log(
+      `classIndex: built ${this.classIndex.size} entries from GA scan (${Date.now() - t0} ms)`,
+    );
+  }
+
+  /**
+   * Ensure {@link allClassPointers} is populated. The box-queue scanner needs
+   * every Il2CppClass* in the GameAssembly image so it can iterate them and
+   * match by field-type signature (`Dictionary<EBoxType, List<BoxData>>`) —
+   * the box-queue class name is obfuscated per build, so a name index isn't
+   * enough. Built once per attach session; reused across ticks. Returns an
+   * empty array when the GA scan fails.
+   */
+  private ensureAllClassPointers(): bigint[] {
+    if (this.allClassPointers != null) return this.allClassPointers;
+    if (this.classPointersScanAttempted) return [];
+    this.classPointersScanAttempted = true;
+    const p = this.proc;
+    const ga = this.ga;
+    if (!p || !ga || !p.isAlive()) return [];
+    const t0 = Date.now();
+    this.allClassPointers = collectClassPointers(p, ga);
+    this.log(
+      `allClassPointers: collected ${this.allClassPointers.length} classes from GA scan (${Date.now() - t0} ms)`,
+    );
+    return this.allClassPointers;
   }
 
   detach(): void {
@@ -338,16 +528,23 @@ export class LiveMemoryReader {
     this.monsterNameScanAttempted = false;
     this.playerNameScanAttempted = false;
     this.playerPtr = null;
+    this.classIndex = null;
     this.goldPin = makeGoldPinState();
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
     this.boxOpenPin = makeBoxOpenPinState();
     this.monsterPin = makeMonsterSpawnPinState();
+    this.boxQueuePin = makeBoxQueuePinState();
+    this.boxQueueState.reset();
+    this.allClassPointers = null;
+    this.classPointersScanAttempted = false;
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
     this.cachedInventory = null;
     this.cachedPets = null;
+    this.boxOpenCountPrev = null;
+    this.boxOpenEventPending = false;
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
@@ -374,17 +571,23 @@ export class LiveMemoryReader {
       (this.monsterPin.ptr == null || (monsterData?.monsterHps?.length ?? 0) === 0)
     ) {
       this.monsterNameScanAttempted = true;
-      this.log(
-        "MonsterSpawnManager: RVA resolution produced no monsters, falling back to name scan...",
-      );
+      this.log("MonsterSpawnManager: RVA resolution produced no monsters, resolving class...");
       try {
         this.setScanning(true);
-        const msClass = resolveClassByName(p, "MonsterSpawnManager");
+        // Fast path: the GA-derived class index usually has MonsterSpawnManager
+        // already (its TypeInfo sits in a GA static slot). Only fall back to the
+        // ~30–60s whole-address-space scan when the index misses.
+        this.ensureClassIndex();
+        const msClassFromIndex = this.classIndex?.get("MonsterSpawnManager") ?? null;
+        const msClass = msClassFromIndex ?? resolveClassByName(p, "MonsterSpawnManager", ga);
+        if (msClassFromIndex) {
+          this.log("MonsterSpawnManager: class resolved via GA index (skipped name scan)");
+        }
         if (msClass) {
           const inst = singletonFromClass(p, msClass);
           if (inst) {
             this.monsterPin.ptr = inst;
-            this.log(`MonsterSpawnManager: resolved via name scan at 0x${inst.toString(16)}`);
+            this.log(`MonsterSpawnManager: resolved at 0x${inst.toString(16)}`);
             monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
           }
         }
@@ -405,6 +608,27 @@ export class LiveMemoryReader {
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
     const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
+
+    // Box-open event detection: when enrichment is incomplete (typically
+    // boxOpenLog.itemStringKey/itemGradeType still 0), probe the BoxOpenLog
+    // list length cheaply (no entry reads, no itemStringKey needed). A
+    // 0→>0 transition means the player just opened a box → the BoxOpenLog
+    // class is now instantiated → the next enrichment extraction will succeed.
+    // The flag is consumed by the worker to reset the enrichment budget and
+    // trigger an immediate heal instead of waiting up to 15s.
+    if (this.supported && !this.enrichmentComplete) {
+      const peek = peekBoxOpenLogCount(p, ga.base, ga.size, o, this.boxOpenPin);
+      if (peek.count != null) {
+        const prev = this.boxOpenCountPrev ?? 0;
+        if (prev === 0 && peek.count > 0 && !this.boxOpenEventPending) {
+          this.boxOpenEventPending = true;
+          this.log(
+            `box-open event detected: BoxOpenLog count 0→${peek.count}, will trigger enrichment heal`,
+          );
+        }
+        this.boxOpenCountPrev = peek.count;
+      }
+    }
 
     // Inventory and pets change slowly (only on save events / menu actions),
     // so re-read them on a low-frequency cadence and reuse the cached arrays
@@ -430,17 +654,21 @@ export class LiveMemoryReader {
           /\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedPets.status))
       ) {
         this.playerNameScanAttempted = true;
-        this.log(
-          "PlayerSaveData: RVA resolution produced no player instance, falling back to name scan...",
-        );
+        this.log("PlayerSaveData: RVA resolution produced no player instance, resolving class...");
         try {
           this.setScanning(true);
-          const playerClass = resolveClassByName(p, "PlayerSaveData");
+          // Fast path: GA-derived class index (see MonsterSpawnManager above).
+          this.ensureClassIndex();
+          const playerClassFromIndex = this.classIndex?.get("PlayerSaveData") ?? null;
+          const playerClass = playerClassFromIndex ?? resolveClassByName(p, "PlayerSaveData", ga);
+          if (playerClassFromIndex) {
+            this.log("PlayerSaveData: class resolved via GA index (skipped name scan)");
+          }
           if (playerClass) {
             const inst = this.findPlayerInstanceByClass(p, playerClass);
             if (inst) {
               this.playerPtr = inst;
-              this.log(`PlayerSaveData: resolved via name scan at 0x${inst.toString(16)}`);
+              this.log(`PlayerSaveData: resolved at 0x${inst.toString(16)}`);
               this.cachedInventory = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
               this.cachedPets = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
             } else {
@@ -452,6 +680,69 @@ export class LiveMemoryReader {
         } finally {
           this.setScanning(false);
         }
+      }
+    }
+
+    // Box-queue ("stargaze") prediction: scan the runtime
+    // `Dictionary<EBoxType, List<BoxData>>` singleton and decode the
+    // not-yet-consumed per-category drop queue. Runs every tick on the
+    // cached class pointer + instance; falls back to a heap scan when the
+    // instance pin is stale (capped at one scan per attach session to
+    // avoid hammering the heap). The class-pointer list is built lazily
+    // from the GA image scan we already run for the named class index.
+    //
+    // Consumption events are derived from this tick's own `boxOpens` array
+    // — each BoxOpenEntry corresponds to one chest the player opened, and
+    // the prediction's per-category head is consumed to match. This keeps
+    // the prediction in sync without a separate IPC round-trip from the
+    // TrackingService (which runs in the main process; the reader runs in
+    // a utilityProcess worker).
+    let boxQueueSnapshot: BoxQueueSnapshot | null = null;
+    let boxQueueStatus: string | undefined;
+    if (this.supported) {
+      try {
+        const classPtrs = this.ensureAllClassPointers();
+        const heapRegions = [...p.readableRegions(5000)]
+          // Only scan RW committed regions (the singleton lives on the GC
+          // heap; scanning RX/executable regions wastes time and can crash
+          // some koffi builds on read-protected pages).
+          .filter((r) => r.protect === 0x04 /* PAGE_READWRITE */)
+          .map((r) => ({ base: r.baseAddress, size: r.size }));
+        const scan = scanBoxQueue(p, classPtrs, heapRegions, this.boxQueuePin);
+        // Derive per-category consumption from this tick's BoxOpenEntry
+        // batch. boxType 0 = common, 1 = rare, 2 = act; entries with no
+        // boxType (offset not derived) can't be attributed to a bucket and
+        // are skipped — the queue self-corrects on the next tick when the
+        // game consumes its own entries.
+        const counts: Record<"common" | "rare" | "act", number> = {
+          common: 0,
+          rare: 0,
+          act: 0,
+        };
+        if (boxOpenResult.opens) {
+          for (const op of boxOpenResult.opens) {
+            if (op.boxType === 0) counts.common += 1;
+            else if (op.boxType === 1) counts.rare += 1;
+            else if (op.boxType === 2) counts.act += 1;
+          }
+        }
+        const consumption: BoxQueueConsumption[] = [];
+        for (const cat of ["common", "rare", "act"] as const) {
+          if (counts[cat] > 0) consumption.push({ category: cat, count: counts[cat] });
+        }
+        boxQueueSnapshot = this.boxQueueState.advance(
+          scan.queue,
+          scan.status,
+          consumption,
+          Date.now(),
+        );
+        if (scan.status !== "ok") {
+          boxQueueStatus = `box queue: ${scan.status}`;
+        }
+      } catch (e) {
+        // Never let the box-queue scan take down the tick — the rest of the
+        // snapshot is still valid and useful.
+        boxQueueStatus = `box queue error: ${String(e)}`;
       }
     }
 
@@ -477,6 +768,8 @@ export class LiveMemoryReader {
       inventoryItemsStatus: this.cachedInventory?.status || undefined,
       petData: this.cachedPets?.pets ?? null,
       petDataStatus: this.cachedPets?.status || undefined,
+      boxQueue: boxQueueSnapshot,
+      boxQueueStatus,
       monsterHp,
       deadMonsterCount,
       source: `memory v${o.gameVersion}`,

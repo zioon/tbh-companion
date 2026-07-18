@@ -125,7 +125,12 @@ export interface BoxOpenBreakdownRow {
   buyOrderValue: number | null;
   /** Units actually covered by buyOrderValue, capped at count (may be less when the order book runs dry). */
   coveredCount: number | null;
-  /** buyOrderValue / sessionHours. */
+  /**
+   * buyOrderValue / hours, where `hours` is per-box (anchored to the
+   * parent boxKey's {@link BoxOpenStats.trackingSinceWallTime}, NOT the
+   * session elapsed). Matches the per-box divisor used for
+   * {@link BoxOpenStats.hourlyValue}.
+   */
   hourlyValue: number | null;
 }
 
@@ -141,13 +146,30 @@ export interface BoxOpenStats {
   totalOpens: number;
   /** Sum of buyOrderValue across items; null when no items are priced. */
   totalBuyOrderValue: number | null;
-  /** totalBuyOrderValue / sessionHours. */
+  /**
+   * totalBuyOrderValue / hours, where `hours` is per-box: derived from
+   * {@link trackingSinceWallTime} (`(now - trackingSinceWallTime) / 3600`),
+   * NOT the session-wide elapsed. Falls back to session hours only when
+   * `trackingSinceWallTime` is null (corrupt snapshot with counts but no
+   * history and no reset anchor).
+   */
   hourlyValue: number | null;
   breakdown: BoxOpenBreakdownRow[];
   /** Most recent N (visible window). */
   history: BoxOpenHistoryEntry[];
   /** Epoch seconds of the most recent open; null = no opens yet. */
   lastOpenWallTime: number | null;
+  /**
+   * Epoch seconds marking the start of the current accumulation window for
+   * this boxKey — i.e. when the player last reset this chest's stats, or
+   * (if never reset) the wall time of the first recorded drop. Used as the
+   * per-box anchor for the {@link hourlyValue} divisor so each chest type's
+   * hourly reflects wall time since the player started (or last reset)
+   * farming it, rather than since the companion session started. Null only
+   * when the boxKey has counts but no surviving history and no recorded
+   * reset anchor (corrupt snapshot).
+   */
+  trackingSinceWallTime: number | null;
 }
 
 /** Serialized box open tracker for session_state.json restore. */
@@ -164,6 +186,14 @@ export interface BoxOpenTrackerSnapshot {
   /** compositeKey -> grade (shared across all boxKeys). */
   gradesByKey: Record<string, string | null>;
   history: BoxOpenHistoryEntry[];
+  /**
+   * boxKey -> epoch seconds of the current accumulation window's start
+   * (last reset time, or first recorded drop when never reset). Optional:
+   * absent on legacy snapshots, in which case `applySnapshot` derives it
+   * from the earliest surviving history entry per boxKey (falling back to
+   * `Date.now()/1000` when that boxKey has no history at all).
+   */
+  trackingSinceByKey?: Record<string, number>;
 }
 
 /** main → renderer: prompt the user to pick a category for unclassified loot. */
@@ -238,6 +268,47 @@ export interface BoxOpenEntry {
   level?: number;
 }
 
+// --- Box queue prediction ("stargaze") ---
+
+/**
+ * One entry in the predicted drop queue. The game pre-generates drops per
+ * EBoxType bucket and consumes them in FIFO order as the player opens chests;
+ * we read the not-yet-consumed tail and surface it as a "next drops" preview.
+ */
+export interface BoxQueueItem {
+  /** Catalog item id (decoded from BoxData.o_rewardItemId ObscuredInt). */
+  itemKey: number;
+  /**
+   * ItemGradeType enum value when the BoxData carries a grade field (v1.00.28+
+   * may store it as a GradeSO reference; reader attempts both paths). Undefined
+   * when neither is readable — the renderer falls back to the catalog grade.
+   */
+  gradeType?: number;
+}
+
+/**
+ * Per-category predicted drop queue snapshot. Mirrors the 3 EBoxType buckets
+ * (0=common, 1=rare/stage boss, 2=act boss) the game keeps. Items are ordered
+ * head-first (index 0 is the next drop the player will see when opening a
+ * chest of that category). The renderer further filters by current stage level
+ * so only the boxKey the player is actually farming shows a preview.
+ */
+export interface BoxQueueSnapshot {
+  common: BoxQueueItem[];
+  rare: BoxQueueItem[];
+  act: BoxQueueItem[];
+  /** Epoch ms when the snapshot was produced. */
+  fetchedAt: number;
+  /**
+   * Diagnostic state. `ok` = queue read succeeded; `class_not_found` = the
+   * `Dictionary<EBoxType, List<BoxData>>`-shaped class couldn't be located
+   * (game version mismatch); `instance_lost` = the cached singleton pointer
+   * failed structural validation and is being re-scanned; `scan_failed` =
+   * heap scan ran but found no plausible instance.
+   */
+  status: "ok" | "class_not_found" | "instance_lost" | "scan_failed";
+}
+
 // Live payload pushed from main to the renderer.
 export interface Stats {
   connected: boolean;
@@ -282,6 +353,15 @@ export interface Stats {
   hpSum: number;
   /** Sum of max HP of all alive monsters (from the last tick). */
   hpMaxSum: number;
+  /**
+   * Box-queue ("stargaze") prediction, passed through from the live-memory
+   * frame. Per-category arrays of not-yet-consumed predicted drops (head
+   * first). Null when live memory isn't connected or the queue scanner
+   * hasn't located the runtime `Dictionary<EBoxType, List<BoxData>>`
+   * singleton yet. The renderer filters by current stage level so only the
+   * chest card the player is actually farming shows a preview.
+   */
+  boxQueue: BoxQueueSnapshot | null;
 }
 
 /** Serialized XP tracker internals for session_state.json restore. */
@@ -615,6 +695,13 @@ export interface AppConfig {
   notificationPrefs: NotificationPrefs;
   inventoryAlmostFullThresholdPercent: number;
   chestAutoOpenEnabled: ChestAutoOpenPrefs;
+  /**
+   * Whether the inventory update should auto-trigger a Steam Market price
+   * refresh for stale owned targets. Default true (keeps the pre-toggle
+   * behavior). When false, prices only refresh on an explicit user action
+   * (Refresh / Force full refresh / per-item refresh).
+   */
+  marketAutoScanEnabled: boolean;
   /** Auto-classify unclassified loot via FIFO drop queue. Default false. */
   lootAutoClassifyEnabled: boolean;
   /**
@@ -1231,6 +1318,17 @@ export interface LiveMemorySnapshot {
   /** Diagnostics: why `petData` is null this tick. Dev-only. */
   petDataStatus?: string;
   /**
+   * Live box-drop queue prediction ("stargaze"): items pre-generated by the
+   * game and held in `Dictionary<EBoxType, List<BoxData>>` on the runtime
+   * vw-style singleton, read before opening. Per-category arrays give the
+   * not-yet-consumed queue order (head first). Empty arrays = reader active
+   * but queue empty; null = queue unavailable (class not located / scan
+   * failed / reader not attached).
+   */
+  boxQueue: BoxQueueSnapshot | null;
+  /** Diagnostics: why `boxQueue` is null this tick. Dev-only. */
+  boxQueueStatus?: string;
+  /**
    * Live monster HP values observed this frame. Each entry is [addr, hpCurrent, hpMax].
    * `addr` is the monster's memory address (converted to number for IPC, safe on x64).
    * Used by DpsTracker for address-based HP matching (tbh-meter approach).
@@ -1290,6 +1388,8 @@ export interface TbhApi {
   refreshItemPrices(itemKey: number): Promise<PriceRefreshResult & { status: PriceStatus }>;
   cancelPrices(): void;
   setCurrency(iso: string): Promise<PriceStatus>;
+  /** Toggle auto market-scan on inventory updates without restart. */
+  setMarketAutoScanEnabled(enabled: boolean): Promise<void>;
   onPricesProgress(cb: (p: PriceProgress) => void): () => void;
   onPriceStatus(cb: (status: PriceStatus) => void): () => void;
   getConfig(): Promise<AppConfig>;

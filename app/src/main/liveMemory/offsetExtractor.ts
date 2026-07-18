@@ -9,6 +9,7 @@
 
 import {
   collectClassEntries,
+  dumpCatalogCandidates,
   findBoxOpenLogFields,
   findCurrencyManager,
   findCurrencyManagerStatic,
@@ -44,8 +45,12 @@ import type { WinProcess } from "./winProcess";
  * the class metadata index and the ELogType.GetItemWithBoxOpen dict key from
  * the same LogManager dictionary walk — enables the loot tracker without a
  * manual IL2CPP dump. boxType/level remain 0 (obfuscated field names).
+ * Rev 8: v1.00.28 GradeSO* grade support — identifyBoxOpenLogFieldsByValue
+ * dumps GradeSO class fields + instance bytes for grade-offset derivation;
+ * commonSaveData removed from ENRICHMENT_FIELDS (not derivable, was keeping
+ * enrichmentComplete permanently false and the 30s heal timer running forever).
  */
-export const EXTRACTOR_REVISION = 7;
+export const EXTRACTOR_REVISION = 8;
 
 // Structural offsets whose field names ARE obfuscated but whose byte offsets are
 // stable across patches. Emitted as constants rather than derived by name.
@@ -84,6 +89,23 @@ export type ExtractorLog = (msg: string) => void;
 
 const noopLog: ExtractorLog = () => undefined;
 
+/**
+ * Result of {@link extractOffsets}: the resolved offset table plus a
+ * name → Il2CppClass* index built from the same GA region scan that produced
+ * the table. The class index lets callers resolve class pointers by name
+ * WITHOUT falling back to the ~30–60s whole-address-space scan performed by
+ * `resolveClassByName` (winProcess).
+ *
+ * Both the full IL2CPP name (`vb.MonsterSpawnManager`) and the short
+ * serialization-stable name (`MonsterSpawnManager`) are indexed; short-name
+ * collisions keep the first entry seen (same semantics as
+ * {@link collectClassEntries}).
+ */
+export interface ExtractResult {
+  offsets: LiveOffsets;
+  classIndex: Map<string, bigint>;
+}
+
 /** Readable regions inside the GameAssembly range — Il2Cpp TypeInfo slot arrays. */
 function gaScanRegions(proc: WinProcess, ga: { base: bigint; size: number }): ScanRegion[] {
   const gaEnd = ga.base + BigInt(ga.size);
@@ -95,6 +117,63 @@ function gaScanRegions(proc: WinProcess, ga: { base: bigint; size: number }): Sc
     out.push({ base: region.baseAddress, size: region.size });
   }
   return out;
+}
+
+/**
+ * Collect all Il2CppClass* pointers reachable from GameAssembly.dll readable
+ * regions. This is the same scan that {@link buildClassNameIndex} runs
+ * internally, but without the name filter — exposes every class pointer so
+ * callers can iterate them for field-type-signature matching (used by the
+ * box-queue scanner to locate the obfuscated `Dictionary<EBoxType, List<BoxData>>`
+ * class whose name is randomized per build).
+ *
+ * Returns an empty array when no readable GA regions are found.
+ */
+export function collectClassPointers(
+  proc: WinProcess,
+  ga: { base: bigint; size: number },
+): bigint[] {
+  const regions = gaScanRegions(proc, ga);
+  if (regions.length === 0) return [];
+  const ctx = new ScanContext(proc);
+  const { entries } = collectClassEntries(ctx, ga.base, regions);
+  return entries.map((e) => e.classPtr);
+}
+
+/**
+ * Build a name → Il2CppClass* index by scanning GameAssembly.dll readable
+ * regions. This is the same GA-only scan that {@link extractOffsets} runs
+ * internally; exposed separately so callers that load a complete bundled/cache
+ * table (and thus skip the extractor) can still resolve class pointers by name
+ * WITHOUT falling back to the ~30–60s whole-address-space scan performed by
+ * `resolveClassByName`.
+ *
+ * Both the full IL2CPP name (`vb.MonsterSpawnManager`) and the short
+ * serialization-stable name (`MonsterSpawnManager`) are indexed; short-name
+ * collisions keep the first entry seen.
+ *
+ * Returns an empty map when no readable GA regions are found (the caller
+ * should then fall back to `resolveClassByName`).
+ */
+export function buildClassNameIndex(
+  proc: WinProcess,
+  ga: { base: bigint; size: number },
+): Map<string, bigint> {
+  const regions = gaScanRegions(proc, ga);
+  if (regions.length === 0) return new Map();
+  const ctx = new ScanContext(proc);
+  const { entries } = collectClassEntries(ctx, ga.base, regions);
+  const index = new Map<string, bigint>();
+  for (const e of entries) {
+    if (!e.name) continue;
+    if (!index.has(e.name)) index.set(e.name, e.classPtr);
+    const dot = e.name.lastIndexOf(".");
+    if (dot >= 0) {
+      const short = e.name.slice(dot + 1);
+      if (!index.has(short)) index.set(short, e.classPtr);
+    }
+  }
+  return index;
 }
 
 /**
@@ -119,7 +198,7 @@ export function extractOffsets(
   version: string,
   log: ExtractorLog = noopLog,
   enrichmentOnly = false,
-): LiveOffsets | null {
+): ExtractResult | null {
   const t0 = Date.now();
   const regions = gaScanRegions(proc, ga);
   const totalBytes = regions.reduce((sum, r) => sum + r.size, 0);
@@ -177,11 +256,29 @@ export function extractOffsets(
   // the LogManager singleton isn't static-reachable (the dict key is still 0 then,
   // so the reader won't read the list, but a later bundled-table merge can fill it).
   const boxOpenFields = findBoxOpenLogFields(ctx, entries);
-  log(
-    lm
-      ? `extract: logManager rva=0x${lm.slotRva.toString(16)} logByType=0x${lm.logByType.toString(16)} getBoxKey=${lm.getBoxTypeKey} boxOpenKey=${lm.boxOpenTypeKey} boxOpenLog.fields={itemStringKey:0x${lm.boxOpenLog.itemStringKey.toString(16)},itemGradeType:0x${lm.boxOpenLog.itemGradeType.toString(16)}}`
-      : `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade); boxOpenLog.fields={itemStringKey:0x${boxOpenFields.itemStringKey.toString(16)},itemGradeType:0x${boxOpenFields.itemGradeType.toString(16)}}`,
-  );
+  if (lm) {
+    let msg = `extract: logManager rva=0x${lm.slotRva.toString(16)} logByType=0x${lm.logByType.toString(16)} getBoxKey=${lm.getBoxTypeKey} boxOpenKey=${lm.boxOpenTypeKey} boxOpenLog.fields={itemStringKey:0x${lm.boxOpenLog.itemStringKey.toString(16)},itemGradeType:0x${lm.boxOpenLog.itemGradeType.toString(16)},gradeSO:0x${lm.boxOpenLog.gradeSO.toString(16)},gradeSOGrade:0x${lm.boxOpenLog.gradeSOGrade.toString(16)}}`;
+    if (lm.boxOpenDiagnostics) {
+      const d = lm.boxOpenDiagnostics;
+      const ptrStr = d.firstEntryPtr == null ? "null" : `0x${d.firstEntryPtr.toString(16)}`;
+      const countStr = d.bucketCount == null ? "null" : String(d.bucketCount);
+      const nameStr = d.firstEntryClassName == null ? "null" : `"${d.firstEntryClassName}"`;
+      msg += ` — validation failed: bucketCount=${countStr} firstEntryPtr=${ptrStr} firstEntryClassName=${nameStr}`;
+      if (d.fieldsProbe) {
+        log(d.fieldsProbe);
+      }
+    }
+    // Log field-identification diagnostics even on success — needed to debug
+    // v1.00.28 grade mapping (GradeSO* fields, sample values, klass names).
+    if (lm.boxOpenLog.diagnostics) {
+      log(lm.boxOpenLog.diagnostics);
+    }
+    log(msg);
+  } else {
+    log(
+      `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade); boxOpenLog.fields={itemStringKey:0x${boxOpenFields.itemStringKey.toString(16)},itemGradeType:0x${boxOpenFields.itemGradeType.toString(16)},gradeSO:0x${boxOpenFields.gradeSO.toString(16)},gradeSOGrade:0x${boxOpenFields.gradeSOGrade.toString(16)}}`,
+    );
+  }
 
   // ── MonsterSpawnManager (enrichment for DPS tracking) ──────────────
   const msm = findMonsterSpawnManager(ctx, entries);
@@ -205,100 +302,133 @@ export function extractOffsets(
 
   log(`extract: done in ${Date.now() - t0} ms`);
 
+  // Catalog overlay spike: dump ItemSO / ItemManager candidates so we can
+  // design a runtime catalog extractor. Gated by env var — zero impact on the
+  // production path when disabled. The dump reuses the already-built ScanContext
+  // + entries, so it adds no extra memory scanning, only field-table lookups.
+  if (process.env.TBH_DUMP_CATALOG_CANDIDATES === "1") {
+    try {
+      dumpCatalogCandidates(ctx, entries, log);
+    } catch (e) {
+      log(`[catalog-dump] error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  // Build a name → Il2CppClass* index from the same GA scan that produced the
+  // offset table. Both full (`vb.MonsterSpawnManager`) and short
+  // (`MonsterSpawnManager`) names are stored so callers can look up by the
+  // serialization-stable short name without a whole-address-space scan.
+  const classIndex = new Map<string, bigint>();
+  for (const e of entries) {
+    if (!e.name) continue;
+    if (!classIndex.has(e.name)) classIndex.set(e.name, e.classPtr);
+    const dot = e.name.lastIndexOf(".");
+    if (dot >= 0) {
+      const short = e.name.slice(dot + 1);
+      if (!classIndex.has(short)) classIndex.set(short, e.classPtr);
+    }
+  }
+
   return {
-    gameVersion: version,
+    offsets: {
+      gameVersion: version,
 
-    typeInfoRva: {
-      commonSaveData: player?.commonSaveData ?? 0n,
-      currencyManager: cm?.slotRva ?? 0n,
-      stageCacheManager: scm?.slotRva ?? 0n,
-      stageManager: sm?.slotRva ?? 0n,
-      localInventoryManager: 0n, // unused; inventory reads via the player save snapshot
-      logManager: lm?.slotRva ?? 0n,
-      monsterSpawnManager: msm?.slotRva ?? 0n,
-    },
-
-    player: {
-      commonSaveData: player?.playerStaticOff ?? 0x10,
-      currency: 0x48,
-      heroSaveDatas: 0x50,
-      petSaveDatas: player?.petSaveDatas ?? STRUCT_PET_SAVE_DATAS,
-      itemSaveDatas: player?.itemSaveDatas ?? STRUCT_ITEM_SAVE_DATAS,
-      aggregates: player?.aggregateSaveDatas ?? STRUCT_AGGREGATE_SAVE_DATAS,
-    },
-
-    common: {
-      playTime: 0x20,
-      arrangedHeroKey: 0x48,
-      maxCompletedStage: 0x54,
-      currentStageKey: 0x58,
-      currentStageWave: 0x5c,
-    },
-
-    hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
-
-    unit: { cache: 0x3a8 },
-
-    heroRuntime: {
-      info: 0x30,
-      levelHidden: 0xd0,
-      levelKey: 0xd4,
-      expHidden: 0x110,
-      expKey: 0x114,
-    },
-
-    heroInfoData: { heroKey: 0x30 },
-
-    currency: { key: 0x10, quantity: 0x18 },
-
-    petSaveData: {
-      petKey: player?.petKey ?? STRUCT_PET_KEY,
-      isUnlock: player?.petIsUnlock ?? STRUCT_PET_IS_UNLOCK,
-    },
-
-    inventoryItem: {
-      itemKey: player?.itemKey ?? STRUCT_ITEM_KEY,
-      isChaotic: player?.itemIsChaotic ?? STRUCT_ITEM_IS_CHAOTIC,
-    },
-
-    runtime: {
-      currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
-      stage: {
-        currentCache: scm?.currentCache ?? 0,
-        cacheInfoData: 0x10,
-        stageKey: 0x30,
-        waveAmount: 0x54,
-        runtimeWave: STRUCT_RUNTIME_WAVE,
+      typeInfoRva: {
+        commonSaveData: player?.commonSaveData ?? 0n,
+        currencyManager: cm?.slotRva ?? 0n,
+        stageCacheManager: scm?.slotRva ?? 0n,
+        stageManager: sm?.slotRva ?? 0n,
+        localInventoryManager: 0n, // unused; inventory reads via the player save snapshot
+        logManager: lm?.slotRva ?? 0n,
+        monsterSpawnManager: msm?.slotRva ?? 0n,
       },
-      currencyInfoKey: 0x30,
-      heroList: sm?.heroList ?? 0,
-      log: {
-        logByType: lm?.logByType ?? STRUCT_LOG_BY_TYPE,
-        getBoxTypeKey: lm?.getBoxTypeKey ?? STRUCT_GETBOX_KEY,
-        stageClearTypeKey: STRUCT_STAGE_CLEAR_KEY,
-        getItemWithBoxOpenTypeKey: lm?.boxOpenTypeKey ?? 0,
+
+      player: {
+        commonSaveData: player?.playerStaticOff ?? 0x10,
+        currency: 0x48,
+        heroSaveDatas: 0x50,
+        petSaveDatas: player?.petSaveDatas ?? STRUCT_PET_SAVE_DATAS,
+        itemSaveDatas: player?.itemSaveDatas ?? STRUCT_ITEM_SAVE_DATAS,
+        aggregates: player?.aggregateSaveDatas ?? STRUCT_AGGREGATE_SAVE_DATAS,
       },
-      getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },
-      boxOpenLog: {
-        itemStringKey: lm?.boxOpenLog.itemStringKey ?? boxOpenFields.itemStringKey,
-        itemGradeType: lm?.boxOpenLog.itemGradeType ?? boxOpenFields.itemGradeType,
-        boxType: 0, // obfuscated field name — requires manual IL2CPP dump
-        level: 0, // obfuscated field name — requires manual IL2CPP dump
+
+      common: {
+        playTime: 0x20,
+        arrangedHeroKey: 0x48,
+        maxCompletedStage: 0x54,
+        currentStageKey: 0x58,
+        currentStageWave: 0x5c,
       },
-      stageClearLog: { clearTimeSec: STRUCT_STAGE_CLEAR_TIME },
-      monster: {
-        monsterList: 0,
-        summonedList: 0,
-        deadMonsterList: 0,
-        monsterHealth: 0,
-        hpCurrent: 0,
-        hpMax: 0,
+
+      hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+
+      unit: { cache: 0x3a8 },
+
+      heroRuntime: {
+        info: 0x30,
+        levelHidden: 0xd0,
+        levelKey: 0xd4,
+        expHidden: 0x110,
+        expKey: 0x114,
       },
+
+      heroInfoData: { heroKey: 0x30 },
+
+      currency: { key: 0x10, quantity: 0x18 },
+
+      petSaveData: {
+        petKey: player?.petKey ?? STRUCT_PET_KEY,
+        isUnlock: player?.petIsUnlock ?? STRUCT_PET_IS_UNLOCK,
+      },
+
+      inventoryItem: {
+        itemKey: player?.itemKey ?? STRUCT_ITEM_KEY,
+        isChaotic: player?.itemIsChaotic ?? STRUCT_ITEM_IS_CHAOTIC,
+      },
+
+      runtime: {
+        currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
+        stage: {
+          currentCache: scm?.currentCache ?? 0,
+          cacheInfoData: 0x10,
+          stageKey: 0x30,
+          waveAmount: 0x54,
+          runtimeWave: STRUCT_RUNTIME_WAVE,
+        },
+        currencyInfoKey: 0x30,
+        heroList: sm?.heroList ?? 0,
+        log: {
+          logByType: lm?.logByType ?? STRUCT_LOG_BY_TYPE,
+          getBoxTypeKey: lm?.getBoxTypeKey ?? STRUCT_GETBOX_KEY,
+          stageClearTypeKey: STRUCT_STAGE_CLEAR_KEY,
+          getItemWithBoxOpenTypeKey: lm?.boxOpenTypeKey ?? 0,
+        },
+        getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },
+        boxOpenLog: {
+          itemStringKey: lm?.boxOpenLog.itemStringKey ?? boxOpenFields.itemStringKey,
+          itemGradeType: lm?.boxOpenLog.itemGradeType ?? boxOpenFields.itemGradeType,
+          gradeSO: lm?.boxOpenLog.gradeSO ?? boxOpenFields.gradeSO ?? 0,
+          gradeSOGrade: lm?.boxOpenLog.gradeSOGrade ?? boxOpenFields.gradeSOGrade ?? 0,
+          boxType: 0, // obfuscated field name — requires manual IL2CPP dump
+          level: 0, // obfuscated field name — requires manual IL2CPP dump
+        },
+        stageClearLog: { clearTimeSec: STRUCT_STAGE_CLEAR_TIME },
+        monster: {
+          monsterList: 0,
+          summonedList: 0,
+          deadMonsterList: 0,
+          monsterHealth: 0,
+          hpCurrent: 0,
+          hpMax: 0,
+        },
+      },
+
+      container: STRUCT_CONTAINER,
+      dict: STRUCT_DICT,
+      il2cppClass: { staticFieldsOffsets: STATIC_FIELDS_CANDIDATES },
+      goldKey: GOLD_KEY,
     },
 
-    container: STRUCT_CONTAINER,
-    dict: STRUCT_DICT,
-    il2cppClass: { staticFieldsOffsets: STATIC_FIELDS_CANDIDATES },
-    goldKey: GOLD_KEY,
+    classIndex,
   };
 }

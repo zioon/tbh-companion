@@ -48,6 +48,7 @@ export function buildStats(
   statusOverride: string | null = null,
   liveFrame: LiveMemorySnapshot | null = null,
   boxOpenPriceResolver: BoxOpenPriceResolver = null,
+  lootStatus: string | null = null,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
@@ -100,9 +101,16 @@ export function buildStats(
     liveFrame?.connected && liveFrame.stageKey != null
       ? liveFrame.stageKey
       : (lastSnap?.stageKey ?? 0);
-  // Use DPS tracker's wave-clear detection when live memory is active, else use save value
+  // Wave priority: live memory's stageWave (game-internal, most accurate) →
+  // DpsTracker's wave-clear estimate (real-time inference when stageWave is
+  // null/unset on the live frame) → save file's stageWave (last resort).
   const estimatedWave = liveFrame?.connected ? dpsTracker.currentWave : 0;
-  const stageWave = estimatedWave > 0 ? estimatedWave : (lastSnap?.stageWave ?? 0);
+  const stageWave =
+    liveFrame?.connected && liveFrame.stageWave != null
+      ? liveFrame.stageWave
+      : estimatedWave > 0
+        ? estimatedWave
+        : (lastSnap?.stageWave ?? 0);
   const stageWaveTotal =
     liveFrame?.connected && liveFrame.stageWaveTotal != null ? liveFrame.stageWaveTotal : 0;
 
@@ -138,6 +146,7 @@ export function buildStats(
     history: tracker.getVisibleHistory(HISTORY_VISIBLE),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
     boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
+    lootStatus: lootStatus ?? undefined,
 
     // DPS / Damage / Mobs / HP
     dps: dpsTracker.dps,
@@ -148,5 +157,11 @@ export function buildStats(
     aliveMonsters: dpsTracker.alive,
     hpSum: dpsTracker.hpSum,
     hpMaxSum: dpsTracker.hpMaxSum,
+
+    // Box-queue ("stargaze") prediction: passed through from the live frame
+    // so the renderer can show "next drops" previews per chest card. Null
+    // when live memory isn't connected or the queue scanner hasn't located
+    // the runtime Dictionary<EBoxType, List<BoxData>> singleton yet.
+    boxQueue: liveFrame?.boxQueue ?? null,
   };
 }
