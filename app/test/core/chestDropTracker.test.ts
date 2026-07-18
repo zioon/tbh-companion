@@ -57,9 +57,11 @@ describe("ChestDropTracker", () => {
     expect(stats.rareTotal).toBe(1);
     expect(stats.actTotal).toBe(1);
     expect(stats.combinedTotal).toBe(3);
-    expect(stats.commonPerHour).toBe(1);
-    expect(stats.rarePerHour).toBe(1);
-    expect(stats.actPerHour).toBe(1);
+    // perHour uses the sessionDropStart time window (clamped to 60s for
+    // drops recorded "now"), so 1 drop / (60/3600)h = 60/hr.
+    expect(stats.commonPerHour).toBe(60);
+    expect(stats.rarePerHour).toBe(60);
+    expect(stats.actPerHour).toBe(60);
     expect(stats.breakdown).toHaveLength(3);
     expect(stats.breakdown.every((row) => row.itemKey > 0)).toBe(true);
   });
@@ -110,9 +112,11 @@ describe("ChestDropTracker", () => {
 
     const before = tracker.getStats(3600);
     expect(before.combinedTotal).toBe(3);
-    expect(before.commonPerHour).toBe(1);
-    expect(before.rarePerHour).toBe(1);
-    expect(before.actPerHour).toBe(1);
+    // perHour uses the sessionDropStart time window — all three drops
+    // happened "now", so each category gets 1 / (60/3600) = 60/hr.
+    expect(before.commonPerHour).toBe(60);
+    expect(before.rarePerHour).toBe(60);
+    expect(before.actPerHour).toBe(60);
 
     tracker.reset();
 
@@ -147,21 +151,21 @@ describe("ChestDropTracker", () => {
   });
 
   it("clamps short elapsed to MIN_RATE_WINDOW_SEC to avoid perHour spikes", () => {
-    // Reproduces the bug: Reset was just pressed, 5s elapsed, 1 drop landed.
-    // Without the clamp, perHour = 1 / (5/3600) = 720/hr. With the 60s clamp,
-    // perHour = 1 / (60/3600) = 60/hr — a conservative estimate, not a spike.
+    // The time window defaults to MIN_RATE_WINDOW_SEC when sessionDropStart
+    // is null (no drops) or the drop just happened (elapsed < 60s). With 1
+    // drop and a 60s window, perHour = 1 / (60/3600) = 60/hr.
     const tracker = new ChestDropTracker();
     tracker.recordLogDrop(910151);
     const stats = tracker.getStats(5);
     expect(stats.commonTotal).toBe(1);
-    expect(stats.commonPerHour).toBe(60); // 1 drop / 60s clamped window
+    expect(stats.commonPerHour).toBe(60);
   });
 
-  it("leaves steady-state rates unchanged when elapsed exceeds the minimum window", () => {
-    // 1 drop over a real 1-hour session → 1/hr. The clamp must not affect
-    // sessions longer than MIN_RATE_WINDOW_SEC.
+  it("uses the actual time window when drops happened long ago", () => {
+    // 1 drop recorded 1 hour ago → perHour = 1 / (3600/3600) = 1/hr.
+    const oneHourAgo = Date.now() / 1000 - 3600;
     const tracker = new ChestDropTracker();
-    tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(910151, oneHourAgo);
     const stats = tracker.getStats(3600);
     expect(stats.commonPerHour).toBe(1);
   });
@@ -223,8 +227,9 @@ describe("ChestDropTracker.recordLiveChestDrop", () => {
   });
 
   it("records an act boss (act) drop into the act bucket", () => {
+    const oneHourAgo = Date.now() / 1000 - 3600;
     const tracker = new ChestDropTracker();
-    tracker.recordLiveChestDrop("act", 1000);
+    tracker.recordLiveChestDrop("act", oneHourAgo);
     const stats = tracker.getStats(3600);
     expect(stats.actTotal).toBe(1);
     expect(stats.commonTotal).toBe(0);
