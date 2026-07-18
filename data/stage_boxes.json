@@ -12,25 +12,43 @@
       "type": "STAGEBOX",
       "level": 1,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1101,
+        "dropStageKeys": [1101, 1102, 1103],
+        "dropStageRangeLabel": "Normal 1-1 – 1-3"
+      }
     },
     {
       "id": 910051,
       "name": "Normal Monster Box 2",
       "grade": "COMMON",
       "type": "STAGEBOX",
-      "level": 2,
+      "level": 5,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1104,
+        "dropStageKeys": [1104, 1105, 1106, 1107],
+        "dropStageRangeLabel": "Normal 1-4 – 1-7"
+      }
     },
     {
       "id": 910101,
       "name": "Normal Monster Box 3",
       "grade": "COMMON",
       "type": "STAGEBOX",
-      "level": 3,
+      "level": 10,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1108,
+        "dropStageKeys": [1108, 1109, 1201, 1202],
+        "dropStageRangeLabel": "Normal 1-8 – 1-9 · Normal 2-1 – 2-2"
+      }
     },
     {
       "id": 910151,
@@ -39,7 +57,13 @@
       "type": "STAGEBOX",
       "level": 15,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1203,
+        "dropStageKeys": [1203, 1204, 1205, 1206, 1207],
+        "dropStageRangeLabel": "Normal 2-3 – 2-7"
+      }
     },
     {
       "id": 910201,
@@ -48,7 +72,13 @@
       "type": "STAGEBOX",
       "level": 20,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1208,
+        "dropStageKeys": [1208, 1209, 1301, 1302, 1303, 1304, 1305, 1306, 1307],
+        "dropStageRangeLabel": "Normal 2-8 – 2-9 · Normal 3-1 – 3-7"
+      }
     },
     {
       "id": 910251,
@@ -66,7 +96,13 @@
       "type": "STAGEBOX",
       "level": 30,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 1308,
+        "dropStageKeys": [1308, 1309, 2101, 2102, 2103, 2104, 2105, 2106, 2107, 2108],
+        "dropStageRangeLabel": "Normal 3-8 – 3-9 · Nightmare 1-1 – 1-8"
+      }
     },
     {
       "id": 910351,
@@ -84,7 +120,13 @@
       "type": "STAGEBOX",
       "level": 40,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2109,
+        "dropStageKeys": [2109, 2201, 2202, 2203, 2204, 2205, 2206, 2207, 2208, 2209, 2301, 2302, 2303, 2304],
+        "dropStageRangeLabel": "Nightmare 1-9 · Nightmare 2-1 – 2-9 · Nightmare 3-1 – 3-4"
+      }
     },
     {
       "id": 910451,
@@ -102,7 +144,13 @@
       "type": "STAGEBOX",
       "level": 50,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 2305,
+        "dropStageKeys": [2305, 2306, 2307, 2308, 2309, 3101, 3102, 3103, 3104, 3105, 3106, 3107, 3108, 3109, 3201, 3202, 3203, 3204],
+        "dropStageRangeLabel": "Nightmare 3-5 – 3-9 · Hell 1-1 – 1-9 · Hell 2-1 – 2-4"
+      }
     },
     {
       "id": 910551,
@@ -129,7 +177,13 @@
       "type": "STAGEBOX",
       "level": 65,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 3205,
+        "dropStageKeys": [3205, 3206, 3207, 3208, 3209, 3301, 3302, 3303, 3304, 3305, 3306, 3307, 3308, 3309, 4101, 4102],
+        "dropStageRangeLabel": "Hell 2-5 – 2-9 · Hell 3-1 – 3-9 · Torment 1-1 – 1-2"
+      }
     },
     {
       "id": 910701,
@@ -156,7 +210,13 @@
       "type": "STAGEBOX",
       "level": 80,
       "marketTradable": false,
-      "obtainable": true
+      "obtainable": true,
+      "tracker": {
+        "canonical": true,
+        "idealStageKey": 4103,
+        "dropStageKeys": [4103, 4104, 4105, 4106, 4107, 4108, 4109, 4201, 4202, 4203, 4204, 4205, 4206, 4207, 4208, 4209, 4301, 4302, 4303, 4304, 4305, 4306, 4307, 4308, 4309],
+        "dropStageRangeLabel": "Torment 1-3 – 1-9 · Torment 2-1 – 2-9 · Torment 3-1 – 3-9"
+      }
     },
     {
       "id": 910851,
@@ -183,15 +243,7 @@
       "type": "STAGEBOX",
       "level": 1,
       "marketTradable": false,
-      "obtainable": true,
-      "tracker": {
-        "canonical": true,
-        "idealStageKey": 1101,
-        "dropStageKeys": [
-          1101
-        ],
-        "dropStageRangeLabel": "Normal 1-1"
-      }
+      "obtainable": true
     },
     {
       "id": 920002,
@@ -200,15 +252,7 @@
       "type": "STAGEBOX",
       "level": 2,
       "marketTradable": false,
-      "obtainable": true,
-      "tracker": {
-        "canonical": true,
-        "idealStageKey": 1101,
-        "dropStageKeys": [
-          1101
-        ],
-        "dropStageRangeLabel": "Normal 1-1"
-      }
+      "obtainable": true
     },
     {
       "id": 920003,
@@ -217,15 +261,7 @@
       "type": "STAGEBOX",
       "level": 3,
       "marketTradable": false,
-      "obtainable": true,
-      "tracker": {
-        "canonical": true,
-        "idealStageKey": 1101,
-        "dropStageKeys": [
-          1101
-        ],
-        "dropStageRangeLabel": "Normal 1-1"
-      }
+      "obtainable": true
     },
     {
       "id": 920004,
@@ -300,17 +336,7 @@
       "type": "STAGEBOX",
       "level": 6,
       "marketTradable": false,
-      "obtainable": true,
-      "tracker": {
-        "canonical": true,
-        "idealStageKey": 1109,
-        "dropStageKeys": [
-          1109,
-          1209,
-          1309
-        ],
-        "dropStageRangeLabel": "Normal 1-9 · Normal 2-9 · Normal 3-9"
-      }
+      "obtainable": true
     },
     {
       "id": 920032,

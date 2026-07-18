@@ -20,7 +20,7 @@ import { LookupPriceService } from "../services/LookupPriceService";
 import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
-import { loadActBossTrackerRoutes } from "../../core/stageBoxTracker";
+import { loadActBossTrackerRoutes, loadCommonChestTrackerRoutes } from "../../core/stageBoxTracker";
 import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
@@ -136,6 +136,7 @@ function persistWindowLayout<K extends keyof WindowLayoutPrefs>(
 export function startTracking(): SessionUiSnapshot {
   config = loadConfig();
   inventory.initMarket(config.currency);
+  inventory.setAutoScanEnabled(config.marketAutoScanEnabled);
   inventory.loadGameData();
   lookupPrices.start();
   // Restore the persisted opt-in reader state (off by default; only if consented).
@@ -164,6 +165,7 @@ export function startTracking(): SessionUiSnapshot {
     chestService: chests,
     stageBoxCatalog: () => boxTimers.getState().catalog,
     actBossRoutes: () => loadActBossTrackerRoutes(),
+    commonRoutes: () => loadCommonChestTrackerRoutes(),
     getCurrentStageKey: () => tracking.getCurrentStageKey(),
     broadcast,
   });
@@ -287,6 +289,11 @@ export function getAppServices() {
       saveConfig(config);
       return inventory.setCurrency(iso);
     },
+    setMarketAutoScanEnabled: (enabled: boolean) => {
+      inventory.setAutoScanEnabled(enabled);
+      config = { ...config, marketAutoScanEnabled: enabled };
+      saveConfig(config);
+    },
     getConfig: () => normalizeConfigFromRaw(config),
     pickSaveFile: async (): Promise<string | null> => {
       const current = expandPath(config.savePath);
@@ -330,6 +337,7 @@ export function getAppServices() {
           onSavePathChange: () => tracking.onSavePathChanged(),
           setLiveMemoryEnabled: (enabled) => (enabled ? liveMemory.start() : liveMemory.stop()),
           onLiveMemoryToggled: () => tracking.onLiveMemoryToggled(),
+          setMarketAutoScanEnabled: (enabled) => inventory.setAutoScanEnabled(enabled),
         },
         patch,
       ),

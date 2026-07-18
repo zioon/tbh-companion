@@ -27,6 +27,7 @@ function makeService(
     autoOpen?: { common: number; stageBoss: number; actBoss: number } | null;
     catalog?: BoxTimerCatalogEntry[];
     actBossRoutes?: StageBoxTrackerRoute[];
+    commonRoutes?: StageBoxTrackerRoute[];
     currentStageKey?: number | null;
     broadcast?: (channel: string, payload: unknown) => void;
   } = {},
@@ -51,6 +52,7 @@ function makeService(
     },
     stageBoxCatalog: () => opts.catalog ?? [],
     actBossRoutes: () => opts.actBossRoutes ?? ACT_BOSS_ROUTES,
+    commonRoutes: () => opts.commonRoutes ?? COMMON_ROUTES,
     getCurrentStageKey: () => opts.currentStageKey ?? null,
     broadcast: (channel, payload) => {
       broadcasts.push({ channel, payload });
@@ -84,7 +86,7 @@ const CATALOG: BoxTimerCatalogEntry[] = [
 // Act bosses drop on stage 10 of each act's final stage (not stage 9).
 // Lv1 ← 1110 (Normal 1-10), Lv20 ← 1210 (Normal 2-10), Lv60 ← 3110 (Hell 1-10),
 // Lv90 ← 4210/4310 (Torment 2-10 / 3-10).
-// Used by AutoClassifyService.actBossLevelForStage to infer act chest level.
+// Used by AutoClassifyService.levelFromRoutes to infer act chest level.
 const ACT_BOSS_ROUTES: StageBoxTrackerRoute[] = [
   {
     boxId: 930101,
@@ -117,6 +119,47 @@ const ACT_BOSS_ROUTES: StageBoxTrackerRoute[] = [
     idealStageLabel: "Torment 2-10",
     dropStageKeys: [4210, 4310],
     dropStageRangeLabel: "Torment 2-10 · Torment 3-10",
+  },
+];
+
+// Mock COMMON normal monster box tracker routes mirroring data/stage_boxes.json.
+// COMMON chests share the same dropStageKeys as RARE stage boss boxes, but have
+// different level numbering at low levels (Lv1/5/10 vs RARE Lv4/5/7). Only the
+// low-level entries that differ from RARE are included here; from Lv15 onwards
+// COMMON and RARE levels coincide. Used by AutoClassifyService.levelFromRoutes
+// to infer common chest level.
+const COMMON_ROUTES: StageBoxTrackerRoute[] = [
+  {
+    boxId: 910011,
+    level: 1,
+    idealStageKey: 1101,
+    idealStageLabel: "Normal 1-1",
+    dropStageKeys: [1101, 1102, 1103],
+    dropStageRangeLabel: "Normal 1-1 – 1-3",
+  },
+  {
+    boxId: 910051,
+    level: 5,
+    idealStageKey: 1104,
+    idealStageLabel: "Normal 1-4",
+    dropStageKeys: [1104, 1105, 1106, 1107],
+    dropStageRangeLabel: "Normal 1-4 – 1-7",
+  },
+  {
+    boxId: 910101,
+    level: 10,
+    idealStageKey: 1108,
+    idealStageLabel: "Normal 1-8",
+    dropStageKeys: [1108, 1109, 1201, 1202],
+    dropStageRangeLabel: "Normal 1-8 – 1-9 · Normal 2-1 – 2-2",
+  },
+  {
+    boxId: 910151,
+    level: 15,
+    idealStageKey: 1203,
+    idealStageLabel: "Normal 2-3",
+    dropStageKeys: [1203, 1204, 1205, 1206, 1207],
+    dropStageRangeLabel: "Normal 2-3 – 2-7",
   },
 ];
 
@@ -249,7 +292,7 @@ describe("AutoClassifyService", () => {
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
-      actBossRoutes: [], // no routes → actBossLevelForStage returns null
+      actBossRoutes: [], // no routes → levelFromRoutes returns null
       currentStageKey: 1110,
     });
     chestDropTracker.recordLiveChestDrop("act", 1.0);
@@ -258,6 +301,66 @@ describe("AutoClassifyService", () => {
     const stats = boxOpenTracker.getStats(100, null);
     // No routes → level is null → boxKey is just "act" (no level suffix).
     expect(stats.find((s) => s.boxKey === "act")).toBeTruthy();
+  });
+
+  it("resolves common chest level from COMMON tracker routes (Lv1 on stage 1101)", () => {
+    // stageKey 1101 (Normal 1-1) → COMMON Lv1 route → boxKey "common:1".
+    // This is the key fix: previously common used the RARE catalog and returned
+    // Lv4 (Stage Boss Box 4 also drops on 1101-1103), but COMMON chests have
+    // their own level numbering (Lv1, not Lv4).
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1101,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]?.boxKey).toBe("common:1");
+  });
+
+  it("resolves common chest level for Lv5 on stage 1104", () => {
+    // stageKey 1104 (Normal 1-4) → COMMON Lv5 route → boxKey "common:5".
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1104,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]?.boxKey).toBe("common:5");
+  });
+
+  it("resolves common chest level for Lv10 on stage 1108", () => {
+    // stageKey 1108 (Normal 1-8) → COMMON Lv10 route → boxKey "common:10".
+    // Previously this returned Lv7 (RARE Stage Boss Box 7 level), but COMMON
+    // chests use Lv10 on the same stages.
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1108,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]?.boxKey).toBe("common:10");
+  });
+
+  it("falls back to category-only boxKey when common routes are empty", () => {
+    const { chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      commonRoutes: [], // no routes → levelFromRoutes returns null
+      currentStageKey: 1101,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    const stats = boxOpenTracker.getStats(100, null);
+    // No routes → level is null → boxKey is just "common" (no level suffix).
+    expect(stats.find((s) => s.boxKey === "common")).toBeTruthy();
   });
 
   it("prompts when queue is empty and auto-classify is enabled", () => {

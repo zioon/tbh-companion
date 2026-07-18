@@ -80,6 +80,33 @@ export function loadActBossTrackerRoutes(
     .sort((a, b) => a.level - b.level || a.boxId - b.boxId);
 }
 
+/**
+ * Load tracker routes for COMMON normal monster boxes. COMMON chests share the
+ * same `dropStageKeys` ranges as RARE stage boss boxes (same stage boundaries),
+ * but their level numbering differs in the low-level range (COMMON Lv1/5/10
+ * vs RARE Lv4/5/7 on the same stages). This loader lets the auto-classify
+ * queue infer the correct COMMON chest level independently from the RARE
+ * catalog. Returns routes sorted by level ascending.
+ */
+export function loadCommonChestTrackerRoutes(
+  catalog: StageBoxCatalogFile = loadStageBoxCatalogFile(),
+): StageBoxTrackerRoute[] {
+  return catalog.items
+    .filter(
+      (item): item is StageBoxCatalogItem & { tracker: StageBoxTrackerMeta } =>
+        item.grade === "COMMON" && item.obtainable && item.tracker?.canonical === true,
+    )
+    .map((item) => ({
+      boxId: item.id,
+      level: item.level ?? 0,
+      idealStageKey: item.tracker.idealStageKey,
+      idealStageLabel: stageName(item.tracker.idealStageKey),
+      dropStageKeys: item.tracker.dropStageKeys,
+      dropStageRangeLabel: item.tracker.dropStageRangeLabel,
+    }))
+    .sort((a, b) => a.level - b.level || a.boxId - b.boxId);
+}
+
 export function trackerRoutesById(
   routes: StageBoxTrackerRoute[],
 ): Map<number, StageBoxTrackerRoute> {

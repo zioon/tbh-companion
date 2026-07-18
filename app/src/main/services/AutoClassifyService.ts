@@ -43,6 +43,11 @@ export interface AutoClassifyServiceDeps {
   stageBoxCatalog: () => ReadonlyArray<BoxTimerCatalogEntry>;
   /** LEGENDARY act boss tracker routes, used to infer act boss level from stageKey. */
   actBossRoutes: () => ReadonlyArray<StageBoxTrackerRoute>;
+  /** COMMON normal monster box tracker routes, used to infer common chest level
+   * from stageKey. COMMON chests share the same stage boundaries as RARE stage
+   * boss boxes but have different level numbering at low levels (Lv1/5/10 vs
+   * RARE Lv4/5/7), so they need their own route table. */
+  commonRoutes: () => ReadonlyArray<StageBoxTrackerRoute>;
   getCurrentStageKey: () => number | null;
   broadcast: (channel: string, payload: unknown) => void;
 }
@@ -303,14 +308,18 @@ export class AutoClassifyService {
     event: { category: ChestDropCategory; itemKey?: number },
     stageKey: number,
   ): string | null {
-    // ChestDropCategory is "common" | "rare" | "act". Level comes from the
-    // tracker catalog: RARE stage boss routes for common/rare, LEGENDARY act
-    // boss routes for act. Falls back to category-only when no match.
+    // ChestDropCategory is "common" | "rare" | "act". COMMON and ACT chests
+    // have their own tracker routes (independent level numbering from RARE).
+    // RARE stage boss chests use the BoxTimer catalog's farmStageOptions via
+    // levelForStage. Falls back to category-only when no match.
     const cat: BoxCategory = event.category;
-    const routes = cat === "act" ? this.deps.actBossRoutes() : null;
-    const level = routes
-      ? this.actBossLevelForStage(stageKey, routes)
-      : this.levelForStage(stageKey);
+    const routes =
+      cat === "act"
+        ? this.deps.actBossRoutes()
+        : cat === "common"
+          ? this.deps.commonRoutes()
+          : null;
+    const level = routes ? this.levelFromRoutes(stageKey, routes) : this.levelForStage(stageKey);
     return level != null ? `${cat}:${level}` : cat;
   }
 
@@ -329,12 +338,12 @@ export class AutoClassifyService {
   }
 
   /**
-   * Infer the act boss chest level for `stageKey` from the LEGENDARY act boss
-   * tracker routes. Matches the route whose `dropStageKeys` includes
-   * `stageKey`; falls back to the lowest level when no match (e.g. catalog
-   * not loaded or stage is not an act boss stage).
+   * Infer the chest level for `stageKey` from a tracker route table. Matches
+   * the route whose `dropStageKeys` includes `stageKey`; falls back to the
+   * lowest level when no match (e.g. catalog not loaded or stage is not a
+   * drop stage for this category). Used by both COMMON and ACT categories.
    */
-  private actBossLevelForStage(
+  private levelFromRoutes(
     stageKey: number,
     routes: ReadonlyArray<StageBoxTrackerRoute>,
   ): number | null {

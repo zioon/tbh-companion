@@ -35,9 +35,12 @@ describe("resolveStageBoxDrop", () => {
     expect(resolveStageBoxDrop(920999)?.category).toBe("rare");
   });
 
-  it("canonicalizes duplicate rare ItemKeys to tracker ids", () => {
+  it("resolves non-canonical duplicate rare ItemKeys to themselves when no canonical tracker exists", () => {
+    // 920004 (Stage Boss Box 3 duplicate) has no canonical tracker because
+    // Box 1/2/3 don't drop from any stage (phantom tracker entries removed).
+    // It resolves to itself rather than being canonicalized to 920003.
     const resolved = resolveStageBoxDrop(920004);
-    expect(resolved?.itemKey).toBe(920003);
+    expect(resolved?.itemKey).toBe(920004);
     expect(resolved?.category).toBe("rare");
   });
 });

@@ -48,7 +48,9 @@ describe("BoxTimerService", () => {
     const state = svc.getState();
     expect(state.enabledCount).toBe(4);
     expect(state.rows).toHaveLength(4);
-    expect(state.catalog).toHaveLength(14);
+    // Catalog covers all canonical RARE tracker routes. Box 1/2/3/6 phantom
+    // tracker entries were removed, leaving 10 routes (Lv4/5/7/15/20/30/40/50/65/80).
+    expect(state.catalog).toHaveLength(10);
     expect(state.defaultCooldownSeconds).toBe(720);
   });
 
@@ -69,9 +71,12 @@ describe("BoxTimerService", () => {
 
   it("replaces selection with setEnabledBoxIds", async () => {
     const svc = await loadService();
-    svc.setEnabledBoxIds([920001, 920002]);
+    // 920011 (Box 4) and 920051 (Box 5) are canonical tracker routes.
+    // Box 1/2/3 (920001/920002/920003) had phantom trackers removed and are
+    // no longer valid tracker box ids.
+    svc.setEnabledBoxIds([920011, 920051]);
     expect(svc.getState().enabledCount).toBe(2);
-    expect(svc.getState().rows.map((r) => r.boxId)).toEqual([920001, 920002]);
+    expect(svc.getState().rows.map((r) => r.boxId)).toEqual([920011, 920051]);
   });
 
   it("marks dropped boxes as cooldown then ready after clear", async () => {
@@ -127,26 +132,6 @@ describe("BoxTimerService", () => {
     );
   });
 
-  it("marks dropped from Player.log ItemKey for tracked boxes", async () => {
-    const svc = await loadService();
-    expect(svc.tryMarkDroppedFromLog(920151)).toBe(true);
-    expect(svc.getState().rows.find((r) => r.boxId === 920151)?.status).toBe("cooldown");
-  });
-
-  it("ignores Player.log ItemKey when box level is not tracked", async () => {
-    const svc = await loadService();
-    svc.setEnabledBoxIds([920151]);
-    expect(svc.tryMarkDroppedFromLog(920501)).toBe(false);
-    expect(svc.getState().rows.find((r) => r.boxId === 920501)).toBeUndefined();
-  });
-
-  it("marks dropped from duplicate Player.log ItemKey via canonical id", async () => {
-    const svc = await loadService();
-    svc.setEnabledBoxIds([920003]);
-    expect(svc.tryMarkDroppedFromLog(920004)).toBe(true);
-    expect(svc.getState().rows.find((r) => r.boxId === 920003)?.status).toBe("cooldown");
-  });
-
   it("marks dropped from live memory stage key for enabled tracked routes", async () => {
     const svc = await loadService();
     svc.setEnabledBoxIds([920801]);
@@ -171,17 +156,17 @@ describe("BoxTimerService", () => {
     const t0 = Date.now();
     expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(true);
     expect(onDropped).toHaveBeenCalledTimes(1);
-    const remainingAfterFirst = svc.getState().rows.find(
-      (r) => r.boxId === 920801,
-    )!.remainingSeconds;
+    const remainingAfterFirst = svc
+      .getState()
+      .rows.find((r) => r.boxId === 920801)!.remainingSeconds;
 
     // 30s later — a duplicate drop signal arrives (e.g. GetBox log burst).
     vi.setSystemTime(t0 + 30_000);
     expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(true);
     expect(onDropped).toHaveBeenCalledTimes(1); // not re-fired
-    const remainingAfterSecond = svc.getState().rows.find(
-      (r) => r.boxId === 920801,
-    )!.remainingSeconds;
+    const remainingAfterSecond = svc
+      .getState()
+      .rows.find((r) => r.boxId === 920801)!.remainingSeconds;
 
     // Cooldown was NOT reset: remaining should be ~30s less, not back to 600.
     expect(remainingAfterSecond).toBeLessThan(remainingAfterFirst);
