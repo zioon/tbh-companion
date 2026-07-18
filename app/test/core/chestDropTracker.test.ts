@@ -170,6 +170,26 @@ describe("ChestDropTracker", () => {
     expect(stats.commonTotal).toBe(2);
     expect(stats.commonPerHour).toBe(0); // restored counts are pre-session
   });
+
+  it("clamps short elapsed to MIN_RATE_WINDOW_SEC to avoid perHour spikes", () => {
+    // Reproduces the bug: Reset was just pressed, 5s elapsed, 1 drop landed.
+    // Without the clamp, perHour = 1 / (5/3600) = 720/hr. With the 60s clamp,
+    // perHour = 1 / (60/3600) = 60/hr — a conservative estimate, not a spike.
+    const tracker = new ChestDropTracker();
+    tracker.recordLogDrop(910151);
+    const stats = tracker.getStats(5);
+    expect(stats.commonTotal).toBe(1);
+    expect(stats.commonPerHour).toBe(60); // 1 drop / 60s clamped window
+  });
+
+  it("leaves steady-state rates unchanged when elapsed exceeds the minimum window", () => {
+    // 1 drop over a real 1-hour session → 1/hr. The clamp must not affect
+    // sessions longer than MIN_RATE_WINDOW_SEC.
+    const tracker = new ChestDropTracker();
+    tracker.recordLogDrop(910151);
+    const stats = tracker.getStats(3600);
+    expect(stats.commonPerHour).toBe(1);
+  });
 });
 
 describe("ChestDropTracker.recordLiveChestDrop", () => {

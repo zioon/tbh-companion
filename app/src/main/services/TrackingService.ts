@@ -65,6 +65,20 @@ export class TrackingService {
   /** GameData index for resolving box-open item names/grades; set by appState. */
   private gameDataLookup: Map<number, GameItem> | null = null;
   /**
+   * Reverse index `name → grade → variantId` built from `gameDataLookup`.
+   *
+   * Game saves store items as `(baseItemKey, gradeType)` — the base id (e.g.
+   * 530017) is shared across all rarity variants of the same item, while
+   * `gradeType` distinguishes COMMON / UNCOMMON / RARE / LEGENDARY. But the
+   * bundled catalog has independent ids per variant (530017=COMMON,
+   * 531171=UNCOMMON, 532171=RARE, 533171=LEGENDARY all share the name
+   * "Dimensional Boots"). Without remapping, UI that looks the item up by
+   * `itemKey` (entity panel, peek card, ItemLink) always hits the COMMON
+   * variant. This index lets `resolveBoxOpenEntry` translate the save's
+   * (baseId, grade) pair to the correct catalog variant id.
+   */
+  private variantIndex: Map<string, Map<string, number>> | null = null;
+  /**
    * Index over the latest resolved inventory's `rows`, keyed by `itemKey`.
    * Rebuilt on every `setInventorySnapshot` so `buildBoxOpenPriceResolver`
    * is O(1) per lookup instead of O(rows). Inventory can reach tens of
@@ -198,6 +212,7 @@ export class TrackingService {
   reset(): void {
     this.tracker.reset();
     this.chestDropTracker.resetRates();
+    this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
     this.sessionState?.onTrackerReset(
@@ -257,6 +272,70 @@ export class TrackingService {
   /** Provide the GameData index for box-open item name/grade resolution. */
   setGameDataLookup(lookup: Map<number, GameItem>): void {
     this.gameDataLookup = lookup;
+    // Build (name → grade → variantId) index so resolveBoxOpenEntry can remap
+    // the save's (baseId, grade) pair to the correct catalog variant id. See
+    // variantIndex docstring for why this is necessary.
+    const idx = new Map<string, Map<string, number>>();
+    for (const item of lookup.values()) {
+      let byGrade = idx.get(item.name);
+      if (!byGrade) {
+        byGrade = new Map();
+        idx.set(item.name, byGrade);
+      }
+      byGrade.set(item.grade, item.id);
+    }
+    this.variantIndex = idx;
+    // If a restore already happened before the catalog was loaded (rare race
+    // during startup), the entries recorded then didn't get variant remap or
+    // garbage-drop. Run a pass now so they look right.
+    this.runReResolveNames();
+  }
+
+  /**
+   * Resolve a catalog variant id from a (baseItemKey, grade) pair. Returns the
+   * base id unchanged when no variant with the requested grade exists in the
+   * catalog (e.g. grade is null, or the catalog hasn't indexed that variant).
+   */
+  private resolveVariantId(baseItemKey: number, grade: string | null): number {
+    if (grade == null) return baseItemKey;
+    const base = this.gameDataLookup?.get(baseItemKey);
+    if (!base || base.grade === grade) return baseItemKey;
+    const variantId = this.variantIndex?.get(base.name)?.get(grade);
+    return variantId ?? baseItemKey;
+  }
+
+  /**
+   * Re-resolve every recorded box-open entry through the catalog. Called once
+   * after `tryRestoreOnSnapshot` (so restored snapshot data gets the same
+   * (baseId, grade) → variantId remap and garbage drop that fresh drops get
+   * in `resolveBoxOpenEntry`) and again from `setGameDataLookup` if the
+   * catalog wasn't loaded at restore time. Idempotent — safe to call twice.
+   */
+  private runReResolveNames(): void {
+    if (!this.gameDataLookup || !this.variantIndex) return;
+    this.boxOpenTracker.reResolveNames((rawItemKey, grade) => {
+      const catalogId =
+        rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
+      // Drop garbage itemKeys (e.g. v1.00.28 String-pointer low bits) that
+      // don't fall in the catalog id range — they'd otherwise render as
+      // `#1703973696` forever.
+      if (catalogId < 110_001 || catalogId > 939_999) {
+        if (this.gameDataLookup!.has(catalogId)) {
+          return { itemKey: catalogId, name: this.gameDataLookup!.get(catalogId)!.name };
+        }
+        return null;
+      }
+      // Remap (baseId, grade) → catalog variant id so tooltips / peek cards
+      // render the correct rarity variant, not the COMMON one.
+      const variantId = this.resolveVariantId(catalogId, grade);
+      const item = this.gameDataLookup!.get(variantId);
+      if (!item) {
+        // Catalog doesn't have this id yet (e.g. newer game version): keep
+        // the id with a `#id` placeholder name so the entry isn't lost.
+        return { itemKey: variantId, name: `#${variantId}` };
+      }
+      return { itemKey: variantId, name: item.name };
+    });
   }
 
   /** Provide the latest resolved inventory for buy-order price resolution. */
@@ -356,17 +435,24 @@ export class TrackingService {
     const boxKey = resolveBoxKey(entry.boxType, entry.level) ?? UNCLASSIFIED_BOX_KEY;
 
     const catalogId = catalogItemKeyFromSave(entry.itemKey);
-    const item = this.gameDataLookup?.get(catalogId);
-    const name = item?.name ?? `#${entry.itemKey}`;
+    const baseItem = this.gameDataLookup?.get(catalogId);
     // Prefer the runtime grade (actual drop grade read from GetBoxLog) over
     // the catalog base grade. v1.00.28 can drop the same itemKey at different
     // grades, so the catalog grade is only a fallback when the runtime grade
     // offset is unavailable.
     const grade =
       entry.gradeType != null && entry.gradeType >= 0
-        ? (GRADE_ORDER[entry.gradeType] ?? item?.grade ?? null)
-        : (item?.grade ?? null);
-    return { boxKey, itemKey: catalogId, name, grade };
+        ? (GRADE_ORDER[entry.gradeType] ?? baseItem?.grade ?? null)
+        : (baseItem?.grade ?? null);
+    // Remap (baseId, grade) → catalog variant id. Without this, UI tooltips /
+    // peek cards / entity panel would always render the COMMON variant when
+    // the dropped grade differs (e.g. RARE Dimensional Boots showing as
+    // COMMON Dimensional Boots).
+    const variantId = this.resolveVariantId(catalogId, grade);
+    const variantItem =
+      variantId !== catalogId ? this.gameDataLookup?.get(variantId) : baseItem;
+    const name = (variantItem ?? baseItem)?.name ?? `#${entry.itemKey}`;
+    return { boxKey, itemKey: variantId, name, grade };
   }
 
   /**
@@ -621,6 +707,14 @@ export class TrackingService {
             snap,
           );
           this.restoreApplied = true;
+          // After restore, re-resolve every recorded box-open entry through
+          // the catalog so (a) garbage itemKey strings recorded by the v1.00.28
+          // String-pointer-bits-as-int bug are dropped, and (b) the save's
+          // (baseId, grade) pair is remapped to the correct catalog variant id
+          // — otherwise tooltips / peek cards / entity panel would render the
+          // COMMON variant for high-rarity drops. No-op when gameDataLookup
+          // isn't loaded yet; setGameDataLookup runs its own pass in that case.
+          this.runReResolveNames();
         }
         this.tracker.update(snap);
         this.onStageKey?.(snap.stageKey);

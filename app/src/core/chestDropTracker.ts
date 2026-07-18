@@ -47,6 +47,17 @@ export interface ResolvedStageBoxDrop {
 
 const HISTORY_LIMIT = 500;
 const HISTORY_VISIBLE = 50;
+/**
+ * Minimum time window (seconds) used when computing perHour rates. Right
+ * after a session reset, `elapsedSeconds` can be a few seconds while drops
+ * have already been recorded — dividing by such a tiny window produces
+ * absurd perHour spikes (e.g. 1 drop / 5s → 720/hr). We clamp the
+ * denominator to this minimum so the rate stays a conservative estimate
+ * until enough real elapsed time has accumulated. 60s matches the typical
+ * auto-open cadence and is short enough that steady-state rates are
+ * unaffected (a 1-hour session uses 3600s, not 60s).
+ */
+const MIN_RATE_WINDOW_SEC = 60;
 
 function nowSeconds(): number {
   return Date.now() / 1000;
@@ -443,7 +454,11 @@ export class ChestDropTracker {
     const history = this.historyCache;
 
     const combinedTotal = commonTotal + rareTotal + actTotal;
-    const hours = elapsedSeconds > 0 ? elapsedSeconds / 3600 : 0;
+    // Clamp the rate window to MIN_RATE_WINDOW_SEC so a fresh session (where
+    // elapsedSeconds is a few seconds but a drop has already landed) doesn't
+    // produce a perHour spike. Real sessions (>1min) are unaffected.
+    const effectiveElapsed = Math.max(MIN_RATE_WINDOW_SEC, elapsedSeconds);
+    const hours = effectiveElapsed > 0 ? effectiveElapsed / 3600 : 0;
 
     // perHour rates use the session delta (current - baseline) so that a
     // session reset zeroes rates without wiping cumulative totals. Totals
