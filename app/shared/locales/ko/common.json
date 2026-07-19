@@ -48,16 +48,16 @@
   },
   "labels": {
     "grades": {
-      "COMMON": "커먼",
-      "UNCOMMON": "언커먼",
-      "RARE": "레어",
-      "LEGENDARY": "레전더리",
-      "IMMORTAL": "이모탈",
+      "COMMON": "일반",
+      "UNCOMMON": "고급",
+      "RARE": "희귀",
+      "LEGENDARY": "전설",
+      "IMMORTAL": "불멸",
       "ARCANA": "아르카나",
-      "BEYOND": "비욘드",
-      "CELESTIAL": "셀레스티얼",
-      "DIVINE": "디바인",
-      "COSMIC": "코즈믹"
+      "BEYOND": "초월",
+      "CELESTIAL": "천상",
+      "DIVINE": "신성",
+      "COSMIC": "우주"
     },
     "types": {
       "GEAR": "장비",

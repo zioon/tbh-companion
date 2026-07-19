@@ -49,12 +49,12 @@
   "labels": {
     "grades": {
       "COMMON": "普通",
-      "UNCOMMON": "优良",
+      "UNCOMMON": "罕见",
       "RARE": "稀有",
       "LEGENDARY": "传奇",
       "IMMORTAL": "不朽",
-      "ARCANA": "秘法",
-      "BEYOND": "超脱",
+      "ARCANA": "至宝",
+      "BEYOND": "超凡",
       "CELESTIAL": "天界",
       "DIVINE": "神圣",
       "COSMIC": "宇宙"
