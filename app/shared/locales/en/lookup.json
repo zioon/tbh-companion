@@ -110,6 +110,7 @@
     "noLootMatchFilters": "No loot matches these filters.",
     "viaMonsterKill": "Monster kill",
     "viaStageBossKill": "Stage boss kill",
-    "viaActBossKill": "Act boss kill"
+    "viaActBossKill": "Act boss kill",
+    "levelSuffix": "{{base}} Lv{{level}}"
   }
 }

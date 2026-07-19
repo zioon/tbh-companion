@@ -110,6 +110,7 @@
     "noLootMatchFilters": "이 필터와 일치하는 전리품이 없습니다.",
     "viaMonsterKill": "몬스터 처치",
     "viaStageBossKill": "스테이지 보스 처치",
-    "viaActBossKill": "챕터 보스 처치"
+    "viaActBossKill": "챕터 보스 처치",
+    "levelSuffix": "{{base}} Lv{{level}}"
   }
 }

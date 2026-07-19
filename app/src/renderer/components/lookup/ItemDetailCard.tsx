@@ -25,9 +25,10 @@ import { CardContent, CardHeader } from "../../design-system/primitives/Card/Car
 import { DataList, DataListRow } from "../../design-system/primitives/DataList/DataList";
 import { Input } from "../../design-system/primitives/Input/Input";
 import { boxIconPath } from "../../lib/boxIconPath";
+import { translateBoxDropName } from "../../lib/boxDisplay";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
-import { gradeLabel, statLabel } from "../../lib/itemLabels";
+import { gradeLabel, statLabel, formatStatRow } from "../../lib/itemLabels";
 import { fmtDropPct, fmtLookupPct, hasDropChance } from "../../lib/lookupDisplay";
 import { filterUsedInOutputs, sortUsedInRecipes } from "../../lib/usedInFilters";
 import type { LookupNavNode } from "../../lib/useLookupNav";
@@ -333,8 +334,16 @@ export function ItemDetailCard({
           <div className="flex min-w-0 flex-col gap-3">
             {item.stats ? (
               <>
-                <StatGroup title={t("stats.base")} rows={item.stats.base} tone="base" />
-                <StatGroup title={t("stats.inherent")} rows={item.stats.inherent} tone="inherent" />
+                <StatGroup
+                  title={t("stats.base")}
+                  rows={item.stats.base.map((r) => ({ display: formatStatRow(r, t) }))}
+                  tone="base"
+                />
+                <StatGroup
+                  title={t("stats.inherent")}
+                  rows={item.stats.inherent.map((r) => ({ display: formatStatRow(r, t) }))}
+                  tone="inherent"
+                />
                 {item.stats.unique ? (
                   <StatGroup
                     title={t("stats.unique")}
@@ -415,7 +424,7 @@ export function ItemDetailCard({
                         <DataListRow key={drop.boxItemKey} index={i}>
                           <ItemLink
                             node={{ type: "box", id: drop.boxItemKey }}
-                            name={drop.boxName}
+                            name={translateBoxDropName(t, drop)}
                             grade={drop.grade}
                             iconPath={boxIconPath(drop.boxItemKey)}
                             suffix={`· ${fmtDropPct(drop.dropPct)}%`}

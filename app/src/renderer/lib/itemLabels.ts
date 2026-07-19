@@ -11,7 +11,7 @@
 // - 没传 `t` 时也回退到 Title Case，方便测试与无 i18n 上下文的场景。
 
 import type { TFunction } from "i18next";
-import type { LookupItem } from "../../../shared/types";
+import type { LookupItem, LookupStatRow } from "../../../shared/types";
 import { classForGearType } from "../../core/lookup/classRestriction";
 import { humanizeStatKey } from "./lookupDisplay";
 
@@ -114,4 +114,43 @@ export function itemMetaLine(item: LookupItem, t?: TFunction): string | null {
     );
   }
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * FLAT-mod stat rows where the upstream `tbh-data` extractor uses a display
+ * name that differs from `humanizeStatKey(stat)`. Used by {@link formatStatRow}
+ * to locate the English stat-name segment inside the pre-baked `display`
+ * string so it can be swapped for the localized name.
+ */
+const STAT_DISPLAY_NAME_OVERRIDES: Record<string, string> = {
+  AttackSpeed: "Attack Per Second",
+  MaxHp: "Max HP",
+  HpLeech: "Life Leech",
+  HpRegenPerSec: "HP Regen Per Sec",
+  AddHpPerHit: "HP Per Hit",
+  AddAllSkillLevel: "All Skill Level",
+  BaseAttackCountReduction: "Basic Attack Requirement Reduction",
+  SkillHealIncrease: "Skill Heal",
+};
+
+/**
+ * Localize a stat row's `display` text by replacing the English stat-name
+ * segment with the localized {@link statLabel}. Preserves upstream formatting
+ * (+, %, value, "Increased", "More", etc.) — only the stat name portion is
+ * swapped. When no localization is available (statLabel falls back to
+ * `humanizeStatKey`), the original `display` is returned unchanged.
+ */
+export function formatStatRow(row: LookupStatRow, t?: TFunction): string {
+  if (!t) return row.display;
+  const localizedName = statLabel(row.stat, t);
+  const humanized = humanizeStatKey(row.stat);
+  if (localizedName === humanized) return row.display;
+  if (row.display.includes(humanized)) {
+    return row.display.replace(humanized, localizedName);
+  }
+  const override = STAT_DISPLAY_NAME_OVERRIDES[row.stat];
+  if (override && row.display.includes(override)) {
+    return row.display.replace(override, localizedName);
+  }
+  return row.display;
 }

@@ -110,6 +110,7 @@
     "noLootMatchFilters": "没有掉落匹配这些筛选条件。",
     "viaMonsterKill": "击杀怪物",
     "viaStageBossKill": "击杀关卡 Boss",
-    "viaActBossKill": "击杀章节 Boss"
+    "viaActBossKill": "击杀章节 Boss",
+    "levelSuffix": "{{base}} Lv{{level}}"
   }
 }

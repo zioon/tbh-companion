@@ -110,6 +110,7 @@
     "noLootMatchFilters": "これらのフィルターに一致する戦利品はありません。",
     "viaMonsterKill": "モンスター撃破",
     "viaStageBossKill": "ステージボス撃破",
-    "viaActBossKill": "章ボス撃破"
+    "viaActBossKill": "章ボス撃破",
+    "levelSuffix": "{{base}} Lv{{level}}"
   }
 }
