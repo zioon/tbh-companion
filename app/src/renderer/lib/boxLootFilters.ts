@@ -1,5 +1,4 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
-import { stageName } from "../../core/stages";
 import { matchesMulti } from "./lootFilterCommon";
 import { itemDescriptor } from "./lookupDisplay";
 import type {
@@ -86,10 +85,15 @@ export function filterAndSortBoxLoot(
   return rows;
 }
 
-export function stageMatchesQuery(stageKey: number, displayName: string, query: string): boolean {
+export function stageMatchesQuery(
+  stageKey: number,
+  displayName: string,
+  query: string,
+  stageMetadata: Record<number, string>,
+): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  const compact = stageName(stageKey).toLowerCase();
+  const compact = (stageMetadata[stageKey] ?? "").toLowerCase();
   const difficulty = compact.split(" ")[0] ?? "";
   return displayName.toLowerCase().includes(q) || compact.includes(q) || difficulty.includes(q);
 }
@@ -97,16 +101,18 @@ export function stageMatchesQuery(stageKey: number, displayName: string, query: 
 export function filterFirstDropStages(
   stages: LookupBoxFirstDropStageRef[],
   query: string,
+  stageMetadata: Record<number, string>,
 ): LookupBoxFirstDropStageRef[] {
-  return stages.filter((row) => stageMatchesQuery(row.stageKey, row.stageName, query));
+  return stages.filter((row) => stageMatchesQuery(row.stageKey, row.stageName, query, stageMetadata));
 }
 
 export function filterAndSortBoxStages(
   stages: LookupBoxStageRef[],
   state: BoxStageFilterState,
+  stageMetadata: Record<number, string>,
 ): LookupBoxStageRef[] {
   const q = state.query.trim().toLowerCase();
-  let rows = stages.filter((row) => stageMatchesQuery(row.stageKey, row.stageName, q));
+  let rows = stages.filter((row) => stageMatchesQuery(row.stageKey, row.stageName, q, stageMetadata));
 
   const dir = state.sortDir === "asc" ? 1 : -1;
   rows = [...rows].sort((a, b) => {

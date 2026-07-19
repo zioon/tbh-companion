@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { boxStageListLabel } from "../../../core/lookup/boxDisplay";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { filterAndSortBoxStages, filterFirstDropStages } from "../../lib/boxLootFilters";
+import { reportIpcError } from "../../lib/reportError";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { DataList, DataListRow } from "../../design-system/primitives/DataList/DataList";
 import { Input } from "../../design-system/primitives/Input/Input";
@@ -10,7 +11,7 @@ import { SectionHeadingRow } from "./itemCardParts";
 import { BoxCardDropSummary, BoxCardHeader } from "./BoxCardParts";
 import { ItemLink } from "../ItemLink";
 import { BoxLoot } from "./BoxLoot";
-import type { LookupBoxSources, LookupItem } from "../../../../shared/types";
+import type { AppConfig, LookupBoxSources, LookupItem } from "../../../../shared/types";
 import type { LookupNavNode } from "../../lib/useLookupNav";
 
 export function BoxDetailCard({
@@ -27,20 +28,39 @@ export function BoxDetailCard({
   const { t } = useTranslation("lookup");
   const [farmQuery, setFarmQuery] = useState("");
   const [firstQuery, setFirstQuery] = useState("");
+  const [stageMetadata, setStageMetadata] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    if (typeof window.tbh?.getConfig !== "function") return;
+    let mounted = true;
+    void window.tbh
+      .getConfig()
+      .then((config: AppConfig) => {
+        if (mounted) setStageMetadata(config.stageMetadata ?? {});
+      })
+      .catch((err: unknown) => reportIpcError(err));
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const filteredFarmStages = useMemo(
     () =>
-      filterAndSortBoxStages(box.stages, {
-        query: farmQuery,
-        sortKey: "spawnPct",
-        sortDir: "desc",
-      }),
-    [box.stages, farmQuery],
+      filterAndSortBoxStages(
+        box.stages,
+        {
+          query: farmQuery,
+          sortKey: "spawnPct",
+          sortDir: "desc",
+        },
+        stageMetadata,
+      ),
+    [box.stages, farmQuery, stageMetadata],
   );
 
   const filteredFirstStages = useMemo(
-    () => filterFirstDropStages(box.firstDropStages, firstQuery),
-    [box.firstDropStages, firstQuery],
+    () => filterFirstDropStages(box.firstDropStages, firstQuery, stageMetadata),
+    [box.firstDropStages, firstQuery, stageMetadata],
   );
 
   const showFirstClear = box.firstDropOnly && box.firstDropStages.length > 0;
