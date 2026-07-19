@@ -527,7 +527,7 @@ export function Live() {
                       className: "tabular-nums",
                     },
                     {
-                      content: String(e.stageKey),
+                      content: e.stageName ?? String(e.stageKey),
                       align: "right",
                       className: "min-w-0 truncate text-muted",
                     },

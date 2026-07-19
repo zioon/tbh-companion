@@ -41,6 +41,8 @@ export interface HistoryEntry {
   totalXp: number;
   stageKey: number;
   stageWave: number;
+  /** Localized stage name; populated by main via stageName(stageKey, catalog). Absent on cached entries from before this field was added. */
+  stageName?: string;
 }
 
 export interface HeroRate {

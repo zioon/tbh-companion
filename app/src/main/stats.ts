@@ -148,7 +148,10 @@ export function buildStats(
 
     heroes,
 
-    history: tracker.getVisibleHistory(HISTORY_VISIBLE),
+    history: tracker.getVisibleHistory(HISTORY_VISIBLE).map((entry) => ({
+      ...entry,
+      stageName: stageName(entry.stageKey, catalog),
+    })),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
     boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
     lootStatus: lootStatus ?? undefined,
