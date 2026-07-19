@@ -3,12 +3,16 @@ import { SteamMarketProvider } from "../steamMarketProvider";
 import { ownedPriceTargets, ownedPriceTargetForItem, parseInventory } from "../../core/inventory";
 import { flattenOwnedHashes } from "../../core/inventory/ownedPriceTargets";
 import { getTbhMarketFeeRates } from "../../core/steamMarketFeeBundled";
+import { isPlaceholderItemName } from "../../core/marketName";
+import { lookupItemIndex } from "../../core/lookup/catalog";
 import type { OwnedPriceTarget } from "../../core/inventory/ownedPriceTargets";
 import type { GameItem } from "../../core/gamedata";
 import type {
   InventorySnapshot,
   ResolvedInventory,
   InventoryPriceInfo,
+  LookupItem,
+  LookupPriceSnapshot,
   PriceProgress,
   PriceStatus,
   PriceRefreshResult,
@@ -20,6 +24,39 @@ import { InventoryWorker } from "./inventoryWorker";
 
 const log = createLogger("inventory");
 
+/**
+ * Returns a `GameItem` map where placeholder names (`"ItemName_<id>"`) are
+ * replaced with the real name from `lookup_items.json`. The runtime-extracted
+ * `gamedata.json` falls back to the localization-key placeholder when the EN
+ * stringtable lacks an entry (e.g. "ItemName_160006" for Empire 50th
+ * Anniversary Coin). Leaving the placeholder in place breaks:
+ *   - `marketHashName()` (returns null for placeholders → no price, no refresh
+ *     button even though Steam has a listing under the real name)
+ *   - string search (matches against the placeholder, so "Em" hits "itemN**em**e"
+ *     but "Emp" doesn't)
+ *   - any downstream consumer that compares row.name to a real name
+ *
+ * Items absent from the lookup catalog are returned untouched (still placeholder).
+ */
+export function mergeLookupNames(
+  gameData: Map<number, GameItem>,
+  lookup: Map<number, LookupItem>,
+): Map<number, GameItem> {
+  if (lookup.size === 0) return gameData;
+  const merged = new Map<number, GameItem>();
+  for (const [key, item] of gameData) {
+    if (isPlaceholderItemName(item.name)) {
+      const lookupItem = lookup.get(key);
+      if (lookupItem?.name) {
+        merged.set(key, { ...item, name: lookupItem.name });
+        continue;
+      }
+    }
+    merged.set(key, item);
+  }
+  return merged;
+}
+
 export class InventoryService {
   private readonly gameData = new GameDataProvider();
   private market: SteamMarketProvider | null = null;
@@ -28,6 +65,30 @@ export class InventoryService {
   private priceRefreshQueued = false;
   private priceRefreshForceQueued = false;
   private priceRefreshPendingTargets: OwnedPriceTarget[] = [];
+  /**
+   * When false, `onInventory` skips the auto `ensureOwnedPrices()` call so
+   * Steam Market refreshes only run on explicit user action (Refresh / Force /
+   * per-item). Defaults to true to preserve the pre-toggle behavior.
+   */
+  private autoScanEnabled = true;
+  /**
+   * Lookup-price snapshot used to pre-filter "low-value" items (those whose
+   * USD reference price is at or below `lowValueThresholdUsd`) out of auto
+   * refreshes. Items without a snapshot entry are always fetched. Force
+   * refresh ignores this filter entirely.
+   */
+  private lookupPriceSnapshot: LookupPriceSnapshot | null = null;
+  private lowValueThresholdUsd = 0.05;
+  /**
+   * `lookup_items.json` indexed by item id. Source of real display names for
+   * items whose `gamedata.json` entry fell back to the `ItemName_<id>`
+   * placeholder. Injected via {@link setLookupCatalog} so the worker receives
+   * a catalog with real names — keeps `marketHashName()` and string search
+   * working without changing IPC payloads or core signatures.
+   */
+  private lookupCatalog: Map<number, LookupItem> = new Map();
+  /** Last array reference passed to `setLookupCatalog` — used to short-circuit no-op calls. */
+  private lookupCatalogSource: LookupItem[] | null = null;
   private onAlmostFull?: (payload: { used: number; capacity: number }) => void;
   private getAlmostFullThresholdPercent: () => number = () => 90;
   private wasAboveAlmostFullThreshold = false;
@@ -51,7 +112,7 @@ export class InventoryService {
     // below will run on the sync fallback path because `init` hasn't
     // resolved yet — that's intentional, it keeps startup latency low for
     // small inventories and lets the worker take over once ready.
-    void this.worker.init(this.gameData.asMap(), getTbhMarketFeeRates()).catch((err) => {
+    void this.worker.init(this.buildMergedGameDataLookup(), getTbhMarketFeeRates()).catch((err) => {
       log.warn(`Inventory worker init failed: ${String(err)}`);
     });
     this.resolveAndPushInventory();
@@ -66,7 +127,7 @@ export class InventoryService {
   private refreshWorkerState(): void {
     if (this.gameData.isLoaded()) {
       void this.worker
-        .init(this.gameData.asMap(), getTbhMarketFeeRates())
+        .init(this.buildMergedGameDataLookup(), getTbhMarketFeeRates())
         .catch((err) => log.warn(`Inventory worker re-init failed: ${String(err)}`));
     }
   }
@@ -86,8 +147,113 @@ export class InventoryService {
   onInventory(snap: InventorySnapshot): void {
     this.lastInventoryRaw = snap;
     this.resolveAndPushInventory();
-    void this.ensureOwnedPrices();
+    if (this.autoScanEnabled) {
+      void this.ensureOwnedPrices();
+    }
     this.checkAlmostFull(snap);
+  }
+
+  /** Toggle auto market-scan at runtime without restarting the watcher. */
+  setAutoScanEnabled(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (next === this.autoScanEnabled) return;
+    this.autoScanEnabled = next;
+    log.info(`Auto market-scan ${next ? "enabled" : "disabled"}`);
+    if (next) {
+      // Re-enabled: catch up on any prices that went stale while disabled.
+      void this.ensureOwnedPrices();
+      return;
+    }
+    // Disabled: cancel any in-flight refresh so a rate-limited run stops
+    // retrying instead of grinding through the rest of the target list.
+    // The market's `cancelled` flag breaks `fetchAllTargets`'s loop and
+    // short-circuits the next `sleepUntil` backoff window.
+    this.market?.cancel();
+    // Clear queued follow-ups so `drainPriceRefreshQueue` (invoked from
+    // the cancelled refresh's onFinished) doesn't immediately restart a
+    // fresh refresh for the same stale targets.
+    this.priceRefreshQueued = false;
+    this.priceRefreshForceQueued = false;
+    this.priceRefreshPendingTargets = [];
+  }
+
+  /**
+   * Inject the latest lookup-price snapshot. Used to pre-filter low-value
+   * items out of auto refreshes: items priced at or below
+   * `lowValueThresholdUsd` in the snapshot are dropped before `market.refresh`
+   * is called, saving rate-limit budget for items the user might actually
+   * sell. Force refresh ignores the filter.
+   */
+  setLookupPriceSnapshot(snap: LookupPriceSnapshot | null): void {
+    this.lookupPriceSnapshot = snap;
+  }
+
+  /**
+   * Inject the lookup catalog (`lookup_items.json`) so placeholder
+   * `ItemName_<id>` names in `gamedata.json` can be replaced with real display
+   * names before the catalog is shipped to the inventory worker. Re-runs the
+   * worker init + resolve so newly-available names propagate immediately to
+   * `row.name`, `marketHashName`, and per-row price refresh targets.
+   *
+   * `LookupService.getCatalog()` returns the same array reference across
+   * calls, so a referential check is enough to skip the no-op path.
+   */
+  setLookupCatalog(items: LookupItem[]): void {
+    if (this.lookupCatalogSource === items) return;
+    this.lookupCatalogSource = items;
+    this.lookupCatalog = lookupItemIndex(items);
+    this.refreshWorkerState();
+    this.resolveAndPushInventory();
+  }
+
+  /**
+   * Build the catalog map handed to the inventory worker. Identical to
+   * `gameData.asMap()` except placeholder names (`ItemName_<id>`) are
+   * replaced with real names from {@link lookupCatalog}. The merge is what
+   * keeps `marketHashName()`, per-row price lookup, and string search
+   * working for items whose runtime `gamedata.json` entry didn't resolve.
+   */
+  private buildMergedGameDataLookup(): Map<number, GameItem> {
+    return mergeLookupNames(this.gameData.asMap(), this.lookupCatalog);
+  }
+
+  /** Update the low-value skip threshold (USD). Set to 0 to disable. */
+  setLowValueThresholdUsd(value: number): void {
+    this.lowValueThresholdUsd = Math.max(0, Number.isFinite(value) ? value : 0);
+  }
+
+  /**
+   * Drop owned targets whose every market_hash_name resolves to a USD price
+   * at or below the low-value threshold in the lookup snapshot. Targets with
+   * no snapshot entry are kept (let Steam tell us). Force refresh bypasses
+   * the filter entirely so the user can re-price minimum-value items on
+   * demand.
+   */
+  private filterLowValueTargets(
+    targets: readonly OwnedPriceTarget[],
+    force: boolean,
+  ): OwnedPriceTarget[] {
+    if (force) return [...targets];
+    if (this.lowValueThresholdUsd <= 0 || !this.lookupPriceSnapshot) return [...targets];
+    const prices = this.lookupPriceSnapshot.prices;
+    const threshold = this.lowValueThresholdUsd;
+    const isLow = (hash: string): boolean => {
+      const usd = prices[hash];
+      // Unknown (key absent) → don't skip: we want Steam to tell us.
+      // null (confirmed no listing) → skip: probing wastes budget.
+      // priced → skip iff at or below threshold.
+      if (usd === undefined) return false;
+      if (usd === null) return true;
+      return usd <= threshold;
+    };
+    return targets.filter((t) => {
+      if (t.kind === "material") return !isLow(t.hash);
+      // Gear: only skip when *every* variant candidate is low-value.
+      // With a single A variant in practice this matches material behavior,
+      // but keeps the multi-variant future honest.
+      if (t.candidates.length === 0) return true;
+      return !t.candidates.every(isLow);
+    });
   }
 
   /** Fires once per rising edge across the configured fill threshold. */
@@ -143,9 +309,25 @@ export class InventoryService {
     if (!this.lastInventoryRaw) return [];
     return ownedPriceTargets(
       this.lastInventoryRaw,
-      (key) => this.gameData.get(key),
+      (key) => this.getMergedGameItem(key),
       (key) => this.excludeFromInventoryListing(key),
     );
+  }
+
+  /**
+   * Fetch a single `GameItem` with placeholder name replaced by the real
+   * name from {@link lookupCatalog}. Mirrors the merge applied by
+   * {@link buildMergedGameDataLookup} for the worker payload, so per-row
+   * price refresh targets resolve the same `market_hash_name` the worker
+   * resolved for the table row.
+   */
+  private getMergedGameItem(itemKey: number): GameItem | undefined {
+    const item = this.gameData.get(itemKey);
+    if (!item) return undefined;
+    if (!isPlaceholderItemName(item.name)) return item;
+    const lookupItem = this.lookupCatalog.get(item.id);
+    if (!lookupItem?.name) return item;
+    return { ...item, name: lookupItem.name };
   }
 
   private targetKey(target: OwnedPriceTarget): string {
@@ -214,7 +396,7 @@ export class InventoryService {
       return this.queuePriceRefresh(wantsForce);
     }
 
-    const targets = this.currentOwnedPriceTargets();
+    const targets = this.filterLowValueTargets(this.currentOwnedPriceTargets(), wantsForce);
     this.market.pruneCacheTargets(targets);
 
     const result = await this.market.refresh(targets, this.priceRefreshCallbacks(wantsForce));
@@ -249,7 +431,7 @@ export class InventoryService {
       };
     }
 
-    const item = this.gameData.get(itemKey);
+    const item = this.getMergedGameItem(itemKey);
     if (!item) {
       return {
         ok: false,
@@ -397,7 +579,7 @@ export class InventoryService {
       return;
     }
 
-    const targets = this.currentOwnedPriceTargets();
+    const targets = this.filterLowValueTargets(this.currentOwnedPriceTargets(), force);
 
     const pending = this.market.pendingTargets(targets, force);
     if (!force && pending.length === 0) return;
@@ -413,6 +595,14 @@ export class InventoryService {
       return;
     }
     if (!this.priceRefreshQueued) return;
+    // Auto-scan disabled mid-flight: drop the queued follow-up so we don't
+    // immediately restart a refresh the user just turned off.
+    if (!this.autoScanEnabled) {
+      this.priceRefreshQueued = false;
+      this.priceRefreshForceQueued = false;
+      log.info("Auto market-scan disabled — dropping queued refresh");
+      return;
+    }
     const queuedForce = this.priceRefreshForceQueued;
     this.priceRefreshQueued = false;
     this.priceRefreshForceQueued = false;
