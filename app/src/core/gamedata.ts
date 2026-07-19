@@ -81,19 +81,19 @@ export function normalizeGameItem(raw: Record<string, unknown>): GameItem | null
 }
 
 /**
- * Resolve a GameItem's display name. If `item.name` starts with `ItemName_`,
- * extract the id suffix and look it up in `catalog.items`. Falls back to
- * `item.name` (which is either the raw `ItemName_<id>` key or a hardcoded
- * English name).
+ * Resolve a GameItem's display name. Looks up `catalog.items[String(item.id)]`
+ * first — this covers both `ItemName_<id>` placeholders AND items whose
+ * gamedata.name was already resolved to English from the EN stringtable
+ * (e.g. "Long Sword" → catalog.items["300001"] = "长剑"). Falls back to
+ * `item.name` (which is either the raw `ItemName_<id>` key, a hardcoded
+ * English name, or an English name resolved from the EN stringtable).
  *
  * Pass `catalog = null` to skip localization (returns `item.name` as-is).
  */
 export function gameItemName(item: GameItem, catalog: LocaleCatalog | null = null): string {
-  const name = item.name;
-  if (catalog && name.startsWith("ItemName_")) {
-    const id = name.slice("ItemName_".length);
-    const localized = catalog.items[id];
+  if (catalog) {
+    const localized = catalog.items[String(item.id)];
     if (localized) return localized;
   }
-  return name;
+  return item.name;
 }

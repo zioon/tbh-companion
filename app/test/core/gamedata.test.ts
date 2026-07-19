@@ -76,7 +76,7 @@ describe("gameItemName with LocaleCatalog", () => {
     marketTradable: true,
   };
 
-  it("returns localized name when item.name is 'ItemName_<id>' and catalog has the id", () => {
+  it("returns localized name when catalog has the item id (placeholder name)", () => {
     const catalog: LocaleCatalog = {
       items: { "530017": "Goblin Hide" },
       stages: {},
@@ -86,11 +86,29 @@ describe("gameItemName with LocaleCatalog", () => {
     expect(gameItemName({ ...baseItem }, catalog)).toBe("Goblin Hide");
   });
 
-  it("falls back to item.name when item.name is 'ItemName_<id>' but catalog is null", () => {
+  it("returns localized name when catalog has the item id (English hardcoded name)", () => {
+    const item: GameItem = {
+      id: 300001,
+      name: "Long Sword",
+      grade: "COMMON",
+      type: "GEAR",
+      level: 1,
+      marketTradable: false,
+    };
+    const catalog: LocaleCatalog = {
+      items: { "300001": "长剑" },
+      stages: {},
+      heroes: {},
+      difficulties: {},
+    };
+    expect(gameItemName(item, catalog)).toBe("长剑");
+  });
+
+  it("falls back to item.name when catalog is null", () => {
     expect(gameItemName({ ...baseItem }, null)).toBe("ItemName_530017");
   });
 
-  it("falls back to item.name when item.name is 'ItemName_<id>' but catalog does not have the id", () => {
+  it("falls back to item.name when catalog does not have the item id", () => {
     const catalog: LocaleCatalog = {
       items: {},
       stages: {},
@@ -100,7 +118,7 @@ describe("gameItemName with LocaleCatalog", () => {
     expect(gameItemName({ ...baseItem }, catalog)).toBe("ItemName_530017");
   });
 
-  it("returns item.name directly when it is a hardcoded English name (not 'ItemName_*')", () => {
+  it("returns item.name directly when it is a hardcoded English name and catalog lacks the id", () => {
     const item: GameItem = {
       id: 110001,
       name: "Long Sword",
@@ -118,7 +136,7 @@ describe("gameItemName with LocaleCatalog", () => {
     expect(gameItemName(item, catalog)).toBe("Long Sword");
   });
 
-  it("returns item.name when catalog is null and name is not 'ItemName_*'", () => {
+  it("returns item.name when catalog is null and name is not a placeholder", () => {
     const item: GameItem = {
       id: 110002,
       name: "Iron Helmet",

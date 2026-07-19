@@ -398,7 +398,7 @@ describe("InventoryService with LocaleCatalog", () => {
     expect(service["getMergedGameItem"](530017)?.name).toBe("Goblin Hide");
   });
 
-  it("leaves hardcoded English names untouched (no ItemName_ prefix)", () => {
+  it("localizes hardcoded English names when catalog has the item id", () => {
     const catalog: LocaleCatalog = {
       ...emptyLocaleCatalog(),
       items: { "530017": "Goblin Hide" },
@@ -413,8 +413,26 @@ describe("InventoryService with LocaleCatalog", () => {
       marketTradable: true,
     };
     injectItem(service, englishItem);
-    // gameItemName only localizes ItemName_<id> placeholders — hardcoded
-    // English names from gamedata.json pass through unchanged.
+    // gameItemName looks up catalog.items[String(item.id)] first, so even
+    // hardcoded English names get localized when the catalog has the id.
+    expect(service["getMergedGameItem"](530017)?.name).toBe("Goblin Hide");
+  });
+
+  it("leaves hardcoded English names untouched when catalog lacks the item id", () => {
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "999999": "Should not be used" },
+    };
+    const service = new InventoryService(catalog);
+    const englishItem: GameItem = {
+      id: 530017,
+      name: "Iron Ingot",
+      grade: "COMMON",
+      type: "MATERIAL",
+      level: null,
+      marketTradable: true,
+    };
+    injectItem(service, englishItem);
     expect(service["getMergedGameItem"](530017)?.name).toBe("Iron Ingot");
   });
 });
