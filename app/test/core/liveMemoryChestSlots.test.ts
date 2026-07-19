@@ -154,6 +154,27 @@ describe("readRuntimeChestSlots — offset guards", () => {
     expect(r.slots).toBeNull();
     expect(r.status).toContain("boxData struct offsets not derived");
   });
+
+  it("returns null without throwing when o.boxData is undefined (legacy cache)", () => {
+    // Simulates a v1.00.28 disk cache written before the boxData field was
+    // added to LiveOffsets — loadCachedOffsets returns the parsed JSON as-is,
+    // so o.boxData is undefined. Accessing .boxTypes would throw without the
+    // defensive guard, crashing the worker loop every tick.
+    const o = offsetsForVersion("1.00.21")!;
+    const { boxData: _boxData, ...rest } = o;
+    void _boxData;
+    const legacyOffsets = { ...rest, player: { ...o.player, boxData: 0x80 } } as LiveOffsets;
+    const r = readRuntimeChestSlots(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      legacyOffsets,
+      makeCatalog(),
+      PLAYER_PTR,
+    );
+    expect(r.slots).toBeNull();
+    expect(r.status).toContain("boxData offsets absent");
+  });
 });
 
 describe("readRuntimeChestSlots — full path", () => {

@@ -99,6 +99,15 @@ export function readRuntimeChestSlots(
   if (o.player.boxData === 0) {
     return { slots: null, status: "player.boxData offset = 0 (not derived)" };
   }
+  // Defensive: `boxData` struct offsets were added to LiveOffsets after the
+  // v1.00.28 disk cache was first written. Legacy cache files load without
+  // this nested object (o.boxData === undefined), so accessing .boxTypes
+  // would throw — which in the worker loop triggers detach → re-attach →
+  // name-scan → crash every ~20s. Treat absent boxData the same as not-yet-
+  // derived and fall back to the save path.
+  if (o.boxData == null) {
+    return { slots: null, status: "boxData offsets absent (legacy cache)" };
+  }
   if (o.boxData.boxTypes === 0 || o.boxData.boxQuantity === 0) {
     return { slots: null, status: "boxData struct offsets not derived" };
   }
