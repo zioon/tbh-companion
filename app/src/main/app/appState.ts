@@ -224,7 +224,18 @@ function reloadLocaleCatalog(): void {
   // dedicated locale_strings_<lang>.json files native item/stage/hero names
   // from the game's own localization bundles. For the 4 languages with
   // offline JSON, game values still win (they track the current game version).
-  const catalog = mergeGameLocaleIntoCatalog(baseCatalog, catalogRefresh.getLocaleData(), resolved);
+  const gameLocale = catalogRefresh.getLocaleData();
+  const catalog = mergeGameLocaleIntoCatalog(baseCatalog, gameLocale, resolved);
+  // Diagnostic: verify the merged catalog has translations for a known item.
+  const sampleKey = "110001";
+  const sampleName = catalog.items[sampleKey];
+  const baseName = baseCatalog.items[sampleKey];
+  const gameName = gameLocale?.locales[resolved]?.[`ItemName_${sampleKey}`];
+  appDataLog.info(
+    `reloadLocaleCatalog: lang=${resolved} baseItems=${Object.keys(baseCatalog.items).length} ` +
+    `gameLocale=${gameLocale ? `${Object.keys(gameLocale.locales).length}langs` : "null"} ` +
+    `item[${sampleKey}] base="${baseName}" game="${gameName ?? "N/A"}" merged="${sampleName}"`,
+  );
   tracking.setLocaleCatalog(catalog);
   inventory.setLocaleCatalog(catalog);
   boxTimers.setLocaleCatalog(catalog);
