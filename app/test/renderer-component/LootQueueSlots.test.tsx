@@ -61,9 +61,9 @@ function makeChests(
 
 // Category label text (rendered via react-i18next under the en locale).
 const CATEGORY_LABEL: Record<"common" | "rare" | "act", string> = {
-  common: "Common chest",
-  rare: "Stage boss chest",
-  act: "Act boss chest",
+  common: "Common Treasure Chest",
+  rare: "Stage Treasure Chest",
+  act: "Act Boss Treasure Chest",
 };
 
 // Find the row whose header text matches the category label.

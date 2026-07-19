@@ -1,8 +1,8 @@
 {
-  "tabTitle": "보관함",
+  "tabTitle": "보물 상자",
   "waiting": "세이브 데이터 대기 중…",
-  "intro": "세이브에서 {{count}}개의 미개봉 보관함 슬롯이 있습니다.",
-  "chestSlotsHeading": "보관함 슬롯",
+  "intro": "세이브에서 {{count}}개의 미개봉 보물 상자 슬롯이 있습니다.",
+  "chestSlotsHeading": "보물 상자 슬롯",
   "category": {
     "common": "일반",
     "stageBoss": "스테이지 보스",
@@ -16,11 +16,11 @@
   "capacityBase": "기본 {{count}}",
   "capacityRuneBonus": "{{nodes}}개의 {{runeLabel}} 노드에서 +{{bonus}}",
   "tracker": {
-    "heading": "스테이지 보스 보관함 추적기",
+    "heading": "스테이지 보스 보물 상자 추적기",
     "loading": "추적기 설정 불러오는 중…",
-    "description": "사냥 중 희귀한 스테이지 보스 드롭과 재사용 대기시간을 추적합니다. 보스 보관함이 드롭되면 오버레이에서 '드롭됨'을 누르거나, 아래 목록에서 수동으로 타이머를 시작하세요.",
+    "description": "사냥 중 희귀한 스테이지 보스 드롭과 재사용 대기시간을 추적합니다. 보스 보물 상자이 드롭되면 오버레이에서 '드롭됨'을 누르거나, 아래 목록에서 수동으로 타이머를 시작하세요.",
     "openOverlay": "오버레이 열기",
-    "notificationsDisabled": "추적 중인 재사용 대기시간이 끝날 때 소리를 듣으려면 설정에서 알림 소리(보관함 준비 완료)를 활성화하세요.",
+    "notificationsDisabled": "추적 중인 재사용 대기시간이 끝날 때 소리를 듣으려면 설정에서 알림 소리(보물 상자 준비 완료)를 활성화하세요.",
     "displaySection": "오버레이 표시",
     "sortFieldLabel": "오버레이에서 먼저 표시",
     "sortFieldHint": "스테이지 보스 오버레이의 섹션 순서를 제어합니다.",
@@ -43,7 +43,7 @@
     "presetLateTitle": "레벨 40–80"
   },
   "configRow": {
-    "subtitle": "스테이지 보스 보관함",
+    "subtitle": "스테이지 보스 보물 상자",
     "levelLabel": "레벨 {{level}}",
     "cooldownLabel": "재사용 대기시간(분)",
     "cooldownMinutes": "{{count}}분",
@@ -57,15 +57,15 @@
   },
   "overlay": {
     "loading": "불러오는 중…",
-    "title": "스테이지 보스 보관함 추적기",
+    "title": "스테이지 보스 보물 상자 추적기",
     "minimizeTitle": "최소화",
     "openFullTitle": "전체 창 열기",
     "closeTitle": "닫기",
     "coolingBadge": "{{count}}개 대기 중",
     "readyBadge": "{{count}}개 준비됨",
     "stageBadge": "스테이지: {{label}}",
-    "tapHint": "보스 보관함이 드롭되면 '드롭됨'을 눌러 재사용 대기시간 타이머를 시작하세요.",
-    "empty": "추적 중인 레벨이 없습니다. 보관함 탭을 열어 보관함을 선택하고 재사용 대기시간을 설정하세요.",
+    "tapHint": "보스 보물 상자이 드롭되면 '드롭됨'을 눌러 재사용 대기시간 타이머를 시작하세요.",
+    "empty": "추적 중인 레벨이 없습니다. 보물 상자 탭을 열어 보물 상자을 선택하고 재사용 대기시간을 설정하세요.",
     "sectionCooldown": "재사용 대기 중",
     "sectionReady": "표시 준비 완료",
     "ready": "준비 완료",
@@ -74,6 +74,6 @@
     "onCooldown": "재사용 대기 중",
     "reset": "초기화",
     "dropped": "드롭됨",
-    "configureLink": "보관함 탭에서 구성"
+    "configureLink": "보물 상자 탭에서 구성"
   }
 }

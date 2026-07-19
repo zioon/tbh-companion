@@ -12,9 +12,9 @@
   "resetAllBody": "This clears all recorded box opens for every chest type. The session timer is not affected. This cannot be undone.",
   "cancel": "Cancel",
   "category": {
-    "common": "Common chest",
-    "rare": "Stage boss chest",
-    "act": "Act boss chest",
+    "common": "Common Treasure Chest",
+    "rare": "Stage Treasure Chest",
+    "act": "Act Boss Treasure Chest",
     "unclassified": "Unclassified"
   },
   "levelSuffix": "{{base}} Lv{{level}}",

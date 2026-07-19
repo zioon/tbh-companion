@@ -13,8 +13,8 @@
   "cancel": "キャンセル",
   "category": {
     "common": "一般宝箱",
-    "rare": "ステージボス宝箱",
-    "act": "章ボス宝箱",
+    "rare": "ステージ宝箱",
+    "act": "アクトボス宝箱",
     "unclassified": "未分類"
   },
   "levelSuffix": "{{base}} レベル {{level}}",

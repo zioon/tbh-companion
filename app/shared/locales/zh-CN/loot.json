@@ -13,8 +13,8 @@
   "cancel": "取消",
   "category": {
     "common": "普通宝箱",
-    "rare": "关卡 Boss 宝箱",
-    "act": "章节 Boss 宝箱",
+    "rare": "关卡宝箱",
+    "act": "章节首领宝箱",
     "unclassified": "未分类"
   },
   "levelSuffix": "{{base}} 等级 {{level}}",
