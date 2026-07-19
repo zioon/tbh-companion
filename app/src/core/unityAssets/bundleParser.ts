@@ -74,16 +74,26 @@ function decompressBlock(src: Buffer, uncompressedSize: number, compression: num
     throw new Error("LZMA compression not supported (TBH bundles use lz4)");
   }
   if (compression === COMPRESSION_LZ4 || compression === COMPRESSION_LZ4HC) {
-    const out = Buffer.alloc(uncompressedSize);
+    // Allocate headroom beyond the declared uncompressedSize. UnityFS blocks
+    // sometimes declare an aligned uncompressedSize while the LZ4 stream
+    // actually produces a few extra bytes (padding to the next compression
+    // boundary). lz4js decompresses until the input is consumed, so the
+    // returned byte count may exceed the declared size — we allocate
+    // headroom, require at least the declared size, then truncate.
+    const allocSize = uncompressedSize + 4096;
+    const out = Buffer.alloc(allocSize);
     // lz4js.decompressBlock is the synchronous raw-block primitive.
     // Signature: (src, dst, sIndex, sLength, dIndex) -> new dIndex (= bytes written).
     // Note: lz4js has NO 2-arg decodeBlock and NO stream API; decompress() is for
     // whole lz4 frames (with magic 0x184D2204), which UnityFS blocks are NOT.
     const n = lz4.decompressBlock(src, out, 0, src.length, 0);
-    if (n !== uncompressedSize) {
-      throw new Error(`lz4 decompression size mismatch: expected ${uncompressedSize}, got ${n}`);
+    if (n < uncompressedSize) {
+      throw new Error(
+        `lz4 decompression incomplete: expected at least ${uncompressedSize}, got ${n}`,
+      );
     }
-    return out;
+    // Truncate to the declared payload size; trailing bytes are padding.
+    return out.subarray(0, uncompressedSize);
   }
   throw new Error(`unknown block compression: ${compression}`);
 }
