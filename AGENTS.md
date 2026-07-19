@@ -56,6 +56,7 @@ pnpm dist                # minify data + build + Windows NSIS installer
 
 ## Conventions
 
+- **文档语言：** 所有说明文件（`docs/` 下的全部 `.md`、根目录 `*.md`、`docs/agent/` 与 `docs/superpowers/` 下的所有文档）必须使用中文撰写。代码注释、commit message、PR 描述保持现有惯例（中英混合/英文）。新增英文文档需在 PR 中说明理由。
 - TypeScript everywhere in `app/`. Keep `core/` free of Electron/React imports so it stays unit-testable.
 - **Before `app/` work:** read [`docs/agent/SKILLS.md`](docs/agent/SKILLS.md) (routing) and [`docs/agent/CODING-GUIDELINES.md`](docs/agent/CODING-GUIDELINES.md).
 - **Done means:** [`docs/agent/QA.md`](docs/agent/QA.md) passed — not just green tests.
