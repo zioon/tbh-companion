@@ -339,7 +339,8 @@ export function Live() {
       : t("introLiveNoChest")
     : t("introSave");
 
-  const { commonSession, rareSession, commonPerHour, rarePerHour, readerRequired } = stats.chestDrops;
+  const { commonSession, rareSession, commonPerHour, rarePerHour, readerRequired } =
+    stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
   const chestDetectionPending =
     readerRequired && liveScalars.connected && !liveScalars.hasChestDrops;

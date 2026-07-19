@@ -79,9 +79,7 @@ export function InventoryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(() => ({ inventory }), [inventory]);
-  return (
-    <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>
-  );
+  return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components -- hook + provider pair is the standard Context pattern

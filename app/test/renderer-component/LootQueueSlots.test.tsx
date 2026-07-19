@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type {
-  AutoClassifyStatePayload,
-  ChestState,
-  LiveChestSlots,
-} from "../../shared/types";
+import type { AutoClassifyStatePayload, ChestState, LiveChestSlots } from "../../shared/types";
 import { LootQueueSlots } from "../../src/renderer/components/loot/LootQueueSlots";
 
 // Minimal AutoClassifyStatePayload with empty queue (no countdowns).
@@ -20,12 +16,31 @@ const EMPTY_QUEUE: AutoClassifyStatePayload = {
 };
 
 /** Build a ChestState with per-category slot quantity/capacity. */
-function makeChests(overrides: {
-  common?: Partial<{ quantity: number; capacity: number; isFull: boolean; slotsRemaining: number }>;
-  stageBoss?: Partial<{ quantity: number; capacity: number; isFull: boolean; slotsRemaining: number }>;
-  actBoss?: Partial<{ quantity: number; capacity: number; isFull: boolean; slotsRemaining: number }>;
-} = {}): ChestState {
-  const slot = (o?: Partial<{ quantity: number; capacity: number; isFull: boolean; slotsRemaining: number }>) => ({
+function makeChests(
+  overrides: {
+    common?: Partial<{
+      quantity: number;
+      capacity: number;
+      isFull: boolean;
+      slotsRemaining: number;
+    }>;
+    stageBoss?: Partial<{
+      quantity: number;
+      capacity: number;
+      isFull: boolean;
+      slotsRemaining: number;
+    }>;
+    actBoss?: Partial<{
+      quantity: number;
+      capacity: number;
+      isFull: boolean;
+      slotsRemaining: number;
+    }>;
+  } = {},
+): ChestState {
+  const slot = (
+    o?: Partial<{ quantity: number; capacity: number; isFull: boolean; slotsRemaining: number }>,
+  ) => ({
     quantity: o?.quantity ?? 0,
     capacity: o?.capacity ?? 0,
     isFull: o?.isFull ?? false,

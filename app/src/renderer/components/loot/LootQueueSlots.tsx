@@ -99,7 +99,12 @@ interface LootQueueSlotsProps {
   dropsPerHour: { [K in QueueCategory]: number | null };
 }
 
-export function LootQueueSlots({ queue, chests, liveChestSlots, dropsPerHour }: LootQueueSlotsProps) {
+export function LootQueueSlots({
+  queue,
+  chests,
+  liveChestSlots,
+  dropsPerHour,
+}: LootQueueSlotsProps) {
   const { t } = useTranslation("loot");
 
   return (
@@ -127,8 +132,7 @@ export function LootQueueSlots({ queue, chests, liveChestSlots, dropsPerHour }: 
           // `isFull` re-derived from the merged quantity + save capacity so the
           // "Full" badge reflects the live state, not the stale save state.
           const isFull = capacity > 0 ? quantity >= capacity : false;
-          const pct =
-            capacity > 0 ? Math.min(100, (quantity / capacity) * 100) : 0;
+          const pct = capacity > 0 ? Math.min(100, (quantity / capacity) * 100) : 0;
 
           // Queue clears-in: under the slot-parallel model every queued chest
           // has its own independent timer. The queue is fully cleared when
