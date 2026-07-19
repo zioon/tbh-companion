@@ -411,7 +411,7 @@ export class ChestDropTracker {
     return true;
   }
 
-  getStats(elapsedSeconds: number): ChestDropStats {
+  getStats(_elapsedSeconds: number): ChestDropStats {
     let commonTotal = 0;
     let rareTotal = 0;
     let actTotal = 0;
@@ -463,9 +463,10 @@ export class ChestDropTracker {
     // sessionDelta / largeHours ≈ 0 even when fresh drops are being recorded.
     // sessionDropStart is the wall time of the first new drop since the last
     // reset/restore, so the rate window accurately reflects the current stretch.
-    const dropElapsed = this.sessionDropStart !== null
-      ? Math.max(MIN_RATE_WINDOW_SEC, nowSeconds() - this.sessionDropStart)
-      : MIN_RATE_WINDOW_SEC;
+    const dropElapsed =
+      this.sessionDropStart !== null
+        ? Math.max(MIN_RATE_WINDOW_SEC, nowSeconds() - this.sessionDropStart)
+        : MIN_RATE_WINDOW_SEC;
     const hours = dropElapsed / 3600;
 
     // perHour rates use the session delta (current - baseline) so that a
@@ -496,10 +497,16 @@ export class ChestDropTracker {
     const rarePerHour = sessionRare / hours;
     const actPerHour = sessionAct / hours;
 
-    let lastDropWallTime: number | null = null;
+    // Mini overlay's boss-chest ring + "Box" countdown only track stage boss
+    // (rare) drops — common chests drop too frequently to make a 7-min lap
+    // meaningful. Scan full history (not the visible slice) newest-first for
+    // the most recent rare entry.
+    let lastRareDropWallTime: number | null = null;
     for (let i = this.history.length - 1; i >= 0; i--) {
-      lastDropWallTime = this.history[i].wallTime;
-      break;
+      if (this.history[i].category === "rare") {
+        lastRareDropWallTime = this.history[i].wallTime;
+        break;
+      }
     }
 
     return {
@@ -512,7 +519,7 @@ export class ChestDropTracker {
       actPerHour,
       breakdown,
       history,
-      lastDropWallTime,
+      lastRareDropWallTime,
       readerRequired: true,
     };
   }
@@ -539,9 +546,9 @@ export class ChestDropTracker {
     this.countsByKey = new Map(Object.entries(data.countsByKey).filter(([key]) => keepKey(key)));
     this.namesByKey = new Map(Object.entries(data.namesByKey).filter(([key]) => keepKey(key)));
     // P1-8: cap restored history at HISTORY_LIMIT so a bloated or hand-edited
-    // snapshot can't pin memory and make the `lastRareWallTime` reverse scan
-    // unbounded. `recordLogDrop`/`recordLiveChestDrop` already truncate on
-    // insert; this mirrors that bound on the restore path.
+    // snapshot can't pin memory and make the `lastRareDropWallTime` reverse
+    // scan unbounded. `recordLogDrop`/`recordLiveChestDrop` already truncate
+    // on insert; this mirrors that bound on the restore path.
     const restored = (data.history ?? []).filter((entry) => isTracked(entry.category));
     this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
     this.breakdownCache = null;

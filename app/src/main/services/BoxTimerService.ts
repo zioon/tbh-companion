@@ -5,7 +5,6 @@ import { buildStageBoxCatalog } from "../../core/stageBoxes";
 import {
   loadStageBoxCatalogFile,
   loadStageBoxTrackerRoutes,
-  resolveTrackedDropBoxId,
   resolveTrackedDropBoxIdForStage,
   trackerRoutesById,
   type StageBoxTrackerRoute,
@@ -25,6 +24,25 @@ import { createLogger } from "../log";
 import type { ChestEventPayload } from "./NotificationService";
 
 const log = createLogger("boxTimers");
+
+/**
+ * P2-3: named constants for the magic numbers that used to live inline.
+ * Documenting the source of each makes future catalog updates auditable.
+ */
+/** Min cooldown a user can set on a single box, in seconds (1 minute). */
+const MIN_COOLDOWN_SECONDS = 60;
+/** Max cooldown a user can set on a single box, in seconds (24 hours). */
+const MAX_COOLDOWN_SECONDS = 86_400;
+/**
+ * Default enabled box IDs when no preference is loaded from `box_timers.json`.
+ * These are the four stage-boss chest levels the wiki recommends tracking first
+ * (one per act's boss); see `data/stage_boxes.json` for the canonical mapping.
+ * If the catalog changes, update here — `defaultEnabledIds` filters out ids
+ * that no longer exist in `routeById`, so a stale entry is a no-op, not a bug.
+ */
+const DEFAULT_ENABLED_BOX_IDS: readonly number[] = [920151, 920201, 920301, 920401];
+/** Number of boxes to enable when none of `DEFAULT_ENABLED_BOX_IDS` resolve. */
+const FALLBACK_ENABLED_COUNT = 4;
 
 interface PersistedTimer {
   boxId: number;
@@ -58,6 +76,22 @@ export class BoxTimerService {
   private tickTimer: NodeJS.Timeout | null = null;
   private subscribers = 0;
   private currentStageKey = 0;
+  /**
+   * Set by `buildRow` when a timer expired during the current `buildState`
+   * pass. `buildState` flushes it once at the end so N expirations in the same
+   * 1Hz tick produce a single `writeFileSync` instead of N.
+   */
+  private persistDirty = false;
+  /**
+   * Cached `BoxTimerCatalogEntry[]`. The catalog content only depends on
+   * `enabledBoxIds` / `cooldownSecondsByBoxId` / `idealStageKeyByBoxId` /
+   * `notifyWhenReadyByBoxId`, all of which change only via explicit setters.
+   * `buildState` is called at 1Hz by the tick timer, so without this cache the
+   * catalog array (and its per-box `BoxTimerFarmStageOption[]` sub-arrays)
+   * would be reallocated every second even while idle. Invalidated by every
+   * setter that touches catalog inputs; `buildState` rebuilds lazily.
+   */
+  private catalogCache: BoxTimerCatalogEntry[] | null = null;
 
   constructor() {
     this.routeBoxIds = [...this.routeById.keys()].sort(
@@ -102,24 +136,6 @@ export class BoxTimerService {
     return this.commitState();
   }
 
-  /** Start cooldown when Player.log reports a tracked stage boss box drop. */
-  tryMarkDroppedFromLog(itemKey: number): boolean {
-    const boxId = resolveTrackedDropBoxId(
-      itemKey,
-      this.enabledBoxIds,
-      (id) => this.routeById.has(id),
-      this.catalogFile,
-    );
-    if (boxId == null) return false;
-    if (this.isBoxOnCooldown(boxId)) return true;
-
-    log.info(
-      `Stage boss drop detected from Player.log (ItemKey ${itemKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"})`,
-    );
-    this.markDropped(boxId);
-    return true;
-  }
-
   /** Start cooldown when live memory reports a stage boss chest at `stageKey`. */
   tryMarkDroppedFromLiveStage(stageKey: number): boolean {
     const boxId = resolveTrackedDropBoxIdForStage(
@@ -128,8 +144,30 @@ export class BoxTimerService {
       this.routes,
       this.idealStageKeyByBoxId,
     );
-    if (boxId == null) return false;
-    if (this.isBoxOnCooldown(boxId)) return true;
+    if (boxId == null) {
+      // Surface why no reminder fired. autoClassify doesn't depend on
+      // enabledBoxIds so its "queued drop" log will appear without a matching
+      // boxTimers line whenever the drop's level isn't enabled in the Chests
+      // tab — without this diagnostic that looks like a missing reminder.
+      const matching = this.routes.filter((r) => r.dropStageKeys.includes(stageKey));
+      if (matching.length === 0) {
+        log.info(`stage boss drop at stage ${stageKey} matched no tracker route; skipping`);
+      } else {
+        const detail = matching
+          .map((r) => `Lv${r.level}(id=${r.boxId},enabled=${this.enabledBoxIds.has(r.boxId)})`)
+          .join(", ");
+        log.info(
+          `stage boss drop at stage ${stageKey} matched route(s) [${detail}] but none enabled; skipping`,
+        );
+      }
+      return false;
+    }
+    if (this.isBoxOnCooldown(boxId)) {
+      log.info(
+        `stage boss drop at stage ${stageKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"} (id=${boxId}) already on cooldown; skipping`,
+      );
+      return true;
+    }
 
     log.info(
       `Stage boss drop detected from live memory (stage ${stageKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"})`,
@@ -159,6 +197,7 @@ export class BoxTimerService {
     } else {
       this.notifyWhenReadyByBoxId.set(boxId, false);
     }
+    this.catalogCache = null;
     return this.commitState();
   }
 
@@ -169,13 +208,18 @@ export class BoxTimerService {
 
   setCooldownSeconds(boxId: number, cooldownSeconds: number): BoxTimerState {
     if (!this.routeById.has(boxId)) return this.buildState();
-    const seconds = Math.max(60, Math.min(86_400, Math.round(cooldownSeconds)));
+    const seconds = Math.max(
+      MIN_COOLDOWN_SECONDS,
+      Math.min(MAX_COOLDOWN_SECONDS, Math.round(cooldownSeconds)),
+    );
     this.cooldownSecondsByBoxId.set(boxId, seconds);
+    this.catalogCache = null;
     return this.commitState();
   }
 
   clearCooldownOverride(boxId: number): BoxTimerState {
     this.cooldownSecondsByBoxId.delete(boxId);
+    this.catalogCache = null;
     return this.commitState();
   }
 
@@ -187,11 +231,13 @@ export class BoxTimerService {
     } else {
       this.idealStageKeyByBoxId.set(boxId, stageKey);
     }
+    this.catalogCache = null;
     return this.commitState();
   }
 
   clearFarmStageOverride(boxId: number): BoxTimerState {
     this.idealStageKeyByBoxId.delete(boxId);
+    this.catalogCache = null;
     return this.commitState();
   }
 
@@ -202,6 +248,7 @@ export class BoxTimerService {
     for (const boxId of [...this.timers.keys()]) {
       if (!this.enabledBoxIds.has(boxId)) this.timers.delete(boxId);
     }
+    this.catalogCache = null;
     return this.commitState();
   }
 
@@ -215,6 +262,7 @@ export class BoxTimerService {
     this.sortOrder = "cooldown-first";
     this.wasOnCooldown.clear();
     for (const id of this.defaultEnabledIds()) this.enabledBoxIds.add(id);
+    this.catalogCache = null;
     return this.commitState();
   }
 
@@ -244,6 +292,21 @@ export class BoxTimerService {
     return this.cooldownSecondsByBoxId.get(boxId) ?? this.catalogFile.defaultCooldownSeconds ?? 720;
   }
 
+  /**
+   * Seed `wasOnCooldown` from persisted timers at load time. Boxes whose
+   * cooldown has already expired get `false` here — this prevents
+   * `buildState` from firing a spurious `onChestReady` on the first tick
+   * (it only fires when `prev=true → active=false`, never on `false → false`).
+   * Boxes still on cooldown get `true` so the genuine transition later is
+   * detected correctly.
+   *
+   * BoxTimer's restore path is intentionally decoupled from
+   * SessionStateService.tryRestoreOnSnapshot: BoxTimer state is durable across
+   * sessions (cool-down config, enabled routes) and must not wait for the first
+   * save snapshot to load. The mtime continuity check that SessionStateService
+   * performs does not apply — `droppedAtMs` is wall-time and self-validating
+   * via `isBoxOnCooldown`.
+   */
   private seedWasOnCooldown(): void {
     const now = Date.now();
     for (const boxId of this.enabledBoxIds) {
@@ -338,8 +401,10 @@ export class BoxTimerService {
       active = remainingSeconds > 0;
       progress = Math.min(1, elapsed / cooldownSeconds);
       if (!active) {
+        // Defer persist to buildState — multiple timers can expire in the same
+        // 1Hz tick and each one used to trigger a separate writeFileSync.
         this.timers.delete(boxId);
-        this.persist();
+        this.persistDirty = true;
       }
     }
 
@@ -390,9 +455,16 @@ export class BoxTimerService {
     const readyCount = rows.filter((r) => r.status === "ready").length;
     const cooldownCount = rows.filter((r) => r.status === "cooldown").length;
 
+    // Flush any timer expirations accumulated during this pass in a single
+    // write instead of one per expired timer.
+    if (this.persistDirty) {
+      this.persistDirty = false;
+      this.persist();
+    }
+
     return {
       rows,
-      catalog: this.buildCatalog(),
+      catalog: this.getCatalog(),
       enabledCount: this.enabledBoxIds.size,
       readyCount,
       cooldownCount,
@@ -402,10 +474,22 @@ export class BoxTimerService {
     };
   }
 
+  /**
+   * Return the cached catalog, rebuilding it lazily if any catalog-affecting
+   * setter cleared the cache. The catalog content does not depend on time, so
+   * the same array reference can be reused across 1Hz `buildState` calls.
+   */
+  private getCatalog(): BoxTimerCatalogEntry[] {
+    if (this.catalogCache === null) {
+      this.catalogCache = this.buildCatalog();
+    }
+    return this.catalogCache;
+  }
+
   private defaultEnabledIds(): number[] {
-    const preferred = [920151, 920201, 920301, 920401];
+    const preferred = [...DEFAULT_ENABLED_BOX_IDS];
     const picked = preferred.filter((id) => this.routeById.has(id));
-    return picked.length > 0 ? picked : this.routeBoxIds.slice(0, 4);
+    return picked.length > 0 ? picked : this.routeBoxIds.slice(0, FALLBACK_ENABLED_COUNT);
   }
 
   private persistPath(): string {
@@ -416,6 +500,15 @@ export class BoxTimerService {
     }
   }
 
+  /**
+   * Restore BoxTimer state from `userData/box_timers.json`. Unlike
+   * SessionStateService.tryRestoreOnSnapshot, this runs at construction time
+   * (app startup) without waiting for the first save snapshot, because
+   * cool-down config is durable across sessions. Stale or malformed entries
+   * are silently filtered (no `droppedAtMs`, unknown boxId, out-of-range
+   * cooldown) rather than discarding the whole file — partial recovery is
+   * preferred over no recovery.
+   */
   private load(): void {
     const path = this.persistPath();
     if (!existsSync(path)) {
@@ -429,8 +522,11 @@ export class BoxTimerService {
       }
       for (const [boxId, seconds] of Object.entries(raw.cooldownSecondsByBoxId ?? {})) {
         const id = Number(boxId);
-        if (id > 0 && seconds > 0 && this.routeById.has(id)) {
-          this.cooldownSecondsByBoxId.set(id, seconds);
+        const secs = Number(seconds);
+        // `seconds` is `any` from JSON.parse — guard against string / null /
+        // non-finite values that would otherwise land in Map<number, number>.
+        if (id > 0 && Number.isFinite(secs) && secs > 0 && this.routeById.has(id)) {
+          this.cooldownSecondsByBoxId.set(id, secs);
         }
       }
       for (const [boxId, stageKey] of Object.entries(raw.idealStageKeyByBoxId ?? {})) {
@@ -463,30 +559,37 @@ export class BoxTimerService {
 
   private persist(): void {
     const path = this.persistPath();
-    mkdirSync(dirname(path), { recursive: true });
-    const timers: PersistedTimer[] = [...this.timers.entries()].map(([boxId, droppedAtMs]) => ({
-      boxId,
-      droppedAtMs,
-    }));
-    const cooldownSecondsByBoxId = Object.fromEntries(this.cooldownSecondsByBoxId);
-    const idealStageKeyByBoxId = Object.fromEntries(this.idealStageKeyByBoxId);
-    const notifyWhenReadyByBoxId = Object.fromEntries(
-      [...this.notifyWhenReadyByBoxId.entries()].filter(([, enabled]) => !enabled),
-    );
-    writeFileSync(
-      path,
-      JSON.stringify(
-        {
-          timers,
-          enabledBoxIds: [...this.enabledBoxIds],
-          cooldownSecondsByBoxId,
-          idealStageKeyByBoxId,
-          notifyWhenReadyByBoxId,
-          sortOrder: this.sortOrder,
-        },
-        null,
-        2,
-      ),
-    );
+    try {
+      mkdirSync(dirname(path), { recursive: true });
+      const timers: PersistedTimer[] = [...this.timers.entries()].map(([boxId, droppedAtMs]) => ({
+        boxId,
+        droppedAtMs,
+      }));
+      const cooldownSecondsByBoxId = Object.fromEntries(this.cooldownSecondsByBoxId);
+      const idealStageKeyByBoxId = Object.fromEntries(this.idealStageKeyByBoxId);
+      const notifyWhenReadyByBoxId = Object.fromEntries(
+        [...this.notifyWhenReadyByBoxId.entries()].filter(([, enabled]) => !enabled),
+      );
+      writeFileSync(
+        path,
+        JSON.stringify(
+          {
+            timers,
+            enabledBoxIds: [...this.enabledBoxIds],
+            cooldownSecondsByBoxId,
+            idealStageKeyByBoxId,
+            notifyWhenReadyByBoxId,
+            sortOrder: this.sortOrder,
+          },
+          null,
+          2,
+        ),
+      );
+    } catch (err) {
+      // Persist failures (read-only userData, full disk, path invalid) must
+      // not break commitState's in-memory state update + broadcast downstream.
+      // The next tick will retry; load() already has its own try/catch.
+      log.warn(`BoxTimer persist failed: ${(err as Error).message}`);
+    }
   }
 }

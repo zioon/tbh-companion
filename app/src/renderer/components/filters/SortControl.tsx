@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { LuArrowDownNarrowWide, LuArrowUpNarrowWide } from "react-icons/lu";
 import { Select, type SelectOption } from "../../design-system/primitives/Select/Select";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
@@ -16,7 +17,7 @@ export function SortControl({
   onSortKeyChange,
   sortDir,
   onSortDirToggle,
-  label = "Sort by",
+  label,
   className,
 }: {
   options: SelectOption[];
@@ -27,11 +28,13 @@ export function SortControl({
   label?: string;
   className?: string;
 }) {
+  const { t } = useTranslation("common");
   const ascending = sortDir === "asc";
+  const effectiveLabel = label ?? t("sort.sortBy");
   return (
     <div className={cn("flex shrink-0 items-center gap-2", className)}>
       <span className="whitespace-nowrap text-[10px] font-medium uppercase tracking-wide text-muted">
-        {label}
+        {effectiveLabel}
       </span>
       <div className="inline-flex items-stretch overflow-hidden rounded-md border border-border">
         <Select
@@ -40,7 +43,7 @@ export function SortControl({
           value={sortKey}
           onValueChange={(value) => onSortKeyChange(String(value))}
           options={options}
-          title="Sort by"
+          title={t("sort.sortBy")}
         />
         {/* Raw button: glued to Select's trigger — no Button primitive (would break the shared border seam). */}
         <Tooltip
@@ -48,7 +51,7 @@ export function SortControl({
             <button
               type="button"
               onClick={onSortDirToggle}
-              aria-label={ascending ? "Sort ascending" : "Sort descending"}
+              aria-label={ascending ? t("sort.sortAscending") : t("sort.sortDescending")}
               className="flex items-center justify-center border-l border-border bg-card px-2 text-fg hover:bg-panel focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-ideal/50"
             >
               {ascending ? (
@@ -59,7 +62,7 @@ export function SortControl({
             </button>
           }
         >
-          {ascending ? "Ascending" : "Descending"}
+          {ascending ? t("sort.ascending") : t("sort.descending")}
         </Tooltip>
       </div>
     </div>

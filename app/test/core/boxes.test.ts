@@ -61,7 +61,7 @@ describe("resolveChestHoldings", () => {
 
     expect(rows[0].label).toBe("Type 42");
 
-    expect(rows[0].category).toBe("unknown");
+    expect(rows[0].category).toBe("unclassified");
   });
 });
 

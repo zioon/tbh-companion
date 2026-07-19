@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { ResolvedInventoryRow } from "../../../../shared/types";
 import {
   displayRawMoney,
@@ -6,16 +7,19 @@ import {
 } from "../../lib/marketPriceDisplay";
 import { MarketListingLink } from "./MarketListingLink";
 
-function emptyPriceDisplay(row: ResolvedInventoryRow): { label: string; title: string } {
+function emptyPriceDisplay(
+  t: ReturnType<typeof useTranslation<"inventory">>["t"],
+  row: ResolvedInventoryRow,
+): { label: string; title: string } {
   if (row.priceChecked) {
     return {
-      label: "No active listings",
-      title: "No active Steam Market listings or recent sales for this item",
+      label: t("marketPrice.noListingsLabel"),
+      title: t("marketPrice.noListingsTitle"),
     };
   }
   return {
-    label: "—",
-    title: "Steam price not loaded yet",
+    label: t("marketPrice.notLoadedLabel"),
+    title: t("marketPrice.notLoadedTitle"),
   };
 }
 
@@ -28,11 +32,12 @@ export function MarketPriceCell({
   hash: string;
   currency: string;
 }) {
+  const { t } = useTranslation("inventory");
   const { rawMedian, rawLowest } = row;
   const hasSellPrice = Boolean(rawMedian || rawLowest || row.priceRaw);
 
   if (!hasSellPrice) {
-    const empty = emptyPriceDisplay(row);
+    const empty = emptyPriceDisplay(t, row);
     return (
       <MarketListingLink hash={hash} title={empty.title}>
         <span className="text-muted">{empty.label}</span>

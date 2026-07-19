@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { typeLabel } from "../../../core/labels";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { filterAndSortLoot, resolveOfferingLoot } from "../../lib/offeringLootFilters";
@@ -10,11 +11,6 @@ import { ItemLink } from "../ItemLink";
 import type { LookupItem, OfferingEntry } from "../../../../shared/types";
 import type { LookupNavNode } from "../../lib/useLookupNav";
 
-const OFFERING_HELP =
-  "Toss this coin into the Cube to roll one item from its loot table — you'll get exactly one. The % is your chance of getting that specific item.";
-
-const OFFERING_LOOT_LABEL = "Offering Loot";
-
 export function OfferingLoot({
   offering,
   onNavigate,
@@ -24,6 +20,7 @@ export function OfferingLoot({
   onNavigate?: (node: LookupNavNode) => void;
   peekItem: (id: number) => LookupItem | undefined;
 }) {
+  const { t } = useTranslation("lookup");
   const [query, setQuery] = useState("");
 
   const resolved = useMemo(
@@ -48,20 +45,20 @@ export function OfferingLoot({
   return (
     <div className="flex flex-col gap-2">
       <SectionHeadingRow
-        label={OFFERING_LOOT_LABEL}
-        help={OFFERING_HELP}
-        helpLabel="How offerings work"
+        label={t("offering.lootLabel")}
+        help={t("offering.lootHelp")}
+        helpLabel={t("offering.lootHelpLabel")}
       />
 
       <div className="flex items-center gap-3">
         <Input
           className="min-w-0 flex-1"
-          placeholder="Search loot..."
+          placeholder={t("box.searchLoot")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <span className="shrink-0 whitespace-nowrap text-xs text-muted">
-          {filtered.length} items
+          {t("box.itemsCount", { count: filtered.length })}
         </span>
       </div>
 
@@ -69,14 +66,14 @@ export function OfferingLoot({
         <DataList scrollable className="max-h-64">
           {filtered.length === 0 ? (
             <DataListRow index={0} className="text-xs text-muted">
-              No loot matches these filters.
+              {t("box.noLootMatchFilters")}
             </DataListRow>
           ) : (
             filtered.map((row, i) => (
               <DataListRow key={row.itemKey} index={i}>
                 <ItemLink
                   node={{ type: "item", id: row.itemKey }}
-                  name={row.item?.name ?? `Item ${row.itemKey}`}
+                  name={row.item?.name ?? t("itemFallback", { id: row.itemKey })}
                   grade={row.item?.grade}
                   iconPath={row.item?.iconPath}
                   suffix={`· ${fmtDropPct(row.poolPct)}%${row.item ? ` · ${typeLabel(row.item.type)}` : ""}`}

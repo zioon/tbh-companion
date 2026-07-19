@@ -31,12 +31,18 @@ export interface InventoryAlmostFullPayload {
 export class NotificationService {
   private readonly getConfig: () => AppConfig;
   private readonly focusMainWindow: () => void;
+  private readonly t: (key: string, opts?: Record<string, unknown>) => string;
   private supported: boolean | null = null;
   private lastNotifiedVersion: string | undefined;
 
-  constructor(getConfig: () => AppConfig, focusMainWindow: () => void) {
+  constructor(
+    getConfig: () => AppConfig,
+    focusMainWindow: () => void,
+    t: (key: string, opts?: Record<string, unknown>) => string,
+  ) {
     this.getConfig = getConfig;
     this.focusMainWindow = focusMainWindow;
+    this.t = t;
   }
 
   private isSupported(): boolean {
@@ -54,8 +60,8 @@ export class NotificationService {
     this.lastNotifiedVersion = version;
 
     const notification = new Notification({
-      title: "Update available",
-      body: `TBH Companion v${version} is available. Open About to download.`,
+      title: this.t("notifications:updateAvailableTitle"),
+      body: this.t("notifications:updateAvailableBody", { version }),
     });
     notification.on("click", () => this.focusMainWindow());
     notification.show();
@@ -84,8 +90,12 @@ export class NotificationService {
     if (this.isSupported() && payload.capacity > 0) {
       const percent = Math.round((payload.used / payload.capacity) * 100);
       const notification = new Notification({
-        title: "Inventory almost full",
-        body: `${payload.used}/${payload.capacity} slots used (${percent}%).`,
+        title: this.t("notifications:inventoryAlmostFullTitle"),
+        body: this.t("notifications:inventoryAlmostFullBody", {
+          used: payload.used,
+          capacity: payload.capacity,
+          percent,
+        }),
       });
       notification.on("click", () => this.focusMainWindow());
       notification.show();

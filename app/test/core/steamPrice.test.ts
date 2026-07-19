@@ -132,6 +132,8 @@ describe("pickMarketUnit", () => {
       lowest: 0.04,
       rawMedian: "$0.05",
       rawLowest: "$0.04",
+      buyOrder: null,
+      rawBuyOrder: null,
     });
     expect(picked.unit).toBeCloseTo(0.05);
     expect(picked.source).toBe("median");
@@ -144,6 +146,8 @@ describe("pickMarketUnit", () => {
       lowest: 0.04,
       rawMedian: null,
       rawLowest: "$0.04",
+      buyOrder: null,
+      rawBuyOrder: null,
     });
     expect(picked.unit).toBeCloseTo(0.04);
     expect(picked.source).toBe("lowest");

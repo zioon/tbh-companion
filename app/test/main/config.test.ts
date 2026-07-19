@@ -128,3 +128,81 @@ describe("lootAutoClassifyEnabled", () => {
     ).toBe(false);
   });
 });
+
+describe("marketAutoScanEnabled", () => {
+  it("defaults to true (preserves pre-toggle behavior)", () => {
+    expect(mod.normalizeConfigFromRaw({}).marketAutoScanEnabled).toBe(true);
+  });
+  it("preserves explicit false", () => {
+    expect(mod.normalizeConfigFromRaw({ marketAutoScanEnabled: false }).marketAutoScanEnabled).toBe(
+      false,
+    );
+  });
+  it("coerces non-boolean to true (only explicit false disables)", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ marketAutoScanEnabled: "no" } as never).marketAutoScanEnabled,
+    ).toBe(true);
+    expect(
+      mod.normalizeConfigFromRaw({ marketAutoScanEnabled: 0 } as never).marketAutoScanEnabled,
+    ).toBe(true);
+    expect(
+      mod.normalizeConfigFromRaw({ marketAutoScanEnabled: null } as never).marketAutoScanEnabled,
+    ).toBe(true);
+  });
+});
+
+describe("marketLowValueThresholdUsd", () => {
+  it("defaults to 0.05 USD (skip Steam's $0.03 floor items)", () => {
+    expect(mod.normalizeConfigFromRaw({}).marketLowValueThresholdUsd).toBe(0.05);
+  });
+  it("preserves explicit values", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ marketLowValueThresholdUsd: 0.1 }).marketLowValueThresholdUsd,
+    ).toBe(0.1);
+    expect(
+      mod.normalizeConfigFromRaw({ marketLowValueThresholdUsd: 0 }).marketLowValueThresholdUsd,
+    ).toBe(0);
+  });
+  it("falls back to default on invalid input", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ marketLowValueThresholdUsd: -1 } as never)
+        .marketLowValueThresholdUsd,
+    ).toBe(0.05);
+    expect(
+      mod.normalizeConfigFromRaw({ marketLowValueThresholdUsd: "high" } as never)
+        .marketLowValueThresholdUsd,
+    ).toBe(0.05);
+    expect(
+      mod.normalizeConfigFromRaw({ marketLowValueThresholdUsd: NaN } as never)
+        .marketLowValueThresholdUsd,
+    ).toBe(0.05);
+  });
+  it("caps at 100 USD so a typo can't silently skip everything", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ marketLowValueThresholdUsd: 1000 } as never)
+        .marketLowValueThresholdUsd,
+    ).toBe(100);
+  });
+});
+
+describe("config language", () => {
+  it("defaults to 'auto' when missing", () => {
+    expect(mod.normalizeConfigFromRaw({}).language).toBe("auto");
+  });
+  it("preserves explicit 'auto'", () => {
+    expect(mod.normalizeConfigFromRaw({ language: "auto" }).language).toBe("auto");
+  });
+  it("preserves supported explicit languages (en, zh-CN, ja, ko)", () => {
+    expect(mod.normalizeConfigFromRaw({ language: "en" }).language).toBe("en");
+    expect(mod.normalizeConfigFromRaw({ language: "zh-CN" }).language).toBe("zh-CN");
+    expect(mod.normalizeConfigFromRaw({ language: "ja" }).language).toBe("ja");
+    expect(mod.normalizeConfigFromRaw({ language: "ko" }).language).toBe("ko");
+  });
+  it("falls back to 'auto' on unsupported / malformed values", () => {
+    expect(mod.normalizeConfigFromRaw({ language: "fr" } as never).language).toBe("auto");
+    expect(mod.normalizeConfigFromRaw({ language: "english" } as never).language).toBe("auto");
+    expect(mod.normalizeConfigFromRaw({ language: 42 } as never).language).toBe("auto");
+    expect(mod.normalizeConfigFromRaw({ language: null } as never).language).toBe("auto");
+    expect(mod.normalizeConfigFromRaw({ language: "" } as never).language).toBe("auto");
+  });
+});

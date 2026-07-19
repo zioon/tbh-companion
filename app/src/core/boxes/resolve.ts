@@ -56,7 +56,7 @@ export function resolveChestHoldings(
     rows.push({
       boxType,
       label: meta?.label ?? `Type ${boxType}`,
-      category: meta?.category ?? "unknown",
+      category: meta?.category ?? "unclassified",
       quantity,
     });
   }

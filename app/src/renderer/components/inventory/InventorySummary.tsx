@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { formatMoney } from "../../../core/steamPrice";
 import { GradeBars } from "./GradeBars";
 import type { InventoryComposition } from "../../../../shared/types";
@@ -7,12 +8,6 @@ import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
 import { ExternalLink } from "../ui/ExternalLink";
 import { DISCORD_URL } from "../../lib/externalLinks";
 
-const LIST_VALUE_TIP = "Total list value at Steam market prices (what buyers pay)";
-const ESTIMATE_TIP =
-  "Estimated wallet proceeds if you listed everything at market prices. Steam listing UI is authoritative.";
-const INSTANT_SELL_TIP =
-  "Sum of instant sell per row: selling into the order book level-by-level, best price first, until your stack is covered or the book runs dry. No listing fees.";
-
 export function InventorySummary({
   composition,
   currency,
@@ -20,6 +15,7 @@ export function InventorySummary({
   composition: InventoryComposition;
   currency: string;
 }) {
+  const { t } = useTranslation("inventory");
   const c = composition;
 
   const hasListValue = c.valuedTotal != null && Number.isFinite(c.valuedTotal) && c.valuedTotal > 0;
@@ -40,17 +36,18 @@ export function InventorySummary({
       <div className="grid grid-cols-2 gap-2.5 max-[560px]:grid-cols-1">
         <StatCard
           variant="highlight"
-          label="Market value"
-          title={LIST_VALUE_TIP}
+          label={t("summary.marketValue")}
+          title={t("summary.listValueTip")}
           value={hasListValue ? formatMoney(c.valuedTotal, currency) : "-"}
           detail={
             <span>
-              <span className="font-semibold text-gold">{netAfterFees}</span> after Steam fees
+              <span className="font-semibold text-gold">{netAfterFees}</span>{" "}
+              {t("summary.afterFees")}
               {hasFees ? (
                 <span className="block">
-                  −{formatMoney(c.feeTotal, currency)} Steam fees (
-                  <Tooltip underline trigger={<span tabIndex={0}>estimate</span>}>
-                    {ESTIMATE_TIP}
+                  −{formatMoney(c.feeTotal, currency)} {t("summary.feesLabel")} (
+                  <Tooltip underline trigger={<span tabIndex={0}>{t("summary.estimate")}</span>}>
+                    {t("summary.estimateTip")}
                   </Tooltip>
                   )
                 </span>
@@ -61,8 +58,8 @@ export function InventorySummary({
 
         <StatCard
           variant="highlight"
-          label="Instant total"
-          title={INSTANT_SELL_TIP}
+          label={t("summary.instantTotal")}
+          title={t("summary.instantSellTip")}
           value={hasInstantValue ? formatMoney(c.buyOrderValuedTotal, currency) : "-"}
         />
       </div>
@@ -70,9 +67,8 @@ export function InventorySummary({
       <GradeBars composition={c} />
       {(c.unknownCount ?? 0) > 0 && (
         <HintBanner>
-          {c.unknownCount} item(s) aren&apos;t in this app&apos;s item list (shown as Unknown #…).
-          Update the app, or check our <ExternalLink href={DISCORD_URL}>Discord</ExternalLink> for
-          work in progress on those IDs.
+          {t("summary.unknownCount", { count: c.unknownCount ?? 0 })}{" "}
+          <ExternalLink href={DISCORD_URL}>{t("summary.discord")}</ExternalLink>
         </HintBanner>
       )}
     </>

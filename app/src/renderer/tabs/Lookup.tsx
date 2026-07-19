@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { useLookupSources } from "../lib/useLookupSources";
 import { useLookupSynthesisModel } from "../lib/useLookupSynthesisModel";
@@ -23,6 +24,7 @@ import { ItemCard } from "../components/lookup/ItemCard";
 import { BackToTop } from "../components/lookup/BackToTop";
 
 export function Lookup() {
+  const { t } = useTranslation("lookup");
   const items = useLookupCatalog();
   const sources = useLookupSources();
   const synthesisModel = useLookupSynthesisModel();
@@ -113,18 +115,15 @@ export function Lookup() {
   if (!items || !sources || !synthesisModel) {
     return (
       <TabPage>
-        <TabHeader title="Lookup" />
-        <p className="m-0 text-muted">Loading item catalog…</p>
+        <TabHeader title={t("tabTitle")} />
+        <p className="m-0 text-muted">{t("loading")}</p>
       </TabPage>
     );
   }
 
   return (
     <TabPage>
-      <TabHeader
-        title="Lookup"
-        intro="Browse every obtainable item, its stats, and where to find it — tradable items show their Steam Market price."
-      />
+      <TabHeader title={t("tabTitle")} intro={t("intro")} />
 
       <LookupFilters
         query={query}
@@ -157,7 +156,7 @@ export function Lookup() {
 
       <ul className="m-0 grid min-w-0 grid-cols-3 gap-2.5 p-0 max-[900px]:grid-cols-2 max-[600px]:grid-cols-1">
         {filtered.length === 0 ? (
-          <li className="col-span-full text-xs text-muted">No items match these filters.</li>
+          <li className="col-span-full text-xs text-muted">{t("emptyFiltered")}</li>
         ) : (
           filtered.map((item) => <ItemCard key={item.id} item={item} onSelect={handleItemSelect} />)
         )}

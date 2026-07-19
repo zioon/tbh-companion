@@ -1,4 +1,5 @@
 import { memo, useMemo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { gradeLabel, typeLabel } from "../../../core/labels";
 import {
   isInventoryColumnVisible,
@@ -25,23 +26,31 @@ import { Card } from "../../design-system/primitives/Card/Card";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
 import { cn } from "../../lib/cn";
 import { buyOrderAverage, type SortKey } from "../../lib/inventoryFilters";
+import { isUnresolvedLocalizationKey } from "../../lib/lookupFilters";
+import type { TFunction } from "i18next";
 
-function priceSourceTitle(source: ResolvedInventoryRow["priceSource"]): string | undefined {
-  if (source === "median") return "Recent sale median on Steam Market";
-  if (source === "lowest") return "Lowest listing (no recent sales on Steam)";
+function priceSourceTitle(
+  t: TFunction<"inventory">,
+  source: ResolvedInventoryRow["priceSource"],
+): string | undefined {
+  if (source === "median") return t("priceSource.median");
+  if (source === "lowest") return t("priceSource.lowest");
   return undefined;
 }
 
-function emptyBuyOrderDisplay(row: ResolvedInventoryRow): { label: string; title: string } {
+function emptyBuyOrderDisplay(
+  t: TFunction<"inventory">,
+  row: ResolvedInventoryRow,
+): { label: string; title: string } {
   if (row.buyOrderChecked) {
     return {
-      label: "No buy orders",
-      title: "No buy orders on Steam Market for this item",
+      label: t("buyOrder.noOrdersLabel"),
+      title: t("buyOrder.noOrdersTitle"),
     };
   }
   return {
-    label: "—",
-    title: "Buy order not loaded yet",
+    label: t("buyOrder.notLoadedLabel"),
+    title: t("buyOrder.notLoadedTitle"),
   };
 }
 
@@ -77,21 +86,28 @@ type ColumnDef = {
 };
 
 function buildColumnDefs(
+  t: TFunction<"inventory">,
   itemIndex: Map<number, LookupItem>,
   onNavigate: (itemKey: number) => void,
 ): ColumnDef[] {
   return [
     {
       id: "name",
-      label: "Name",
+      label: t("columns.name"),
       sortKey: "name",
       align: "left",
       alwaysVisible: true,
       render: (row) => {
         const catalogItem = itemIndex.get(row.itemKey);
+        // row.name comes from the runtime-extracted gamedata.json (CatalogRefreshService).
+        // When the EN stringtable lacks an ItemName_<id> entry, the extractor falls back
+        // to the literal placeholder. Fall back to the bundled lookup_items.json name
+        // (same source the tooltip uses via useLookupCatalog) so the row matches.
+        const displayName =
+          isUnresolvedLocalizationKey(row.name) && catalogItem?.name ? catalogItem.name : row.name;
         const suffix = row.chaoticCount > 0 ? "◆" : undefined;
         const refreshButton = row.marketHashName ? (
-          <ItemPriceRefreshButton itemKey={row.itemKey} itemName={row.name} />
+          <ItemPriceRefreshButton itemKey={row.itemKey} itemName={displayName} />
         ) : null;
 
         if (catalogItem) {
@@ -99,7 +115,7 @@ function buildColumnDefs(
             <span className="inline-flex min-w-0 items-center gap-0.5">
               <ItemLink
                 node={{ type: "item", id: row.itemKey }}
-                name={row.name}
+                name={displayName}
                 grade={row.grade}
                 iconPath={catalogItem.iconPath}
                 suffix={suffix}
@@ -117,10 +133,10 @@ function buildColumnDefs(
               className="mr-1 inline-block size-[9px] shrink-0 rounded-full"
               style={{ background: gradeColor(row.grade) }}
             />
-            <span className="min-w-0 truncate">{row.name}</span>
+            <span className="min-w-0 truncate">{displayName}</span>
             {row.chaoticCount > 0 && (
               <Tooltip trigger={<span className="shrink-0 cursor-help text-gold"> &#9670;</span>}>
-                Chaotic
+                {t("chaotic")}
               </Tooltip>
             )}
             {refreshButton}
@@ -130,7 +146,7 @@ function buildColumnDefs(
     },
     {
       id: "grade",
-      label: "Grade",
+      label: t("columns.grade"),
       sortKey: "grade",
       align: "left",
       render: (row) => (
@@ -139,21 +155,21 @@ function buildColumnDefs(
     },
     {
       id: "level",
-      label: "Level",
+      label: t("columns.level"),
       sortKey: "level",
       align: "right",
       render: (row) => (row.level != null ? row.level : <span className="text-muted">-</span>),
     },
     {
       id: "type",
-      label: "Type",
+      label: t("columns.type"),
       sortKey: "type",
       align: "left",
       render: (row) => <span className="text-muted">{typeLabel(row.type)}</span>,
     },
     {
       id: "count",
-      label: "Count",
+      label: t("columns.count"),
       sortKey: "count",
       align: "right",
       alwaysVisible: true,
@@ -161,7 +177,7 @@ function buildColumnDefs(
     },
     {
       id: "location",
-      label: "Location",
+      label: t("columns.location"),
       align: "right",
       render: (row) => {
         const inUse = row.inUseCount ?? 0;
@@ -172,11 +188,11 @@ function buildColumnDefs(
                 underline
                 trigger={
                   <span className="mr-1.5 inline-block text-[11px] text-muted">
-                    Inv {row.inventoryCount}
+                    {t("locationCell.inv", { count: row.inventoryCount })}
                   </span>
                 }
               >
-                Inventory
+                {t("location.inventory")}
               </Tooltip>
             )}
             {(row.stashCount ?? 0) > 0 && (
@@ -184,11 +200,11 @@ function buildColumnDefs(
                 underline
                 trigger={
                   <span className="mr-1.5 inline-block text-[11px] text-muted">
-                    St {row.stashCount}
+                    {t("locationCell.stash", { count: row.stashCount })}
                   </span>
                 }
               >
-                Stash
+                {t("location.stash")}
               </Tooltip>
             )}
             {(row.tradingCount ?? 0) > 0 && (
@@ -196,21 +212,23 @@ function buildColumnDefs(
                 underline
                 trigger={
                   <span className="mr-1.5 inline-block text-[11px] text-muted">
-                    Tr {row.tradingCount}
+                    {t("locationCell.trading", { count: row.tradingCount })}
                   </span>
                 }
               >
-                Trading
+                {t("location.trading")}
               </Tooltip>
             )}
             {inUse > 0 && (
               <Tooltip
                 underline
                 trigger={
-                  <span className="mr-1.5 inline-block text-[11px] text-muted">Eq {inUse}</span>
+                  <span className="mr-1.5 inline-block text-[11px] text-muted">
+                    {t("locationCell.equipped", { count: inUse })}
+                  </span>
                 }
               >
-                Equipped
+                {t("location.equipped")}
               </Tooltip>
             )}
             {unassignedCount(row) > 0 && (
@@ -218,7 +236,7 @@ function buildColumnDefs(
                 underline
                 trigger={<span className="mr-1.5 inline-block text-[11px] text-muted">?</span>}
               >
-                Unassigned
+                {t("locationCell.unassignedTitle")}
               </Tooltip>
             )}
           </>
@@ -227,7 +245,7 @@ function buildColumnDefs(
     },
     {
       id: "inUse",
-      label: "Equipped",
+      label: t("columns.inUse"),
       sortKey: "inUse",
       align: "right",
       render: (row) => {
@@ -235,8 +253,8 @@ function buildColumnDefs(
         if (inUse <= 0) return <span className="text-muted">-</span>;
         const title =
           inUse < row.count
-            ? `${inUse} of ${row.count} owned are currently equipped; the rest are in your inventory/stash`
-            : "All owned copies are currently equipped";
+            ? t("inUse.someEquipped", { inUse, count: row.count })
+            : t("inUse.allEquipped");
         return (
           <Tooltip
             underline
@@ -254,14 +272,14 @@ function buildColumnDefs(
     },
     {
       id: "marketPrice",
-      label: "Market price",
+      label: t("columns.marketPrice"),
       sortKey: "price",
       align: "right",
       render: (row, currency) => {
         if (!row.marketHashName) {
           return (
             <Tooltip underline trigger={<span className="text-muted">-</span>}>
-              Not priced (non-tradable or below Legendary gear)
+              {t("marketPrice.notPricedTitle")}
             </Tooltip>
           );
         }
@@ -270,18 +288,19 @@ function buildColumnDefs(
     },
     {
       id: "listValue",
-      label: "Market total",
+      label: t("columns.listValue"),
       sortKey: "value",
       align: "right",
       render: (row, currency) => {
         if (!row.marketHashName) return "-";
+        const sourceTitle = priceSourceTitle(t, row.priceSource);
         return (
           <MarketListingLink
             hash={row.marketHashName}
             title={
               row.value != null && Number.isFinite(row.value)
-                ? `${priceSourceTitle(row.priceSource) ?? "Steam Market"} · total if listed at market price`
-                : "Open on Steam Market"
+                ? `${sourceTitle ?? t("priceSource.default")} · ${t("marketPrice.totalIfListed")}`
+                : t("marketPrice.openOnSteam")
             }
           >
             {row.value != null && Number.isFinite(row.value)
@@ -293,19 +312,16 @@ function buildColumnDefs(
     },
     {
       id: "instantSell",
-      label: "Instant sell",
+      label: t("columns.instantSell"),
       sortKey: "buyOrder",
       align: "right",
       render: (row, currency) => {
         if (!row.marketHashName) return "-";
-        const empty = emptyBuyOrderDisplay(row);
+        const empty = emptyBuyOrderDisplay(t, row);
         if (row.buyOrderRaw) {
           const display = formatRawMoney(row.buyOrderRaw, currency) ?? row.buyOrderRaw;
           return (
-            <MarketListingLink
-              hash={row.marketHashName}
-              title="Highest buy order — price if you sold to the order book immediately"
-            >
+            <MarketListingLink hash={row.marketHashName} title={t("buyOrder.highestTitle")}>
               {display}
             </MarketListingLink>
           );
@@ -319,7 +335,7 @@ function buildColumnDefs(
     },
     {
       id: "instantTotal",
-      label: "Instant total",
+      label: t("columns.instantTotal"),
       sortKey: "buyOrderValue",
       align: "right",
       render: (row, currency) => {
@@ -327,8 +343,11 @@ function buildColumnDefs(
         const covered = row.buyOrderCoveredCount ?? 0;
         const capped = row.buyOrderValue != null && covered < row.count;
         const title = capped
-          ? `Selling into the order book level-by-level — covers ${covered.toLocaleString()} of ${row.count.toLocaleString()} owned; no buy orders deep enough for the rest. No listing fees.`
-          : "Selling into the order book level-by-level, best price first. No listing fees.";
+          ? t("instantTotal.cappedTitle", {
+              covered: covered.toLocaleString(),
+              count: row.count.toLocaleString(),
+            })
+          : t("instantTotal.defaultTitle");
         return (
           <MarketListingLink hash={row.marketHashName} title={title}>
             {row.buyOrderValue != null && Number.isFinite(row.buyOrderValue)
@@ -345,17 +364,14 @@ function buildColumnDefs(
     },
     {
       id: "instantSellAverage",
-      label: "Instant avg",
+      label: t("columns.instantSellAverage"),
       sortKey: "buyOrderAverage",
       align: "right",
       render: (row, currency) => {
         if (!row.marketHashName) return "-";
         const average = buyOrderAverage(row);
         return (
-          <MarketListingLink
-            hash={row.marketHashName}
-            title="Average price per unit across the order-book levels used to fill this stack."
-          >
+          <MarketListingLink hash={row.marketHashName} title={t("buyOrder.averageTitle")}>
             {average != null && Number.isFinite(average) ? formatMoney(average, currency) : "-"}
           </MarketListingLink>
         );
@@ -405,8 +421,9 @@ export function InventoryTable({
   sortDir,
   onSort,
   onClearFilters,
-  emptyMessage = "No items match these filters.",
+  emptyMessage,
 }: InventoryTableProps) {
+  const { t } = useTranslation("inventory");
   const catalog = useLookupCatalog();
   const { open } = useEntityPanel();
   const itemIndex = useMemo(
@@ -414,10 +431,11 @@ export function InventoryTable({
     [catalog],
   );
   const columnDefs = useMemo(
-    () => buildColumnDefs(itemIndex, (id) => open({ type: "item", id })),
-    [itemIndex, open],
+    () => buildColumnDefs(t, itemIndex, (id) => open({ type: "item", id })),
+    [t, itemIndex, open],
   );
   const columns = useMemo(() => visibleColumns(columnDefs, columnPrefs), [columnDefs, columnPrefs]);
+  const effectiveEmptyMessage = emptyMessage ?? t("emptyMessage");
 
   return (
     <Card padding="none" className="min-h-[200px] flex-1 overflow-auto">
@@ -446,9 +464,9 @@ export function InventoryTable({
           {rows.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="px-3 py-6 text-center text-muted">
-                {emptyMessage}{" "}
+                {effectiveEmptyMessage}{" "}
                 <Button size="sm" className="ml-1.5" onClick={onClearFilters}>
-                  Clear filters
+                  {t("clearFilters")}
                 </Button>
               </td>
             </tr>

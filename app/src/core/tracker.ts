@@ -108,6 +108,14 @@ function heroDeltaGain(
   curExp: number,
 ): number {
   if (prevState === undefined) return 0;
+  // Level-up reset: curExp dropped below prevState.exp. The hero banked the
+  // previous within-level XP into the level curve and reset its within-level
+  // counter; the new curExp value IS the gain accumulated since the reset.
+  // This applies both to same-level resets (save wrote a stale level alongside
+  // a fresh exp) and to level+1 resets where the curve bridge would otherwise
+  // return a huge cumulative number that the plausibility filter rejects,
+  // dropping the real within-level gain on the floor.
+  if (curExp < prevState.exp) return curExp;
   // Use level curve when both prev and cur levels are available and valid
   if (prevState.level > 0 && curLevel > 0) {
     const [gain] = perHeroGain(prevState.level, prevState.exp, curLevel, curExp);

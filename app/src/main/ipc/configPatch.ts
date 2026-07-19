@@ -1,3 +1,4 @@
+import type { AppLanguage } from "../../../shared/language";
 import type { AppConfig } from "../../../shared/types";
 import { isLiveMemoryActive } from "../../core/sessionState";
 import type { XpTracker } from "../../core/tracker";
@@ -15,7 +16,7 @@ export interface ConfigPatchDeps {
   saveConfig: (c: AppConfig) => void;
   getTracker: () => XpTracker;
   setTracker: (t: XpTracker) => void;
-  getMarket: () => SteamMarketProvider;
+  getMarket: () => SteamMarketProvider | null;
   restartWatcher: () => void;
   setAlwaysOnTop: (v: boolean) => void;
   pushStats: () => void;
@@ -26,6 +27,12 @@ export interface ConfigPatchDeps {
   setLiveMemoryEnabled?: (enabled: boolean) => void;
   /** Reset session stats when the effective live-memory mode changes. */
   onLiveMemoryToggled?: () => void;
+  /** Toggle Steam Market auto-scan on inventory updates without restart. */
+  setMarketAutoScanEnabled?: (enabled: boolean) => void;
+  /** Update the USD threshold below which low-value items are skipped on auto-refresh. */
+  setMarketLowValueThresholdUsd?: (value: number) => void;
+  /** Fires when the UI language changes so the main process can refresh i18n + tray. */
+  onLanguageChanged?: (newLanguage: AppLanguage) => void;
 }
 
 /** Apply settings patch and run side effects. */
@@ -56,7 +63,7 @@ export function applyConfigPatch(deps: ConfigPatchDeps, patch: Partial<AppConfig
 
   const market = deps.getMarket();
 
-  if (patch.currency !== undefined) {
+  if (patch.currency !== undefined && market) {
     market.setCurrency(next.currency);
     deps.resolveAndPushInventory();
     void deps.ensureOwnedPrices(true);
@@ -82,6 +89,32 @@ export function applyConfigPatch(deps: ConfigPatchDeps, patch: Partial<AppConfig
     if (prevActive !== nextActive) {
       deps.onLiveMemoryToggled?.();
     }
+  }
+
+  // Steam Market auto-scan toggle: gate InventoryService's auto refresh on
+  // inventory updates without restart.
+  if (
+    patch.marketAutoScanEnabled !== undefined &&
+    prev.marketAutoScanEnabled !== next.marketAutoScanEnabled
+  ) {
+    deps.setMarketAutoScanEnabled?.(next.marketAutoScanEnabled);
+  }
+
+  // Low-value skip threshold: lower values → fewer items skipped, more
+  // rate-limit budget consumed. Notify InventoryService so the next
+  // refresh applies the new threshold without restart.
+  if (
+    patch.marketLowValueThresholdUsd !== undefined &&
+    prev.marketLowValueThresholdUsd !== next.marketLowValueThresholdUsd
+  ) {
+    deps.setMarketLowValueThresholdUsd?.(next.marketLowValueThresholdUsd);
+  }
+
+  // UI language: refresh the main-process i18n instance and the tray menu
+  // (renderer windows refresh themselves from the saved config returned by
+  // the SAVE_CONFIG invoke handler — no new IPC channel needed).
+  if (patch.language !== undefined && prev.language !== next.language) {
+    deps.onLanguageChanged?.(next.language);
   }
 
   deps.setAlwaysOnTop(next.startTopmost);

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { boxStageListLabel } from "../../../core/lookup/boxDisplay";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { filterAndSortBoxStages, filterFirstDropStages } from "../../lib/boxLootFilters";
@@ -12,17 +13,6 @@ import { BoxLoot } from "./BoxLoot";
 import type { LookupBoxSources, LookupItem } from "../../../../shared/types";
 import type { LookupNavNode } from "../../lib/useLookupNav";
 
-const WHERE_HELP =
-  "Stages where this chest can drop on repeat farming. Drop sources above show kill type and spawn % range. % on each row is per qualifying kill and can differ by stage.";
-
-const FIRST_CLEAR_HELP =
-  "One-time reward the first time you clear that stage. This chest cannot be farmed from monster or boss kills.";
-
-const WHERE_LABEL = "Where to find";
-const FIRST_CLEAR_LABEL = "First clear";
-
-const NO_LOCATION_COPY = "No known drop locations in the catalog yet.";
-
 export function BoxDetailCard({
   box,
   boxItemKey,
@@ -34,6 +24,7 @@ export function BoxDetailCard({
   onNavigate: (node: LookupNavNode) => void;
   peekItem: (id: number) => LookupItem | undefined;
 }) {
+  const { t } = useTranslation("lookup");
   const [farmQuery, setFarmQuery] = useState("");
   const [firstQuery, setFirstQuery] = useState("");
 
@@ -64,20 +55,20 @@ export function BoxDetailCard({
       {showFirstClear ? (
         <div className="flex flex-col gap-2">
           <SectionHeadingRow
-            label={FIRST_CLEAR_LABEL}
-            help={FIRST_CLEAR_HELP}
-            helpLabel="How first-clear chests work"
+            label={t("box.firstClearLabel")}
+            help={t("box.firstClearHelp")}
+            helpLabel={t("box.firstClearHelpLabel")}
           />
 
           <div className="flex items-center gap-3">
             <Input
               className="min-w-0 flex-1"
-              placeholder="Search stages..."
+              placeholder={t("box.searchStages")}
               value={firstQuery}
               onChange={(e) => setFirstQuery(e.target.value)}
             />
             <span className="shrink-0 whitespace-nowrap text-xs text-muted">
-              {filteredFirstStages.length} stages
+              {t("box.stagesCount", { count: filteredFirstStages.length })}
             </span>
           </div>
 
@@ -85,7 +76,7 @@ export function BoxDetailCard({
             <DataList scrollable className="max-h-44">
               {filteredFirstStages.length === 0 ? (
                 <DataListRow index={0} className="text-xs text-muted">
-                  No stages match your search.
+                  {t("box.noStagesMatch")}
                 </DataListRow>
               ) : (
                 filteredFirstStages.map((stage, i) => (
@@ -106,20 +97,20 @@ export function BoxDetailCard({
       {showFarm ? (
         <div className="flex flex-col gap-2">
           <SectionHeadingRow
-            label={WHERE_LABEL}
-            help={WHERE_HELP}
-            helpLabel="How chest drops work"
+            label={t("box.whereLabel")}
+            help={t("box.whereHelp")}
+            helpLabel={t("box.whereHelpLabel")}
           />
 
           <div className="flex items-center gap-3">
             <Input
               className="min-w-0 flex-1"
-              placeholder="Search stages..."
+              placeholder={t("box.searchStages")}
               value={farmQuery}
               onChange={(e) => setFarmQuery(e.target.value)}
             />
             <span className="shrink-0 whitespace-nowrap text-xs text-muted">
-              {filteredFarmStages.length} stages
+              {t("box.stagesCount", { count: filteredFarmStages.length })}
             </span>
           </div>
 
@@ -127,7 +118,7 @@ export function BoxDetailCard({
             <DataList scrollable className="max-h-44">
               {filteredFarmStages.length === 0 ? (
                 <DataListRow index={0} className="text-xs text-muted">
-                  No stages match your search.
+                  {t("box.noStagesMatch")}
                 </DataListRow>
               ) : (
                 filteredFarmStages.map((stage, i) => (
@@ -146,7 +137,7 @@ export function BoxDetailCard({
         </div>
       ) : null}
 
-      {showLocationEmpty ? <p className="m-0 text-xs text-muted">{NO_LOCATION_COPY}</p> : null}
+      {showLocationEmpty ? <p className="m-0 text-xs text-muted">{t("box.noLocation")}</p> : null}
 
       {box.drops.length > 0 ? (
         <div className="flex flex-col gap-3 border-t border-border pt-3">

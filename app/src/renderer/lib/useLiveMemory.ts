@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore, useRef } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 import { reportIpcError } from "./reportError";
 
@@ -19,7 +19,9 @@ export function useLiveMemoryStatus(): LiveMemoryStatus | null {
         if (active && s) setStatus(s);
       })
       .catch((err: unknown) => reportIpcError(err, "useLiveMemoryStatus:getStatus"));
-    const offStatus = window.tbh.onLiveMemoryStatus?.((s) => setStatus(s));
+    const offStatus = window.tbh.onLiveMemoryStatus?.((s) => {
+      if (active) setStatus(s);
+    });
     return () => {
       active = false;
       offStatus?.();
@@ -80,8 +82,13 @@ function stopSnapshotStore(): void {
   }
   started = false;
   snapshot = null;
-  // lastSnapshotForScalars is self-correcting: getScalars() checks
-  // snapshot !== lastSnapshotForScalars and recomputes when they diverge.
+  // Clear the scalar cache too — it holds a reference to the last snapshot
+  // used by getScalars(), which can be a large LiveMemorySnapshot (heroes[],
+  // inventoryItems[], petData[], monsterHp[]). Without this, the cache keeps
+  // that snapshot alive indefinitely after the last subscriber leaves,
+  // since nothing calls getScalars() to trigger its self-correcting path.
+  lastSnapshotForScalars = null;
+  lastScalars = NULL_SCALARS;
 }
 
 function subscribeSnapshot(onChange: () => void): () => void {
@@ -106,14 +113,14 @@ function subscribeSnapshot(onChange: () => void): () => void {
  * re-renders in components that only read scalar fields like `connected` or
  * `stageKey`.
  */
-export function useLiveMemoryField<T>(
-  selector: (snap: LiveMemorySnapshot | null) => T,
-): T {
-  const selectorRef = useRef(selector);
-  selectorRef.current = selector;
-
-  const getSlice = useRef((): T => selectorRef.current(snapshot)).current;
-
+export function useLiveMemoryField<T>(selector: (snap: LiveMemorySnapshot | null) => T): T {
+  // Build getSlice directly from `selector` so we don't need to read/write a
+  // ref during render (forbidden by react-hooks/refs). The previous design
+  // kept getSlice stable via a ref indirection; useCallback gives the same
+  // stability for a memoized selector, and callers that pass an inline
+  // selector returning a primitive are still safe because the returned
+  // value compares equal across renders.
+  const getSlice = useCallback((): T => selector(snapshot), [selector]);
   return useSyncExternalStore(subscribeSnapshot, getSlice, getSlice);
 }
 
@@ -201,8 +208,11 @@ export function useLiveMemory(): {
         if (active && s) setStatus(s);
       })
       .catch((err: unknown) => reportIpcError(err, "useLiveMemory:getStatus"));
-    const offSnap = window.tbh.onLiveMemory?.((s) => setSnapshot(s));
+    const offSnap = window.tbh.onLiveMemory?.((s) => {
+      if (active) setSnapshot(s);
+    });
     const offStatus = window.tbh.onLiveMemoryStatus?.((s) => {
+      if (!active) return;
       setStatus(s);
       if (!s.running) setSnapshot(null);
     });

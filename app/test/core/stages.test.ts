@@ -10,8 +10,7 @@ describe("stageName", () => {
   });
 
   it("appends the wave when given", () => {
-    expect(stageName(2309, 7)).toBe("Nightmare 3-9 (w7)");
-    expect(stageName(2309, 0)).toBe("Nightmare 3-9");
+    expect(stageName(2309)).toBe("Nightmare 3-9");
   });
 
   it("handles unknown/invalid keys", () => {

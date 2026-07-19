@@ -1,15 +1,10 @@
 import { SiSteam } from "react-icons/si";
 import { LuExternalLink } from "react-icons/lu";
+import { useTranslation } from "react-i18next";
 import type { LookupItem } from "../../../../shared/types";
 import { cn } from "../../lib/cn";
 import { useLookupPrices } from "../../lib/useLookupPrices";
 import { MarketListingLink } from "../inventory/MarketListingLink";
-
-function steamTitle(isNoListing: boolean): string {
-  return isNoListing
-    ? "No active Steam Market listing — open to check the latest"
-    : "Approximate Steam Market price (converted from USD) — open the listing";
-}
 
 /**
  * Compact Steam Market price pinned to the top-right of an item's header
@@ -25,6 +20,7 @@ export function LookupPrice({
   item: LookupItem;
   interactive?: boolean;
 }) {
+  const { t } = useTranslation("lookup");
   const { resolve } = useLookupPrices();
   const price = resolve(item);
 
@@ -32,7 +28,8 @@ export function LookupPrice({
   if (price.state === "no-listing" && !interactive) return null;
 
   const isNoListing = price.state === "no-listing";
-  const label = isNoListing ? "No listed price" : price.display;
+  const label = isNoListing ? t("price.noListedPrice") : price.display;
+  const title = isNoListing ? t("price.noListingTitle") : t("price.approximateTitle");
   const body = (
     <span className="inline-flex items-center gap-1 text-[12px]">
       <SiSteam className="size-3 text-muted" aria-hidden />
@@ -52,7 +49,7 @@ export function LookupPrice({
 
   if (interactive && price.hash) {
     return (
-      <MarketListingLink hash={price.hash} title={steamTitle(isNoListing)}>
+      <MarketListingLink hash={price.hash} title={title}>
         {body}
       </MarketListingLink>
     );

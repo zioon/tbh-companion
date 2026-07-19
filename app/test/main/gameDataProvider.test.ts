@@ -122,7 +122,14 @@ describe("GameDataProvider", () => {
     const userCatalog = {
       gameVersion: "9.9.99",
       items: [
-        { id: 1, name: "Test Item", grade: "COMMON", type: "MATERIAL", level: null, marketTradable: false },
+        {
+          id: 1,
+          name: "Test Item",
+          grade: "COMMON",
+          type: "MATERIAL",
+          level: null,
+          marketTradable: false,
+        },
       ],
     };
     const userDataDir = mkdtempSync(join(tmpdir(), "tbh-userdata-"));
@@ -146,7 +153,14 @@ describe("GameDataProvider", () => {
       const newCatalog = {
         gameVersion: "9.9.99",
         items: [
-          { id: 1, name: "Reloaded", grade: "COMMON", type: "MATERIAL", level: null, marketTradable: false },
+          {
+            id: 1,
+            name: "Reloaded",
+            grade: "COMMON",
+            type: "MATERIAL",
+            level: null,
+            marketTradable: false,
+          },
         ],
       };
       writeFileSync(join(userDataDir, "gamedata.json"), JSON.stringify(newCatalog));

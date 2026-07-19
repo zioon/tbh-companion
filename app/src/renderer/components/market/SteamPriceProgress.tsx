@@ -1,13 +1,32 @@
+import { useTranslation } from "react-i18next";
 import { usePriceProgress, usePriceStatus } from "../../lib/usePrices";
 import { Button } from "../../design-system/primitives/Button/Button";
 import { HintBanner } from "../../design-system/primitives/HintBanner/HintBanner";
 import { ProgressBar } from "../../design-system/primitives/ProgressBar/ProgressBar";
 
-function progressLabel(progress: NonNullable<ReturnType<typeof usePriceProgress>>): string {
-  return `${progress.done}/${progress.total} — priced ${progress.priced}, failed ${progress.failed} — ${progress.current || "starting…"}`;
+function progressLabel(
+  t: ReturnType<typeof useTranslation<"market">>["t"],
+  progress: NonNullable<ReturnType<typeof usePriceProgress>>,
+): string {
+  if (progress.current) {
+    return t("progress.label", {
+      done: progress.done,
+      total: progress.total,
+      priced: progress.priced,
+      failed: progress.failed,
+      current: progress.current,
+    });
+  }
+  return t("progress.labelStarting", {
+    done: progress.done,
+    total: progress.total,
+    priced: progress.priced,
+    failed: progress.failed,
+  });
 }
 
 export function SteamPriceProgress({ variant }: { variant: "banner" | "full" }) {
+  const { t } = useTranslation("market");
   const status = usePriceStatus();
   const progress = usePriceProgress();
   const running = status?.running ?? false;
@@ -24,16 +43,22 @@ export function SteamPriceProgress({ variant }: { variant: "banner" | "full" }) 
       className={variant === "banner" ? "ml-1.5" : undefined}
       onClick={() => window.tbh.cancelPrices()}
     >
-      Stop
+      {t("progress.stop")}
     </Button>
   );
 
   if (variant === "banner") {
+    const bannerProgress = progress
+      ? t("progress.bannerProgress", {
+          done: progress.done,
+          total: progress.total,
+          priced: progress.priced,
+        })
+      : t("progress.bannerPending");
     return (
       <HintBanner>
-        Updating Steam prices in the background
-        {progress ? `: ${progress.done}/${progress.total} (${progress.priced} priced)` : "…"}.{" "}
-        {stopButton}
+        {t("progress.banner")}
+        {bannerProgress}. {stopButton}
         <ProgressBar
           percent={pct}
           label={
@@ -49,14 +74,14 @@ export function SteamPriceProgress({ variant }: { variant: "banner" | "full" }) 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] text-muted">Fetching Steam prices…</span>
+        <span className="text-[13px] text-muted">{t("progress.fetching")}</span>
         {stopButton}
       </div>
       <ProgressBar
         percent={pct}
         label={
           <span className="text-xs text-muted">
-            {progress ? progressLabel(progress) : "starting…"}
+            {progress ? progressLabel(t, progress) : t("progress.starting")}
           </span>
         }
       />

@@ -1,34 +1,28 @@
-// Compact "Recent drops" strip for the Loot tab. Shows the last N recorded
-// box-open outcomes across all boxKeys (newest first), each row giving the
-// item name (grade-colored, with an ItemCard peek tooltip), count, source
-// chest label, and wall-clock time.
-//
-// Uses a real <table> matching the sibling LootQueueList layout (name / label
-// / label / value) so each column aligns vertically across rows and across
-// the two cards when they sit side-by-side.
-
-import { useMemo } from "react";
-import type { BoxOpenHistoryEntry } from "../../../../shared/types";
-import { boxLabel } from "../../../core/boxOpenLog";
+import { useTranslation } from "react-i18next";
+import type { BoxOpenHistoryEntry, LookupItem } from "../../../../shared/types";
+import { translateBoxLabel } from "../../lib/boxLabel";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { fmtClock } from "../../lib/format";
 import { gradeColor } from "../../lib/gradeColor";
-import { useLookupCatalog } from "../../lib/useLookupCatalog";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { ItemLink } from "../ItemLink";
 
-export function LootRecentDrops({ drops }: { drops: BoxOpenHistoryEntry[] }) {
-  const catalog = useLookupCatalog();
+export function LootRecentDrops({
+  drops,
+  itemIndex,
+}: {
+  drops: BoxOpenHistoryEntry[];
+  itemIndex: Map<number, LookupItem>;
+}) {
+  const { t } = useTranslation("loot");
   const { open: openEntity } = useEntityPanel();
-  const itemIndex = useMemo(
-    () => new Map((catalog ?? []).map((item) => [item.id, item])),
-    [catalog],
-  );
 
   if (drops.length === 0) return null;
   return (
     <Card padding="default" className="flex h-full flex-col gap-1.5">
-      <div className="text-xs font-semibold uppercase tracking-wide text-muted">Recent drops</div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted">
+        {t("recentDrops.title")}
+      </div>
       <table className="m-0 w-full border-collapse text-[13px]">
         <tbody>
           {drops.map((d, i) => {
@@ -65,7 +59,7 @@ export function LootRecentDrops({ drops }: { drops: BoxOpenHistoryEntry[] }) {
                   {d.count > 1 ? `×${d.count}` : ""}
                 </td>
                 <td className="whitespace-nowrap py-0.5 pr-3 text-right text-muted">
-                  {boxLabel(d.boxKey)}
+                  {translateBoxLabel(t, d.boxKey)}
                 </td>
                 <td className="whitespace-nowrap py-0.5 text-right text-muted tabular-nums">
                   {fmtClock(d.wallTime)}

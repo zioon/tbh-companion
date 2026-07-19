@@ -63,6 +63,14 @@ describe("fmtFillEta", () => {
 
   it("includes a date for projections on a later day", () => {
     const now = new Date(2026, 5, 19, 10, 0, 0);
-    expect(fmtFillEta(30, now)).toMatch(/^Jun 20 at /);
+    const eta = new Date(now.getTime() + 30 * 3600 * 1000);
+    // The exact date label is locale-dependent (en-US: "Jun 20 at …",
+    // zh-CN: "6月20日 at …"). Assert the result starts with the localized
+    // date string rather than "today", and contains the " at " separator.
+    const expectedDate = eta.toLocaleDateString([], { month: "short", day: "numeric" });
+    const result = fmtFillEta(30, now);
+    expect(result.startsWith("today")).toBe(false);
+    expect(result.startsWith(expectedDate)).toBe(true);
+    expect(result).toContain(" at ");
   });
 });

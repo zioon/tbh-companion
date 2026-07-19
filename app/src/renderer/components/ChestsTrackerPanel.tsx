@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AppConfig } from "../../../shared/types";
 import { useBoxTimers } from "../lib/useBoxTimers";
 import { reportIpcError } from "../lib/reportError";
@@ -20,15 +21,22 @@ import { Tooltip } from "../design-system/primitives/Tooltip/Tooltip";
 import { cn } from "../lib/cn";
 
 export function ChestsTrackerPanel() {
+  const { t } = useTranslation("chests");
   const state = useBoxTimers();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   useEffect(() => {
     if (typeof window.tbh?.getConfig !== "function") return;
+    let mounted = true;
     void window.tbh
       .getConfig()
-      .then((config: AppConfig) => setNotificationsEnabled(config.notificationsEnabled))
+      .then((config: AppConfig) => {
+        if (mounted) setNotificationsEnabled(config.notificationsEnabled);
+      })
       .catch((err: unknown) => reportIpcError(err));
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (!state) {
@@ -38,9 +46,9 @@ export function ChestsTrackerPanel() {
         className="flex flex-col gap-2 rounded-lg border border-border bg-panel/50 p-3.5"
       >
         <h2 id="stage-chest-tracker-heading" className="m-0 text-base font-semibold">
-          Stage boss chest tracker
+          {t("tracker.heading")}
         </h2>
-        <p className="m-0 text-xs text-muted">Loading tracker settings…</p>
+        <p className="m-0 text-xs text-muted">{t("tracker.loading")}</p>
       </section>
     );
   }
@@ -55,11 +63,10 @@ export function ChestsTrackerPanel() {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <h2 id="stage-chest-tracker-heading" className="m-0 text-base font-semibold">
-            Stage boss chest tracker
+            {t("tracker.heading")}
           </h2>
           <p className="m-0 mt-1 max-w-prose text-xs leading-relaxed text-muted">
-            Track rare stage boss drops and cooldowns while farming. Tap Dropped on the overlay when
-            a boss chest drops, or start timers manually from the list below.
+            {t("tracker.description")}
           </p>
         </div>
         <Button
@@ -68,22 +75,16 @@ export function ChestsTrackerPanel() {
           className="shrink-0"
           onClick={() => window.tbh.openBoxTracker()}
         >
-          Open overlay
+          {t("tracker.openOverlay")}
         </Button>
       </div>
 
       {!notificationsEnabled ? (
-        <p className="m-0 text-xs text-muted">
-          Enable notification sounds in Settings (Chest ready) to hear when tracked cooldowns
-          finish.
-        </p>
+        <p className="m-0 text-xs text-muted">{t("tracker.notificationsDisabled")}</p>
       ) : null}
 
-      <PanelSection title="Overlay display">
-        <Field
-          label="Show first in overlay"
-          hint="Controls section order in the stage boss overlay."
-        >
+      <PanelSection title={t("tracker.displaySection")}>
+        <Field label={t("tracker.sortFieldLabel")} hint={t("tracker.sortFieldHint")}>
           <Select
             className="max-w-xs"
             value={state.sortOrder}
@@ -91,28 +92,28 @@ export function ChestsTrackerPanel() {
               void window.tbh.setBoxTrackerSortOrder(normalizeBoxTrackerSortOrder(String(value)))
             }
             options={[
-              { value: "cooldown-first", label: "On cooldown" },
-              { value: "ready-first", label: "Ready to mark" },
+              { value: "cooldown-first", label: t("tracker.sortCooldownFirst") },
+              { value: "ready-first", label: t("tracker.sortReadyFirst") },
             ]}
           />
         </Field>
       </PanelSection>
 
-      <PanelSection title="Levels to track">
+      <PanelSection title={t("tracker.levelsSection")}>
         <div className="flex flex-wrap gap-1">
           {TRACKER_PRESETS.map((preset) => (
             <Button
-              key={preset.label}
+              key={preset.labelKey}
               size="sm"
               variant="ghost"
-              title={preset.title}
+              title={t(preset.titleKey)}
               onClick={() => applyTrackerPreset(preset.levels, state.catalog)}
             >
-              {preset.label}
+              {t(preset.labelKey)}
             </Button>
           ))}
           <Button size="sm" variant="ghost" onClick={() => void window.tbh.setBoxTrackerBoxes([])}>
-            Clear
+            {t("tracker.clear")}
           </Button>
         </div>
         {/* Raw toggle chips — no ToggleChip primitive yet; pill shape + grid density are one-off. */}
@@ -132,12 +133,12 @@ export function ChestsTrackerPanel() {
                   )}
                   onClick={() => toggleTrackedLevel(entry, state.catalog)}
                 >
-                  Lv{entry.level}
+                  {t("tracker.chipLevel", { level: entry.level })}
                 </button>
               }
             >
               {`${entry.idealStageLabel} · ${entry.dropStageRangeLabel}${
-                entry.enabled ? " — tracking" : " — tap to track"
+                entry.enabled ? t("tracker.chipTrackingSuffix") : t("tracker.chipTapToTrackSuffix")
               }`}
             </Tooltip>
           ))}
@@ -145,11 +146,9 @@ export function ChestsTrackerPanel() {
       </PanelSection>
 
       {enabledEntries.length === 0 ? (
-        <p className="m-0 text-xs text-muted">
-          Pick at least one level above to set cooldowns and view farm stages.
-        </p>
+        <p className="m-0 text-xs text-muted">{t("tracker.pickPrompt")}</p>
       ) : (
-        <PanelSection title="Per-level settings">
+        <PanelSection title={t("tracker.perLevelSection")}>
           <div className="grid grid-cols-1 gap-2 min-[640px]:grid-cols-2">
             {enabledEntries.map((entry) => (
               <TrackerConfigRow

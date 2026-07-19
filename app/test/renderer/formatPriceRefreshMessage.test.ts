@@ -1,10 +1,35 @@
 import { describe, it, expect } from "vitest";
+import type { TFunction } from "i18next";
 import { formatPriceRefreshMessage } from "../../src/renderer/lib/formatPriceRefreshMessage";
+
+// Stand-in for i18next's t. Returns the key (optionally with interpolation
+// markers stripped) so tests can assert on substrings without depending on the
+// actual English copy in market.json.
+const t = ((key: string, opts?: Record<string, unknown>) => {
+  const params = opts as Record<string, unknown> | undefined;
+  if (key === "refreshMessage.noop" && params && typeof params.count === "number") {
+    return `All ${params.count} items are up to date (updated within 24h). Nothing to fetch.`;
+  }
+  if (key === "refreshMessage.noopOne") {
+    return "All 1 item is up to date (updated within 24h). Nothing to fetch.";
+  }
+  if (key === "refreshMessage.queued") return "queued";
+  if (key === "refreshMessage.noInventory") return "No inventory loaded";
+  if (key === "refreshMessage.alreadyRunning") return "Refresh already in progress.";
+  if (key === "refreshMessage.cancelled") return " (cancelled)";
+  if (key === "refreshMessage.failed") {
+    return `Refresh failed: ${params?.error ?? ""}.`;
+  }
+  if (key === "refreshMessage.success") {
+    return `Priced ${params?.priced}, skipped ${params?.skipped} fresh, ${params?.failed} failed${params?.stopMsg ?? ""}.`;
+  }
+  return key;
+}) as unknown as TFunction<"market">;
 
 describe("formatPriceRefreshMessage", () => {
   it("describes a queued refresh", () => {
     expect(
-      formatPriceRefreshMessage({
+      formatPriceRefreshMessage(t, {
         ok: true,
         priced: 0,
         skipped: 0,
@@ -17,7 +42,7 @@ describe("formatPriceRefreshMessage", () => {
 
   it("describes a no-op when all items are fresh", () => {
     expect(
-      formatPriceRefreshMessage({
+      formatPriceRefreshMessage(t, {
         ok: true,
         priced: 0,
         skipped: 5,
@@ -30,7 +55,7 @@ describe("formatPriceRefreshMessage", () => {
 
   it("describes missing inventory", () => {
     expect(
-      formatPriceRefreshMessage({
+      formatPriceRefreshMessage(t, {
         ok: true,
         priced: 0,
         skipped: 0,
@@ -43,7 +68,7 @@ describe("formatPriceRefreshMessage", () => {
 
   it("describes a normal completed refresh", () => {
     expect(
-      formatPriceRefreshMessage({
+      formatPriceRefreshMessage(t, {
         ok: true,
         priced: 2,
         skipped: 3,
@@ -55,7 +80,7 @@ describe("formatPriceRefreshMessage", () => {
 
   it("describes cancellation and failures", () => {
     expect(
-      formatPriceRefreshMessage({
+      formatPriceRefreshMessage(t, {
         ok: true,
         priced: 0,
         skipped: 0,
@@ -64,7 +89,7 @@ describe("formatPriceRefreshMessage", () => {
       }),
     ).toContain("cancelled");
     expect(
-      formatPriceRefreshMessage({
+      formatPriceRefreshMessage(t, {
         ok: false,
         priced: 0,
         skipped: 0,

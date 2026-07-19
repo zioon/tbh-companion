@@ -31,8 +31,12 @@ const config: AppConfig = {
   notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
   inventoryAlmostFullThresholdPercent: 90,
   chestAutoOpenEnabled: { common: false, stageBoss: false },
+  marketAutoScanEnabled: true,
+  marketLowValueThresholdUsd: 0.05,
   lootAutoClassifyEnabled: false,
+  lootRingSeconds: { common: 300, stage: 420 },
   liveMemory: { enabled: false, consentAccepted: false },
+  language: "auto",
 };
 
 function snap(mtime: number, heroExp: number): SaveSnapshot {

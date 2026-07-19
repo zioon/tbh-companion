@@ -142,20 +142,30 @@ export class SessionStateService {
       return "discarded";
     }
 
-    tracker.applySnapshot(this.pendingTracker);
-    if (this.pendingChestDropTracker) {
-      chestDropTracker.applySnapshot(this.pendingChestDropTracker);
+    // Apply tracker + chest + boxOpen restore. If any applySnapshot throws
+    // (schema drift, corrupt snapshot), we still clear pending so the next
+    // snapshot doesn't retry the same bad payload in an error loop.
+    try {
+      tracker.applySnapshot(this.pendingTracker);
+      if (this.pendingChestDropTracker) {
+        chestDropTracker.applySnapshot(this.pendingChestDropTracker);
+      }
+      if (this.pendingBoxOpenTracker) {
+        boxOpenTracker.applySnapshot(this.pendingBoxOpenTracker);
+      }
+      log.info("Session stats restored from snapshot");
+      return "restored";
+    } catch (err) {
+      log.warn(`Session restore failed, discarding snapshot: ${(err as Error).message}`);
+      this.deleteFile();
+      return "discarded";
+    } finally {
+      this.pendingTracker = null;
+      this.pendingChestDropTracker = null;
+      this.pendingBoxOpenTracker = null;
+      this.pendingLastSaveMtime = null;
+      this.lastSaveMtime = snap.saveMtime;
     }
-    if (this.pendingBoxOpenTracker) {
-      boxOpenTracker.applySnapshot(this.pendingBoxOpenTracker);
-    }
-    this.pendingTracker = null;
-    this.pendingChestDropTracker = null;
-    this.pendingBoxOpenTracker = null;
-    this.pendingLastSaveMtime = null;
-    this.lastSaveMtime = snap.saveMtime;
-    log.info("Session stats restored from snapshot");
-    return "restored";
   }
 
   persist(

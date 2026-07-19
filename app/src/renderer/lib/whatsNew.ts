@@ -1,14 +1,16 @@
 import { DISCORD_URL } from "./externalLinks";
 
 export interface WhatsNewAction {
-  label: string;
+  labelKey: string;
   href: string;
 }
 
 export interface WhatsNewEntry {
   version: string;
-  title: string;
-  bullets: string[];
+  /** i18n key under whatsNew namespace, e.g. "versions.1.17.0.title". */
+  titleKey: string;
+  /** i18n key under whatsNew namespace returning an array, e.g. "versions.1.17.0.bullets". */
+  bulletsKey: string;
   action?: WhatsNewAction;
 }
 
@@ -17,43 +19,25 @@ export const WHATS_NEW_STORAGE_KEY = "tbh.whatsNew.lastSeenVersion";
 const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
     version: "1.17.0",
-    title: "What's new in v1.17.0",
-    bullets: [
-      "Box detail panels in Lookup show per-stage spawn chances, full loot tables, and First clear labels.",
-      "Material pages now list every recipe that uses them in a Used in crafting section.",
-      "Item names in Inventory are now links — click to jump to the item's detail in Lookup.",
-      "Drop chances and pool percentages corrected to match game data (v1.00.21).",
-    ],
+    titleKey: "versions.1.17.0.title",
+    bulletsKey: "versions.1.17.0.bullets",
   },
   {
     version: "1.16.0",
-    title: "What's new in v1.16.0",
-    bullets: [
-      "New Lookup tab — browse 1,500+ items, boxes, and stages with search, filters, and sort.",
-      "Every item shows stats plus Where to find: boss drops, crafting, synthesis, and Cube Offering coins.",
-      "Open Offering coins to see full Cube loot tables; open boxes and stages for drop lists.",
-      "Inventory filters for grade, item type, and location are now multi-select.",
-    ],
+    titleKey: "versions.1.16.0.title",
+    bulletsKey: "versions.1.16.0.bullets",
   },
   {
     version: "1.15.0",
-    title: "What's new in v1.15.0",
-    bullets: [
-      "Inventory instant sell totals now use the full buy-order book, with a badge when depth runs out.",
-      "Market value and Instant total summary cards follow your active filters.",
-      "Unequipped only filter and the Equipped column make mixed equip/stash rows easier to read.",
-      "Optional Instant avg column in the column picker.",
-    ],
+    titleKey: "versions.1.15.0.title",
+    bulletsKey: "versions.1.15.0.bullets",
   },
   {
     version: "1.13.0",
-    title: "What's new in v1.13.0",
-    bullets: [
-      "New Discord button on About for community help and release chatter.",
-      "What's New appears once after updates when a release includes bundled notes.",
-    ],
+    titleKey: "versions.1.13.0.title",
+    bulletsKey: "versions.1.13.0.bullets",
     action: {
-      label: "Join Discord",
+      labelKey: "versions.1.13.0.actionLabel",
       href: DISCORD_URL,
     },
   },

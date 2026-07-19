@@ -8,8 +8,9 @@ import tailwindcss from "@tailwindcss/vite";
 //   preload -> src/preload/index.ts
 //   renderer-> src/renderer/index.html (root: src/renderer)
 //
-// The live-memory reader is built as a second main-process entry so it can be
-// spawned as an isolated utilityProcess (out/main/liveMemoryWorker.js).
+// The live-memory reader and the inventory resolver are built as additional
+// main-process entries so each can be spawned as an isolated utilityProcess
+// (out/main/liveMemoryWorker.js, out/main/inventoryWorkerEntry.js).
 export default defineConfig({
   main: {
     build: {
@@ -18,6 +19,7 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
           liveMemoryWorker: resolve(__dirname, "src/main/liveMemory/worker.ts"),
+          inventoryWorkerEntry: resolve(__dirname, "src/main/services/inventoryWorkerEntry.ts"),
         },
       },
     },

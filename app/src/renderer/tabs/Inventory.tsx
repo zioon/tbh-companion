@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { normalizeInventoryTablePrefs } from "../../core/inventory/columnPrefs";
 import { useInventory } from "../lib/useInventory";
 import { SteamPriceProgress } from "../components/market/SteamPriceProgress";
@@ -24,6 +25,7 @@ import { reportIpcError } from "../lib/reportError";
 
 export function Inventory() {
   const inv = useInventory();
+  const { t } = useTranslation("inventory");
   const [query, setQuery] = useState("");
   const [tradableOnly, setTradableOnly] = useState(false);
   const [unequippedOnly, setUnequippedOnly] = useState(false);
@@ -39,14 +41,19 @@ export function Inventory() {
 
   useEffect(() => {
     if (typeof window.tbh?.getConfig !== "function") return;
+    let mounted = true;
     void window.tbh
       .getConfig()
       .then((config) => {
+        if (!mounted) return;
         if (config.inventoryTable) {
           setColumnPrefs(normalizeInventoryTablePrefs(config.inventoryTable));
         }
       })
       .catch(reportIpcError);
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   function onColumnPrefsChange(next: InventoryTablePrefs): void {
@@ -56,6 +63,17 @@ export function Inventory() {
       void window.tbh.saveConfig({ inventoryTable: next }).catch(reportIpcError);
     }, 300);
   }
+
+  // Clear any pending column-prefs save when the tab unmounts so we don't
+  // fire an IPC call (and setState on a stale timer) after the component is gone.
+  useEffect(() => {
+    return () => {
+      if (columnSaveTimer.current) {
+        clearTimeout(columnSaveTimer.current);
+        columnSaveTimer.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!inv) return;
@@ -108,10 +126,8 @@ export function Inventory() {
   if (!inv) {
     return (
       <div className="flex flex-col gap-1.5">
-        <h1 className="m-0 text-lg font-semibold">Inventory</h1>
-        <p className="m-0 text-muted">
-          Waiting for the save file... open the game so it writes a save.
-        </p>
+        <h1 className="m-0 text-lg font-semibold">{t("tabTitle")}</h1>
+        <p className="m-0 text-muted">{t("waiting")}</p>
       </div>
     );
   }
@@ -137,7 +153,7 @@ export function Inventory() {
 
   return (
     <TabPage>
-      <TabHeader title="Inventory" />
+      <TabHeader title={t("tabTitle")} />
 
       <InventorySummary composition={composition} currency={currency} />
 

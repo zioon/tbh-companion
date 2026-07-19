@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { useLookupSources } from "../lib/useLookupSources";
 import { useLookupSynthesisModel } from "../lib/useLookupSynthesisModel";
@@ -15,6 +16,7 @@ import type { LookupNavNode } from "../lib/useLookupNav";
  * via useEntityPanel().open(node).
  */
 export function GlobalEntityPanel() {
+  const { t } = useTranslation("common");
   const { node, isOpen, navigate, close } = useEntityPanel();
 
   const items = useLookupCatalog();
@@ -29,14 +31,15 @@ export function GlobalEntityPanel() {
 
   const labelFor = useCallback(
     (n: LookupNavNode): string => {
-      if (n.type === "item") return itemIndex.get(n.id)?.name ?? `Item #${n.id}`;
-      if (n.type === "box") return boxNames.get(n.id) ?? `Box #${n.id}`;
-      return stageNames.get(n.id) ?? `Stage #${n.id}`;
+      if (n.type === "item")
+        return itemIndex.get(n.id)?.name ?? t("entityPanel.itemFallback", { id: n.id });
+      if (n.type === "box") return boxNames.get(n.id) ?? t("entityPanel.boxFallback", { id: n.id });
+      return stageNames.get(n.id) ?? t("entityPanel.stageFallback", { id: n.id });
     },
-    [itemIndex, boxNames, stageNames],
+    [t, itemIndex, boxNames, stageNames],
   );
 
-  const title = node ? labelFor(node) : "Details";
+  const title = node ? labelFor(node) : t("entityPanel.defaultTitle");
 
   return (
     <SidePanel open={isOpen} onOpenChange={(open) => !open && close()} title={title}>

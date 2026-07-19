@@ -1,5 +1,9 @@
 // Tab identifiers + visibility, kept out of AppTabBar.tsx so that file only
 // exports its component (react-refresh/only-export-components).
+//
+// Tab labels are looked up via i18next under the `tabs` namespace keyed by the
+// tab id (e.g. `tabs:live`). The English source strings live in
+// `shared/locales/en/tabs.json`.
 
 export type TabId =
   | "live"
@@ -13,22 +17,22 @@ export type TabId =
   | "about"
   | "debug";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "live", label: "Live" },
-  { id: "inventory", label: "Inventory" },
-  { id: "chests", label: "Chests" },
-  { id: "loot", label: "Loot" },
-  { id: "pets", label: "Pets" },
-  { id: "lookup", label: "Lookup" },
-  { id: "market", label: "Market" },
-  { id: "settings", label: "Settings" },
-  { id: "about", label: "About" },
+const TAB_IDS: TabId[] = [
+  "live",
+  "inventory",
+  "chests",
+  "loot",
+  "pets",
+  "lookup",
+  "market",
+  "settings",
+  "about",
 ];
 
 // The live-memory diagnostics tab ships only in dev builds, not the production bar.
-const DEV_TABS: { id: TabId; label: string }[] = [{ id: "debug", label: "Debug" }];
+const DEV_TAB_IDS: TabId[] = ["debug"];
 
-/** Visible tabs for the given build mode — dev-only tabs appear only when `isDev`. */
-export function getVisibleTabs(isDev: boolean): { id: TabId; label: string }[] {
-  return isDev ? [...TABS, ...DEV_TABS] : TABS;
+/** Visible tab ids for the given build mode — dev-only tabs appear only when `isDev`. */
+export function getVisibleTabs(isDev: boolean): TabId[] {
+  return isDev ? [...TAB_IDS, ...DEV_TAB_IDS] : TAB_IDS;
 }

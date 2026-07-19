@@ -1,5 +1,6 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
 import { stageName } from "../../core/stages";
+import { matchesMulti } from "./lootFilterCommon";
 import { itemDescriptor } from "./lookupDisplay";
 import type {
   LookupBoxDrop,
@@ -25,9 +26,7 @@ export interface BoxStageFilterState {
   sortDir: "asc" | "desc";
 }
 
-function matchesMulti(selected: string[], value: string | null): boolean {
-  return selected.length === 0 || (value != null && selected.includes(value));
-}
+// P2-2: `matchesMulti` moved to lootFilterCommon.ts.
 
 export interface ResolvedBoxLoot {
   itemKey: number;
@@ -56,12 +55,16 @@ export function filterAndSortBoxLoot(
 ): ResolvedBoxLoot[] {
   const q = state.query.trim().toLowerCase();
   let rows = loot.filter((row) => {
-    if (!matchesMulti(state.gradeFilter, row.item?.grade ?? row.grade)) return false;
+    if (!matchesMulti(state.gradeFilter, row.item?.grade || row.grade)) return false;
     if (state.typeFilter.length > 0) {
       const descriptor = row.item ? itemDescriptor(row.item) : null;
       if (!matchesMulti(state.typeFilter, descriptor)) return false;
     }
-    if (q && !(row.item?.name ?? row.name).toLowerCase().includes(q)) return false;
+    // P2-7: use `||` not `??` so an empty-string `item.name` ("") falls back
+    // to `row.name`. With `??`, an empty string is non-null and would short-
+    // circuit the fallback, making the search box silently miss rows whose
+    // lookup item has no name yet.
+    if (q && !(row.item?.name || row.name).toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -69,11 +72,11 @@ export function filterAndSortBoxLoot(
   rows = [...rows].sort((a, b) => {
     let cmp: number;
     if (state.sortKey === "name") {
-      cmp = (a.item?.name ?? a.name).localeCompare(b.item?.name ?? b.name);
+      cmp = (a.item?.name || a.name).localeCompare(b.item?.name || b.name);
     } else if (state.sortKey === "grade") {
       cmp =
-        (GRADE_RANK[a.item?.grade ?? a.grade ?? ""] ?? -1) -
-        (GRADE_RANK[b.item?.grade ?? b.grade ?? ""] ?? -1);
+        (GRADE_RANK[(a.item?.grade || a.grade) ?? ""] ?? -1) -
+        (GRADE_RANK[(b.item?.grade || b.grade) ?? ""] ?? -1);
     } else {
       cmp = a.dropPct - b.dropPct;
     }
@@ -121,7 +124,7 @@ export function filterAndSortBoxStages(
 
 export function gradeOptionsFromBoxLoot(loot: ResolvedBoxLoot[]): string[] {
   const present = new Set(
-    loot.flatMap((row) => [row.item?.grade ?? row.grade].filter(Boolean) as string[]),
+    loot.flatMap((row) => [row.item?.grade || row.grade].filter(Boolean) as string[]),
   );
   const ordered = GRADE_ORDER.filter((g) => present.has(g));
   const extras = [...present].filter((g) => GRADE_RANK[g] === undefined).sort();

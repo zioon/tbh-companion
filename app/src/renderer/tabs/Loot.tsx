@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLoot } from "../lib/useLoot";
-import { boxLabel } from "../../core/boxOpenLog";
+import { useLookupCatalog } from "../lib/useLookupCatalog";
+import { useBoxTimers } from "../lib/useBoxTimers";
+import { useChests } from "../lib/useChests";
+import { useStats } from "../lib/useStats";
+import { translateBoxLabel } from "../lib/boxLabel";
+import type { LootRingSeconds, LookupItem } from "../../../shared/types";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
 import { DialogClose, DialogTitle } from "../design-system/primitives/Dialog/DialogParts";
@@ -10,9 +16,12 @@ import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LootBoxSection } from "../components/loot/LootBoxSection";
 import { LootRecentDrops } from "../components/loot/LootRecentDrops";
-import { LootQueueList } from "../components/loot/LootQueueList";
+import { LootQueueSlots } from "../components/loot/LootQueueSlots";
 import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 import { useTbhContext } from "../context/tbhContext";
+import { reportIpcError } from "../lib/reportError";
+
+const DEFAULT_RING_SECONDS: LootRingSeconds = { common: 5 * 60, stage: 7 * 60 };
 
 /** Format ms as m:ss, clamping negatives to 0. */
 function formatCountdown(ms: number): string {
@@ -23,14 +32,13 @@ function formatCountdown(ms: number): string {
 }
 
 export function Loot() {
+  const { t } = useTranslation("loot");
   const {
     boxOpens,
     lootStatus,
     currentStageKey,
     recentDrops,
     lastDropWallTimeByCategory,
-    boxQueueByBoxKey,
-    boxQueueStatus,
     resetBox,
     resetAll,
     reclassifyItem,
@@ -44,28 +52,69 @@ export function Loot() {
   const { catalogStatus } = useTbhContext();
   const [confirmingAll, setConfirmingAll] = useState(false);
 
+  const catalog = useLookupCatalog();
+  const itemIndex = useMemo(
+    () => new Map((catalog ?? []).map((item: LookupItem) => [item.id, item])),
+    [catalog],
+  );
+
+  const boxTimers = useBoxTimers();
+  // Chest slot state (quantity / capacity / auto-open seconds) for the
+  // LootQueueSlots summary. Polled via the chests IPC stream, independent of
+  // the 1 Hz autoClassify poll.
+  const chests = useChests();
+  // Stats provides per-category drop rates (commonPerHour / rarePerHour) used
+  // to estimate slot-fill time. `act` has no periodic rate.
+  const stats = useStats();
+  const dropsPerHour = useMemo(
+    () => ({
+      common: stats?.chestDrops?.commonPerHour ?? null,
+      rare: stats?.chestDrops?.rarePerHour ?? null,
+      act: null,
+    }),
+    [stats?.chestDrops?.commonPerHour, stats?.chestDrops?.rarePerHour],
+  );
+
+  const [ringSeconds, setRingSeconds] = useState<LootRingSeconds>(DEFAULT_RING_SECONDS);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.tbh
+      .getConfig()
+      .then((cfg) => {
+        if (mounted && cfg.lootRingSeconds) setRingSeconds(cfg.lootRingSeconds);
+      })
+      .catch(reportIpcError);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const updateRingSeconds = useCallback((next: LootRingSeconds): void => {
+    setRingSeconds(next);
+    void window.tbh.saveConfig({ lootRingSeconds: next }).catch(reportIpcError);
+  }, []);
+
   return (
     <TabPage>
-      <TabHeader
-        title="Loot"
-        intro="Live box-opening outcomes, aggregated by chest type and level."
-      />
+      <TabHeader title={t("tabTitle")} intro={t("intro")} />
       {catalogStatus?.stale && (
         <HintBanner>
-          Item catalog may be outdated (catalog v{catalogStatus.catalogVersion}, game v
-          {catalogStatus.gameVersion}). Open the Settings tab to refresh.
+          {t("catalogStaleBanner", {
+            catalogVersion: catalogStatus.catalogVersion,
+            gameVersion: catalogStatus.gameVersion,
+          })}
         </HintBanner>
       )}
       <div className="flex flex-wrap items-center justify-end gap-3">
         {autoClassifyEnabled && (
           <div className="flex items-center gap-3 rounded border border-border bg-panel px-3 py-1.5 text-xs">
-            <span className="font-medium text-text">Queue: {autoClassifyState.totalQueued}</span>
-            {/* Show the next 3 queued chests (queue is already sorted
-                head-first by AutoClassifyService). Hides the rest to keep
-                the header compact — full list visible in the queue card below. */}
+            <span className="font-medium text-text">
+              {t("queueCount", { count: autoClassifyState.totalQueued })}
+            </span>
             {autoClassifyState.items.slice(0, 3).map((item, i) => (
               <span key={`${item.boxKey}-${item.droppedAtMs}-${i}`} className="text-muted">
-                <span className="font-medium text-text">{boxLabel(item.boxKey)}</span>
+                <span className="font-medium text-text">{translateBoxLabel(t, item.boxKey)}</span>
                 {item.autoOpenInMs != null && (
                   <span className="ml-1 text-muted">({formatCountdown(item.autoOpenInMs)})</span>
                 )}
@@ -77,27 +126,24 @@ export function Loot() {
           <Switch
             checked={autoClassifyEnabled}
             onCheckedChange={(c) => void setAutoClassifyEnabled(c)}
-            aria-label="Auto-classify loot"
+            aria-label={t("autoClassifyAria")}
           />
-          Auto-classify
+          {t("autoClassifyLabel")}
         </label>
       </div>
 
-      {/* Queue list and recent drops sit side-by-side. Both cards stretch to
-          the row's height so the two columns stay visually aligned even when
-          one has more rows than the other. */}
       {(autoClassifyEnabled || recentDrops.length > 0) && (
         <div className="grid grid-cols-2 items-stretch gap-3 max-[720px]:grid-cols-1">
-          {autoClassifyEnabled && <LootQueueList items={autoClassifyState.items.slice(0, 3)} />}
-          {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} />}
+          {autoClassifyEnabled && (
+            <LootQueueSlots queue={autoClassifyState} chests={chests} dropsPerHour={dropsPerHour} />
+          )}
+          {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />}
         </div>
       )}
 
       {boxOpens.length === 0 ? (
         <HintBanner>
-          {lootStatus
-            ? `Loot tracking unavailable: ${lootStatus}. Open a chest in-game — the reader will re-derive the required offsets and start recording.`
-            : "No boxes opened yet this session. Open a chest in-game with the live reader running to see recorded loot here."}
+          {lootStatus ? t("lootUnavailable", { reason: lootStatus }) : t("noBoxesYet")}
         </HintBanner>
       ) : (
         <>
@@ -110,8 +156,10 @@ export function Loot() {
                 onReset={resetBox}
                 onReclassify={reclassifyItem}
                 lastDropWallTime={lastDropWallTimeByCategory[stats.category] ?? null}
-                boxQueueItems={boxQueueByBoxKey.get(stats.boxKey)}
-                boxQueueStatus={boxQueueStatus}
+                itemIndex={itemIndex}
+                boxTimers={boxTimers}
+                ringSeconds={ringSeconds}
+                onUpdateRingSeconds={updateRingSeconds}
                 className={stats.category === "unclassified" ? "col-span-2" : undefined}
               />
             ))}
@@ -120,12 +168,9 @@ export function Loot() {
       )}
 
       {boxOpens.length > 0 && (
-        // Reset-all lives at the bottom-right, deliberately away from the
-        // top header area so it can't be mis-tapped while interacting with
-        // stats. Confirmation dialog gates the destructive action.
         <div className="mt-1 flex justify-end">
           <Button variant="ghost" size="sm" onClick={() => setConfirmingAll(true)}>
-            Reset all
+            {t("resetAll")}
           </Button>
         </div>
       )}
@@ -138,14 +183,11 @@ export function Loot() {
           }}
         >
           <div className="flex flex-col gap-3">
-            <DialogTitle className="m-0 text-base font-semibold">Reset all loot data?</DialogTitle>
-            <p className="m-0 text-sm text-muted">
-              This clears all recorded box opens for every chest type. The session timer is not
-              affected. This cannot be undone.
-            </p>
+            <DialogTitle className="m-0 text-base font-semibold">{t("resetAllTitle")}</DialogTitle>
+            <p className="m-0 text-sm text-muted">{t("resetAllBody")}</p>
             <div className="mt-1 flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={() => setConfirmingAll(false)}>
-                Cancel
+                {t("cancel")}
               </Button>
               <DialogClose
                 render={
@@ -156,7 +198,7 @@ export function Loot() {
                       setConfirmingAll(false);
                     }}
                   >
-                    Reset all
+                    {t("resetAll")}
                   </Button>
                 }
               />

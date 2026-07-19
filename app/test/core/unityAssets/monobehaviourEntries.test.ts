@@ -8,10 +8,22 @@ function buildEntry(keyId: number, hash: number, str: string): Buffer {
   const pad = (4 - (slen % 4)) % 4;
   return Buffer.concat([
     Buffer.from([
-      keyId & 0xff, (keyId >>> 8) & 0xff, (keyId >>> 16) & 0xff, (keyId >>> 24) & 0xff,
-      hash & 0xff, (hash >>> 8) & 0xff, (hash >>> 16) & 0xff, (hash >>> 24) & 0xff,
-      14, 0, 0, 0, // marker = 14
-      slen & 0xff, (slen >>> 8) & 0xff, (slen >>> 16) & 0xff, (slen >>> 24) & 0xff,
+      keyId & 0xff,
+      (keyId >>> 8) & 0xff,
+      (keyId >>> 16) & 0xff,
+      (keyId >>> 24) & 0xff,
+      hash & 0xff,
+      (hash >>> 8) & 0xff,
+      (hash >>> 16) & 0xff,
+      (hash >>> 24) & 0xff,
+      14,
+      0,
+      0,
+      0, // marker = 14
+      slen & 0xff,
+      (slen >>> 8) & 0xff,
+      (slen >>> 16) & 0xff,
+      (slen >>> 24) & 0xff,
     ]),
     strBuf,
     Buffer.alloc(pad, 0),
@@ -60,10 +72,22 @@ describe("scanMarkerEntries", () => {
   it("rejects strings with non-printable chars", () => {
     const strBuf = Buffer.from([0x01, 0x02, 0x03]); // non-printable
     const header = Buffer.from([
-      0, 0, 0, 0,  // keyId
-      0, 0, 0, 0,  // hash
-      14, 0, 0, 0, // marker
-      3, 0, 0, 0,  // len = 3
+      0,
+      0,
+      0,
+      0, // keyId
+      0,
+      0,
+      0,
+      0, // hash
+      14,
+      0,
+      0,
+      0, // marker
+      3,
+      0,
+      0,
+      0, // len = 3
     ]);
     const buf = Buffer.concat([header, strBuf]);
     expect(scanMarkerEntries(buf)).toEqual([]);
@@ -71,10 +95,22 @@ describe("scanMarkerEntries", () => {
 
   it("rejects slen > 256", () => {
     const header = Buffer.from([
-      0, 0, 0, 0,
-      0, 0, 0, 0,
-      14, 0, 0, 0,
-      0x01, 0x01, 0x00, 0x00, // len = 257 (> MAX_LEN)
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      14,
+      0,
+      0,
+      0,
+      0x01,
+      0x01,
+      0x00,
+      0x00, // len = 257 (> MAX_LEN)
     ]);
     const buf = Buffer.concat([header, Buffer.alloc(257, 0x41)]);
     expect(scanMarkerEntries(buf)).toEqual([]);

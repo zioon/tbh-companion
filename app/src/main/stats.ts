@@ -157,11 +157,5 @@ export function buildStats(
     aliveMonsters: dpsTracker.alive,
     hpSum: dpsTracker.hpSum,
     hpMaxSum: dpsTracker.hpMaxSum,
-
-    // Box-queue ("stargaze") prediction: passed through from the live frame
-    // so the renderer can show "next drops" previews per chest card. Null
-    // when live memory isn't connected or the queue scanner hasn't located
-    // the runtime Dictionary<EBoxType, List<BoxData>> singleton yet.
-    boxQueue: liveFrame?.boxQueue ?? null,
   };
 }

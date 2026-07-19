@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useBoxTimers, fmtTimer } from "./lib/useBoxTimers";
 import { stageName } from "../core/stages";
 import type { BoxTimerRow } from "../../shared/types";
@@ -14,6 +15,7 @@ import { OverlayFrame } from "./components/ui/OverlayFrame";
 import { cn } from "./lib/cn";
 
 function BoxTimerCard({ row }: { row: BoxTimerRow }) {
+  const { t } = useTranslation("chests");
   return (
     <Card
       as="li"
@@ -28,7 +30,9 @@ function BoxTimerCard({ row }: { row: BoxTimerRow }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2 text-xs">
-            <span className="font-semibold">Lv{row.level ?? "?"}</span>
+            <span className="font-semibold">
+              {t("configRow.levelLabel", { level: row.level ?? "?" })}
+            </span>
             <span
               className={cn(
                 "truncate text-right text-[10px] leading-snug",
@@ -43,24 +47,24 @@ function BoxTimerCard({ row }: { row: BoxTimerRow }) {
           variant={row.status === "ready" ? "statusReady" : "statusCooldown"}
           className="shrink-0"
         >
-          {row.status === "cooldown" ? fmtTimer(row.remainingSeconds) : "Ready"}
+          {row.status === "cooldown" ? fmtTimer(row.remainingSeconds) : t("overlay.ready")}
         </Badge>
       </div>
       <p className="m-0 mt-1 text-[10px] text-muted">
-        Cooldown: {formatCooldownMinutes(row.cooldownSeconds)}
-        {row.cooldownIsCustom ? " (custom)" : ""}
+        {t("overlay.cooldownLabel", { value: formatCooldownMinutes(t, row.cooldownSeconds) })}
+        {row.cooldownIsCustom ? t("overlay.cooldownCustomSuffix") : ""}
       </p>
       {row.status === "cooldown" ? (
         <>
           <CapacityBar percent={row.progress * 100} variant="blue" compact className="mt-1" />
           <div className="mt-1 flex items-center justify-between gap-2">
-            <span className="flex-1 text-xs text-muted">On cooldown</span>
+            <span className="flex-1 text-xs text-muted">{t("overlay.onCooldown")}</span>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => void window.tbh.clearBoxTimer(row.boxId)}
             >
-              Reset
+              {t("overlay.reset")}
             </Button>
           </div>
         </>
@@ -70,7 +74,7 @@ function BoxTimerCard({ row }: { row: BoxTimerRow }) {
           className="mt-1 w-full"
           onClick={() => void window.tbh.markBoxDropped(row.boxId)}
         >
-          Dropped
+          {t("overlay.dropped")}
         </Button>
       )}
     </Card>
@@ -78,12 +82,13 @@ function BoxTimerCard({ row }: { row: BoxTimerRow }) {
 }
 
 export function BoxTracker() {
+  const { t } = useTranslation("chests");
   const state = useBoxTimers();
 
   if (!state) {
     return (
       <OverlayFrame>
-        <p className="m-0 text-muted">Loading…</p>
+        <p className="m-0 text-muted">{t("overlay.loading")}</p>
       </OverlayFrame>
     );
   }
@@ -93,11 +98,11 @@ export function BoxTracker() {
 
   const sectionContent = {
     cooldown: {
-      title: "On cooldown",
+      title: t("overlay.sectionCooldown"),
       rows: boxTrackerRowsBySection(state.rows, "cooldown"),
     },
     ready: {
-      title: "Ready to mark",
+      title: t("overlay.sectionReady"),
       rows: boxTrackerRowsBySection(state.rows, "ready"),
     },
   } as const;
@@ -106,7 +111,7 @@ export function BoxTracker() {
     <OverlayFrame>
       <div className="flex shrink-0 items-center justify-between">
         <span className="drag-handle whitespace-nowrap text-[10px] font-bold tracking-wide text-muted">
-          Stage boss chest tracker
+          {t("overlay.title")}
         </span>
         <div className="no-drag flex gap-1">
           {/* nativeTitle: this frameless window never hosts a Base UI portal
@@ -115,7 +120,7 @@ export function BoxTracker() {
           <Button
             variant="icon"
             type="button"
-            title="Minimize"
+            title={t("overlay.minimizeTitle")}
             nativeTitle
             onClick={() => window.tbh.minimizeBoxTracker()}
           >
@@ -124,7 +129,7 @@ export function BoxTracker() {
           <Button
             variant="icon"
             type="button"
-            title="Open full window"
+            title={t("overlay.openFullTitle")}
             nativeTitle
             onClick={() => window.tbh.showMain()}
           >
@@ -134,7 +139,7 @@ export function BoxTracker() {
             variant="icon"
             type="button"
             edge="end"
-            title="Close"
+            title={t("overlay.closeTitle")}
             nativeTitle
             onClick={() => window.tbh.closeBoxTracker()}
           >
@@ -144,19 +149,15 @@ export function BoxTracker() {
       </div>
 
       <div className="no-drag flex flex-wrap gap-1.5">
-        <Badge variant="info">{state.cooldownCount} cooling</Badge>
-        <Badge variant="success">{state.readyCount} ready</Badge>
-        <Badge variant="muted">Stage: {currentLabel}</Badge>
+        <Badge variant="info">{t("overlay.coolingBadge", { count: state.cooldownCount })}</Badge>
+        <Badge variant="success">{t("overlay.readyBadge", { count: state.readyCount })}</Badge>
+        <Badge variant="muted">{t("overlay.stageBadge", { label: currentLabel })}</Badge>
       </div>
 
-      <p className="no-drag m-0 break-words text-[10px] text-muted">
-        Tap Dropped when a boss chest drops to start the cooldown timer.
-      </p>
+      <p className="no-drag m-0 break-words text-[10px] text-muted">{t("overlay.tapHint")}</p>
 
       {state.rows.length === 0 ? (
-        <p className="no-drag m-0 text-center text-xs text-muted">
-          No levels tracked. Open the Chests tab to pick boxes and set cooldowns.
-        </p>
+        <p className="no-drag m-0 text-center text-xs text-muted">{t("overlay.empty")}</p>
       ) : (
         <div className="no-drag flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto">
           {sections.map((section) => {
@@ -183,7 +184,7 @@ export function BoxTracker() {
         className="no-drag self-start text-[10px]"
         onClick={() => window.tbh.showMain()}
       >
-        Configure on Chests tab
+        {t("overlay.configureLink")}
       </Button>
     </OverlayFrame>
   );

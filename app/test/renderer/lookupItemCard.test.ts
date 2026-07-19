@@ -30,6 +30,7 @@ const gearWithStats: LookupItem = {
   stats: {
     base: [{ stat: "ATK", mod: "FLAT", value: 10, display: "+10 ATK" }],
     inherent: [],
+    unique: null,
   },
 };
 
@@ -39,7 +40,18 @@ const materialWithEffects: LookupItem = {
   gearGroups: [
     {
       gearGroup: "WEAPON",
-      outcomes: [{ tier: 1, displayText: "+5 ATK" }],
+      outcomes: [
+        {
+          stat: "ATK",
+          mod: "FLAT",
+          tier: 1,
+          rawMin: 5,
+          rawMax: 5,
+          displayMin: 5,
+          displayMax: 5,
+          displayText: "+5 ATK",
+        },
+      ],
     },
   ],
 };

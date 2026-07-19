@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { SiBuymeacoffee } from "react-icons/si";
 import { Button, ButtonLink } from "../design-system/primitives/Button/Button";
 import { BUYMEACOFFEE_URL } from "../lib/externalLinks";
@@ -47,24 +48,25 @@ function BoxTrackerIcon() {
 }
 
 export function AppToolbar() {
+  const { t } = useTranslation("common");
   return (
-    <div className="flex shrink-0 gap-1 pb-1.5" role="toolbar" aria-label="Overlays">
+    <div className="flex shrink-0 gap-1 pb-1.5" role="toolbar" aria-label={t("toolbar.ariaLabel")}>
       <LiveReaderIndicator />
       <Button
         variant="toolbar"
-        title="Open mini stats overlay"
+        title={t("toolbar.miniButtonTitle")}
         onClick={() => window.tbh.openOverlay()}
       >
         <MiniOverlayIcon />
-        Mini
+        {t("toolbar.miniButtonLabel")}
       </Button>
       <Button
         variant="toolbar"
-        title="Open Stage boss chest tracker"
+        title={t("toolbar.boxTrackerButtonTitle")}
         onClick={() => window.tbh.openBoxTracker()}
       >
         <BoxTrackerIcon />
-        Boss chests
+        {t("toolbar.boxTrackerButtonLabel")}
       </Button>
       <ButtonLink
         href={BUYMEACOFFEE_URL}
@@ -72,7 +74,7 @@ export function AppToolbar() {
         className="border-gold/60 text-gold hover:border-gold hover:text-gold"
       >
         <SiBuymeacoffee className="size-3.5 shrink-0" aria-hidden />
-        Support
+        {t("toolbar.supportButtonLabel")}
       </ButtonLink>
     </div>
   );

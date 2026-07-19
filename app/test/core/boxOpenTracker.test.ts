@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { BoxOpenTracker } from "../../src/core/boxOpenTracker";
 import type { BoxOpenTrackerSnapshot } from "../../shared/types";
 
@@ -38,14 +38,135 @@ describe("BoxOpenTracker", () => {
     t.recordOpen("common", 1001, "Sword", "RARE", 1, 1000);
     t.recordOpen("common", 1001, "Sword", "RARE", 1, 2000);
 
-    const stats = t.getStats(3600, (itemKey) => (itemKey === 1001 ? { buyOrderUnit: 50 } : null));
+    // Resolver returns wallet proceeds for selling `count` units, matching
+    // the inventory page's "Instant sell" semantics (depth-aware, not unit×count).
+    // The third arg is `nowSecondsOverride` — pins the per-box hourly divisor
+    // to (4600 - 1000)/3600 = 1 hour, so 100 buyout value → 100/hour.
+    const stats = t.getStats(
+      3600,
+      (itemKey, count) =>
+        itemKey === 1001 ? { buyOrderValue: 50 * count, coveredCount: count } : null,
+      4600,
+    );
     const row = stats[0].breakdown[0];
-    expect(row.buyOrderUnit).toBe(50);
     expect(row.buyOrderValue).toBe(100);
-    // 2 opens in 1 hour session (3600s) = 100 value / 1 hour = 100/hour
+    expect(row.coveredCount).toBe(2);
+    expect(row.buyOrderUnit).toBe(50); // 100 value / 2 covered
+    // Per-box divisor: (4600 - 1000)/3600 = 1 hour → 100 value / 1 hour = 100/hour
     expect(row.hourlyValue).toBe(100);
     expect(stats[0].totalBuyOrderValue).toBe(100);
     expect(stats[0].hourlyValue).toBe(100);
+    // trackingSinceWallTime is the first drop's wallTime (never reset).
+    expect(stats[0].trackingSinceWallTime).toBe(1000);
+  });
+
+  it("uses per-box trackingSinceWallTime as the hourly divisor anchor", () => {
+    // Two boxKeys dropped at different times in the same session:
+    //   common: first drop at t=1000 → 1h elapsed at t=4600 → 60/hour
+    //   rare:   first drop at t=3700 → 0.25h elapsed at t=4600 → 240/hour
+    // With sessionSeconds=7200 (2h) the old behavior would have given
+    // 30/hour for both; the per-box anchor reflects actual farming duration.
+    const t = new BoxOpenTracker();
+    t.recordOpen("common", 1001, "Sword", "RARE", 1, 1000);
+    t.recordOpen("rare", 2002, "Gem", "MAGIC", 1, 3700);
+
+    const stats = t.getStats(
+      7200,
+      (itemKey, _count) =>
+        itemKey === 1001 || itemKey === 2002 ? { buyOrderValue: 60, coveredCount: 1 } : null,
+      4600,
+    );
+    const common = stats.find((s) => s.boxKey === "common")!;
+    const rare = stats.find((s) => s.boxKey === "rare")!;
+    expect(common.trackingSinceWallTime).toBe(1000);
+    expect(rare.trackingSinceWallTime).toBe(3700);
+    // common: hours = (4600-1000)/3600 = 1 → 60/1 = 60/hour
+    expect(common.hourlyValue).toBe(60);
+    // rare: hours = (4600-3700)/3600 = 0.25 → 60/0.25 = 240/hour
+    expect(rare.hourlyValue).toBe(240);
+  });
+
+  it("resetBox overwrites trackingSinceWallTime with the reset moment", () => {
+    // Use fake timers so `resetBox`'s internal `Date.now()` resolves to a
+    // known value (5000s in epoch-ms = 5_000_000 ms).
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    const t = new BoxOpenTracker();
+    t.recordOpen("common", 1001, "Sword", "RARE", 1, 1000);
+    // Pre-reset anchor = first drop's wallTime.
+    expect(t.getStats(3600, () => null, 4600)[0].trackingSinceWallTime).toBe(1000);
+
+    // resetBox stamps trackingSince to "now" (5_000_000 ms → 5000 s).
+    t.resetBox("common");
+    expect(t.captureSnapshot().trackingSinceByKey?.common).toBe(5000);
+
+    // Post-reset: a fresh drop doesn't overwrite the reset stamp (it's already
+    // set). New drop at t=5200 with 60 buyout value, queried at t=8800
+    // (1 hour after the reset anchor of 5000) → 60/hour.
+    t.recordOpen("common", 1001, "Sword", "RARE", 1, 5200);
+    const stats = t.getStats(3600, () => ({ buyOrderValue: 60, coveredCount: 1 }), 8600);
+    expect(stats[0].trackingSinceWallTime).toBe(5000);
+    // hours = (8600 - 5000)/3600 = 1 → 60/1 = 60/hour
+    expect(stats[0].hourlyValue).toBe(60);
+
+    vi.useRealTimers();
+  });
+
+  it("resetAll clears trackingSinceWallTime alongside counts and history", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("common", 1001, "Sword", "RARE", 1, 1000);
+    t.recordOpen("rare", 2002, "Gem", "MAGIC", 1, 2000);
+    expect(t.getStats(3600, () => null).length).toBe(2);
+
+    t.resetAll();
+    expect(t.getStats(3600, () => null)).toEqual([]);
+    // After resetAll, a fresh drop re-initializes trackingSince to that
+    // drop's wallTime — no stale anchor survives.
+    t.recordOpen("common", 1001, "Sword", "RARE", 1, 5000);
+    const stats = t.getStats(3600, () => null, 8600);
+    expect(stats[0].trackingSinceWallTime).toBe(5000);
+  });
+
+  it("captures trackingSinceByKey in snapshot and restores it", () => {
+    const t = new BoxOpenTracker();
+    t.recordOpen("common", 1001, "Sword", "RARE", 1, 1000);
+    t.recordOpen("rare", 2002, "Gem", "MAGIC", 1, 2000);
+
+    const snap = t.captureSnapshot();
+    expect(snap.trackingSinceByKey).toEqual({ common: 1000, rare: 2000 });
+
+    const t2 = new BoxOpenTracker();
+    t2.applySnapshot(snap);
+    const stats = t2.getStats(7200, () => null, 4600);
+    const common = stats.find((s) => s.boxKey === "common")!;
+    const rare = stats.find((s) => s.boxKey === "rare")!;
+    expect(common.trackingSinceWallTime).toBe(1000);
+    expect(rare.trackingSinceWallTime).toBe(2000);
+  });
+
+  it("falls back to earliest history wallTime when snapshot lacks trackingSinceByKey", () => {
+    // Legacy snapshot (pre-trackingSinceByKey) — applySnapshot should derive
+    // trackingSince from the earliest surviving history entry per boxKey.
+    const legacy = {
+      countsByKey: { common: { "1001|RARE": 1 } },
+      namesByKey: { "1001|RARE": "Sword" },
+      gradesByKey: { "1001|RARE": "RARE" },
+      history: [
+        {
+          wallTime: 1500,
+          boxKey: "common",
+          itemKey: 1001,
+          itemName: "Sword",
+          grade: "RARE",
+          count: 1,
+        },
+      ],
+    };
+    const t = new BoxOpenTracker();
+    t.applySnapshot(legacy);
+    const stats = t.getStats(7200, () => null, 5100);
+    // Derived from history[0].wallTime = 1500 (only surviving entry).
+    expect(stats[0].trackingSinceWallTime).toBe(1500);
   });
 
   it("handles null priceResolver", () => {
@@ -208,7 +329,7 @@ describe("BoxOpenTracker.reResolveNames", () => {
   const CATALOG_MIN = 110_001;
   const CATALOG_MAX = 939_999;
   function makeNormalizer(catalog: Map<number, { name: string; grade: string | null }>) {
-    return (rawItemKey: number) => {
+    return (rawItemKey: number, _grade: string | null) => {
       const catalogId = rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
       const item = catalog.get(catalogId);
       if (!item) {
@@ -324,6 +445,45 @@ describe("BoxOpenTracker.reResolveNames", () => {
     expect(unknown.count).toBe(1);
     const known = breakdown.find((r) => r.itemKey === 530017)!;
     expect(known.name).toBe("Ethereal Amulet");
+  });
+
+  it("remaps (baseId, grade) → catalog variant id using grade", () => {
+    // Catalog has independent ids per rarity variant. A normalizer that uses
+    // grade to remap should rewrite 530017 (COMMON) + grade="RARE" to the
+    // RARE variant id (532171). Grade stays preserved on the composite key.
+    const catalog = new Map<number, { name: string; grade: string | null }>([
+      [530017, { name: "Dimensional Boots", grade: "COMMON" }],
+      [532171, { name: "Dimensional Boots", grade: "RARE" }],
+    ]);
+    const t = new BoxOpenTracker();
+    // Recorded as base id with RARE grade (the save format).
+    t.recordOpen("rare:3", 530017, "Dimensional Boots", "RARE", 2, 1000);
+
+    // Normalizer remaps using (id, grade).
+    const remappingNormalizer = (rawItemKey: number, grade: string | null) => {
+      const catalogId = rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
+      const item = catalog.get(catalogId);
+      if (!item) return null;
+      // If grade differs from the catalog grade, find the variant id.
+      if (grade && grade !== item.grade) {
+        for (const [id, v] of catalog) {
+          if (v.name === item.name && v.grade === grade) {
+            return { itemKey: id, name: v.name };
+          }
+        }
+      }
+      return { itemKey: catalogId, name: item.name };
+    };
+    t.reResolveNames(remappingNormalizer);
+
+    const stats = t.getStats(3600, () => null);
+    expect(stats[0].breakdown).toHaveLength(1);
+    const row = stats[0].breakdown[0];
+    expect(row.itemKey).toBe(532171);
+    expect(row.grade).toBe("RARE");
+    expect(row.count).toBe(2);
+    // History also remapped.
+    expect(stats[0].history[0].itemKey).toBe(532171);
   });
 });
 

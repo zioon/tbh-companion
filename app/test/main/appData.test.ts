@@ -44,7 +44,7 @@ describe("appData", () => {
     expect(paths.userDataDir).toBe(userDataDir);
     expect(paths.entries.find((e) => e.id === "prices")?.exists).toBe(true);
     expect(paths.entries.find((e) => e.id === "config")?.exists).toBe(true);
-    expect(paths.entries.find((e) => e.id === "catalog")).toBeUndefined();
+    expect(paths.entries.find((e) => (e.id as string) === "catalog")).toBeUndefined();
   });
 
   it("clears all caches except config", () => {

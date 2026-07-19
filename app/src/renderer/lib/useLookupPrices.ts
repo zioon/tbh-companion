@@ -14,8 +14,14 @@ import { reportIpcError } from "./reportError";
 // re-render the whole tab tree on every update. A module-level singleton with
 // useSyncExternalStore avoids that — same call pattern TbhProvider already
 // makes, just outside the context tree.
+//
+// Teardown mirrors useStats.ts: when the last subscriber leaves, the IPC
+// listener is removed and the cached snapshot is cleared so the module
+// doesn't hold references to the ~1k-entry price snapshot (and HMR can't
+// accumulate duplicate listeners).
 let snapshot: LookupPriceSnapshot | null = null;
 let started = false;
+let cleanupIpc: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 function notify(): void {
@@ -32,10 +38,20 @@ function start(): void {
       notify();
     })
     .catch(reportIpcError);
-  window.tbh.onLookupPrices((next) => {
+  const off = window.tbh.onLookupPrices((next) => {
     snapshot = next;
     notify();
   });
+  cleanupIpc = typeof off === "function" ? off : null;
+}
+
+function stop(): void {
+  if (cleanupIpc) {
+    cleanupIpc();
+    cleanupIpc = null;
+  }
+  started = false;
+  snapshot = null;
 }
 
 function subscribe(onChange: () => void): () => void {
@@ -43,6 +59,12 @@ function subscribe(onChange: () => void): () => void {
   start();
   return () => {
     listeners.delete(onChange);
+    // When the last subscriber leaves, tear down the IPC listener so the
+    // module doesn't hold references to the ~1k-entry price snapshot (and
+    // HMR can't accumulate duplicate listeners).
+    if (listeners.size === 0) {
+      stop();
+    }
   };
 }
 

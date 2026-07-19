@@ -1,13 +1,15 @@
+import { useTranslation } from "react-i18next";
 import type { BoxTimerCatalogEntry } from "../../../shared/types";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Select } from "../design-system/primitives/Select/Select";
 import { cn } from "../lib/cn";
 
 export function TrackerFarmStageSelect({ entry }: { entry: BoxTimerCatalogEntry }) {
+  const { t } = useTranslation("chests");
   return (
     <div className="rounded-md border border-ideal/25 bg-ideal/10 px-2.5 py-2">
       <Select
-        label="Farm at"
+        label={t("farmSelect.label")}
         variant="ideal"
         value={entry.idealStageKey}
         options={entry.farmStageOptions.map((option) => ({
@@ -29,7 +31,7 @@ export function TrackerFarmStageSelect({ entry }: { entry: BoxTimerCatalogEntry 
             className={cn(!entry.idealStageIsCustom && "pointer-events-none invisible")}
             onClick={() => void window.tbh.clearBoxTrackerFarmStage(entry.boxId)}
           >
-            Reset farm to {entry.defaultIdealStageLabel}
+            {t("farmSelect.resetTo", { label: entry.defaultIdealStageLabel })}
           </Button>
         }
       />

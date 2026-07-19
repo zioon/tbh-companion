@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { BoxTimerCatalogEntry } from "../../../shared/types";
 import { formatCooldownMinutes, parseCooldownMinutesInput } from "../lib/boxTrackerUi";
 import { TrackerFarmStageSelect } from "./TrackerFarmStageSelect";
@@ -15,6 +16,7 @@ export function TrackerConfigRow({
   defaultCooldownSeconds: number;
   notificationsEnabled?: boolean;
 }) {
+  const { t } = useTranslation("chests");
   const minutes = Math.round(entry.cooldownSeconds / 60);
 
   return (
@@ -27,14 +29,14 @@ export function TrackerConfigRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="m-0 text-[10px] font-medium uppercase tracking-[0.12em] text-muted">
-            Stage boss chest
+            {t("configRow.subtitle")}
           </p>
           <p className="m-0 mt-0.5 text-2xl font-semibold tabular-nums leading-none tracking-tight">
-            Lv{entry.level ?? "?"}
+            {t("configRow.levelLabel", { level: entry.level ?? "?" })}
           </p>
         </div>
         <NumberField
-          label="Cooldown (min)"
+          label={t("configRow.cooldownLabel")}
           labelAlign="end"
           footerAlign="end"
           density="compact"
@@ -68,7 +70,7 @@ export function TrackerConfigRow({
               )}
               onClick={() => void window.tbh.clearBoxTrackerCooldown(entry.boxId)}
             >
-              Reset to {formatCooldownMinutes(defaultCooldownSeconds)}
+              {t("configRow.resetTo", { value: formatCooldownMinutes(t, defaultCooldownSeconds) })}
             </Button>
           }
         />
@@ -78,7 +80,7 @@ export function TrackerConfigRow({
 
       <div className="flex flex-col gap-1">
         <Checkbox
-          label="Notify when ready"
+          label={t("configRow.notifyWhenReady")}
           checked={entry.notifyWhenReady}
           disabled={!notificationsEnabled}
           onCheckedChange={(checked) => void window.tbh.setBoxTrackerNotify(entry.boxId, checked)}
@@ -86,7 +88,7 @@ export function TrackerConfigRow({
         <span
           className={cn("min-h-[1.125rem] text-xs text-muted", notificationsEnabled && "invisible")}
         >
-          Enable notification sounds in Settings.
+          {t("configRow.notifyDisabledHint")}
         </span>
       </div>
     </article>

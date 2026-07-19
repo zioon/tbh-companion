@@ -8,4 +8,7 @@ export function registerMarketHandlers(ipc: IpcMain, services: AppServices): voi
   ipc.handle(IPC.PRICES_REFRESH_ITEM, (_e, itemKey: number) => services.refreshItemPrices(itemKey));
   ipc.on(IPC.PRICES_CANCEL, () => services.cancelPrices());
   ipc.handle(IPC.SET_CURRENCY, (_e, iso: string) => services.setCurrency(iso));
+  ipc.handle(IPC.MARKET_AUTO_SCAN_TOGGLE, (_e, enabled: boolean) =>
+    services.setMarketAutoScanEnabled(enabled),
+  );
 }

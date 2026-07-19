@@ -123,7 +123,7 @@ describe("resolveBoxLoot", () => {
 
   it("leaves item null when not in catalog", () => {
     const orphan = resolveBoxLoot(
-      [{ itemKey: 999, name: "Missing", grade: null, dropPct: 1 }],
+      [{ itemKey: 999, name: "Missing", grade: "", dropPct: 1 }],
       () => undefined,
     );
     expect(orphan[0]?.item).toBeNull();

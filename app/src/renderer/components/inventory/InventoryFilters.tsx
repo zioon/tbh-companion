@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { gradeLabel, typeLabel } from "../../../core/labels";
 import type { LocationFilter, SortKey } from "../../lib/inventoryFilters";
 import { Input } from "../../design-system/primitives/Input/Input";
@@ -8,14 +9,6 @@ import {
   type MultiSelectOption,
 } from "../../design-system/primitives/MultiSelect/MultiSelect";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
-
-const LOCATION_OPTIONS: MultiSelectOption[] = [
-  { value: "inventory", label: "Inventory" },
-  { value: "stash", label: "Stash" },
-  { value: "trading", label: "Trading" },
-  { value: "equipped", label: "Equipped" },
-  { value: "unknown", label: "Unknown" },
-];
 
 export interface InventoryFiltersProps {
   query: string;
@@ -54,52 +47,67 @@ export function InventoryFilters({
   onTypeFilterChange,
   onLocationFilterChange,
 }: InventoryFiltersProps) {
+  const { t } = useTranslation("inventory");
+
+  const locationOptions: MultiSelectOption[] = useMemo(
+    () => [
+      { value: "inventory", label: t("location.inventory") },
+      { value: "stash", label: t("location.stash") },
+      { value: "trading", label: t("location.trading") },
+      { value: "equipped", label: t("location.equipped") },
+      { value: "unknown", label: t("location.unknown") },
+    ],
+    [t],
+  );
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end gap-3">
         <MultiSelect
           className="w-40"
-          label="Grade"
-          allLabel="All grades"
+          label={t("filters.grade")}
+          allLabel={t("filters.allGrades")}
           value={gradeFilter}
           onValueChange={onGradeFilterChange}
           options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g) }))}
         />
         <MultiSelect
           className="w-40"
-          label="Item type"
-          allLabel="All item types"
+          label={t("filters.itemType")}
+          allLabel={t("filters.allItemTypes")}
           searchable={false}
           value={typeFilter}
           onValueChange={onTypeFilterChange}
-          options={typeOptions.map((t) => ({ value: t, label: typeLabel(t) }))}
+          options={typeOptions.map((tp) => ({ value: tp, label: typeLabel(tp) }))}
         />
         <MultiSelect
           className="w-40"
-          label="Location"
-          allLabel="All locations"
+          label={t("filters.location")}
+          allLabel={t("filters.allLocations")}
           searchable={false}
           value={locationFilter}
           onValueChange={(value) => onLocationFilterChange(value as LocationFilter[])}
-          options={LOCATION_OPTIONS}
+          options={locationOptions}
         />
       </div>
 
       <div className="flex items-center gap-4">
         <Input
           className="min-w-0 flex-1"
-          placeholder="Search items..."
+          placeholder={t("searchPlaceholder")}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
         />
-        <span className="shrink-0 whitespace-nowrap text-xs text-muted">{shownCount} items</span>
+        <span className="shrink-0 whitespace-nowrap text-xs text-muted">
+          {t("itemsCount", { count: shownCount })}
+        </span>
         <Tooltip
           trigger={
             <span>
               <Checkbox
                 label={
                   <span className="underline decoration-dotted decoration-muted underline-offset-2">
-                    Unequipped only
+                    {t("filters.unequippedOnly")}
                   </span>
                 }
                 checked={unequippedOnly}
@@ -108,11 +116,10 @@ export function InventoryFilters({
             </span>
           }
         >
-          Hides only items where every copy you own is equipped. Items with some copies equipped and
-          some in your inventory/stash still show.
+          {t("filters.unequippedOnlyTip")}
         </Tooltip>
         <Checkbox
-          label="Tradable only"
+          label={t("filters.tradableOnly")}
           checked={tradableOnly}
           onCheckedChange={onTradableOnlyChange}
         />

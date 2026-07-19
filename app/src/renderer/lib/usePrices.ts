@@ -8,9 +8,16 @@ import { useTbhContext } from "../context/tbhContext";
 // re-render every useTbhContext() consumer — including the 5,885 LookupPrice
 // components. Moving to useSyncExternalStore ensures only components that
 // actually read priceStatus/priceProgress re-render.
+//
+// Teardown mirrors useStats.ts: when the last subscriber leaves, the IPC
+// listeners are removed and the cached snapshots are cleared so the module
+// doesn't hold references to large price snapshots (and HMR can't accumulate
+// duplicate listeners at 5 Hz).
 let priceStatus: PriceStatus | null = null;
 let priceProgress: PriceProgress | null = null;
 let started = false;
+let cleanupIpcStatus: (() => void) | null = null;
+let cleanupIpcProgress: (() => void) | null = null;
 const statusListeners = new Set<() => void>();
 const progressListeners = new Set<() => void>();
 
@@ -31,11 +38,11 @@ function start(): void {
       notifyStatus();
     })
     .catch((err: unknown) => reportIpcError(err, "usePriceStatus:init"));
-  window.tbh.onPriceStatus((ps) => {
+  const offStatus = window.tbh.onPriceStatus((ps) => {
     priceStatus = ps;
     notifyStatus();
   });
-  window.tbh.onPricesProgress((p) => {
+  const offProgress = window.tbh.onPricesProgress((p) => {
     priceProgress = p.finished ? null : p;
     notifyProgress();
     if (p.finished) {
@@ -48,6 +55,22 @@ function start(): void {
         .catch((err: unknown) => reportIpcError(err, "usePriceStatus:refresh"));
     }
   });
+  cleanupIpcStatus = typeof offStatus === "function" ? offStatus : null;
+  cleanupIpcProgress = typeof offProgress === "function" ? offProgress : null;
+}
+
+function stop(): void {
+  if (cleanupIpcStatus) {
+    cleanupIpcStatus();
+    cleanupIpcStatus = null;
+  }
+  if (cleanupIpcProgress) {
+    cleanupIpcProgress();
+    cleanupIpcProgress = null;
+  }
+  started = false;
+  priceStatus = null;
+  priceProgress = null;
 }
 
 function subscribeStatus(onChange: () => void): () => void {
@@ -55,6 +78,12 @@ function subscribeStatus(onChange: () => void): () => void {
   start();
   return () => {
     statusListeners.delete(onChange);
+    // When the last subscriber leaves, tear down the IPC listeners so the
+    // module doesn't hold references to stale price snapshots (and HMR can't
+    // accumulate duplicate listeners).
+    if (statusListeners.size === 0 && progressListeners.size === 0) {
+      stop();
+    }
   };
 }
 
@@ -63,6 +92,9 @@ function subscribeProgress(onChange: () => void): () => void {
   start();
   return () => {
     progressListeners.delete(onChange);
+    if (statusListeners.size === 0 && progressListeners.size === 0) {
+      stop();
+    }
   };
 }
 

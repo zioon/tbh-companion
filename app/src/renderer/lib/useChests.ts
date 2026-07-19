@@ -15,7 +15,14 @@ export function useChests(): ChestState | null {
       })
       .catch(reportIpcError);
 
-    const off = window.tbh.onChests((c) => setChests(c));
+    // P1-11: filter null on the subscription too, mirroring the initial fetch.
+    // main can broadcast null when the save is momentarily unavailable (e.g.
+    // during a save-path reset); accepting it would flash "Waiting for save
+    // data…" even though the last valid state is still on screen. We keep the
+    // last non-null state until a real update arrives.
+    const off = window.tbh.onChests((c) => {
+      if (mounted && c) setChests(c);
+    });
     return () => {
       mounted = false;
       off();

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { CardContent, CardHeader } from "../../design-system/primitives/Card/CardParts";
@@ -21,6 +22,7 @@ export const ItemCard = memo(function ItemCard({
    */
   gradeOverride?: string | null;
 }) {
+  const { t } = useTranslation("lookup");
   const hasBody = lookupItemCardHasBody(item);
   // Price sits top-right of the header — a Steam link on grid cards (onSelect),
   // a quiet non-clickable price on peeks (no onSelect).
@@ -45,11 +47,11 @@ export const ItemCard = memo(function ItemCard({
         <CardContent>
           {item.stats ? (
             <>
-              <StatGroup title="Base stats" rows={item.stats.base} tone="base" />
-              <StatGroup title="Inherent stats" rows={item.stats.inherent} tone="inherent" />
+              <StatGroup title={t("stats.base")} rows={item.stats.base} tone="base" />
+              <StatGroup title={t("stats.inherent")} rows={item.stats.inherent} tone="inherent" />
               {item.stats.unique ? (
                 <StatGroup
-                  title="Unique effect"
+                  title={t("stats.unique")}
                   rows={[{ display: item.stats.unique.text }]}
                   tone="unique"
                 />

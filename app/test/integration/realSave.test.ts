@@ -37,7 +37,7 @@ const bundledGameData = join(__dirname, "../../../data/gamedata.json");
 
 function loadCatalogLookup(): (
   key: number,
-) => ReturnType<typeof indexById> extends Map<number, infer V> ? V : never {
+) => ReturnType<typeof indexById> extends Map<number, infer V> ? V | undefined : never {
   const data = JSON.parse(readFileSync(bundledGameData, "utf-8")) as GameData;
   const index = indexById(data.items);
   return (key) => index.get(key);

@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { applyConfigPatch } from "../../src/main/ipc/configPatch";
-import type { Config } from "../../src/main/config";
+import type { AppConfig } from "../../src/main/config";
+import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 import { XpTracker } from "../../src/core/tracker";
 
-function baseConfig(): Config {
+function baseConfig(): AppConfig {
   return {
     savePath: "%USERPROFILE%\\save.es3",
     es3Password: "test",
@@ -12,6 +13,18 @@ function baseConfig(): Config {
     startTopmost: true,
     logHistoryCsv: true,
     currency: "USD",
+    notificationsEnabled: true,
+    notifyOnUpdateAvailable: true,
+    notificationVolume: 100,
+    notificationPrefs: DEFAULT_NOTIFICATION_PREFS,
+    inventoryAlmostFullThresholdPercent: 90,
+    chestAutoOpenEnabled: { common: false, stageBoss: false },
+    marketAutoScanEnabled: true,
+    marketLowValueThresholdUsd: 0.05,
+    lootAutoClassifyEnabled: false,
+    lootRingSeconds: { common: 300, stage: 420 },
+    liveMemory: { enabled: false, consentAccepted: false },
+    language: "auto",
   };
 }
 
@@ -217,5 +230,225 @@ describe("applyConfigPatch", () => {
 
     expect(next.notificationVolume).toBe(100);
     expect(cfg.notificationVolume).toBe(100);
+  });
+
+  it("toggles the market auto-scan flag through to InventoryService", () => {
+    let cfg = baseConfig();
+    const setMarketAutoScanEnabled = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        setMarketAutoScanEnabled,
+      },
+      { marketAutoScanEnabled: false },
+    );
+
+    expect(setMarketAutoScanEnabled).toHaveBeenCalledWith(false);
+    expect(cfg.marketAutoScanEnabled).toBe(false);
+  });
+
+  it("does not call setMarketAutoScanEnabled when the patch omits it", () => {
+    let cfg = baseConfig();
+    const setMarketAutoScanEnabled = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        setMarketAutoScanEnabled,
+      },
+      { currency: "EUR" },
+    );
+
+    expect(setMarketAutoScanEnabled).not.toHaveBeenCalled();
+  });
+
+  it("does not call setMarketAutoScanEnabled when the value is unchanged", () => {
+    let cfg = baseConfig();
+    const setMarketAutoScanEnabled = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        setMarketAutoScanEnabled,
+      },
+      { marketAutoScanEnabled: true },
+    );
+
+    expect(setMarketAutoScanEnabled).not.toHaveBeenCalled();
+  });
+
+  it("updates the low-value threshold through to InventoryService", () => {
+    let cfg = baseConfig();
+    const setMarketLowValueThresholdUsd = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        setMarketLowValueThresholdUsd,
+      },
+      { marketLowValueThresholdUsd: 0.5 },
+    );
+
+    expect(setMarketLowValueThresholdUsd).toHaveBeenCalledWith(0.5);
+    expect(cfg.marketLowValueThresholdUsd).toBe(0.5);
+  });
+
+  it("does not call setMarketLowValueThresholdUsd when the patch omits it", () => {
+    let cfg = baseConfig();
+    const setMarketLowValueThresholdUsd = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        setMarketLowValueThresholdUsd,
+      },
+      { currency: "EUR" },
+    );
+
+    expect(setMarketLowValueThresholdUsd).not.toHaveBeenCalled();
+  });
+
+  it("calls onLanguageChanged when language changes", () => {
+    let cfg = baseConfig();
+    const onLanguageChanged = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        onLanguageChanged,
+      },
+      { language: "zh-CN" },
+    );
+
+    expect(onLanguageChanged).toHaveBeenCalledWith("zh-CN");
+    expect(cfg.language).toBe("zh-CN");
+  });
+
+  it("does not call onLanguageChanged when the patch omits language", () => {
+    let cfg = baseConfig();
+    const onLanguageChanged = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        onLanguageChanged,
+      },
+      { currency: "EUR" },
+    );
+
+    expect(onLanguageChanged).not.toHaveBeenCalled();
+  });
+
+  it("does not call onLanguageChanged when the value is unchanged", () => {
+    let cfg = baseConfig();
+    cfg.language = "en";
+    const onLanguageChanged = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        onLanguageChanged,
+      },
+      { language: "en" },
+    );
+
+    expect(onLanguageChanged).not.toHaveBeenCalled();
   });
 });

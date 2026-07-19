@@ -213,6 +213,8 @@ describe("resolveInventory", () => {
         ? {
             median: 0.05,
             lowest: 0.04,
+            rawMedian: null,
+            rawLowest: null,
             buyOrder: 0.03,
             rawBuyOrder: "$0.03",
             buyOrderQuantity: 2,
@@ -235,6 +237,8 @@ describe("resolveInventory", () => {
         ? {
             median: 0.05,
             lowest: 0.04,
+            rawMedian: null,
+            rawLowest: null,
             buyOrder: 0.03,
             rawBuyOrder: "$0.03",
             buyOrderQuantity: 2,
@@ -316,7 +320,14 @@ describe("resolveInventory", () => {
     const snap = parseInventory(wrapPlayer(playerInner), 0);
     const priceLookup = (name: string) =>
       name === "Knight Sword (Legendary) A"
-        ? { median: 1.5, lowest: 1.4, rawMedian: "$1.50", rawLowest: "$1.40" }
+        ? {
+            median: 1.5,
+            lowest: 1.4,
+            rawMedian: "$1.50",
+            rawLowest: "$1.40",
+            buyOrder: null,
+            rawBuyOrder: null,
+          }
         : undefined;
     const res = resolveInventory(snap, lookup, true, priceLookup);
     const sword = res.rows.find((r) => r.itemKey === 303071)!;
@@ -331,6 +342,8 @@ describe("resolveInventory", () => {
         ? {
             median: null,
             lowest: null,
+            rawMedian: null,
+            rawLowest: null,
             buyOrder: 12,
             rawBuyOrder: "R$ 12,00",
             buyOrderQuantity: 1,
@@ -375,7 +388,14 @@ describe("resolveInventory", () => {
     const snap = parseInventory(wrapPlayer(playerInner), 0);
     const priceLookup = (name: string) =>
       name.startsWith("Knight Sword (Legendary)")
-        ? { median: null, lowest: null, rawMedian: null, rawLowest: null }
+        ? {
+            median: null,
+            lowest: null,
+            rawMedian: null,
+            rawLowest: null,
+            buyOrder: null,
+            rawBuyOrder: null,
+          }
         : undefined;
     const res = resolveInventory(snap, lookup, true, priceLookup);
     const sword = res.rows.find((r) => r.itemKey === 303071)!;

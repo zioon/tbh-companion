@@ -49,11 +49,11 @@ vi.mock("../../src/renderer/lib/useStats", () => ({
 
 describe("dev-only diagnostics tab gating", () => {
   it("hides the debug tab in production builds", () => {
-    expect(getVisibleTabs(false).map((t) => t.id)).not.toContain("debug");
+    expect(getVisibleTabs(false)).not.toContain("debug");
   });
 
   it("shows the debug tab only in dev builds", () => {
-    expect(getVisibleTabs(true).map((t) => t.id)).toContain("debug");
+    expect(getVisibleTabs(true)).toContain("debug");
   });
 });
 

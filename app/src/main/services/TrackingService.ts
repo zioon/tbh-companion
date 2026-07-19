@@ -322,17 +322,32 @@ export class TrackingService {
 
   /**
    * Resolve a catalog variant id from a (baseItemKey, grade) pair. Sources
-   * variant ids exclusively from {@link lookupItems} (lookup_items.json) so
-   * the returned id is guaranteed to exist in the renderer's `itemIndex`.
-   * Falls back to `baseItemKey` (COMMON variant) when lookup lacks the
-   * requested grade — strictly better than returning a gamedata variantId
-   * the renderer can't find (which would render as "item not found").
+   * variant ids exclusively from {@link lookupVariantIndex} (built from
+   * lookup_items.json) so the returned id is guaranteed to exist in the
+   * renderer's `itemIndex`. Falls back to `baseItemKey` when no variant with
+   * the requested grade exists — strictly better than returning a gamedata
+   * variantId the renderer can't find (which would render as "item not found").
+   *
+   * The base item's name can come from either catalog: lookup_items.json has
+   * only the variant rows (611171 UNCOMMON, 612171 RARE, ...), while
+   * gamedata.json additionally has a placeholder row at the base id
+   * (610017, grade=""). When the save stores `(610017, UNCOMMON)` we look up
+   * the name via gamedata (since lookup lacks the base id) and then resolve
+   * the variant id via `lookupVariantIndex` by name+grade.
    */
   private resolveVariantId(baseItemKey: number, grade: string | null): number {
     if (grade == null) return baseItemKey;
     const lookupBase = this.lookupItems?.get(baseItemKey);
-    if (!lookupBase || lookupBase.grade === grade) return baseItemKey;
-    return this.lookupVariantIndex?.get(lookupBase.name)?.get(grade) ?? baseItemKey;
+    if (lookupBase) {
+      if (lookupBase.grade === grade) return baseItemKey;
+      return this.lookupVariantIndex?.get(lookupBase.name)?.get(grade) ?? baseItemKey;
+    }
+    // lookup_items.json doesn't have the base id (it only stores variant
+    // rows). Fall back to gamedata for the name so we can still resolve the
+    // variant via lookup's name→grade→id index.
+    const gameBase = this.gameDataLookup?.get(baseItemKey);
+    if (!gameBase) return baseItemKey;
+    return this.lookupVariantIndex?.get(gameBase.name)?.get(grade) ?? baseItemKey;
   }
 
   /**

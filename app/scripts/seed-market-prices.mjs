@@ -19,7 +19,7 @@ const appDir = resolve(__dirname, "..");
 const snapshotPath = join(appDir, "lookup_prices.json");
 const snapshot = JSON.parse(readFileSync(snapshotPath, "utf-8"));
 
-const { prices: lookupPrices, fx, baseCurrency, generatedUtc } = snapshot;
+const { prices: lookupPrices, fx, generatedUtc } = snapshot;
 
 // ── 生成各币种的 Market cache ──
 for (const [currency, rate] of Object.entries(fx)) {

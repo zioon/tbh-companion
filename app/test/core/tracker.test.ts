@@ -330,7 +330,7 @@ describe("XpTracker.updateLive", () => {
     });
     t.updateLive({ gold: null, heroes: [{ heroKey: 101, level: 101, exp: 100 }] }, now);
     expect(t.cumulativeGained).toBeLessThan(1e10);
-    expect(t.sessionRateValue).toBeLessThan(5e10);
+    expect(t.sessionRate).toBeLessThan(5e10);
     expect(t.heroRate("101")).toBeLessThan(5e10);
   });
 

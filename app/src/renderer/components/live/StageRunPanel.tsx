@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { StageRunStats } from "../../../../shared/types";
 import { fmtClock, fmtCompact, fmtShortDuration } from "../../lib/format";
 import { stageName } from "../../../core/stages";
@@ -5,28 +7,32 @@ import { useEntityPanel } from "../../context/entityPanelContext";
 import { ItemLink } from "../ItemLink";
 import { LiveHistoryPanel, LiveHistoryRow, TIME_COLUMN_WIDTH } from "./LiveHistoryPanel";
 
-const COLUMNS = [
-  { label: "Cleared at", width: TIME_COLUMN_WIDTH },
-  { label: "Stage" },
-  { label: "Clear time", align: "right" as const, width: "80px" },
-  { label: "XP", align: "right" as const, width: "88px" },
-  { label: "Gold", align: "right" as const, width: "80px" },
-];
-
 /**
  * Per-run stage-clear log: duration + XP/gold gained since the previous
  * recorded clear. Raw material for a future "which stage is best to farm"
  * feature — this panel only lists runs, it doesn't rank or aggregate them.
  */
 export function StageRunPanel({ stageRuns }: { stageRuns: StageRunStats }) {
+  const { t } = useTranslation("live");
   const { history } = stageRuns;
   const { open } = useEntityPanel();
 
+  const columns = useMemo(
+    () => [
+      { label: t("colClearedAt"), width: TIME_COLUMN_WIDTH },
+      { label: t("colStage") },
+      { label: t("colClearTime"), align: "right" as const, width: "80px" },
+      { label: t("colXp"), align: "right" as const, width: "88px" },
+      { label: t("colGold"), align: "right" as const, width: "80px" },
+    ],
+    [t],
+  );
+
   return (
     <LiveHistoryPanel
-      title="Stage clear history"
-      columns={COLUMNS}
-      empty={history.length === 0 ? <p className="m-0">No stage clears logged yet.</p> : undefined}
+      title={t("stageClearTitle")}
+      columns={columns}
+      empty={history.length === 0 ? <p className="m-0">{t("stageClearEmpty")}</p> : undefined}
     >
       {history.map((entry, i) => (
         <LiveHistoryRow

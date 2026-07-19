@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { typeLabel } from "../../../core/labels";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { filterAndSortBoxLoot, resolveBoxLoot } from "../../lib/boxLootFilters";
@@ -10,11 +11,6 @@ import { ItemLink } from "../ItemLink";
 import type { LookupBoxDrop, LookupItem } from "../../../../shared/types";
 import type { LookupNavNode } from "../../lib/useLookupNav";
 
-const BOX_LOOT_HELP =
-  "Opening this chest yields exactly one item from its loot table. The % is your chance of getting that specific item.";
-
-const BOX_LOOT_LABEL = "Loot table";
-
 export function BoxLoot({
   drops,
   onNavigate,
@@ -24,6 +20,7 @@ export function BoxLoot({
   onNavigate?: (node: LookupNavNode) => void;
   peekItem: (id: number) => LookupItem | undefined;
 }) {
+  const { t } = useTranslation("lookup");
   const [query, setQuery] = useState("");
 
   const resolved = useMemo(() => resolveBoxLoot(drops, peekItem), [drops, peekItem]);
@@ -43,20 +40,20 @@ export function BoxLoot({
   return (
     <div className="flex flex-col gap-2">
       <SectionHeadingRow
-        label={BOX_LOOT_LABEL}
-        help={BOX_LOOT_HELP}
-        helpLabel="How chest loot works"
+        label={t("box.lootLabel")}
+        help={t("box.lootHelp")}
+        helpLabel={t("box.lootHelpLabel")}
       />
 
       <div className="flex items-center gap-3">
         <Input
           className="min-w-0 flex-1"
-          placeholder="Search loot..."
+          placeholder={t("box.searchLoot")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <span className="shrink-0 whitespace-nowrap text-xs text-muted">
-          {filtered.length} items
+          {t("box.itemsCount", { count: filtered.length })}
         </span>
       </div>
 
@@ -64,7 +61,7 @@ export function BoxLoot({
         <DataList scrollable className="max-h-64">
           {filtered.length === 0 ? (
             <DataListRow index={0} className="text-xs text-muted">
-              No loot matches your search.
+              {t("box.noLootMatch")}
             </DataListRow>
           ) : (
             filtered.map((row, i) => (

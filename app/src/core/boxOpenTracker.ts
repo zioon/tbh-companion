@@ -52,9 +52,21 @@ function nowSeconds(): number {
   return Date.now() / 1000;
 }
 
-/** Price resolver callback: returns buy-order unit price for an itemKey, or null. */
+/**
+ * Price resolver callback. Returns the wallet proceeds of selling `count`
+ * units into the Steam buy-order book (matches the inventory page's
+ * "Instant sell" column via `instantSellValue`), and how many units that
+ * covers. `coveredCount < count` means the order book ran dry. Returning
+ * `null` or a null `buyOrderValue` leaves the row unpriced.
+ */
 export type BoxOpenPriceResolver =
-  | ((itemKey: number) => { buyOrderUnit: number | null } | null)
+  | ((
+      itemKey: number,
+      count: number,
+    ) => {
+      buyOrderValue: number | null;
+      coveredCount: number | null;
+    } | null)
   | null;
 
 /**
@@ -75,6 +87,14 @@ interface BoxOpenBaseAggregate {
   /** Visible history slice (last N entries, reversed). */
   history: BoxOpenHistoryEntry[];
   lastOpenWallTime: number | null;
+  /**
+   * Start of the current accumulation window for this boxKey — the most
+   * recent reset time, or (when never reset) the wall time of the first
+   * recorded drop. Used as the per-box anchor for the `hourlyValue`
+   * divisor. Null only when the boxKey has counts but no surviving history
+   * and no recorded reset anchor (corrupt snapshot).
+   */
+  trackingSinceWallTime: number | null;
 }
 
 export class BoxOpenTracker {
@@ -85,6 +105,13 @@ export class BoxOpenTracker {
   /** itemKey -> grade (shared across all boxKeys). */
   private gradesByKey = new Map<string, string | null>();
   private history: BoxOpenHistoryEntry[] = [];
+  /**
+   * boxKey -> epoch seconds of the current accumulation window's start.
+   * Initialized lazily in `recordOpen` to the first drop's wall time, and
+   * overwritten in `resetBox` to the reset moment. Drives the per-box
+   * `hourlyValue` divisor and is surfaced to the UI as "tracking since".
+   */
+  private trackingSinceByKey = new Map<string, number>();
   private readonly callbacks?: BoxOpenTrackerCallbacks;
   private pendingUnclassified: BoxOpenHistoryEntry[] = [];
   private flushScheduled = false;
@@ -127,6 +154,13 @@ export class BoxOpenTracker {
     this.namesByKey.set(key, name);
     this.gradesByKey.set(key, grade);
 
+    // Lazy-init the per-box accumulation window anchor on the first drop.
+    // `resetBox` overwrites this; until the first drop lands there's nothing
+    // to anchor (the boxKey doesn't even exist in `countsByKey`).
+    if (!this.trackingSinceByKey.has(boxKey)) {
+      this.trackingSinceByKey.set(boxKey, wallTime);
+    }
+
     this.history.push({ wallTime, boxKey, itemKey, itemName: name, grade, count });
     if (this.history.length > HISTORY_LIMIT) {
       this.history.splice(0, this.history.length - HISTORY_LIMIT);
@@ -168,9 +202,27 @@ export class BoxOpenTracker {
     this.callbacks?.onUnclassified?.(batch);
   }
 
-  /** Compute aggregated stats for all boxKeys, resolving prices via `priceResolver`. */
-  getStats(sessionSeconds: number, priceResolver: BoxOpenPriceResolver): BoxOpenStats[] {
-    const hours = sessionSeconds > 0 ? sessionSeconds / 3600 : 0;
+  /**
+   * Compute aggregated stats for all boxKeys, resolving prices via `priceResolver`.
+   *
+   * The `hourlyValue` divisor is **per-box**: each boxKey uses
+   * `(now - trackingSinceWallTime) / 3600`, where `trackingSinceWallTime` is
+   * the wall time the player last reset this chest's stats (or, if never
+   * reset, the wall time of the first recorded drop). So a chest type you
+   * started farming 10 minutes ago reports its hourly over those 10
+   * minutes, and pressing "Reset" restarts the clock immediately.
+   * `sessionSeconds` is kept only as a fallback for the rare case where a
+   * boxKey has counts but no surviving history and no recorded anchor
+   * (corrupt snapshot). `nowSecondsOverride` is purely a test seam —
+   * production callers leave it undefined to use `Date.now()/1000`.
+   */
+  getStats(
+    sessionSeconds: number,
+    priceResolver: BoxOpenPriceResolver,
+    nowSecondsOverride?: number,
+  ): BoxOpenStats[] {
+    const nowSec = nowSecondsOverride ?? nowSeconds();
+    const fallbackHours = sessionSeconds > 0 ? sessionSeconds / 3600 : 0;
     const base = this.getBaseAggregates();
     const stats: BoxOpenStats[] = [];
 
@@ -179,13 +231,29 @@ export class BoxOpenTracker {
       if (category == null) continue;
 
       const level = levelFromBoxKey(boxKey);
+      // Per-box hourly divisor: wall time since this chest was last reset
+      // (or first dropped, when never reset), clamped to >= 0 (clock skew can
+      // otherwise produce a negative elapsed on the very first stats tick
+      // after a reset/drop).
+      const hours =
+        agg.trackingSinceWallTime != null
+          ? Math.max(0, (nowSec - agg.trackingSinceWallTime) / 3600)
+          : fallbackHours;
       let totalBuyOrderValue: number | null = null;
       const breakdown: BoxOpenBreakdownRow[] = [];
 
       for (const baseRow of agg.breakdownBase) {
-        const priceInfo = priceResolver ? priceResolver(baseRow.itemKey) : null;
-        const buyOrderUnit = priceInfo?.buyOrderUnit ?? null;
-        const buyOrderValue = buyOrderUnit != null ? buyOrderUnit * baseRow.count : null;
+        const priceInfo = priceResolver ? priceResolver(baseRow.itemKey, baseRow.count) : null;
+        const buyOrderValue = priceInfo?.buyOrderValue ?? null;
+        const coveredCount = priceInfo?.coveredCount ?? null;
+        // Derive unit price from total/covered so the displayed column matches
+        // the inventory's "Instant sell" semantics (a depth-aware average, not
+        // a single best level). When the book ran dry we still show the
+        // realized unit price over the units that actually sold.
+        const buyOrderUnit =
+          buyOrderValue != null && coveredCount != null && coveredCount > 0
+            ? buyOrderValue / coveredCount
+            : null;
         const hourlyValue = buyOrderValue != null && hours > 0 ? buyOrderValue / hours : null;
 
         if (buyOrderValue != null) {
@@ -197,6 +265,7 @@ export class BoxOpenTracker {
           name: baseRow.name,
           grade: baseRow.grade,
           count: baseRow.count,
+          coveredCount,
           dropPct: agg.totalOpens > 0 ? baseRow.count / agg.totalOpens : 0,
           buyOrderUnit,
           buyOrderValue,
@@ -218,6 +287,7 @@ export class BoxOpenTracker {
         breakdown,
         history: agg.history,
         lastOpenWallTime: agg.lastOpenWallTime,
+        trackingSinceWallTime: agg.trackingSinceWallTime,
       });
     }
 
@@ -277,12 +347,23 @@ export class BoxOpenTracker {
       const allBoxHistory = historyByBox.get(boxKey) ?? [];
       const visible = allBoxHistory.slice(-HISTORY_VISIBLE).reverse();
       const lastOpenWallTime = visible.length > 0 ? visible[0].wallTime : null;
+      // Per-box accumulation-window anchor: prefer the explicit reset
+      // timestamp (`trackingSinceByKey`, set by `recordOpen` on first drop
+      // and overwritten by `resetBox`). Fall back to the earliest surviving
+      // history entry — this only happens for legacy snapshots that don't
+      // carry `trackingSinceByKey`. If history is also empty (corrupt
+      // snapshot with counts but no drops recorded), leave it null and let
+      // `getStats` fall back to the session-wide elapsed.
+      const trackingSinceWallTime =
+        this.trackingSinceByKey.get(boxKey) ??
+        (allBoxHistory.length > 0 ? allBoxHistory[0].wallTime : null);
 
       result.set(boxKey, {
         totalOpens,
         breakdownBase,
         history: visible,
         lastOpenWallTime,
+        trackingSinceWallTime,
       });
     }
 
@@ -290,10 +371,17 @@ export class BoxOpenTracker {
     return result;
   }
 
-  /** Reset a single boxKey: clears its counts and history entries. */
+  /**
+   * Reset a single boxKey: clears its counts and history entries, and stamps
+   * the per-box accumulation window anchor to "now" so the hourly divisor
+   * immediately starts counting from the reset moment on the next drop.
+   * (The next `recordOpen` will not overwrite the anchor since it's already
+   * set here.)
+   */
   resetBox(boxKey: string): void {
     this.countsByKey.delete(boxKey);
     this.history = this.history.filter((h) => h.boxKey !== boxKey);
+    this.trackingSinceByKey.set(boxKey, nowSeconds());
     this.baseAggregateCache = null;
   }
 
@@ -302,6 +390,7 @@ export class BoxOpenTracker {
     this.countsByKey.clear();
     this.namesByKey.clear();
     this.gradesByKey.clear();
+    this.trackingSinceByKey.clear();
     this.history = [];
     this.baseAggregateCache = null;
   }
@@ -366,6 +455,7 @@ export class BoxOpenTracker {
       namesByKey: Object.fromEntries(this.namesByKey),
       gradesByKey: Object.fromEntries(this.gradesByKey),
       history: [...this.history],
+      trackingSinceByKey: Object.fromEntries(this.trackingSinceByKey),
     };
   }
 
@@ -374,6 +464,7 @@ export class BoxOpenTracker {
     this.countsByKey.clear();
     this.namesByKey.clear();
     this.gradesByKey.clear();
+    this.trackingSinceByKey.clear();
     this.history = [];
 
     for (const [boxKey, itemMap] of Object.entries(data.countsByKey ?? {})) {
@@ -413,6 +504,13 @@ export class BoxOpenTracker {
     // forever. Matches ChestDropTracker's behavior.
     const restored = data.history ?? [];
     this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : [...restored];
+    // Restore the per-box accumulation-window anchors. Legacy snapshots
+    // (pre-`trackingSinceByKey`) leave this absent — `getBaseAggregates`
+    // falls back to the earliest surviving history entry per boxKey, so
+    // old session_state.json files keep working.
+    this.trackingSinceByKey = new Map(
+      Object.entries(data.trackingSinceByKey ?? {}).map(([k, v]) => [k, Number(v)]),
+    );
     this.baseAggregateCache = null;
   }
 
@@ -440,21 +538,26 @@ export class BoxOpenTracker {
    * restore), so the O(items) extra pass over `namesByKey` is not hot-path.
    */
   reResolveNames(
-    normalizer: (itemKey: number) => {
+    normalizer: (
+      itemKey: number,
+      grade: string | null,
+    ) => {
       itemKey: number;
       name: string;
     } | null,
   ): void {
     // Rebuild countsByKey with normalized composite keys, dropping entries the
     // normalizer rejects. Counts from re-mapped keys merge under the new
-    // composite key. Grade is preserved from the OLD composite key.
+    // composite key. The normalizer may also remap the itemKey using grade
+    // (e.g. translate save's (baseId, grade) → catalog variantId), so the
+    // grade is passed through. Grade on the composite key is preserved.
     const newCountsByKey = new Map<string, Map<string, number>>();
     for (const [boxKey, itemMap] of this.countsByKey) {
       const m = new Map<string, number>();
       for (const [oldCompositeKey, count] of itemMap) {
         const { grade } = parseCompositeKey(oldCompositeKey);
         const { itemKey: rawItemKey } = parseCompositeKey(oldCompositeKey);
-        const resolved = normalizer(rawItemKey);
+        const resolved = normalizer(rawItemKey, grade);
         if (!resolved) continue;
         const newCompositeKey = compositeKey(resolved.itemKey, grade);
         m.set(newCompositeKey, (m.get(newCompositeKey) ?? 0) + count);
@@ -470,7 +573,7 @@ export class BoxOpenTracker {
     for (const itemMap of this.countsByKey.values()) {
       for (const compositeKeyStr of itemMap.keys()) {
         const { itemKey, grade } = parseCompositeKey(compositeKeyStr);
-        const resolved = normalizer(itemKey);
+        const resolved = normalizer(itemKey, grade);
         if (!resolved) continue;
         this.namesByKey.set(compositeKeyStr, resolved.name);
         this.gradesByKey.set(compositeKeyStr, grade);
@@ -481,7 +584,7 @@ export class BoxOpenTracker {
     // surviving entries' itemKey/itemName. Grade is PRESERVED (runtime value).
     const newHistory: BoxOpenHistoryEntry[] = [];
     for (const h of this.history) {
-      const resolved = normalizer(h.itemKey);
+      const resolved = normalizer(h.itemKey, h.grade);
       if (!resolved) continue;
       newHistory.push({
         ...h,

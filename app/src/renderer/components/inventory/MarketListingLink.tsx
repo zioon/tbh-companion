@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { steamMarketListingUrl } from "../../../core/steamPrice";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
 
@@ -11,6 +12,8 @@ export function MarketListingLink({
   children: ReactNode;
   title?: string;
 }) {
+  const { t } = useTranslation("inventory");
+  const defaultTitle = useMemo(() => t("marketPrice.openOnSteam"), [t]);
   return (
     <Tooltip
       trigger={
@@ -25,7 +28,7 @@ export function MarketListingLink({
         </a>
       }
     >
-      {title ?? "Open on Steam Market"}
+      {title ?? defaultTitle}
     </Tooltip>
   );
 }

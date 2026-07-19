@@ -68,4 +68,45 @@ describe("DataTable", () => {
     );
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  // P1-10: when a consumer knows the table will hold many rows (e.g. an
+  // unclassified loot breakdown with 100+ items), it can opt into CSS-based
+  // virtualization via `rowContainSize`. The browser then skips rendering
+  // work for any `<tr>` outside the scroll viewport, which keeps the
+  // 5 Hz re-render cost bounded regardless of breakdown length. This is
+  // a Chromium-native feature (content-visibility: auto) — no new deps.
+  it("applies content-visibility:auto to every row when rowContainSize is set", () => {
+    const { container } = render(
+      <DataTable columns={[{ label: "Time" }]} rowContainSize="36px 0">
+        <DataTableRow index={0} cells={[{ content: "Row 0" }]} />
+        <DataTableRow index={1} cells={[{ content: "Row 1" }]} />
+      </DataTable>,
+    );
+    const rows = container.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveStyle({ contentVisibility: "auto", containIntrinsicSize: "36px 0" });
+    }
+  });
+
+  it("does not apply content-visibility when rowContainSize is omitted (default path)", () => {
+    const { container } = render(
+      <DataTable columns={[{ label: "Time" }]}>
+        <DataTableRow index={0} cells={[{ content: "Row 0" }]} />
+      </DataTable>,
+    );
+    const row = container.querySelector("tbody tr");
+    expect(row).not.toHaveStyle({ contentVisibility: "auto" });
+    expect(row).not.toHaveStyle({ containIntrinsicSize: "36px 0" });
+  });
+
+  it("has no detectable accessibility violations when rowContainSize is enabled", async () => {
+    const { container } = render(
+      <DataTable columns={[{ label: "Time" }]} rowContainSize="36px 0">
+        <DataTableRow index={0} cells={[{ content: "Row 0" }]} />
+        <DataTableRow index={1} cells={[{ content: "Row 1" }]} />
+      </DataTable>,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
 });

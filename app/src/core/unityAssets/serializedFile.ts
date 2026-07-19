@@ -60,8 +60,10 @@ function align4(n: number): number {
 // Layout: nodeCount (int32), stringBlobSize (int32), nodeCount*nodeSize, stringBlob.
 // nodeSize = 24 (v < 19) or 32 (v >= 19, adds m_RefTypeHash uint64).
 function skipTypeTree(buf: Buffer, p: number, version: number, le: boolean): number {
-  const nodeCount = le ? buf.readInt32LE(p) : buf.readInt32BE(p); p += 4;
-  const stringBlobSize = le ? buf.readInt32LE(p) : buf.readInt32BE(p); p += 4;
+  const nodeCount = le ? buf.readInt32LE(p) : buf.readInt32BE(p);
+  p += 4;
+  const stringBlobSize = le ? buf.readInt32LE(p) : buf.readInt32BE(p);
+  p += 4;
   const nodeSize = version >= 19 ? 32 : 24;
   p += nodeCount * nodeSize;
   p += stringBlobSize;
@@ -113,15 +115,20 @@ export function parseSerializedFile(buf: Buffer): ParsedSerializedFile {
   p += 4;
 
   // enableTypeTree: byte
-  const enableTypeTree = meta.readUInt8(p) !== 0; p += 1;
+  const enableTypeTree = meta.readUInt8(p) !== 0;
+  p += 1;
 
   // Types.
-  const typeCount = le ? meta.readInt32LE(p) : meta.readInt32BE(p); p += 4;
+  const typeCount = le ? meta.readInt32LE(p) : meta.readInt32BE(p);
+  p += 4;
   const types: SerializedType[] = [];
   for (let i = 0; i < typeCount; i++) {
-    const classID = le ? meta.readInt32LE(p) : meta.readInt32BE(p); p += 4;
-    const isStrippedType = meta.readUInt8(p) !== 0; p += 1;
-    const scriptTypeIndex = le ? meta.readInt16LE(p) : meta.readInt16BE(p); p += 2;
+    const classID = le ? meta.readInt32LE(p) : meta.readInt32BE(p);
+    p += 4;
+    const isStrippedType = meta.readUInt8(p) !== 0;
+    p += 1;
+    const scriptTypeIndex = le ? meta.readInt16LE(p) : meta.readInt16BE(p);
+    p += 2;
     // scriptID (16 bytes) only when classID === 114 (MonoBehaviour) for v >= 16.
     // Default to a zeroed buffer; replaced by a subarray view when present.
     // Explicit `Buffer` annotation widens to `Buffer<ArrayBufferLike>` so both
@@ -129,16 +136,19 @@ export function parseSerializedFile(buf: Buffer): ParsedSerializedFile {
     // are assignable.
     let scriptID: Buffer = Buffer.alloc(16);
     if (classID === 114) {
-      scriptID = meta.subarray(p, p + 16); p += 16;
+      scriptID = meta.subarray(p, p + 16);
+      p += 16;
     }
-    const oldTypeHash: Buffer = meta.subarray(p, p + 16); p += 16;
+    const oldTypeHash: Buffer = meta.subarray(p, p + 16);
+    p += 16;
     if (enableTypeTree) {
       p = skipTypeTree(meta, p, version, le);
       // type_dependencies (int32 count + N int32) for v >= 21. No alignment
       // after this field (matches the read-side behavior of AssetStudio/UnityPy;
       // alignment happens later before each object's pathId).
       if (version >= 21) {
-        const depCount = le ? meta.readInt32LE(p) : meta.readInt32BE(p); p += 4;
+        const depCount = le ? meta.readInt32LE(p) : meta.readInt32BE(p);
+        p += 4;
         p += depCount * 4;
       }
     }
@@ -146,23 +156,29 @@ export function parseSerializedFile(buf: Buffer): ParsedSerializedFile {
   }
 
   // Objects.
-  const objectCount = le ? meta.readInt32LE(p) : meta.readInt32BE(p); p += 4;
+  const objectCount = le ? meta.readInt32LE(p) : meta.readInt32BE(p);
+  p += 4;
   const objects: SerializedObjectInfo[] = [];
   for (let i = 0; i < objectCount; i++) {
     p = align4(p);
     // pathId: int64 (v >= 14)
-    const pathId = le ? meta.readBigInt64LE(p) : meta.readBigInt64BE(p); p += 8;
+    const pathId = le ? meta.readBigInt64LE(p) : meta.readBigInt64BE(p);
+    p += 8;
     // offset: int64 (v >= 22) or uint32 (older). Relative to dataOffset.
     let offset: number;
     if (version >= 22) {
-      offset = Number(le ? meta.readBigInt64LE(p) : meta.readBigInt64BE(p)); p += 8;
+      offset = Number(le ? meta.readBigInt64LE(p) : meta.readBigInt64BE(p));
+      p += 8;
     } else {
-      offset = le ? meta.readUInt32LE(p) : meta.readUInt32BE(p); p += 4;
+      offset = le ? meta.readUInt32LE(p) : meta.readUInt32BE(p);
+      p += 4;
     }
     // size: uint32
-    const size = le ? meta.readUInt32LE(p) : meta.readUInt32BE(p); p += 4;
+    const size = le ? meta.readUInt32LE(p) : meta.readUInt32BE(p);
+    p += 4;
     // typeID: int32 (index into types array)
-    const typeIDIndex = le ? meta.readInt32LE(p) : meta.readInt32BE(p); p += 4;
+    const typeIDIndex = le ? meta.readInt32LE(p) : meta.readInt32BE(p);
+    p += 4;
     const resolvedClassID = types[typeIDIndex]?.classID ?? typeIDIndex;
     objects.push({
       pathId,

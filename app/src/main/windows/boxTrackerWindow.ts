@@ -42,7 +42,9 @@ export function createBoxTrackerWindow(
     applyWindowTopmost(existing, startTopmost(), true);
     existing.show();
     existing.focus();
-    onOpen?.();
+    // Do not call onOpen here: the tick is already running from the original
+    // open. Calling it again would increment BoxTimerService.subscribers
+    // without a matching onClose, leaking the 1Hz timer forever.
     return existing;
   }
 
@@ -63,7 +65,12 @@ export function createBoxTrackerWindow(
     ...(icon.isEmpty() ? {} : { icon }),
     webPreferences: {
       preload: PRELOAD_SCRIPT,
-      sandbox: false,
+      // P1-5: preload only uses contextBridge + ipcRenderer (verified: no
+      // `require` / `process` / `fs` / `path` / `node:` references in
+      // app/src/preload/index.ts), so the sandbox can stay enabled. This
+      // shrinks the attack surface of the secondary window by denying the
+      // renderer direct access to Node primitives.
+      sandbox: true,
     },
   });
 

@@ -1,4 +1,5 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
+import { matchesMulti } from "./lootFilterCommon";
 import { itemDescriptor } from "./lookupDisplay";
 import type { LookupItem, OfferingLootEntry } from "../../../shared/types";
 
@@ -12,10 +13,7 @@ export interface OfferingLootFilterState {
   sortDir: "asc" | "desc";
 }
 
-/** A multi-select with no selections means "no filter" (match everything). */
-function matchesMulti(selected: string[], value: string | null): boolean {
-  return selected.length === 0 || (value != null && selected.includes(value));
-}
+// P2-2: `matchesMulti` moved to lootFilterCommon.ts.
 
 export interface ResolvedOfferingLoot {
   itemKey: number;
@@ -56,7 +54,10 @@ export function filterAndSortLoot(
       const descriptor = row.item ? itemDescriptor(row.item) : null;
       if (!matchesMulti(state.typeFilter, descriptor)) return false;
     }
-    if (q && !(row.item?.name ?? "").toLowerCase().includes(q)) return false;
+    // P2-7: use `||` not `??` so an empty-string `item.name` ("") falls back
+    // to the empty string for `.includes(q)` semantics (no false match). The
+    // practical effect here is identical, but the pattern matches boxLootFilters.
+    if (q && !(row.item?.name || "").toLowerCase().includes(q)) return false;
     return true;
   });
 
@@ -64,7 +65,7 @@ export function filterAndSortLoot(
   rows = [...rows].sort((a, b) => {
     let cmp: number;
     if (state.sortKey === "name") {
-      cmp = (a.item?.name ?? "").localeCompare(b.item?.name ?? "");
+      cmp = (a.item?.name || "").localeCompare(b.item?.name || "");
     } else if (state.sortKey === "grade") {
       cmp = (GRADE_RANK[a.item?.grade ?? ""] ?? -1) - (GRADE_RANK[b.item?.grade ?? ""] ?? -1);
     } else {

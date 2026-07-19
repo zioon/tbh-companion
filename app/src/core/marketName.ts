@@ -23,6 +23,18 @@ export function isPriceableItem(type: string, grade: string, marketTradable: boo
   return false;
 }
 
+/**
+ * Names like "ItemName_145002" are unresolved catalog placeholders —
+ * `build_catalog.py` falls back to the raw NameKey when the localization
+ * hash isn't matched (see `scripts/build_catalog.py` `unresolved_namekey`).
+ * They never correspond to a real Steam market_hash_name, so probing them
+ * just wastes rate-limit budget and (with 429 backoff) can stall the whole
+ * refresh. Treat them as non-priceable.
+ */
+export function isPlaceholderItemName(name: string): boolean {
+  return name.startsWith("ItemName_");
+}
+
 /** Gear market hash suffix letters we price and link to (A only until save letter is known). */
 export const GEAR_MARKET_VARIANT_LETTERS = ["A"] as const;
 
@@ -54,6 +66,7 @@ export function gearMarketHashCandidates(itemName: string, catalogGrade: string)
 /** Resolve a catalog item to a Steam market_hash_name, or null if not priceable. */
 export function marketHashMatch(item: MarketHashItem): MarketHashMatch | null {
   if (!isPriceableItem(item.type, item.grade, item.marketTradable)) return null;
+  if (isPlaceholderItemName(item.name)) return null;
 
   if (item.type === "MATERIAL") {
     return { name: item.name };
@@ -69,6 +82,7 @@ export function marketHashMatch(item: MarketHashItem): MarketHashMatch | null {
 /** Steam hash names to price (gear: variant A; materials: display name). */
 export function marketHashCandidates(item: MarketHashItem): string[] {
   if (!isPriceableItem(item.type, item.grade, item.marketTradable)) return [];
+  if (isPlaceholderItemName(item.name)) return [];
   if (item.type === "MATERIAL") return [item.name];
   if (item.type === "GEAR") return gearMarketHashCandidates(item.name, item.grade);
   return [];

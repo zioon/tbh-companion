@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../../design-system/primitives/Button/Button";
 import { cn } from "../../lib/cn";
 import { reportIpcError } from "../../lib/reportError";
@@ -29,6 +30,7 @@ export function ItemPriceRefreshButton({
   itemKey: number;
   itemName: string;
 }) {
+  const { t } = useTranslation("inventory");
   const [pending, setPending] = useState(false);
 
   async function onRefresh(): Promise<void> {
@@ -43,14 +45,16 @@ export function ItemPriceRefreshButton({
     }
   }
 
+  const title = t("refreshPricesFor", { name: itemName });
+
   return (
     <Button
       variant="icon"
       type="button"
       edge="end"
       className="shrink-0 text-muted hover:text-fg disabled:opacity-50"
-      title={`Refresh Steam prices for ${itemName}`}
-      aria-label={`Refresh Steam prices for ${itemName}`}
+      title={title}
+      aria-label={title}
       disabled={pending}
       onClick={() => void onRefresh()}
     >

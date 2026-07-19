@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { gradeLabel, typeLabel } from "../../../core/labels";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
@@ -183,6 +184,7 @@ export function MaterialGroup({
   materialType?: string | null;
   compact?: boolean;
 }) {
+  const { t } = useTranslation("lookup");
   if (group.outcomes.length === 0) return null;
   const { shown, hiddenCount } = compact
     ? visibleOutcomes(materialType ?? null, group.outcomes)
@@ -200,7 +202,9 @@ export function MaterialGroup({
             {outcome.displayText}
           </li>
         ))}
-        {hiddenCount > 0 ? <li className="text-muted/70">+{hiddenCount} more</li> : null}
+        {hiddenCount > 0 ? (
+          <li className="text-muted/70">{t("more", { count: hiddenCount })}</li>
+        ) : null}
       </ul>
     </div>
   );

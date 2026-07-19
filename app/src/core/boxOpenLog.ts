@@ -1,7 +1,11 @@
 // Helpers for resolving BoxOpenLog entries to tracker keys and labels.
 // Pure: no Electron, no React, no fs.
 
-export type BoxCategory = "common" | "rare" | "act" | "unclassified";
+// P2-1: `BoxCategory` is defined once in `shared/types.ts` (canonical tracker-side
+// vocabulary). Re-exported here so existing `import { BoxCategory } from "./boxOpenLog"`
+// call sites keep working without churn.
+import type { BoxCategory } from "../../shared/types";
+export type { BoxCategory };
 
 /** Special boxKey for entries whose boxType couldn't be resolved from memory. */
 export const UNCLASSIFIED_BOX_KEY = "unclassified";
@@ -59,5 +63,11 @@ export function levelFromBoxKey(boxKey: string): number | null {
   const colonIdx = boxKey.indexOf(":");
   if (colonIdx <= 0) return null;
   const level = Number(boxKey.slice(colonIdx + 1));
-  return Number.isFinite(level) && level > 0 ? level : null;
+  // P2-5: truncate to integer so a hand-crafted "rare:3.5" boxKey doesn't
+  // surface as `Lv3.5` in the UI. Tracker keys are always integer levels
+  // (resolveBoxKey inserts `${level}` from a number, but snapshots or manual
+  // input could introduce non-integers). Mirrors the integer contract of
+  // `BoxTimerRow.level`.
+  if (!Number.isFinite(level) || level <= 0) return null;
+  return Math.trunc(level);
 }

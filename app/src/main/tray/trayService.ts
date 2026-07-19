@@ -2,6 +2,7 @@ import { app, Menu, Tray } from "electron";
 
 import type { AppServices } from "../app/appState";
 import { trayImage } from "../iconPaths";
+import { t } from "../i18n";
 
 let tray: Tray | null = null;
 let quitting = false;
@@ -14,47 +15,55 @@ export function setAppQuitting(value = true): void {
   quitting = value;
 }
 
-export function createTray(services: AppServices): Tray {
-  if (tray && !tray.isDestroyed()) return tray;
-
-  tray = new Tray(trayImage());
-  tray.setToolTip("TBH Companion");
-
-  const menu = Menu.buildFromTemplate([
+function buildMenuTemplate(services: AppServices) {
+  return [
     {
-      label: "Show",
+      label: t("tray:show"),
       click: () => {
         services.showMain();
       },
     },
     {
-      label: "Mini overlay",
+      label: t("tray:miniOverlay"),
       click: () => {
         services.openOverlay();
       },
     },
     {
-      label: "Stage boss chest tracker",
+      label: t("tray:boxTracker"),
       click: () => {
         services.openBoxTracker();
       },
     },
-    { type: "separator" },
+    { type: "separator" as const },
     {
-      label: "Quit",
+      label: t("tray:quit"),
       click: () => {
         setAppQuitting(true);
         app.quit();
       },
     },
-  ]);
+  ];
+}
 
-  tray.setContextMenu(menu);
+export function createTray(services: AppServices): Tray {
+  if (tray && !tray.isDestroyed()) return tray;
+
+  tray = new Tray(trayImage());
+  tray.setToolTip(t("tray:tooltip"));
+  tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate(services)));
   tray.on("double-click", () => {
     services.showMain();
   });
 
   return tray;
+}
+
+/** Rebuild the tray menu and tooltip — called after a language change. */
+export function rebuildTrayMenu(services: AppServices): void {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setToolTip(t("tray:tooltip"));
+  tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate(services)));
 }
 
 export function destroyTray(): void {

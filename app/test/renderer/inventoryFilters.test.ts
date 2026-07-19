@@ -123,6 +123,7 @@ const inv: ResolvedInventory = {
     feeTotal: 1.15,
     netAfterFeesTotal: 21.85,
     buyOrderValuedTotal: 8,
+    buyOrderNetTotal: 0,
     buyOrderPricedRows: 1,
     currency: "USD",
   },
@@ -130,6 +131,8 @@ const inv: ResolvedInventory = {
   saveMtime: 0,
   gameDataLoaded: true,
   currency: "USD",
+  inventoryCapacity: 0,
+  inventoryUsed: 0,
 };
 
 describe("inventoryFilters", () => {

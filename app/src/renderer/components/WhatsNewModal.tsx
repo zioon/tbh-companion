@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { githubReleaseUrl } from "../lib/externalLinks";
 import { reportIpcError } from "../lib/reportError";
 import {
@@ -18,6 +19,7 @@ interface VisibleWhatsNew {
 }
 
 export function WhatsNewModal() {
+  const { t } = useTranslation("whatsNew");
   const [visible, setVisible] = useState<VisibleWhatsNew | null>(null);
 
   const dismiss = useCallback((): void => {
@@ -51,6 +53,8 @@ export function WhatsNewModal() {
 
   if (!visible) return null;
 
+  const bullets = t(visible.entry.bulletsKey, { returnObjects: true }) as string[];
+
   return (
     <Dialog
       open
@@ -60,29 +64,29 @@ export function WhatsNewModal() {
     >
       <div className="flex flex-col gap-3">
         <div>
-          <p className="m-0 text-xs font-semibold uppercase text-accent">Updated</p>
+          <p className="m-0 text-xs font-semibold uppercase text-accent">{t("updatedTag")}</p>
           <DialogTitle className="m-0 mt-1 text-lg font-semibold text-fg">
-            {visible.entry.title}
+            {t(visible.entry.titleKey)}
           </DialogTitle>
         </div>
 
         <ul className="m-0 flex list-disc flex-col gap-2 pl-5 text-sm text-muted">
-          {visible.entry.bullets.map((bullet) => (
-            <li key={bullet}>{bullet}</li>
+          {bullets.map((bullet, idx) => (
+            <li key={idx}>{bullet}</li>
           ))}
         </ul>
 
         <ExternalLink href={githubReleaseUrl(visible.version)} variant="accent">
-          Full release notes on GitHub
+          {t("releaseNotesLink")}
         </ExternalLink>
 
         <div className="mt-1 flex flex-wrap justify-end gap-2">
           {visible.entry.action && (
             <ButtonLink href={visible.entry.action.href} onClick={dismiss} variant="primary">
-              {visible.entry.action.label}
+              {t(visible.entry.action.labelKey)}
             </ButtonLink>
           )}
-          <DialogClose render={<Button>Got it</Button>} />
+          <DialogClose render={<Button>{t("gotIt")}</Button>} />
         </div>
       </div>
     </Dialog>

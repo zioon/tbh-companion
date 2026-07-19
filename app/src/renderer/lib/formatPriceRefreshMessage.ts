@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { PriceRefreshResult, PriceRefreshSummary } from "../../../shared/types";
 
 type RefreshMessageInput = Pick<
@@ -7,36 +8,49 @@ type RefreshMessageInput = Pick<
   ownedTargets?: number;
 };
 
-export function formatPriceRefreshMessage(input: RefreshMessageInput): string {
+export function formatPriceRefreshMessage(
+  t: TFunction<"market">,
+  input: RefreshMessageInput,
+): string {
   if (input.queued) {
-    return "A refresh is already running — yours is queued.";
+    return t("refreshMessage.queued");
   }
 
   if (input.ownedTargets === 0) {
-    return "No inventory loaded yet — play with the game running or check your save path.";
+    return t("refreshMessage.noInventory");
   }
 
   if (input.noop) {
     const n = input.skipped;
-    return `All ${n} item${n === 1 ? "" : "s"} are up to date (updated within 24h). Nothing to fetch.`;
+    return n === 1 ? t("refreshMessage.noopOne") : t("refreshMessage.noop", { count: n });
   }
 
   if (!input.ok) {
     if (input.error === "already running") {
-      return "Refresh already in progress.";
+      return t("refreshMessage.alreadyRunning");
     }
-    return `Refresh failed: ${input.error ?? "unknown error"}.`;
+    return input.error
+      ? t("refreshMessage.failed", { error: input.error })
+      : t("refreshMessage.failedUnknown");
   }
 
   const stopMsg =
     input.stopped === "cancelled"
-      ? " (cancelled)"
+      ? t("refreshMessage.cancelled")
       : input.stopped === "rate-limited"
-        ? " (rate-limited)"
+        ? t("refreshMessage.rateLimited")
         : "";
-  return `Priced ${input.priced}, skipped ${input.skipped} fresh, ${input.failed} failed${stopMsg}.`;
+  return t("refreshMessage.success", {
+    priced: input.priced,
+    skipped: input.skipped,
+    failed: input.failed,
+    stopMsg,
+  });
 }
 
-export function formatPriceRefreshSummary(result: PriceRefreshSummary): string {
-  return formatPriceRefreshMessage({ ok: true, ...result });
+export function formatPriceRefreshSummary(
+  t: TFunction<"market">,
+  result: PriceRefreshSummary,
+): string {
+  return formatPriceRefreshMessage(t, { ok: true, ...result });
 }

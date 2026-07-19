@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { useLiveMemory } from "../lib/useLiveMemory";
 import { useStats } from "../lib/useStats";
 import { liveReaderState } from "../../core/liveMemory/status";
@@ -16,13 +17,23 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function StatHealth({ label, value }: { label: string; value: unknown }) {
+function StatHealth({
+  label,
+  value,
+  live,
+  fallback,
+}: {
+  label: string;
+  value: unknown;
+  live: string;
+  fallback: string;
+}) {
   const ok = value !== null && value !== undefined;
   return (
     <div className="flex justify-between gap-4 border-b border-border py-1 text-[13px]">
       <span className="text-muted">{label}</span>
       <span className={ok ? "text-accent tabular-nums" : "text-gold tabular-nums"}>
-        {ok ? "✓ live" : "— fallback"}
+        {ok ? live : fallback}
       </span>
     </div>
   );
@@ -34,159 +45,162 @@ function StatHealth({ label, value }: { label: string; value: unknown }) {
  * Gated to dev builds in AppTabBar — not shipped in the production tab bar.
  */
 export function LiveMemoryDiagnostics() {
+  const { t } = useTranslation("liveMemory");
   const { snapshot, status } = useLiveMemory();
   const stats = useStats();
   const state = liveReaderState(status, Boolean(status?.running));
   const lastReadAt = snapshot ? new Date(snapshot.at).toLocaleTimeString() : "—";
+  const dash = "—";
 
   return (
     <TabPage>
-      <TabHeader
-        title="Live memory (debug)"
-        intro="Dev-only diagnostics for the read-only live memory reader."
-      />
+      <TabHeader title={t("diagnostics.tabTitle")} intro={t("diagnostics.intro")} />
       <div className="max-w-md space-y-4">
         <section>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">Reader</p>
-          <Row label="Reader state" value={state} />
-          <Row label="Running" value={String(status?.running ?? false)} />
-          <Row label="Attached" value={String(status?.attached ?? false)} />
-          <Row label="PID" value={status?.pid ?? "—"} />
-          <Row label="Game version" value={status?.gameVersion ?? "—"} />
-          <Row label="Supported" value={String(status?.supported ?? false)} />
-          {status?.note ? <Row label="Note" value={status.note} /> : null}
-          <Row label="Source" value={snapshot?.source ?? "—"} />
-          <Row label="Last read (ms)" value={snapshot?.readMs ?? "—"} />
-          <Row label="Last read at" value={lastReadAt} />
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+            {t("diagnostics.sectionReader")}
+          </p>
+          <Row label={t("diagnostics.readerState")} value={state} />
+          <Row label={t("diagnostics.running")} value={String(status?.running ?? false)} />
+          <Row label={t("diagnostics.attached")} value={String(status?.attached ?? false)} />
+          <Row label={t("diagnostics.pid")} value={status?.pid ?? dash} />
+          <Row label={t("diagnostics.gameVersion")} value={status?.gameVersion ?? dash} />
+          <Row label={t("diagnostics.supported")} value={String(status?.supported ?? false)} />
+          {status?.note ? <Row label={t("diagnostics.note")} value={status.note} /> : null}
+          <Row label={t("diagnostics.source")} value={snapshot?.source ?? dash} />
+          <Row label={t("diagnostics.lastReadMs")} value={snapshot?.readMs ?? dash} />
+          <Row label={t("diagnostics.lastReadAt")} value={lastReadAt} />
         </section>
 
         <section>
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Live values
+            {t("diagnostics.sectionLiveValues")}
           </p>
-          <StatHealth label="Gold" value={snapshot?.gold} />
+          <StatHealth
+            label={t("diagnostics.gold")}
+            value={snapshot?.gold}
+            live={t("diagnostics.live")}
+            fallback={t("diagnostics.fallback")}
+          />
           <Row
-            label="Current gold"
-            value={snapshot?.gold != null ? fmtCompact(snapshot.gold) : "—"}
+            label={t("diagnostics.currentGold")}
+            value={snapshot?.gold != null ? fmtCompact(snapshot.gold) : dash}
           />
           {stats ? (
             <>
-              <Row label="Tracker XP/hr" value={`${fmtCompact(stats.rollingRate)}/hr`} />
-              <Row label="Tracker gold/hr" value={`${fmtCompact(stats.goldRate)}/hr`} />
-              <Row label="Session XP" value={fmtCompact(stats.cumulativeGained)} />
-              <Row label="Session XP/hr" value={`${fmtCompact(stats.sessionRate)}/hr`} />
+              <Row
+                label={t("diagnostics.trackerXpHr")}
+                value={`${fmtCompact(stats.rollingRate)}/hr`}
+              />
+              <Row
+                label={t("diagnostics.trackerGoldHr")}
+                value={`${fmtCompact(stats.goldRate)}/hr`}
+              />
+              <Row label={t("diagnostics.sessionXp")} value={fmtCompact(stats.cumulativeGained)} />
+              <Row
+                label={t("diagnostics.sessionXpHr")}
+                value={`${fmtCompact(stats.sessionRate)}/hr`}
+              />
             </>
           ) : null}
         </section>
 
         <section>
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Heroes (live exp)
+            {t("diagnostics.sectionHeroes")}
           </p>
           <StatHealth
-            label="Heroes"
+            label={t("diagnostics.heroesLabel")}
             value={snapshot?.heroes?.length ? snapshot.heroes.length : null}
+            live={t("diagnostics.live")}
+            fallback={t("diagnostics.fallback")}
           />
           {snapshot?.heroes == null && snapshot?.heroesStatus ? (
-            <Row label="↳ reason" value={snapshot.heroesStatus} />
+            <Row label={t("diagnostics.heroesReason")} value={snapshot.heroesStatus} />
           ) : null}
           {snapshot?.heroes && snapshot.heroes.length > 0 ? (
             <div className="mt-1 space-y-0">
               {snapshot.heroes.map((h) => (
                 <Row
                   key={h.heroKey}
-                  label={`${heroName(String(h.heroKey))} (Lv ${h.level})`}
+                  label={t("diagnostics.heroWithLevel", {
+                    name: heroName(String(h.heroKey)),
+                    level: h.level,
+                  })}
                   value={fmtCompact(h.exp)}
                 />
               ))}
             </div>
           ) : (
-            <Row label="Party" value="—" />
+            <Row label={t("diagnostics.party")} value={dash} />
           )}
         </section>
 
         <section>
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Per-stat health
+            {t("diagnostics.sectionPerStatHealth")}
           </p>
-          <Row label="Stage key" value={snapshot?.stageKey ?? "—"} />
-          <Row label="Stage wave" value={snapshot?.stageWave ?? "—"} />
-          <StatHealth label="Chest log" value={snapshot?.chestDrops} />
+          <Row label={t("diagnostics.stageKey")} value={snapshot?.stageKey ?? dash} />
+          <Row label={t("diagnostics.stageWave")} value={snapshot?.stageWave ?? dash} />
+          <StatHealth
+            label={t("diagnostics.chestLog")}
+            value={snapshot?.chestDrops}
+            live={t("diagnostics.live")}
+            fallback={t("diagnostics.fallback")}
+          />
           {snapshot?.chestDrops == null && snapshot?.chestDropsStatus ? (
-            <Row label="↳ reason" value={snapshot.chestDropsStatus} />
+            <Row label={t("diagnostics.heroesReason")} value={snapshot.chestDropsStatus} />
           ) : null}
           <Row
-            label="New chest drops (tick)"
-            value={snapshot?.chestDrops != null ? String(snapshot.chestDrops.length) : "—"}
+            label={t("diagnostics.newChestDropsTick")}
+            value={snapshot?.chestDrops != null ? String(snapshot.chestDrops.length) : dash}
           />
           <StatHealth
-            label="Inventory"
+            label={t("diagnostics.inventoryLabel")}
             value={snapshot?.inventoryItems?.length ? snapshot.inventoryItems.length : null}
+            live={t("diagnostics.live")}
+            fallback={t("diagnostics.fallback")}
           />
           {snapshot?.inventoryItems == null && snapshot?.inventoryItemsStatus ? (
-            <Row label="↳ reason" value={snapshot.inventoryItemsStatus} />
+            <Row label={t("diagnostics.heroesReason")} value={snapshot.inventoryItemsStatus} />
           ) : null}
           <Row
-            label="Inventory items"
-            value={snapshot?.inventoryItems != null ? String(snapshot.inventoryItems.length) : "—"}
+            label={t("diagnostics.inventoryItems")}
+            value={snapshot?.inventoryItems != null ? String(snapshot.inventoryItems.length) : dash}
           />
           <StatHealth
-            label="Pets"
+            label={t("diagnostics.petsLabel")}
             value={snapshot?.petData?.length ? snapshot.petData.length : null}
+            live={t("diagnostics.live")}
+            fallback={t("diagnostics.fallback")}
           />
           {snapshot?.petData == null && snapshot?.petDataStatus ? (
-            <Row label="↳ reason" value={snapshot.petDataStatus} />
+            <Row label={t("diagnostics.heroesReason")} value={snapshot.petDataStatus} />
           ) : null}
           <Row
-            label="Pets count"
-            value={snapshot?.petData != null ? String(snapshot.petData.length) : "—"}
+            label={t("diagnostics.petsCount")}
+            value={snapshot?.petData != null ? String(snapshot.petData.length) : dash}
           />
-        </section>
-
-        <section>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Box queue (stargaze)
-          </p>
-          <StatHealth
-            label="Box queue"
-            value={
-              snapshot?.boxQueue != null
-                ? snapshot.boxQueue.common.length +
-                  snapshot.boxQueue.rare.length +
-                  snapshot.boxQueue.act.length
-                : null
-            }
-          />
-          {snapshot?.boxQueue == null && snapshot?.boxQueueStatus ? (
-            <Row label="↳ reason" value={snapshot.boxQueueStatus} />
-          ) : null}
-          {snapshot?.boxQueue != null ? (
-            <>
-              <Row label="Common" value={String(snapshot.boxQueue.common.length)} />
-              <Row label="Rare" value={String(snapshot.boxQueue.rare.length)} />
-              <Row label="Act" value={String(snapshot.boxQueue.act.length)} />
-            </>
-          ) : null}
         </section>
 
         {stats ? (
           <section>
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-              Chest drops (per type)
+              {t("diagnostics.sectionChestDrops")}
             </p>
-            <Row label="Common" value={String(stats.chestDrops.commonTotal)} />
-            <Row label="Stage boss" value={String(stats.chestDrops.rareTotal)} />
-            <Row label="Combined" value={String(stats.chestDrops.combinedTotal)} />
+            <Row label={t("diagnostics.common")} value={String(stats.chestDrops.commonTotal)} />
+            <Row label={t("diagnostics.stageBoss")} value={String(stats.chestDrops.rareTotal)} />
+            <Row label={t("diagnostics.combined")} value={String(stats.chestDrops.combinedTotal)} />
           </section>
         ) : null}
 
         {stats ? (
           <section>
             <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-              DPS / Damage / Mobs
+              {t("diagnostics.sectionDps")}
             </p>
             <StatHealth
-              label="Monster HP"
+              label={t("diagnostics.monsterHp")}
               value={
                 snapshot?.monsterHp != null
                   ? snapshot.monsterHp.length > 0
@@ -194,48 +208,60 @@ export function LiveMemoryDiagnostics() {
                     : 0
                   : null
               }
+              live={t("diagnostics.live")}
+              fallback={t("diagnostics.fallback")}
             />
             <Row
-              label="Alive monsters"
-              value={snapshot?.monsterHp != null ? String(snapshot.monsterHp.length) : "—"}
+              label={t("diagnostics.aliveMonsters")}
+              value={snapshot?.monsterHp != null ? String(snapshot.monsterHp.length) : dash}
             />
-            <Row label="Mobs killed (map)" value={String(stats.mapMobsKilled)} />
-            <Row label="Damage (map)" value={fmtCompact(stats.mapDamage)} />
-            <Row label="Mobs killed (session)" value={String(stats.sessionMobsKilled)} />
-            <Row label="Damage (session)" value={fmtCompact(stats.sessionDamage)} />
-            <Row label="DPS (5s window)" value={String(stats.dps.toFixed(1))} />
+            <Row label={t("diagnostics.mobsKilledMap")} value={String(stats.mapMobsKilled)} />
+            <Row label={t("diagnostics.damageMap")} value={fmtCompact(stats.mapDamage)} />
+            <Row
+              label={t("diagnostics.mobsKilledSession")}
+              value={String(stats.sessionMobsKilled)}
+            />
+            <Row label={t("diagnostics.damageSession")} value={fmtCompact(stats.sessionDamage)} />
+            <Row label={t("diagnostics.dps5s")} value={String(stats.dps.toFixed(1))} />
           </section>
         ) : null}
 
         <section>
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-            Offset extractor (self-healing)
+            {t("diagnostics.sectionOffsetExtractor")}
           </p>
-          <Row label="Offset source" value={status?.offsetHealth?.source ?? "—"} />
+          <Row label={t("diagnostics.offsetSource")} value={status?.offsetHealth?.source ?? dash} />
           <Row
-            label="Extract attempts"
+            label={t("diagnostics.extractAttempts")}
             value={
               status?.offsetHealth?.extractionAttempts != null
                 ? String(status.offsetHealth.extractionAttempts)
-                : "—"
+                : dash
             }
           />
           <Row
-            label="Status"
-            value={status?.supported ? "active" : (status?.note ?? "unavailable")}
+            label={t("diagnostics.statusLabel")}
+            value={
+              status?.supported
+                ? t("diagnostics.active")
+                : (status?.note ?? t("diagnostics.unavailable"))
+            }
           />
           <Row
-            label="Offsets complete"
+            label={t("diagnostics.offsetsComplete")}
             value={
               status?.offsetHealth
                 ? status.offsetHealth.complete
-                  ? "✓ all mapped"
-                  : `${status.offsetHealth.missing.length} missing`
-                : "—"
+                  ? t("diagnostics.allMapped")
+                  : t("diagnostics.missingCount", { count: status.offsetHealth.missing.length })
+                : dash
             }
           />
           {status?.offsetHealth && !status.offsetHealth.complete ? (
-            <Row label="Awaiting derivation" value={status.offsetHealth.missing.join(", ")} />
+            <Row
+              label={t("diagnostics.awaitingDerivation")}
+              value={status.offsetHealth.missing.join(", ")}
+            />
           ) : null}
         </section>
       </div>

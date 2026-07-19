@@ -15,7 +15,9 @@ export function usePets(): PetState | null {
       })
       .catch(reportIpcError);
 
-    const off = window.tbh.onPets((p) => setPets(p));
+    const off = window.tbh.onPets((p) => {
+      if (mounted) setPets(p);
+    });
     return () => {
       mounted = false;
       off();

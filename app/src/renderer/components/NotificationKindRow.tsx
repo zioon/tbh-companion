@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   NotificationKindId,
   NotificationKindPreference,
@@ -15,11 +16,6 @@ import { Field } from "../design-system/primitives/Field/Field";
 import { Select } from "../design-system/primitives/Select/Select";
 import { playNotificationSound } from "../lib/notificationSounds";
 
-const SOUND_OPTIONS: { value: NotificationSoundId; label: string }[] = [
-  ...NOTIFICATION_SOUND_ENTRIES.map((s) => ({ value: s.id, label: s.label })),
-  { value: "none", label: "None (silent)" },
-];
-
 export function NotificationKindRow({
   kindId,
   pref,
@@ -35,8 +31,14 @@ export function NotificationKindRow({
   notificationVolume?: number;
   onChange: (next: NotificationKindPreference) => void;
 }) {
+  const { t } = useTranslation("notifications");
   const kind = NOTIFICATION_KIND_ENTRIES.find((k) => k.id === kindId)!;
   const [previewBusy, setPreviewBusy] = useState(false);
+
+  const soundOptions: { value: NotificationSoundId; label: string }[] = [
+    ...NOTIFICATION_SOUND_ENTRIES.map((s) => ({ value: s.id, label: t(s.labelKey) })),
+    { value: "none", label: t("soundNone") },
+  ];
 
   function onPreview() {
     setPreviewBusy(true);
@@ -50,20 +52,20 @@ export function NotificationKindRow({
   return (
     <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-card/40 p-3">
       <div className="flex flex-col gap-1">
-        <p className="m-0 text-[13px] font-semibold text-fg">{kind.label}</p>
+        <p className="m-0 text-[13px] font-semibold text-fg">{t(kind.labelKey)}</p>
         <Checkbox
-          label={kind.description}
+          label={t(kind.descriptionKey)}
           checked={pref.enabled}
           disabled={disabled || saveBusy}
           onCheckedChange={(checked) => onChange({ ...pref, enabled: checked })}
         />
       </div>
-      <Field label="Sound">
+      <Field label={t("soundFieldLabel")}>
         <Select
           value={pref.sound}
           disabled={disabled || !pref.enabled || saveBusy}
           onValueChange={(value) => onChange({ ...pref, sound: value as NotificationSoundId })}
-          options={SOUND_OPTIONS}
+          options={soundOptions}
         />
       </Field>
       <Button
@@ -77,7 +79,7 @@ export function NotificationKindRow({
         }
         onClick={() => void onPreview()}
       >
-        {previewBusy ? "Playing…" : "Preview sound"}
+        {previewBusy ? t("previewPlaying") : t("previewSound")}
       </Button>
     </div>
   );

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStats } from "./lib/useStats";
 import { useInventory } from "./lib/useInventory";
 import { usePriceProgress, usePriceStatus } from "./lib/usePrices";
@@ -7,47 +9,84 @@ import { stageName } from "../core/stages";
 import { Button } from "./design-system/primitives/Button/Button";
 import { OverlayFrame } from "./components/ui/OverlayFrame";
 
-const RATE_TIP =
-  "XP/hour updates only when the game writes new XP to the save (often up to " +
-  "3 minutes apart, sometimes longer). It holds steady between writes instead of decaying.";
-const GOLD_TIP =
-  "Gold earned per hour. Counts gold gained only; spending (upgrades, Cube, " +
-  "runes) is ignored, so it's accurate while farming.";
+// Stage-boss-chest border ring: 7 min per lap, clockwise from top.
+// Each new lap layers on top of previous ones without erasing them.
+// Only tracks stage boss (rare) drops — common chests drop too frequently
+// to make a 7-min lap meaningful.
+const LAP_SECONDS = 7 * 60;
+// P2-4: ring colors resolve through the design-system CSS variable tokens
+// declared in styles.css @theme (single source of truth). SVG `stroke`
+// accepts `var(--color-*)`, so changing a token value in styles.css updates
+// the rings without touching renderer code. Semantic mapping:
+//   lap 0 (calm)    → --color-ideal   (blue)
+//   lap 1 (warning) → --color-gold    (yellow)
+//   lap 2+ (urgent) → --color-danger  (red)
+const LAP_COLORS = ["var(--color-ideal)", "var(--color-gold)", "var(--color-danger)"];
+// Force a re-render once per second so the boss-chest ring progress advances
+// smoothly. Without this, the ring only repaints when `stats` is pushed, so
+// between pushes it freezes at the last computed progress.
+const RING_TICK_MS = 1000;
+
+interface BossChestRing {
+  color: string;
+  progress: number;
+}
+
+function buildBossChestRings(
+  lastRareDropWallTime: number | null,
+  nowSeconds: number,
+): BossChestRing[] {
+  if (lastRareDropWallTime == null) return [];
+  // Clamp to >= 0: clock skew between game wall time and the renderer's
+  // Date.now() can produce a negative elapsed, which would yield negative
+  // lap counts, negative color indices (LAP_COLORS[-1] === undefined), and
+  // broken SVG stroke rendering.
+  const elapsed = Math.max(0, nowSeconds - lastRareDropWallTime);
+  const totalLaps = Math.floor(elapsed / LAP_SECONDS);
+  const currentProgress = (elapsed % LAP_SECONDS) / LAP_SECONDS;
+  const colorIndex = Math.min(totalLaps, LAP_COLORS.length - 1);
+  const rings: BossChestRing[] = [];
+  for (let i = 0; i < totalLaps; i++) {
+    rings.push({ color: LAP_COLORS[Math.min(i, LAP_COLORS.length - 1)], progress: 1 });
+  }
+  rings.push({ color: LAP_COLORS[colorIndex], progress: currentProgress });
+  return rings;
+}
 
 export function Overlay() {
   const stats = useStats();
   const inv = useInventory();
   const priceStatus = usePriceStatus();
   const priceProgress = usePriceProgress();
+  const { t } = useTranslation("live");
+
+  // 1Hz ticker so the boss-chest ring repaints even when stats haven't been
+  // pushed. Only armed while a lastRareDropWallTime is present, so idle
+  // overlays pay nothing. `nowSeconds` is the only time source used during
+  // render — calling Date.now() during render is forbidden by
+  // react-hooks/impure-function.
+  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
+  const lastRareDropWallTime = stats?.chestDrops.lastRareDropWallTime ?? null;
+  useEffect(() => {
+    if (lastRareDropWallTime === null) return;
+    const id = setInterval(() => setNowSeconds(Date.now() / 1000), RING_TICK_MS);
+    return () => clearInterval(id);
+  }, [lastRareDropWallTime]);
 
   const currency = inv?.currency ?? priceStatus?.currency ?? "USD";
   const invValue = inv?.composition.buyOrderNetTotal ?? null;
   const pricing = priceStatus?.running ?? false;
   const pricingLabel = priceProgress
-    ? `pricing ${priceProgress.done}/${priceProgress.total}…`
-    : "pricing…";
+    ? t("pricingProgress", { done: priceProgress.done, total: priceProgress.total })
+    : t("pricingLabel");
 
-  // Boss-chest border ring: 7 min per lap, clockwise from top
-  // Each new lap layers on top of previous ones without erasing them.
-  const LAP_SECONDS = 7 * 60;
-  const LAP_COLORS = ["#3b82f6", "#eab308", "#ef4444"]; // blue, yellow, red
-  let rings: { color: string; progress: number }[] = [];
-  if (stats?.chestDrops.lastDropWallTime != null) {
-    const elapsed = Date.now() / 1000 - stats.chestDrops.lastDropWallTime;
-    const totalLaps = Math.floor(elapsed / LAP_SECONDS);
-    const currentProgress = (elapsed % LAP_SECONDS) / LAP_SECONDS;
-    const colorIndex = Math.min(totalLaps, LAP_COLORS.length - 1);
-    for (let i = 0; i < totalLaps; i++) {
-      rings.push({ color: LAP_COLORS[Math.min(i, LAP_COLORS.length - 1)], progress: 1 });
-    }
-    rings.push({ color: LAP_COLORS[colorIndex], progress: currentProgress });
-  }
+  const rings = buildBossChestRings(lastRareDropWallTime, nowSeconds);
 
   return (
     <OverlayFrame className="relative overflow-visible">
       <div className="flex items-center justify-between">
         <span className="whitespace-nowrap text-[10px] font-bold tracking-wide text-muted">
-          TBH Companion
+          {t("appLabel")}
         </span>
         <div className="no-drag flex gap-1">
           {/* nativeTitle: this frameless 280x132 window never hosts a Base UI
@@ -57,7 +96,7 @@ export function Overlay() {
             variant="icon"
             type="button"
             className="text-xs"
-            title="Reset session stats"
+            title={t("resetTitleShort")}
             nativeTitle
             onClick={() => window.tbh.reset()}
           >
@@ -67,7 +106,7 @@ export function Overlay() {
             variant="icon"
             type="button"
             className="text-xs"
-            title="Open full window"
+            title={t("openFullTitle")}
             nativeTitle
             onClick={() => window.tbh.showMain()}
           >
@@ -78,7 +117,7 @@ export function Overlay() {
             type="button"
             edge="end"
             className="text-xs"
-            title="Close mini overlay (app keeps running in the tray)"
+            title={t("closeOverlayTitle")}
             nativeTitle
             onClick={() => window.tbh.closeOverlay()}
           >
@@ -88,30 +127,33 @@ export function Overlay() {
       </div>
 
       {!stats ? (
-        <p className="m-0 text-muted">Connecting...</p>
+        <p className="m-0 text-muted">{t("connectingShort")}</p>
       ) : (
         <div className="flex flex-col gap-1">
           {/* Native title (not Tooltip): this frameless window never hosts a
               Base UI portal - see DESIGN-SYSTEM.md "Base UI portals are safe
               per-window". */}
           <div className="flex items-baseline justify-between gap-2.5">
-            <p className="m-0 flex min-w-0 cursor-help items-baseline gap-1" title={RATE_TIP}>
+            <p
+              className="m-0 flex min-w-0 cursor-help items-baseline gap-1"
+              title={t("rateTipSave")}
+            >
               <span className="text-2xl font-bold leading-none tabular-nums text-accent">
                 {fmtCompact(stats.rollingRate)}
               </span>
               <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted">
-                XP/hr
+                {t("xpPerHourShort")}
               </span>
             </p>
             <p
               className="m-0 flex min-w-0 cursor-help items-baseline gap-1 text-right"
-              title={GOLD_TIP}
+              title={t("goldTipSave")}
             >
               <span className="text-base font-semibold leading-none tabular-nums text-gold">
                 {fmtCompact(stats.goldRate)}
               </span>
               <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted">
-                gold/hr
+                {t("goldPerHourShort")}
               </span>
             </p>
           </div>
@@ -122,7 +164,7 @@ export function Overlay() {
                 {fmtCompact(stats.dps)}
               </span>
               <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted">
-                DPS
+                {t("dps")}
               </span>
             </p>
             <p className="m-0 flex min-w-0 items-baseline gap-0.5">
@@ -130,7 +172,7 @@ export function Overlay() {
                 {stats.aliveMonsters ?? 0}
               </span>
               <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted">
-                alive
+                {t("alive")}
               </span>
             </p>
             <p className="m-0 flex min-w-0 items-baseline gap-0.5 text-right">
@@ -138,21 +180,21 @@ export function Overlay() {
                 {fmtCompact(stats.mapDamage)}
               </span>
               <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-muted">
-                dmg
+                {t("damage")}
               </span>
             </p>
           </div>
 
           <p className="m-0 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] tabular-nums text-muted">
-            {stats.chestDrops.lastDropWallTime != null && (
+            {stats.chestDrops.lastRareDropWallTime != null && (
               <span>
-                Box{" "}
+                {t("bossLabel")}{" "}
                 {fmtShortDuration(
-                  Math.round(Date.now() / 1000 - stats.chestDrops.lastDropWallTime),
+                  Math.max(0, Math.round(nowSeconds - stats.chestDrops.lastRareDropWallTime)),
                 )}
               </span>
             )}
-            {stats.chestDrops.lastDropWallTime != null && (
+            {stats.chestDrops.lastRareDropWallTime != null && (
               <span className="opacity-55" aria-hidden>
                 ·
               </span>
@@ -171,7 +213,9 @@ export function Overlay() {
                   ·
                 </span>
                 <span>
-                  Inv {invValue !== null ? formatMoney(invValue, currency) : "—"}
+                  {t("invLabel", {
+                    value: invValue !== null ? formatMoney(invValue, currency) : "—",
+                  })}
                   {pricing && <span className="text-muted"> ({pricingLabel})</span>}
                 </span>
               </>

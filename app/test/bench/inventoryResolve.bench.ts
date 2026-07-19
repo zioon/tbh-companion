@@ -17,6 +17,8 @@ seedResolved.rows.slice(0, Math.ceil(seedResolved.rows.length * 0.1)).forEach((r
       median: 2,
       rawLowest: "$1.50",
       rawMedian: "$2.00",
+      buyOrder: null,
+      rawBuyOrder: null,
     });
   }
 });

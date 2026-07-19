@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useStats } from "../lib/useStats";
 import { fmtAgo } from "../lib/format";
 import { cn } from "../lib/cn";
@@ -5,14 +6,15 @@ import { cn } from "../lib/cn";
 const IDLE_THRESHOLD = 120;
 
 export function SaveStatusBar() {
+  const { t } = useTranslation("live");
   const stats = useStats();
   const since = stats?.secondsSinceRead ?? null;
   const idle = since !== null && since > IDLE_THRESHOLD;
 
   let saveText: string;
-  if (!stats || !stats.connected) saveText = "Connecting to the save file...";
-  else if (since === null) saveText = "Waiting for the first save read...";
-  else saveText = `Save written ${fmtAgo(since)}`;
+  if (!stats || !stats.connected) saveText = t("saveStatusConnecting");
+  else if (since === null) saveText = t("saveStatusWaiting");
+  else saveText = t("saveStatusWritten", { ago: fmtAgo(since) });
 
   return (
     <div
@@ -25,7 +27,7 @@ export function SaveStatusBar() {
           aria-hidden
         />
         <span>{saveText}</span>
-        {idle ? <span>- is the game running?</span> : null}
+        {idle ? <span>{t("saveStatusIdleHint")}</span> : null}
       </div>
     </div>
   );

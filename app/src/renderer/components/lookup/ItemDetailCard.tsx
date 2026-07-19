@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type {
   LookupBoxSources,
   LookupItem,
@@ -44,21 +45,6 @@ import { OfferingLoot } from "./OfferingLoot";
 
 const SCROLL_SECTION_MAX = "max-h-44";
 
-const CRAFTING_HELP =
-  "Craft this item using the materials under each recipe. Each line is a tier, level band, and slot type; the % is your chance to get this item from that craft.";
-
-const DROP_HELP =
-  "Boss chests that can contain this item. The % is how often it appears in that box's loot table.";
-
-const SYNTHESIS_HELP =
-  "Combine 9 items at the Cube. Each row is a recipe tier and result level band; the % is your chance to roll this item. Item average level affects which recipes apply. The green left edge marks the best odds among all paths.";
-
-const OFFERING_SOURCE_HELP =
-  "Toss one of the coins below into the Cube for a chance at this item, among everything else in its loot table. The % is your chance of landing this specific item from that coin.";
-
-const USED_IN_HELP =
-  "Recipes that consume this material as an ingredient. Each block lists what you need and the possible gear from that recipe's loot pool — not recipes that craft this item.";
-
 function SynthesisPathRow({
   path,
   synthesisType,
@@ -72,12 +58,16 @@ function SynthesisPathRow({
   isBest: boolean;
   index: number;
 }) {
+  const { t } = useTranslation("lookup");
   const tierRange = recipeTierResultRange(model, synthesisType, path.tier);
   const avgRange = materialAverageLevelRange(path);
   const setup =
     tierRange != null
-      ? `Tier ${path.tier} (${formatSynthesisResultRange(tierRange.min, tierRange.max)})`
-      : `Tier ${path.tier}`;
+      ? t("synthesis.tierRange", {
+          tier: path.tier,
+          range: formatSynthesisResultRange(tierRange.min, tierRange.max),
+        })
+      : t("synthesis.tierOnly", { tier: path.tier });
 
   return (
     <DataListRow
@@ -177,6 +167,7 @@ function UsedInRecipeCard({
   onNavigate?: (node: LookupNavNode) => void;
   outputItemIndex: Map<number, LookupItem>;
 }) {
+  const { t } = useTranslation("lookup");
   const [query, setQuery] = useState("");
   const filteredOutputs = useMemo(
     () => filterUsedInOutputs(entry.outputs, query, outputItemIndex),
@@ -187,8 +178,12 @@ function UsedInRecipeCard({
   return (
     <div className="flex flex-col gap-2">
       <p className="m-0 text-[13px] text-fg">
-        T{entry.tier} (Lv {entry.level.min}–{entry.level.max}) ·{" "}
-        {humanizeStatKey(entry.craftingType)}
+        {t("tierLevelBand", {
+          tier: entry.tier,
+          min: entry.level.min,
+          max: entry.level.max,
+        })}{" "}
+        · {humanizeStatKey(entry.craftingType)}
       </p>
       <div className="flex flex-col gap-1 pl-1">
         {entry.materials.map((material) => {
@@ -207,11 +202,14 @@ function UsedInRecipeCard({
           );
         })}
       </div>
-      <Accordion title={`${entry.outputs.length} possible outputs`} variant="panel">
+      <Accordion
+        title={t("usedIn.possibleOutputs", { count: entry.outputs.length })}
+        variant="panel"
+      >
         <div className="flex flex-col gap-2">
           <Input
             className="min-w-0 flex-1"
-            placeholder="Search outputs..."
+            placeholder={t("usedIn.searchOutputs")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -219,7 +217,7 @@ function UsedInRecipeCard({
             <DataList scrollable className={SCROLL_SECTION_MAX}>
               {filteredOutputs.length === 0 ? (
                 <DataListRow index={0} className="text-xs text-muted">
-                  No items match your search.
+                  {t("usedIn.noMatch")}
                 </DataListRow>
               ) : (
                 filteredOutputs.map((output, i) => {
@@ -229,7 +227,7 @@ function UsedInRecipeCard({
                     <DataListRow key={output.itemKey} index={i}>
                       <ItemLink
                         node={{ type: "item", id: output.itemKey }}
-                        name={outItem?.name ?? `Item ${output.itemKey}`}
+                        name={outItem?.name ?? t("itemFallback", { id: output.itemKey })}
                         grade={outItem?.grade}
                         iconPath={outItem?.iconPath}
                         suffix={pctSuffix}
@@ -269,6 +267,7 @@ export function ItemDetailCard({
   peekItem?: (id: number) => LookupItem | undefined;
   peekBox?: (id: number) => LookupBoxSources | undefined;
 }) {
+  const { t } = useTranslation("lookup");
   const synthesisPaths = useMemo(
     () => (synthesisModel ? pathsToItem(item, synthesisModel) : []),
     [item, synthesisModel],
@@ -331,11 +330,11 @@ export function ItemDetailCard({
           <div className="flex min-w-0 flex-col gap-3">
             {item.stats ? (
               <>
-                <StatGroup title="Base stats" rows={item.stats.base} tone="base" />
-                <StatGroup title="Inherent stats" rows={item.stats.inherent} tone="inherent" />
+                <StatGroup title={t("stats.base")} rows={item.stats.base} tone="base" />
+                <StatGroup title={t("stats.inherent")} rows={item.stats.inherent} tone="inherent" />
                 {item.stats.unique ? (
                   <StatGroup
-                    title="Unique effect"
+                    title={t("stats.unique")}
                     rows={[{ display: item.stats.unique.text }]}
                     tone="unique"
                   />
@@ -350,28 +349,30 @@ export function ItemDetailCard({
         ) : null}
 
         <div className={cn("flex flex-col gap-3", hasStats && "border-t border-border pt-3")}>
-          <SectionHeading>Where to find</SectionHeading>
+          <SectionHeading>{t("whereToFind")}</SectionHeading>
 
           {!hasAcquisition ? (
-            <p className="m-0 text-xs text-muted">
-              Not obtained through drops, crafting, synthesis, or offerings.
-            </p>
+            <p className="m-0 text-xs text-muted">{t("notAcquirable")}</p>
           ) : (
             <div className="flex min-w-0 flex-col gap-3">
               {hasCrafting && sources ? (
                 <div className="flex flex-col gap-2">
                   <SectionLabelRow
-                    label="Crafting"
-                    help={CRAFTING_HELP}
-                    helpLabel="How crafting works"
+                    label={t("crafting.label")}
+                    help={t("crafting.help")}
+                    helpLabel={t("crafting.helpLabel")}
                   />
                   <Card padding="none" className="overflow-hidden">
                     <div className="flex flex-col gap-3 p-3">
                       {sources.crafting.map((recipe) => (
                         <div key={recipe.recipeKey} className="flex flex-col gap-1">
                           <p className="m-0 text-[13px] text-fg">
-                            T{recipe.tier} (Lv {recipe.level.min}–{recipe.level.max}) ·{" "}
-                            {humanizeStatKey(recipe.craftingType)} ·{" "}
+                            {t("tierLevelBand", {
+                              tier: recipe.tier,
+                              min: recipe.level.min,
+                              max: recipe.level.max,
+                            })}{" "}
+                            · {humanizeStatKey(recipe.craftingType)} ·{" "}
                             {fmtLookupPct(recipe.outputPct)}%
                           </p>
                           <div className="flex flex-col gap-1 pl-1">
@@ -400,7 +401,11 @@ export function ItemDetailCard({
 
               {hasDrops ? (
                 <div className="flex flex-col gap-2">
-                  <SectionLabelRow label="Drop" help={DROP_HELP} helpLabel="How drops work" />
+                  <SectionLabelRow
+                    label={t("drop.label")}
+                    help={t("drop.help")}
+                    helpLabel={t("drop.helpLabel")}
+                  />
                   <Card padding="none" className="overflow-hidden">
                     <DataList scrollable className={SCROLL_SECTION_MAX}>
                       {sortedDrops.map((drop, i) => (
@@ -424,9 +429,9 @@ export function ItemDetailCard({
               {hasSynthesis && synthesisModel && synthesisType ? (
                 <div className="flex flex-col gap-2">
                   <SectionLabelRow
-                    label="Synthesis"
-                    help={SYNTHESIS_HELP}
-                    helpLabel="How synthesis works"
+                    label={t("synthesis.label")}
+                    help={t("synthesis.help")}
+                    helpLabel={t("synthesis.helpLabel")}
                   />
                   <div className="flex flex-col gap-2">
                     {pathGroups.map((group) => (
@@ -447,9 +452,9 @@ export function ItemDetailCard({
               {hasOfferingSources ? (
                 <div className="flex flex-col gap-2">
                   <SectionLabelRow
-                    label="Offering"
-                    help={OFFERING_SOURCE_HELP}
-                    helpLabel="How offerings work"
+                    label={t("offering.sourceLabel")}
+                    help={t("offering.sourceHelp")}
+                    helpLabel={t("offering.sourceHelpLabel")}
                   />
                   <Card padding="none" className="overflow-hidden">
                     <DataList scrollable className={SCROLL_SECTION_MAX}>
@@ -459,7 +464,7 @@ export function ItemDetailCard({
                           <DataListRow key={source.coinKey} index={i}>
                             <ItemLink
                               node={{ type: "item", id: source.coinKey }}
-                              name={coinItem?.name ?? `Coin ${source.coinKey}`}
+                              name={coinItem?.name ?? t("coinFallback", { id: source.coinKey })}
                               grade={coinItem?.grade}
                               iconPath={coinItem?.iconPath}
                               suffix={`· ${fmtDropPct(source.poolPct)}%`}
@@ -480,9 +485,9 @@ export function ItemDetailCard({
         {hasUsedIn ? (
           <div className="flex flex-col gap-3 border-t border-border pt-3">
             <SectionHeadingRow
-              label="Used as ingredient"
-              help={USED_IN_HELP}
-              helpLabel="How ingredient recipes work"
+              label={t("usedIn.label")}
+              help={t("usedIn.help")}
+              helpLabel={t("usedIn.helpLabel")}
             />
             <div className="flex flex-col gap-3">
               {usedInRecipes.map((entry) => (

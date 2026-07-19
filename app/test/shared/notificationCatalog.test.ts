@@ -57,6 +57,9 @@ describe("migrateNotificationPrefs", () => {
     expect(
       migrateNotificationPrefs({
         notificationPrefs: {
+          chestDrop: { enabled: true, sound: "treasure-fanfare" },
+          chestReady: { enabled: true, sound: "soft-chime" },
+          heroLevelUp: { enabled: true, sound: "level-triumph" },
           inventoryAlmostFull: { enabled: false, sound: "wood-tick" },
         },
       }).inventoryAlmostFull,
@@ -68,6 +71,9 @@ describe("migrateNotificationPrefs", () => {
       migrateNotificationPrefs({
         notificationPrefs: {
           chestDrop: { enabled: false, sound: "bright-pop" },
+          chestReady: { enabled: true, sound: "soft-chime" },
+          heroLevelUp: { enabled: true, sound: "level-triumph" },
+          inventoryAlmostFull: { enabled: true, sound: "happy-ping" },
         },
       }).chestDrop,
     ).toEqual({ enabled: false, sound: "bright-pop" });
@@ -89,6 +95,9 @@ describe("migrateNotificationPrefs", () => {
     const prefs = migrateNotificationPrefs({
       notificationPrefs: {
         chestDrop: { enabled: true, sound: "bogus-id" as "soft-chime" },
+        chestReady: { enabled: true, sound: "soft-chime" },
+        heroLevelUp: { enabled: true, sound: "level-triumph" },
+        inventoryAlmostFull: { enabled: true, sound: "happy-ping" },
       },
     });
     expect(prefs.chestDrop.sound).toBe(DEFAULT_NOTIFICATION_PREFS.chestDrop.sound);

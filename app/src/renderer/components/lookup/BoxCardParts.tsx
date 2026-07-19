@@ -1,15 +1,12 @@
+import { useTranslation } from "react-i18next";
 import { gradeLabel } from "../../../core/labels";
-import {
-  boxCategoryLabel,
-  boxDropViaSummaries,
-  FIRST_DROP_ONLY_LABEL,
-  splitDropStageRangeLines,
-} from "../../../core/lookup/boxDisplay";
+import { boxDropViaSummaries, splitDropStageRangeLines } from "../../../core/lookup/boxDisplay";
 import { boxIconPath } from "../../lib/boxIconPath";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { gradeColor } from "../../lib/gradeColor";
 import { iconSrc } from "../../lib/iconSrc";
 import { cn } from "../../lib/cn";
+import { translateBoxCategoryLabel, translateBoxDropViaLabel } from "../../lib/boxDisplay";
 import { ItemIcon } from "../../design-system/primitives/ItemIcon/ItemIcon";
 import { StatGroup } from "./itemCardParts";
 import type { LookupBoxDropVia, LookupBoxSources } from "../../../../shared/types";
@@ -40,6 +37,7 @@ export function BoxCardHeader({
   boxItemKey: number;
   iconSize: "md" | "lg";
 }) {
+  const { t } = useTranslation("lookup");
   const color = box.grade ? gradeColor(box.grade) : undefined;
   const isDetail = iconSize === "lg";
 
@@ -61,11 +59,11 @@ export function BoxCardHeader({
           style={color ? { color } : undefined}
         >
           {box.grade ? `${gradeLabel(box.grade)} · ` : ""}
-          {boxCategoryLabel(box.category)}
+          {translateBoxCategoryLabel(t, box.category)}
         </p>
         {box.firstDropOnly ? (
           <p className={cn("m-0 truncate text-gold", isDetail ? "text-xs" : "text-[11px]")}>
-            {FIRST_DROP_ONLY_LABEL}
+            {t("box.firstDropOnly")}
           </p>
         ) : null}
       </div>
@@ -75,12 +73,13 @@ export function BoxCardHeader({
 
 /** Stage ranges + drop sources — identical in peek and detail headers. */
 export function BoxCardDropSummary({ box }: { box: LookupBoxSources }) {
+  const { t } = useTranslation("lookup");
   const rangeLines = splitDropStageRangeLines(box.dropStageRangeLabel);
   const viaSummaries = box.firstDropOnly ? [] : boxDropViaSummaries(box.stages);
 
   const rangeRows = rangeLines.map((line) => ({ display: line }));
   const viaRows = viaSummaries.map((row) => ({
-    display: `${row.label} · ${formatSpawnPctRange(row.minPct, row.maxPct)}`,
+    display: `${translateBoxDropViaLabel(t, row.via)} · ${formatSpawnPctRange(row.minPct, row.maxPct)}`,
     via: row.via,
   }));
 
@@ -89,7 +88,7 @@ export function BoxCardDropSummary({ box }: { box: LookupBoxSources }) {
   return (
     <div className="flex flex-col gap-1.5">
       {rangeRows.length > 0 ? (
-        <StatGroup title="Stage ranges" rows={rangeRows} tone="base" />
+        <StatGroup title={t("box.stageRanges")} rows={rangeRows} tone="base" />
       ) : null}
       {viaRows.length > 0 ? (
         <div
@@ -99,7 +98,7 @@ export function BoxCardDropSummary({ box }: { box: LookupBoxSources }) {
           )}
         >
           <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-fg/60">
-            Drop sources
+            {t("box.dropSources")}
           </p>
           <ul className="m-0 list-none divide-y divide-border/50 overflow-hidden rounded-md bg-panel/50 text-[13px]">
             {viaRows.map((row) => (

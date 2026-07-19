@@ -142,6 +142,9 @@ const api: TbhApi = {
   setCurrency(iso: string): Promise<PriceStatus> {
     return ipcRenderer.invoke(IPC.SET_CURRENCY, iso);
   },
+  setMarketAutoScanEnabled(enabled: boolean): Promise<void> {
+    return ipcRenderer.invoke(IPC.MARKET_AUTO_SCAN_TOGGLE, enabled);
+  },
   onPricesProgress(cb: (p: PriceProgress) => void): () => void {
     const listener = (_e: unknown, p: PriceProgress): void => cb(p);
     ipcRenderer.on(IPC.PRICES_PROGRESS, listener);

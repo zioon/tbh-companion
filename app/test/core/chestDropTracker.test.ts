@@ -90,6 +90,31 @@ describe("ChestDropTracker", () => {
     expect(stats.history[1]?.itemKey).toBe(910151);
   });
 
+  it("lastRareDropWallTime only tracks stage boss (rare) drops", () => {
+    // Mini overlay's boss-chest ring must ignore common/act drops — common
+    // chests drop too frequently to make a 7-min lap meaningful.
+    const tracker = new ChestDropTracker();
+    // No drops yet → null.
+    expect(tracker.getStats(3600).lastRareDropWallTime).toBeNull();
+
+    // Common drop alone → still null.
+    tracker.recordLiveChestDrop("common", 1000);
+    expect(tracker.getStats(3600).lastRareDropWallTime).toBeNull();
+
+    // Rare drop at 2000 → picked up.
+    tracker.recordLiveChestDrop("rare", 2000);
+    expect(tracker.getStats(3600).lastRareDropWallTime).toBe(2000);
+
+    // Later common + act drops must NOT overwrite the rare timestamp.
+    tracker.recordLiveChestDrop("common", 3000);
+    tracker.recordLiveChestDrop("act", 4000);
+    expect(tracker.getStats(3600).lastRareDropWallTime).toBe(2000);
+
+    // A newer rare drop updates the timestamp.
+    tracker.recordLiveChestDrop("rare", 5000);
+    expect(tracker.getStats(3600).lastRareDropWallTime).toBe(5000);
+  });
+
   it("round-trips snapshot restore", () => {
     const tracker = new ChestDropTracker();
     tracker.recordLogDrop(910151);

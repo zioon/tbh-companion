@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import type { BoxTimerState } from "../../../shared/types";
 import { reportIpcError } from "./reportError";
+// P2-9: fmtTimer moved to format.ts alongside the other duration formatters.
+// Re-exported here so existing `import { fmtTimer } from "./lib/useBoxTimers"`
+// callsites (BoxTracker.tsx) keep working without churn.
+export { fmtTimer } from "./format";
 
 export function useBoxTimers(): BoxTimerState | null {
   const [state, setState] = useState<BoxTimerState | null>(null);
@@ -15,7 +19,9 @@ export function useBoxTimers(): BoxTimerState | null {
       })
       .catch(reportIpcError);
 
-    const off = window.tbh.onBoxTimers((s) => setState(s));
+    const off = window.tbh.onBoxTimers((s) => {
+      if (mounted) setState(s);
+    });
     return () => {
       mounted = false;
       off();
@@ -24,11 +30,3 @@ export function useBoxTimers(): BoxTimerState | null {
 
   return state;
 }
-
-function fmtTimer(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-export { fmtTimer };

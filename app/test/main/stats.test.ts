@@ -60,7 +60,6 @@ describe("buildStats", () => {
       inventoryItems: null,
       stageClears: null,
       petData: null,
-      boxQueue: null,
       monsterHp: null,
       deadMonsterCount: null,
       source: "test",

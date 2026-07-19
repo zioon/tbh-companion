@@ -20,7 +20,9 @@ export function useStageRuns(): StageRunStats | null {
       })
       .catch(reportIpcError);
 
-    const off = window.tbh.onStageRuns((s) => setStats(s));
+    const off = window.tbh.onStageRuns((s) => {
+      if (mounted) setStats(s);
+    });
     return () => {
       mounted = false;
       off();

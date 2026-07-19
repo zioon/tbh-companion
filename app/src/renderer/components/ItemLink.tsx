@@ -1,4 +1,4 @@
-import { FIRST_DROP_ONLY_LABEL } from "../../core/lookup/boxDisplay";
+import { useTranslation } from "react-i18next";
 import { gradeColor } from "../lib/gradeColor";
 import { iconSrc } from "../lib/iconSrc";
 import { EntityLink } from "../design-system/primitives/EntityLink/EntityLink";
@@ -31,10 +31,13 @@ export function ItemLink({
   peekItem?: (id: number) => LookupItem | undefined;
   peekBox?: (id: number) => LookupBoxSources | undefined;
 }) {
+  const { t } = useTranslation("lookup");
   const color = grade ? gradeColor(grade) : undefined;
   const boxMeta = node.type === "box" ? peekBox?.(node.id) : undefined;
   const isFirstClearBox = boxMeta?.firstDropOnly === true;
-  const effectiveSuffix = isFirstClearBox ? `· ${FIRST_DROP_ONLY_LABEL}` : suffix;
+  const effectiveSuffix = isFirstClearBox
+    ? t("box.firstDropOnlySuffix", { label: t("box.firstDropOnly") })
+    : suffix;
 
   const icon = iconPath ? (
     <ItemIcon src={iconSrc(iconPath)} color={color ?? gradeColor("UNKNOWN")} size="link" />

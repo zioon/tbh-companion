@@ -46,6 +46,18 @@ export function isMarketPipelineSaveItemKey(itemKey: number): boolean {
   return itemKey >= 1_000_000 && itemKey % 1000 === 900;
 }
 
+/**
+ * Whether a `catalogItemKeyFromSave` result falls in the bundled catalog's id
+ * range. Used to distinguish a genuine game id the catalog hasn't indexed yet
+ * (e.g. 620017, extracted from the localization key "ItemName_620017") from a
+ * garbage misread (e.g. 1703973696, a heap-address low-32-bits that
+ * `catalogItemKeyFromSave` couldn't normalize). The former should be preserved
+ * so loot isn't lost on restart; the latter should be dropped.
+ */
+export function isPlausibleCatalogItemKey(catalogId: number): boolean {
+  return catalogId >= SAVE_CATALOG_ITEM_KEY_MIN && catalogId <= SAVE_CATALOG_ITEM_KEY_MAX;
+}
+
 /** Normalize a catalog row loaded from JSON (tolerates legacy icon/gearId fields). */
 export function normalizeGameItem(raw: Record<string, unknown>): GameItem | null {
   const id = Number(raw.id);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
 import { Button } from "../../design-system/primitives/Button/Button";
 
@@ -20,6 +21,7 @@ function findScrollableAncestor(node: HTMLElement | null): HTMLElement | null {
  * static), but this stays a generic DOM walk rather than assuming that.
  */
 export function BackToTop() {
+  const { t } = useTranslation("lookup");
   const buttonRef = useRef<HTMLButtonElement>(null);
   const containerRef = useRef<HTMLElement | null>(null);
   const [visible, setVisible] = useState(false);
@@ -45,8 +47,8 @@ export function BackToTop() {
         visible ? "opacity-100" : "pointer-events-none opacity-0",
       )}
       onClick={() => containerRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
-      aria-label="Back to top"
-      title="Back to top"
+      aria-label={t("backToTop")}
+      title={t("backToTop")}
     >
       ↑
     </Button>

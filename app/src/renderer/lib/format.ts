@@ -70,3 +70,26 @@ export function fmtFillEta(hours: number, now: Date = new Date()): string {
   const dateStr = eta.toLocaleDateString([], { month: "short", day: "numeric" });
   return `${dateStr} at ${time}`;
 }
+
+/**
+ * Format a cooldown remaining-seconds value for the BoxTracker UI.
+ *
+ * P2-9: support hours so a 24h cooldown (max allowed by
+ * `parseCooldownMinutesInput` = 1440 min) renders as `24:00:00` instead of the
+ * broken `1440:00` the old `m:ss` formatter produced (the minute field was
+ * unbounded and not zero-padded, so 1440 min rendered as a 4-digit minute
+ * with no hour). For sub-hour cooldowns the output is unchanged (`m:ss`).
+ *
+ * Moved here from `useBoxTimers.ts` so the formatter is reusable and lives
+ * with the other duration formatters; `useBoxTimers.ts` re-exports it for
+ * backwards compatibility with `BoxTracker.tsx`.
+ */
+export function fmtTimer(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}

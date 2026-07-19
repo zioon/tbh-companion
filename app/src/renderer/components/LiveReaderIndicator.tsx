@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useLiveMemoryStatus } from "../lib/useLiveMemory";
 import { Badge } from "../design-system/primitives/Badge/Badge";
 
@@ -10,6 +11,7 @@ import { Badge } from "../design-system/primitives/Badge/Badge";
  * useLiveMemory to avoid subscribing to the 25 Hz snapshot stream.
  */
 export function LiveReaderIndicator() {
+  const { t } = useTranslation("common");
   const status = useLiveMemoryStatus();
 
   // Show nothing while the reader isn't running (off, stopped, not yet started).
@@ -18,7 +20,7 @@ export function LiveReaderIndicator() {
   if (status.attached && status.scanning) {
     return (
       <Badge variant="warning" className="self-center">
-        Live: scanning
+        {t("liveReader.scanning")}
       </Badge>
     );
   }
@@ -26,18 +28,15 @@ export function LiveReaderIndicator() {
   if (status.attached && status.supported) {
     return (
       <Badge variant="success" className="self-center">
-        Live
+        {t("liveReader.live")}
       </Badge>
     );
   }
 
   if (status.attached && !status.supported) {
     return (
-      <span
-        className="self-center"
-        title={status.note ?? "Live stats unavailable for this version"}
-      >
-        <Badge variant="info">Live: unsupported</Badge>
+      <span className="self-center" title={status.note ?? t("liveReader.unsupportedTitle")}>
+        <Badge variant="info">{t("liveReader.unsupported")}</Badge>
       </span>
     );
   }
@@ -45,7 +44,7 @@ export function LiveReaderIndicator() {
   // Running but game process not found yet — retry loop is active.
   return (
     <Badge variant="muted" className="self-center">
-      Live: waiting for game
+      {t("liveReader.waitingForGame")}
     </Badge>
   );
 }

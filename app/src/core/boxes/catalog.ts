@@ -1,6 +1,9 @@
 import { readBundledJson } from "../bundledData";
-
-export type BoxCategory = "common" | "rare" | "act" | "unknown";
+// P2-1: `BoxCategory` is defined once in `shared/types.ts` (canonical tracker-side
+// vocabulary). Re-exported here so existing `import { BoxCategory } from "./catalog"`
+// call sites keep working without churn.
+import type { BoxCategory } from "../../../shared/types";
+export type { BoxCategory };
 
 export interface BoxTypeEntry {
   boxType: number;

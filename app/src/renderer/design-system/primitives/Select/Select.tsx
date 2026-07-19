@@ -67,6 +67,7 @@ export function Select({
   onValueChange,
   disabled,
   title,
+  ariaLabel,
 }: {
   label?: ReactNode;
   footer?: ReactNode;
@@ -79,9 +80,19 @@ export function Select({
   onValueChange: (value: string | number) => void;
   disabled?: boolean;
   title?: string;
+  /**
+   * Accessible name for the trigger when no visible {@link label} is shown.
+   * Use for inline Selects in compact rows (e.g. LootBoxSection reclassify)
+   * where a visible label would break the layout but screen readers still
+   * need to announce what the control is.
+   */
+  ariaLabel?: string;
 } & VariantProps<typeof triggerVariants>) {
   const trigger = (
-    <BaseSelect.Trigger className={cn(triggerVariants({ variant }), "group", triggerClassName)}>
+    <BaseSelect.Trigger
+      className={cn(triggerVariants({ variant }), "group", triggerClassName)}
+      aria-label={ariaLabel}
+    >
       <span className="grid min-w-0 grid-cols-1 grid-rows-1">
         {options.map((option) => (
           <span

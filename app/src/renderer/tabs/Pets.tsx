@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { aggregatePassiveBonuses } from "../../core/pets/bonuses";
 import type { PetBestStage, PetRow } from "../../../shared/types";
 import { Badge } from "../design-system/primitives/Badge/Badge";
@@ -14,13 +15,15 @@ function formatKillsPerClear(value: number): string {
 }
 
 function BestStageBlock({ stage }: { stage: PetBestStage }) {
+  const { t } = useTranslation("pets");
   return (
     <li className="border-t border-border pt-2 first:border-t-0 first:pt-0">
       <p className="m-0 text-xs text-fg">
-        {stage.difficultyLabel} · {stage.locationName} · {stage.spawnPercent}% spawn
+        {stage.difficultyLabel} · {stage.locationName} ·{" "}
+        {t("spawnPercent", { value: stage.spawnPercent })}
       </p>
       <p className="m-0 mt-0.5 text-xs text-muted">
-        ~{formatKillsPerClear(stage.expectedKillsPerClear)} kills/clear
+        {t("killsPerClear", { value: formatKillsPerClear(stage.expectedKillsPerClear) })}
         {stage.runsMessage ? <> · {stage.runsMessage}</> : null}
       </p>
     </li>
@@ -28,6 +31,7 @@ function BestStageBlock({ stage }: { stage: PetBestStage }) {
 }
 
 function PetCard({ pet }: { pet: PetRow }) {
+  const { t } = useTranslation("pets");
   const showProgress =
     pet.unlockKind === "kills" && pet.killTarget != null && pet.killCount != null;
   const showKillsRemaining =
@@ -38,10 +42,12 @@ function PetCard({ pet }: { pet: PetRow }) {
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="m-0 text-sm">{pet.name}</h2>
-          {pet.equipped ? <Badge>Equipped</Badge> : null}
-          {pet.unlocked ? <Badge variant="success">Unlocked</Badge> : null}
-          {!pet.unlocked && pet.unlockKind === "dlc" ? <Badge>DLC</Badge> : null}
-          {!pet.unlocked && pet.unlockKind === "kills" ? <Badge>In progress</Badge> : null}
+          {pet.equipped ? <Badge>{t("badgeEquipped")}</Badge> : null}
+          {pet.unlocked ? <Badge variant="success">{t("badgeUnlocked")}</Badge> : null}
+          {!pet.unlocked && pet.unlockKind === "dlc" ? <Badge>{t("badgeDlc")}</Badge> : null}
+          {!pet.unlocked && pet.unlockKind === "kills" ? (
+            <Badge>{t("badgeInProgress")}</Badge>
+          ) : null}
         </div>
 
         <p className="m-0 min-h-[2.5rem] text-xs leading-relaxed text-muted">
@@ -51,7 +57,10 @@ function PetCard({ pet }: { pet: PetRow }) {
         {showProgress ? (
           <div>
             <p className="m-0 text-sm font-semibold">
-              {pet.killCount!.toLocaleString()} / {pet.killTarget!.toLocaleString()} kills
+              {t("killsProgress", {
+                count: pet.killCount!.toLocaleString(),
+                target: pet.killTarget!.toLocaleString(),
+              })}
             </p>
             <CapacityBar
               className="mt-1.5"
@@ -65,21 +74,23 @@ function PetCard({ pet }: { pet: PetRow }) {
             />
             <p className="m-0 mt-1.5 min-h-[1.125rem] text-xs text-muted">
               {showKillsRemaining
-                ? `${pet.killsRemaining!.toLocaleString()} kills remaining`
+                ? t("killsRemaining", { count: pet.killsRemaining!.toLocaleString() })
                 : "\u00a0"}
             </p>
           </div>
         ) : null}
 
         {!pet.unlocked && pet.unlockKind === "dlc" ? (
-          <p className="m-0 text-xs text-muted">Unlock via {pet.dlcLabel ?? "Supporter Pack"}</p>
+          <p className="m-0 text-xs text-muted">
+            {t("unlockViaDlc", { label: pet.dlcLabel ?? t("defaultDlcLabel") })}
+          </p>
         ) : null}
       </div>
 
       {pet.bestStages?.length || pet.appearsOnStages?.length ? (
         <div className="mt-auto flex flex-col gap-2 pt-2">
           {pet.bestStages && pet.bestStages.length > 0 ? (
-            <Accordion variant="panel" title="Best stages">
+            <Accordion variant="panel" title={t("bestStages")}>
               <ul className="m-0 list-none space-y-2 p-0">
                 {pet.bestStages.map((stage) => (
                   <BestStageBlock key={stage.stageKey} stage={stage} />
@@ -89,7 +100,7 @@ function PetCard({ pet }: { pet: PetRow }) {
           ) : null}
 
           {pet.appearsOnStages && pet.appearsOnStages.length > 0 ? (
-            <Accordion variant="panel" title="Where to find it">
+            <Accordion variant="panel" title={t("whereToFind")}>
               <ul className="m-0 list-none space-y-0.5 p-0 text-xs text-muted">
                 {pet.appearsOnStages.map((stage) => (
                   <li key={`${stage.act}-${stage.stage}`}>{stage.label}</li>
@@ -114,13 +125,14 @@ function PetGrid({ pets }: { pets: PetRow[] }) {
 }
 
 export function Pets() {
+  const { t } = useTranslation("pets");
   const pets = usePets();
 
   if (!pets) {
     return (
       <div className="flex flex-col gap-1.5">
-        <h1 className="m-0 text-lg font-semibold">Pets</h1>
-        <p className="m-0 text-muted">Waiting for save data…</p>
+        <h1 className="m-0 text-lg font-semibold">{t("tabTitle")}</h1>
+        <p className="m-0 text-muted">{t("waiting")}</p>
       </div>
     );
   }
@@ -135,11 +147,11 @@ export function Pets() {
   return (
     <TabPage>
       <TabHeader
-        title="Pets"
-        intro={`${unlockedCount} of ${pets.pets.length} companions unlocked. Passive bonuses apply even when a pet is not equipped — the slot is cosmetic.`}
+        title={t("tabTitle")}
+        intro={t("intro", { unlocked: unlockedCount, total: pets.pets.length })}
       />
 
-      <Section title="Current passive bonus" className="max-w-md">
+      <Section title={t("currentPassiveBonus")} className="max-w-md">
         {passiveBonuses.length > 0 ? (
           <Card className="w-fit min-w-48">
             <ul className="m-0 list-none space-y-1 p-0 text-sm font-medium text-fg">
@@ -149,21 +161,24 @@ export function Pets() {
             </ul>
           </Card>
         ) : (
-          <p className="m-0 text-xs text-muted">Unlock pets to gain passive bonuses.</p>
+          <p className="m-0 text-xs text-muted">{t("noPassiveBonus")}</p>
         )}
       </Section>
 
-      <Section title="Unlock by farming">
+      <Section title={t("unlockByFarming")}>
         <p className="m-0 text-xs text-muted">
-          {farmableUnlocked} of {farmablePets.length} unlocked ·{" "}
-          {pets.unlockKillCount.toLocaleString()} kills per target monster
+          {t("unlockByFarmingSummary", {
+            unlocked: farmableUnlocked,
+            total: farmablePets.length,
+            count: pets.unlockKillCount.toLocaleString(),
+          })}
         </p>
         <PetGrid pets={farmablePets} />
       </Section>
 
       <Section title={pets.dlcLabel}>
         <p className="m-0 text-xs text-muted">
-          {dlcUnlocked} of {dlcPets.length} unlocked · purchased with the Supporter Pack
+          {t("dlcSummary", { unlocked: dlcUnlocked, total: dlcPets.length })}
         </p>
         <PetGrid pets={dlcPets} />
       </Section>

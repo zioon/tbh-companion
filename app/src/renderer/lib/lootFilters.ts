@@ -1,5 +1,6 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
 import type { BoxOpenBreakdownRow } from "../../../shared/types";
+import { matchesMulti } from "./lootFilterCommon";
 
 export type LootSortKey = "count" | "dropPct" | "name" | "grade" | "buyOrderValue";
 
@@ -17,9 +18,7 @@ export const DEFAULT_LOOT_FILTER_STATE: LootFilterState = {
   sortDir: "desc",
 };
 
-function matchesMulti(selected: string[], value: string | null): boolean {
-  return selected.length === 0 || (value != null && selected.includes(value));
-}
+// P2-2: `matchesMulti` moved to lootFilterCommon.ts.
 
 export function filterAndSortLoot(
   rows: BoxOpenBreakdownRow[],

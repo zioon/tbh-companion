@@ -9,14 +9,18 @@ function buildTextAsset(name: string, script: string): Buffer {
   const scriptPad = (4 - (scriptBuf.length % 4)) % 4;
   return Buffer.concat([
     Buffer.from([
-      nameBuf.length & 0xff, (nameBuf.length >>> 8) & 0xff,
-      (nameBuf.length >>> 16) & 0xff, (nameBuf.length >>> 24) & 0xff,
+      nameBuf.length & 0xff,
+      (nameBuf.length >>> 8) & 0xff,
+      (nameBuf.length >>> 16) & 0xff,
+      (nameBuf.length >>> 24) & 0xff,
     ]),
     nameBuf,
     Buffer.alloc(namePad, 0),
     Buffer.from([
-      scriptBuf.length & 0xff, (scriptBuf.length >>> 8) & 0xff,
-      (scriptBuf.length >>> 16) & 0xff, (scriptBuf.length >>> 24) & 0xff,
+      scriptBuf.length & 0xff,
+      (scriptBuf.length >>> 8) & 0xff,
+      (scriptBuf.length >>> 16) & 0xff,
+      (scriptBuf.length >>> 24) & 0xff,
     ]),
     scriptBuf,
     Buffer.alloc(scriptPad, 0),

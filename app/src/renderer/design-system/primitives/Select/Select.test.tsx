@@ -147,4 +147,20 @@ describe("Select", () => {
     await screen.findByRole("option", { name: "Torment 1-2" });
     expect(await axe(container)).toHaveNoViolations();
   });
+
+  // P2-12: inline Selects (e.g. the LootBoxSection reclassify row) have no
+  // visible `label` slot — they sit in a compact [Select][Input][Button]
+  // row. `ariaLabel` gives the trigger an accessible name so screen readers
+  // announce what the control is instead of reading the raw value aloud.
+  it("exposes an accessible name via ariaLabel when no visible label is set", () => {
+    render(<Select ariaLabel="Category" options={OPTIONS} value={1} onValueChange={() => {}} />);
+    expect(screen.getByRole("combobox", { name: "Category" })).toBeInTheDocument();
+  });
+
+  it("has no detectable accessibility violations with ariaLabel and no visible label", async () => {
+    const { container } = render(
+      <Select ariaLabel="Category" options={OPTIONS} value={1} onValueChange={() => {}} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
 });

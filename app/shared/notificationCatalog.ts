@@ -1,22 +1,22 @@
 /** Shared notification sound catalog and kind definitions (main + renderer). */
 
 export const NOTIFICATION_SOUND_ENTRIES = [
-  { id: "soft-chime", label: "Soft chime", file: "soft-chime.wav" },
-  { id: "double-tap", label: "Double tap", file: "double-tap.wav" },
-  { id: "wood-tick", label: "Wood tick", file: "wood-tick.wav" },
-  { id: "whisper-ping", label: "Whisper ping", file: "whisper-ping.wav" },
-  { id: "bright-pop", label: "Bright pop", file: "bright-pop.wav" },
-  { id: "clear-bell", label: "Clear bell", file: "clear-bell.wav" },
-  { id: "soft-ding", label: "Soft ding", file: "soft-ding.wav" },
-  { id: "quick-rise", label: "Quick rise", file: "quick-rise.wav" },
-  { id: "game-blip", label: "Game blip", file: "game-blip.wav" },
-  { id: "arcade-tone", label: "Arcade tone", file: "arcade-tone.wav" },
-  { id: "crystal-chime", label: "Crystal chime", file: "crystal-chime.wav" },
-  { id: "happy-ping", label: "Happy ping", file: "happy-ping.wav" },
-  { id: "magic-spark", label: "Magic spark", file: "magic-spark.wav" },
-  { id: "level-triumph", label: "Level triumph", file: "level-triumph.wav" },
-  { id: "treasure-fanfare", label: "Treasure fanfare", file: "treasure-fanfare.wav" },
-  { id: "gentle-alert", label: "Gentle alert", file: "gentle-alert.wav" },
+  { id: "soft-chime", labelKey: "sounds.softChime", file: "soft-chime.wav" },
+  { id: "double-tap", labelKey: "sounds.doubleTap", file: "double-tap.wav" },
+  { id: "wood-tick", labelKey: "sounds.woodTick", file: "wood-tick.wav" },
+  { id: "whisper-ping", labelKey: "sounds.whisperPing", file: "whisper-ping.wav" },
+  { id: "bright-pop", labelKey: "sounds.brightPop", file: "bright-pop.wav" },
+  { id: "clear-bell", labelKey: "sounds.clearBell", file: "clear-bell.wav" },
+  { id: "soft-ding", labelKey: "sounds.softDing", file: "soft-ding.wav" },
+  { id: "quick-rise", labelKey: "sounds.quickRise", file: "quick-rise.wav" },
+  { id: "game-blip", labelKey: "sounds.gameBlip", file: "game-blip.wav" },
+  { id: "arcade-tone", labelKey: "sounds.arcadeTone", file: "arcade-tone.wav" },
+  { id: "crystal-chime", labelKey: "sounds.crystalChime", file: "crystal-chime.wav" },
+  { id: "happy-ping", labelKey: "sounds.happyPing", file: "happy-ping.wav" },
+  { id: "magic-spark", labelKey: "sounds.magicSpark", file: "magic-spark.wav" },
+  { id: "level-triumph", labelKey: "sounds.levelTriumph", file: "level-triumph.wav" },
+  { id: "treasure-fanfare", labelKey: "sounds.treasureFanfare", file: "treasure-fanfare.wav" },
+  { id: "gentle-alert", labelKey: "sounds.gentleAlert", file: "gentle-alert.wav" },
 ] as const;
 
 export type NotificationSoundId = (typeof NOTIFICATION_SOUND_ENTRIES)[number]["id"] | "none";
@@ -24,23 +24,23 @@ export type NotificationSoundId = (typeof NOTIFICATION_SOUND_ENTRIES)[number]["i
 export const NOTIFICATION_KIND_ENTRIES = [
   {
     id: "chestDrop",
-    label: "Chest drop",
-    description: "When a tracked stage boss drops a chest.",
+    labelKey: "kinds.chestDrop.label",
+    descriptionKey: "kinds.chestDrop.description",
   },
   {
     id: "chestReady",
-    label: "Chest ready",
-    description: "When a tracked chest cooldown finishes.",
+    labelKey: "kinds.chestReady.label",
+    descriptionKey: "kinds.chestReady.description",
   },
   {
     id: "heroLevelUp",
-    label: "Hero level up",
-    description: "When a hero gains a level in the save file.",
+    labelKey: "kinds.heroLevelUp.label",
+    descriptionKey: "kinds.heroLevelUp.description",
   },
   {
     id: "inventoryAlmostFull",
-    label: "Inventory almost full",
-    description: "When your unlocked inventory slots reach the configured fill threshold.",
+    labelKey: "kinds.inventoryAlmostFull.label",
+    descriptionKey: "kinds.inventoryAlmostFull.description",
   },
 ] as const;
 
