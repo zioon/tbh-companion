@@ -92,7 +92,7 @@
     "gearGroups": {
       "WEAPON": "Weapon",
       "ARMOR": "Armor",
-      "ACCESSORY": "Accessory"
+      "ACCESSORY": "Accessories"
     },
     "modifierGroups": {
       "Offense": "Offense",

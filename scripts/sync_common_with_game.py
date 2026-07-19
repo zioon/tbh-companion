@@ -10,6 +10,7 @@ Game key mapping:
   - labels.types.<X>       <- GearType_<X> | ItemType_<X> | <X> (single key)
   - labels.stats.<X>       <- StatName_<X>
   - labels.classes.<X>     <- HeroName_<heroId>  (mapped via class->heroId table)
+  - labels.gearGroups.<X>  <- StashItemFilterType_<X>
 """
 import json
 import sys
@@ -132,6 +133,15 @@ def build_classes_lookup() -> dict[str, str]:
     return {cls: f"HeroName_{hid}" for cls, hid in CLASS_TO_HERO_ID.items()}
 
 
+def build_gear_groups_lookup() -> dict[str, str]:
+    """gearGroups.X <- StashItemFilterType_X (Weapon/Armor/Accessory)."""
+    return {
+        "WEAPON": "StashItemFilterType_WEAPON",
+        "ARMOR": "StashItemFilterType_ARMOR",
+        "ACCESSORY": "StashItemFilterType_ACCESSORY",
+    }
+
+
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
     dump = load_dump()
@@ -139,7 +149,7 @@ def main() -> None:
     sections = sys.argv[1:]
     sections = [s for s in sections if not s.startswith("--")]
     if not sections:
-        sections = ["grades", "types", "stats", "classes"]
+        sections = ["grades", "types", "stats", "classes", "gearGroups"]
 
     for lang in LANGS:
         print(f"\n=== {lang} ===")
@@ -159,6 +169,8 @@ def main() -> None:
                 lookup = build_stats_lookup(our_keys, game_keys)
             elif section == "classes":
                 lookup = build_classes_lookup()
+            elif section == "gearGroups":
+                lookup = build_gear_groups_lookup()
             else:
                 continue
 
