@@ -8,6 +8,7 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 - The companion UI is now translated into **English, Simplified Chinese (简体中文), Japanese (日本語), and Korean (한국어)**. Pick a language explicitly in **Settings**, or use **Auto** (follows your operating system locale).
 - New **Follow game** option syncs the companion's language with the game's in-app language preference — change the language inside TBH and the companion follows on its next config read, no extra IPC.
+- **Extended language support to all 16 game-supported locales**: German (Deutsch), Spanish (Español), French (Français), Polish (Polski), Portuguese (Português), Russian (Русский), Turkish (Türkçe), Ukrainian (Українська), Traditional Chinese (繁體中文), Thai (ไทย), Vietnamese (Tiếng Việt), and Indonesian (Bahasa Indonesia). Settings now lists each language by its native name. UI strings for these 12 additional languages currently fall back to English; in-game content (item names, grades, types, stats, hero classes, gear groups) is synced per-language from the game's localization bundles on every catalog refresh, so loot labels and grade names read naturally in the player's language.
 - Item names pulled from the bundled game catalogs (Lookup, Inventory, Chests, etc.) honor the selected language so market valuations and drop labels read naturally in every supported locale.
 - All tabs, the mini overlay, tooltips, notifications, and error toasts use the translated strings; missing keys fall back to English.
 

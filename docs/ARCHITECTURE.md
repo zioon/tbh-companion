@@ -151,9 +151,18 @@ namespace (16 namespaces mirror the renderer's tab/feature split, e.g. `live`,
 other three languages mirror its key shape and fall back to English on missing
 keys via i18next's default fallback chain.
 
-`AppLanguage` (`app/shared/language.ts`) is the persisted config value:
-`"en" | "zh-CN" | "ja" | "ko" | "auto" | "game"`. The runtime
-`ResolvedLanguage` is one of the four concrete locales and is derived by
+**16 语言支持：** `APP_LANGUAGES` 覆盖游戏支持的全部 16 种语言（en、zh-CN、
+zh-Hant、fr-FR、de-DE、es-ES、id-ID、ja、ko、pl-PL、pt-BR、ru-RU、th-TH、tr-TR、
+uk-UA、vi-VN）。其中 4 种（en、zh-CN、ja、ko）有完整的 UI 翻译 JSON；其余 12 种
+的 UI 字符串暂时引用 en bundle 作为占位（`LOCALE_RESOURCES` 中直接复用 `en`
+对象），后续可逐语言补齐。**游戏内 labels**（grades / types / stats / classes /
+gearGroups）通过 catalog refresh 时从游戏 locale bundle 动态提取，每种语言都有
+独立的翻译，因此 12 种新语言在游戏内容部分仍然是原生语言显示（详见下文
+「游戏 locale 自动同步」段）。
+
+`AppLanguage` (`app/shared/language.ts`) is the persisted config value: one of
+the 16 concrete locales in `APP_LANGUAGES`, or `"auto"` / `"game"`. The runtime
+`ResolvedLanguage` is one of the 16 concrete locales and is derived by
 `resolveLanguage(language, systemLocale, gameLanguage?)`:
 
 - `"auto"` — follows the OS locale, falling back to English.
@@ -193,7 +202,35 @@ i18next 命名空间只覆盖 UI 字符串；游戏中动态产生的数据—�
   输出 4 份 JSON 到 `data/locale_strings_{en,zh-CN,ja,ko}.json`。每份文件
   包含四个映射表：`items`（511 件物品，按 `ItemName_` key）、`stages`
   （30 张地图，按 4 位 `<act><stage>` 编号）、`heroes`（6 位英雄）、
-  `difficulties`（NORMAL / NIGHTMARE / HELL / TORMENT）。
+  `difficulties`（NORMAL / NIGHTMARE / HELL / TORMENT）。12 种新语言没有
+  离线 JSON —— `core/localeCatalog.ts` 的 `LANG_TO_FILENAME` 把它们映射到
+  `locale_strings_en.json`（英文兜底），直到补齐专属翻译。
+
+### 游戏 locale 自动同步（runtime label sync）
+
+除了离线 catalog（item/stage/hero/difficulty 名），companion 还在每次
+catalog refresh 时从游戏 bundle 动态提取所有 16 种语言的 labels（grades /
+types / stats / classes / gearGroups 等），合并到 i18next 资源中。这条链路
+保证 12 种新语言虽然没有 UI 翻译 JSON，但游戏内内容（如装备品质名「Rare」
+→「稀有」、英雄职业名等）仍以玩家选择的语言显示。
+
+- **动态扫描**：`main/catalogRefreshService.ts` 的 `resolveAssetPaths` 用
+  `readdirSync` 扫描 `StreamingAssets/aa/StandaloneWindows64/` 下所有
+  `localization-string-tables-*_assets_all*.bundle` 文件，通过
+  `parseLocaleBundleFilename` 从文件名中解析 BCP-47 代码（如
+  `(zh-hans)` → `zh-CN`、`(vi-vn)` → `vi-VN`），自动发现全部 16 种语言
+  bundle（包括 vi-VN 的 `_assets_all_<hash>.bundle` 变体）。无需硬编码
+  语言数量，游戏未来新增语言也自动支持。
+- **提取**：`core/unityAssets/localeExtractor.ts` 的 `extractLocales` 接收
+  `Record<lang, Buffer>` 动态输入，输出 `Record<lang, Record<key, value>>`。
+  每种语言独立提取，缺失的 bundle 返回空 map（不报错）。
+- **存储**：提取结果作为 `GameLocaleData.locales` 写入 `userData/locale.json`，
+  通过现有 `getLocaleData` IPC 通道（零新增 channel）传给渲染层。
+- **合并**：`renderer/i18n.ts` 的 `tryMergeGameLocale` 遍历
+  `localeData.locales` 的所有 key，对每种语言调用
+  `flatGameKeysToLabels` 转换为 i18next labels namespace 格式，然后
+  `i18next.addResourceBundle(lang, "common", { labels })` 合并。游戏值
+  优先于 bundled 值，保证翻译与游戏保持同步。
 - **运行时加载**：`app/src/core/localeCatalog.ts` 的 `loadLocaleCatalog(lang)`
   通过 `core/bundledData.readBundledJson` 同步读取对应语言的 JSON，按
   `ResolvedLanguage` 缓存到进程生命周期（catalog 内容运行期不变，切换语言
