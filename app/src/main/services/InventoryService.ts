@@ -609,6 +609,18 @@ export class InventoryService {
     const currency = this.market.status().currency;
     resolved.currency = currency;
     resolved.composition.currency = currency;
+    // Post-process: re-resolve row.name with the current LocaleCatalog. The
+    // inventory worker (utility process) builds rows from a merged catalog
+    // (gamedata.json + lookup_items.json) and can't swap catalogs at runtime,
+    // so without this step the IPC payload carries English/placeholder names
+    // even after a language switch. `marketHashName` is preserved (English,
+    // required for Steam market lookups). `getMergedGameItem` already
+    // encapsulates the locale-vs-lookup fallback order, so we reuse it
+    // instead of duplicating the logic.
+    for (const row of resolved.rows) {
+      const merged = this.getMergedGameItem(row.itemKey);
+      if (merged) row.name = merged.name;
+    }
     this.lastInventory = resolved;
     broadcast(IPC.INVENTORY, resolved);
     this.onInventoryUpdated?.(resolved);

@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, type OpenDialogOptions } from "electron";
 import { dirname } from "node:path";
 
 import {
@@ -44,26 +44,66 @@ import { isAppQuitting, rebuildTrayMenu } from "../tray/trayService";
 import { applyWindowTopmost } from "../windows/alwaysOnTop";
 import { changeLanguage, readGameLanguage, t } from "../i18n";
 import { resolveLanguage, type ResolvedLanguage } from "../../../shared/language";
+import { loadLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 
 let config: AppConfig;
 
 /**
- * 包装 normalizeConfigFromRaw，注入运行时派生字段 `resolvedLanguage`。
- * 仅当 config.language === "game" 时填充（从游戏注册表读取）；其它情况下
- * 字段为 undefined，渲染进程会自行用 resolveLanguage(cfg.language, navigator.language)
- * 推断。
+ * 包装 normalizeConfigFromRaw，注入运行时派生字段 `resolvedLanguage` 与
+ * `stageMetadata`。`resolvedLanguage` 仅当 config.language === "game" 时填充
+ * （从游戏注册表读取）；其它情况下字段为 undefined，渲染进程会自行用
+ * resolveLanguage(cfg.language, navigator.language) 推断。
+ *
+ * `stageMetadata` 在每次调用时都填充（stageKey → 本地化关卡名），供渲染
+ * 进程的 `boxLootFilters` 文本匹配使用（无需自己重新读取 catalog）。
  *
  * 主进程读注册表是因为渲染进程没有 reg.exe 访问权限；通过现有的 getConfig
  * IPC 返回值传递，无需新增 IPC 通道。
  */
 function getConfigWithRuntime(): AppConfig {
   const base = normalizeConfigFromRaw(config);
-  if (base.language !== "game") return base;
-  const gameLang = readGameLanguage();
-  if (!gameLang) return base;
-  // gameLang 非 null 时 resolveLanguage 不会用到 systemLocale，传空串即可。
-  const resolved: ResolvedLanguage = resolveLanguage(base.language, "", gameLang);
-  return { ...base, resolvedLanguage: resolved };
+  // 计算解析后的语言：game 模式读注册表（失败则回退到 system locale）；
+  // auto 模式按 system locale 推断；具体语言直接使用其本身。该值既用于
+  // 填充 `resolvedLanguage`（仅 game 模式），也用于加载 LocaleCatalog。
+  const gameLang = base.language === "game" ? readGameLanguage() : null;
+  const systemLocale = safeGetSystemLocale();
+  const resolved: ResolvedLanguage = resolveLanguage(base.language, systemLocale, gameLang);
+
+  // 构建 stageMetadata：catalog.stages 的 key 是 "1<act><stage>" 4 位数（前置
+  // "1" 固定为 NORMAL 难度），同一 act/stage 在 4 个难度下共用同一本地化名。
+  // 对每个 catalog 条目展开成 4 个 stageKey，覆盖所有用户可能用到的过滤目标。
+  const catalog = loadLocaleCatalog(resolved);
+  const stageMetadata: Record<number, string> = {};
+  for (const [catalogKey, name] of Object.entries(catalog.stages)) {
+    if (catalogKey.length !== 4) continue;
+    const act = catalogKey.charCodeAt(1) - 48;
+    const stage = parseInt(catalogKey.slice(2), 10);
+    if (!Number.isFinite(act) || !Number.isFinite(stage)) continue;
+    for (let diff = 1; diff <= 4; diff++) {
+      const stageKey = diff * 1000 + act * 100 + stage;
+      stageMetadata[stageKey] = name;
+    }
+  }
+
+  // 沿用既有语义：只有当 language === "game" 且注册表读取成功时才回填
+  // resolvedLanguage，其它情况让渲染进程自行解析。
+  if (base.language === "game" && gameLang) {
+    return { ...base, resolvedLanguage: resolved, stageMetadata };
+  }
+  return { ...base, stageMetadata };
+}
+
+/**
+ * `app.getLocale()` 在 app.whenReady() 之前会抛错；此处兜底返回 "en-US"。
+ * 与 i18n.ts 中的 safeGetLocale 行为一致，用于 `getConfigWithRuntime` 在
+ * 启动早期被调用时（理论上不会发生，但兜底以防崩溃）。
+ */
+function safeGetSystemLocale(): string {
+  try {
+    return app.getLocale();
+  } catch {
+    return "en-US";
+  }
 }
 
 const sessionState = new SessionStateService();
@@ -136,6 +176,16 @@ const tracking = new TrackingService(
   (stageKey, clearTimeSec, xpGained, goldGained) => {
     stageRuns.recordClear(stageKey, clearTimeSec, xpGained, goldGained);
   },
+  // High-frequency live chest slot counts (5 Hz) from PlayerSaveData.BoxData
+  // runtime. Forwarded to AutoClassifyService.reconcileWithChestSlots when
+  // non-null; null ticks are skipped (save path still triggers independently
+  // via chests.setOnReconcile below). autoClassify is assigned later in
+  // initTracking() — closure reads the live binding at call time.
+  (slots) => {
+    if (slots != null && autoClassify) {
+      autoClassify.reconcileWithChestSlots(slots);
+    }
+  },
 );
 
 let mainWindow: BrowserWindow | null = null;
@@ -154,6 +204,30 @@ function persistWindowLayout<K extends keyof WindowLayoutPrefs>(
     },
   };
   saveConfig(config);
+}
+
+/**
+ * 为当前解析出的语言构建一份新的 LocaleCatalog，并注入到所有依赖本地化
+ * 的服务（TrackingService / InventoryService / BoxTimerService /
+ * StageRunService / LiveMemoryService）。在启动期间和语言切换时各调用一次。
+ *
+ * 注意：服务自身的 `setLocaleCatalog` 不会主动 re-broadcast；调用方需在
+ * 语言切换后显式触发 re-emit（见 `onLanguageChanged`）。
+ */
+function reloadLocaleCatalog(): void {
+  const base = normalizeConfigFromRaw(config);
+  const gameLang = base.language === "game" ? readGameLanguage() : null;
+  const resolved: ResolvedLanguage = resolveLanguage(
+    base.language,
+    safeGetSystemLocale(),
+    gameLang,
+  );
+  const catalog: LocaleCatalog = loadLocaleCatalog(resolved);
+  tracking.setLocaleCatalog(catalog);
+  inventory.setLocaleCatalog(catalog);
+  boxTimers.setLocaleCatalog(catalog);
+  stageRuns.setLocaleCatalog(catalog);
+  liveMemory.setLocaleCatalog(catalog);
 }
 
 export function startTracking(): SessionUiSnapshot {
@@ -214,6 +288,12 @@ export function startTracking(): SessionUiSnapshot {
   chests.setOnReconcile((slots) => autoClassifyRef.reconcileWithChestSlots(slots));
   autoClassify.setEnabled(config.lootAutoClassifyEnabled);
   tracking.setAutoClassifyService(autoClassify);
+  // Load the LocaleCatalog for the current resolved language and inject it
+  // into all 5 localizing services. Done after `tracking.start()` so the
+  // service instances exist; subsequent snapshots will use the catalog when
+  // building Stats / BoxTimerState / StageRunStats / ResolvedInventory /
+  // LiveMemorySnapshot.heroes.
+  reloadLocaleCatalog();
   return ui;
 }
 
@@ -382,6 +462,14 @@ export function getAppServices() {
           setMarketLowValueThresholdUsd: (value) => inventory.setLowValueThresholdUsd(value),
           onLanguageChanged: (newLanguage) => {
             changeLanguage(newLanguage);
+            // Swap the LocaleCatalog on all 5 localizing services so the
+            // next snapshot / build uses the new language. `applyConfigPatch`
+            // re-broadcasts Stats + Inventory right after this callback via
+            // its own `pushStats` + `resolveAndPushInventory` deps, so we
+            // only need to re-emit the services it doesn't touch.
+            reloadLocaleCatalog();
+            boxTimers.push();
+            stageRuns.push();
             rebuildTrayMenu(getAppServices());
           },
         },

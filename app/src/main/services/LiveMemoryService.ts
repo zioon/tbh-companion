@@ -10,6 +10,8 @@ import { LIVE_MEMORY_USER_DATA_ENV } from "../liveMemory/liveMemoryCacheDir";
 import { broadcast } from "./broadcast";
 import { createLogger } from "../log";
 import { resolveUserDataDir } from "./appData";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
+import { heroName } from "../../core/heroes";
 
 const log = createLogger("liveMemory");
 
@@ -28,6 +30,14 @@ export class LiveMemoryService {
   private snapshotCb: ((snap: LiveMemorySnapshot) => void) | null = null;
   private lastBroadcastMs = 0;
   private onGameVersionChanged?: () => void;
+  /**
+   * LocaleCatalog used for populating `LiveHeroData.name` on each snapshot.
+   * The worker (utility process) can't swap catalogs at runtime, so the main
+   * process post-processes the snapshot's `heroes[]` here before broadcasting
+   * to renderers / TrackingService. Defaults to emptyLocaleCatalog (no
+   * localization — hero keys fall back to the English `HERO_NAMES` map).
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
 
   /** Register a callback invoked on every snapshot frame from the reader worker. */
   setOnSnapshot(cb: (snap: LiveMemorySnapshot) => void): void {
@@ -39,6 +49,17 @@ export class LiveMemoryService {
    * stale-catalog status so the Loot tab can show a refresh banner. */
   setOnGameVersionChanged(cb: () => void): void {
     this.onGameVersionChanged = cb;
+  }
+
+  /**
+   * Swap the LocaleCatalog used to populate `LiveHeroData.name` on each
+   * snapshot. Called by appState when the user changes language. Does NOT
+   * re-broadcast — the next snapshot tick (≤200 ms) will carry the localized
+   * names. To force an immediate re-emit, the caller can re-broadcast
+   * `getSnapshot()` after calling this.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
   }
 
   get running(): boolean {
@@ -73,6 +94,12 @@ export class LiveMemoryService {
     this.child.on("message", (msg: WorkerMessage) => {
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "snapshot") {
+        // Post-process: inject localized hero names before broadcasting.
+        // The worker builds heroes from raw memory (heroKey/level/exp only);
+        // it can't swap catalogs at runtime, so we add the `name` field here.
+        // Mutates the snapshot in-place — it's fresh per message (deserialized
+        // from IPC), so no other consumer sees the un-localized version.
+        this.localizeHeroes(msg.snapshot);
         this.lastSnapshot = msg.snapshot;
         // Throttle the renderer broadcast — the worker produces ~25 Hz but the
         // UI only needs ~5 Hz (200 ms) for smooth display. The snapshotCb
@@ -173,5 +200,18 @@ export class LiveMemoryService {
 
   getStatus(): LiveMemoryStatus | null {
     return this.lastStatus;
+  }
+
+  /**
+   * Walk `snap.heroes[]` and populate `name` using the current LocaleCatalog.
+   * Skips when `heroes` is null (menu/lobby) or empty. `heroName` falls back
+   * to the English `HERO_NAMES` map when the catalog lacks an entry, so the
+   * field is always populated with a sensible value (never `undefined`).
+   */
+  private localizeHeroes(snap: LiveMemorySnapshot): void {
+    if (!snap.heroes || snap.heroes.length === 0) return;
+    for (const hero of snap.heroes) {
+      hero.name = heroName(String(hero.heroKey), this.localeCatalog);
+    }
   }
 }
