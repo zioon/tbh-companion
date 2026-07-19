@@ -1,0 +1,207 @@
+{
+  "source": "localization-assets-shared_assets_all.bundle",
+  "count": 50,
+  "item_range_count": 0,
+  "strings": [
+    {
+      "key_id": 71,
+      "value": "INSCRIPTION"
+    },
+    {
+      "key_id": 83,
+      "value": "DECORATION"
+    },
+    {
+      "key_id": 101,
+      "value": "LaunchAtStartup"
+    },
+    {
+      "key_id": 102,
+      "value": "DefaultStageRepeatOn"
+    },
+    {
+      "key_id": 103,
+      "value": "Chaos"
+    },
+    {
+      "key_id": 108,
+      "value": "Exp"
+    },
+    {
+      "key_id": 109,
+      "value": "Pet_Collected "
+    },
+    {
+      "key_id": 111,
+      "value": "Setting"
+    },
+    {
+      "key_id": 114,
+      "value": "Control"
+    },
+    {
+      "key_id": 115,
+      "value": "Price"
+    },
+    {
+      "key_id": 116,
+      "value": "Report"
+    },
+    {
+      "key_id": 121,
+      "value": "Market"
+    },
+    {
+      "key_id": 17228,
+      "value": "DLC"
+    },
+    {
+      "key_id": 20047,
+      "value": "ENGRAVING"
+    },
+    {
+      "key_id": 25964,
+      "value": "SYNTHESIS"
+    },
+    {
+      "key_id": 26214,
+      "value": "AutoOpenBoxCooltime"
+    },
+    {
+      "key_id": 27745,
+      "value": "Mailbox"
+    },
+    {
+      "key_id": 28777,
+      "value": "Bag"
+    },
+    {
+      "key_id": 29285,
+      "value": "CompleteObtain"
+    },
+    {
+      "key_id": 29557,
+      "value": "Cube"
+    },
+    {
+      "key_id": 29797,
+      "value": "BattleRecords"
+    },
+    {
+      "key_id": 29806,
+      "value": "Agree"
+    },
+    {
+      "key_id": 29810,
+      "value": "Open"
+    },
+    {
+      "key_id": 31090,
+      "value": "SteamMarket"
+    },
+    {
+      "key_id": 2707023,
+      "value": "Mute_On"
+    },
+    {
+      "key_id": 3485744,
+      "value": "Claim"
+    },
+    {
+      "key_id": 5132105,
+      "value": "ALCHEMY"
+    },
+    {
+      "key_id": 5852485,
+      "value": "CRAFTING"
+    },
+    {
+      "key_id": 6515048,
+      "value": "Audio"
+    },
+    {
+      "key_id": 6515053,
+      "value": "Character"
+    },
+    {
+      "key_id": 6644833,
+      "value": "SynthesisResultPreviewTextUpGrade"
+    },
+    {
+      "key_id": 6645614,
+      "value": "Menu"
+    },
+    {
+      "key_id": 6647145,
+      "value": "BackendMailExpirationDateTime"
+    },
+    {
+      "key_id": 6648431,
+      "value": "Reset"
+    },
+    {
+      "key_id": 6775106,
+      "value": "Arrange"
+    },
+    {
+      "key_id": 6778473,
+      "value": "Language"
+    },
+    {
+      "key_id": 7102821,
+      "value": "NeedSelectExtractionTarget"
+    },
+    {
+      "key_id": 7102834,
+      "value": "Graphic"
+    },
+    {
+      "key_id": 7103862,
+      "value": "SynthesisWarningHighLevelItemIn"
+    },
+    {
+      "key_id": 7172713,
+      "value": "ExitGame"
+    },
+    {
+      "key_id": 7227757,
+      "value": "CraftingTitleDescription"
+    },
+    {
+      "key_id": 7229279,
+      "value": "Mute_Off"
+    },
+    {
+      "key_id": 7237481,
+      "value": "General"
+    },
+    {
+      "key_id": 7239535,
+      "value": "BackendRewardExpirationDateTime"
+    },
+    {
+      "key_id": 7368532,
+      "value": "AlwaysOnTop(Off)"
+    },
+    {
+      "key_id": 7370100,
+      "value": "Version"
+    },
+    {
+      "key_id": 7564393,
+      "value": "Class"
+    },
+    {
+      "key_id": 7628112,
+      "value": "HowToObtain"
+    },
+    {
+      "key_id": 7628139,
+      "value": "Inventory"
+    },
+    {
+      "key_id": 7892834,
+      "value": "SteamInventory"
+    }
+  ]
+}
