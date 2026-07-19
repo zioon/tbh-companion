@@ -52,7 +52,7 @@ Each file:
 ```
 
 Key format notes:
-- `stages` key is `<act><stage>` 4-digit (e.g. `2105` = act 2 stage 5). Difficulty is not in the key — the same name is reused across Normal/Nightmare/Hell/Torment for the same act/stage.
+- `stages` key is `1<act><stage>` 4-digit (e.g. `1205` = act 2 stage 5). The leading `1` is fixed (difficulty normalized to NORMAL) — the same name is reused across Normal/Nightmare/Hell/Torment for the same act/stage. This matches the game's `StageName_<4digit>` key format where the 4 digits are the Normal-difficulty stageKey (1+act+2-digit stage).
 - `heroes` key is the hero key string (`"101"` etc.), matching `Hero.heroKey`.
 - `difficulties` key is the enum name (`NORMAL`/`NIGHTMARE`/`HELL`/`TORMENT`).
 
@@ -103,9 +103,10 @@ export function gameItemName(item: GameItem, catalog: LocaleCatalog | null): str
 }
 ```
 
-Stage-key parsing detail: `stageKey` is `<difficulty><act><stage>` where difficulty is 1 digit (1-4), act is 1 digit (1-3), stage is 2 digits (01-10). To form the catalog key:
-- `stageKey = 3205` → `difficulty = 3, act = 2, stage = 05` → catalog key `"2105"`
-- `stageKey = 1310` → `difficulty = 1, act = 3, stage = 10` → catalog key `"1310"`
+Stage-key parsing detail: `stageKey` is `<difficulty><act><stage>` where difficulty is 1 digit (1-4), act is 1 digit (1-3), stage is 2 digits (01-10). To form the catalog key, replace the difficulty digit with a fixed `1` (NORMAL):
+- `stageKey = 3205` → `difficulty = 3, act = 2, stage = 05` → catalog key `"1205"`
+- `stageKey = 1310` → `difficulty = 1, act = 3, stage = 10` → catalog key `"1310"` (same as stageKey since difficulty is already 1)
+- `stageKey = 2310` → `difficulty = 2, act = 3, stage = 10` → catalog key `"1310"` (same as above — all 4 difficulties share one catalog entry)
 
 ### 3. Main layer (service constructor injection)
 
