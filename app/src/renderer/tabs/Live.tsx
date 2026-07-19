@@ -395,10 +395,7 @@ export function Live() {
             </Tooltip>
             <div className="flex flex-wrap gap-x-3.5 gap-y-1.5 text-xs text-muted">
               <span>
-                {t("map")}{" "}
-                <b className="font-semibold text-fg">
-                  {stats.stageName}
-                </b>
+                {t("map")} <b className="font-semibold text-fg">{stats.stageName}</b>
               </span>
               {!liveActive ? (
                 <Tooltip

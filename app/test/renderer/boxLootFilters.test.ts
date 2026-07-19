@@ -84,7 +84,9 @@ describe("stageMatchesQuery", () => {
     expect(stageMatchesQuery(1101, "Some Other Name", "pasture", { 1101: "Pasture" })).toBe(true);
     expect(stageMatchesQuery(1101, "Some Other Name", "normal", { 1101: "Normal 1-1" })).toBe(true);
     // No match when neither displayName nor stageMetadata contains the query.
-    expect(stageMatchesQuery(1101, "Some Other Name", "torment", { 1101: "Normal 1-1" })).toBe(false);
+    expect(stageMatchesQuery(1101, "Some Other Name", "torment", { 1101: "Normal 1-1" })).toBe(
+      false,
+    );
   });
 
   it("falls back to empty string when stageMetadata doesn't have the stageKey", () => {

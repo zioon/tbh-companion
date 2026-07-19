@@ -4,7 +4,11 @@ import { dirname, join } from "node:path";
 import { StageRunTracker } from "../../core/stageRunTracker";
 import { stageName } from "../../core/stages";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
-import type { StageRunHistoryEntry, StageRunStats, StageRunTrackerSnapshot } from "../../../shared/types";
+import type {
+  StageRunHistoryEntry,
+  StageRunStats,
+  StageRunTrackerSnapshot,
+} from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
 import { broadcast } from "./broadcast";
 import { STAGE_RUN_FILE } from "./appData";
@@ -108,9 +112,6 @@ export class StageRunService {
  * switch via {@link StageRunService.setLocaleCatalog} is reflected on the
  * next `getStats()` call without re-recording history.
  */
-function withStageName(
-  entry: StageRunHistoryEntry,
-  catalog: LocaleCatalog,
-): StageRunHistoryEntry {
+function withStageName(entry: StageRunHistoryEntry, catalog: LocaleCatalog): StageRunHistoryEntry {
   return { ...entry, stageName: stageName(entry.stageKey, catalog) };
 }

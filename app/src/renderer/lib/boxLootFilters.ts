@@ -103,7 +103,9 @@ export function filterFirstDropStages(
   query: string,
   stageMetadata: Record<number, string>,
 ): LookupBoxFirstDropStageRef[] {
-  return stages.filter((row) => stageMatchesQuery(row.stageKey, row.stageName, query, stageMetadata));
+  return stages.filter((row) =>
+    stageMatchesQuery(row.stageKey, row.stageName, query, stageMetadata),
+  );
 }
 
 export function filterAndSortBoxStages(
@@ -112,7 +114,9 @@ export function filterAndSortBoxStages(
   stageMetadata: Record<number, string>,
 ): LookupBoxStageRef[] {
   const q = state.query.trim().toLowerCase();
-  let rows = stages.filter((row) => stageMatchesQuery(row.stageKey, row.stageName, q, stageMetadata));
+  let rows = stages.filter((row) =>
+    stageMatchesQuery(row.stageKey, row.stageName, q, stageMetadata),
+  );
 
   const dir = state.sortDir === "asc" ? 1 : -1;
   rows = [...rows].sort((a, b) => {
