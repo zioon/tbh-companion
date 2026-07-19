@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { gradeLabel, typeLabel } from "../../../core/labels";
+import { gradeLabel, typeLabel } from "../../lib/itemLabels";
 import type { LocationFilter, SortKey } from "../../lib/inventoryFilters";
 import { Input } from "../../design-system/primitives/Input/Input";
 import { Checkbox } from "../../design-system/primitives/Checkbox/Checkbox";
@@ -69,7 +69,7 @@ export function InventoryFilters({
           allLabel={t("filters.allGrades")}
           value={gradeFilter}
           onValueChange={onGradeFilterChange}
-          options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g) }))}
+          options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g, t) }))}
         />
         <MultiSelect
           className="w-40"
@@ -78,7 +78,7 @@ export function InventoryFilters({
           searchable={false}
           value={typeFilter}
           onValueChange={onTypeFilterChange}
-          options={typeOptions.map((tp) => ({ value: tp, label: typeLabel(tp) }))}
+          options={typeOptions.map((tp) => ({ value: tp, label: typeLabel(tp, t) }))}
         />
         <MultiSelect
           className="w-40"

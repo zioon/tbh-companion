@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { typeLabel } from "../../../core/labels";
+import { typeLabel } from "../../lib/itemLabels";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { filterAndSortLoot, resolveOfferingLoot } from "../../lib/offeringLootFilters";
 import { Card } from "../../design-system/primitives/Card/Card";
@@ -76,7 +76,7 @@ export function OfferingLoot({
                   name={row.item?.name ?? t("itemFallback", { id: row.itemKey })}
                   grade={row.item?.grade}
                   iconPath={row.item?.iconPath}
-                  suffix={`· ${fmtDropPct(row.poolPct)}%${row.item ? ` · ${typeLabel(row.item.type)}` : ""}`}
+                  suffix={`· ${fmtDropPct(row.poolPct)}%${row.item ? ` · ${typeLabel(row.item.type, t)}` : ""}`}
                   onNavigate={onNavigate}
                   peekItem={peekItem}
                 />

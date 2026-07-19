@@ -1,6 +1,6 @@
 import { memo, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { gradeLabel, typeLabel } from "../../../core/labels";
+import { gradeLabel, typeLabel } from "../../lib/itemLabels";
 import {
   isInventoryColumnVisible,
   normalizeInventoryTablePrefs,
@@ -150,7 +150,7 @@ function buildColumnDefs(
       sortKey: "grade",
       align: "left",
       render: (row) => (
-        <span style={{ color: gradeColor(row.grade) }}>{gradeLabel(row.grade)}</span>
+        <span style={{ color: gradeColor(row.grade) }}>{gradeLabel(row.grade, t)}</span>
       ),
     },
     {
@@ -165,7 +165,7 @@ function buildColumnDefs(
       label: t("columns.type"),
       sortKey: "type",
       align: "left",
-      render: (row) => <span className="text-muted">{typeLabel(row.type)}</span>,
+      render: (row) => <span className="text-muted">{typeLabel(row.type, t)}</span>,
     },
     {
       id: "count",

@@ -1,9 +1,11 @@
+import { useTranslation } from "react-i18next";
 import { GRADE_ORDER } from "../../../core/grades";
-import { gradeLabel } from "../../../core/labels";
+import { gradeLabel } from "../../lib/itemLabels";
 import type { InventoryComposition } from "../../../../shared/types";
 import { gradeColor } from "../../lib/gradeColor";
 
 export function GradeBars({ composition }: { composition: InventoryComposition }) {
+  const { t } = useTranslation("inventory");
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-2">
       {GRADE_ORDER.filter((g) => composition.byGrade[g]).map((g) => (
@@ -12,7 +14,7 @@ export function GradeBars({ composition }: { composition: InventoryComposition }
             className="inline-block size-[9px] shrink-0 rounded-full"
             style={{ background: gradeColor(g) }}
           />
-          <span style={{ color: gradeColor(g) }}>{gradeLabel(g)}</span>
+          <span style={{ color: gradeColor(g) }}>{gradeLabel(g, t)}</span>
           <span className="text-muted">{composition.byGrade[g]}</span>
         </div>
       ))}
