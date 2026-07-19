@@ -1,6 +1,7 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
-import { typeLabel } from "../../core/labels";
-import { humanizeStatKey, itemDescriptor } from "./lookupDisplay";
+import type { TFunction } from "i18next";
+import { gearGroupLabel, modifierGroupLabel, statLabel, typeLabel } from "./itemLabels";
+import { itemDescriptor } from "./lookupDisplay";
 import type { LookupItem } from "../../../shared/types";
 
 export type LookupSortKey = "name" | "grade" | "level" | "type";
@@ -55,19 +56,16 @@ export interface LookupEffectOption {
 export type LookupOptionGroup = { label: string; options: LookupEffectOption[] };
 
 /** Gear-type groups in display order, derived from each item's `gearGroup`. */
-const GEAR_GROUP_LABELS: Record<string, string> = {
-  WEAPON: "Weapon",
-  ARMOR: "Armor",
-  ACCESSORY: "Accessory",
-};
 const GEAR_GROUP_ORDER = ["WEAPON", "ARMOR", "ACCESSORY"];
 
 /**
  * Gear-type options grouped Weapon / Armor / Accessory, derived straight from
  * each item's `gearGroup` (offhands like Shield/Arrow already sit under WEAPON).
  * Empty groups are omitted; options are sorted by label within each group.
+ *
+ * Pass `t` to localize group and option labels via the `common:labels` namespace.
  */
-export function gearTypeGroupsFromItems(items: LookupItem[]): LookupOptionGroup[] {
+export function gearTypeGroupsFromItems(items: LookupItem[], t?: TFunction): LookupOptionGroup[] {
   const byGroup = new Map<string, Set<string>>();
   for (const item of items) {
     if (!item.gearType || !item.gearGroup) continue;
@@ -78,9 +76,9 @@ export function gearTypeGroupsFromItems(items: LookupItem[]): LookupOptionGroup[
   const known = GEAR_GROUP_ORDER.filter((group) => byGroup.has(group));
   const extras = [...byGroup.keys()].filter((group) => !GEAR_GROUP_ORDER.includes(group)).sort();
   return [...known, ...extras].map((group) => ({
-    label: GEAR_GROUP_LABELS[group] ?? group,
+    label: gearGroupLabel(group, t),
     options: [...(byGroup.get(group) ?? [])]
-      .map((gearType) => ({ value: gearType, label: typeLabel(gearType) }))
+      .map((gearType) => ({ value: gearType, label: typeLabel(gearType, t) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   }));
 }
@@ -156,17 +154,19 @@ function effectKeysFromItems(items: LookupItem[]): Set<string> {
  * Modifier options grouped Offense / Defense / Util / Skill (authored map);
  * any stat key not in the map lands in a trailing "Other" group so nothing
  * silently disappears. Empty groups are omitted; options sorted by label.
+ *
+ * Pass `t` to localize group and stat-key labels via the `common:labels` namespace.
  */
-export function effectGroupsFromItems(items: LookupItem[]): LookupOptionGroup[] {
+export function effectGroupsFromItems(items: LookupItem[], t?: TFunction): LookupOptionGroup[] {
   const byGroup = new Map<ModifierGroup | "Other", LookupEffectOption[]>();
   for (const key of effectKeysFromItems(items)) {
     const group = MODIFIER_GROUP[key] ?? "Other";
     const options = byGroup.get(group) ?? [];
-    options.push({ value: key, label: humanizeStatKey(key) });
+    options.push({ value: key, label: statLabel(key, t) });
     byGroup.set(group, options);
   }
   return MODIFIER_GROUP_ORDER.filter((group) => byGroup.has(group)).map((group) => ({
-    label: group,
+    label: modifierGroupLabel(group, t),
     options: (byGroup.get(group) ?? []).sort((a, b) => a.label.localeCompare(b.label)),
   }));
 }

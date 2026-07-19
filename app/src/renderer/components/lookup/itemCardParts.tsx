@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { gradeLabel, typeLabel } from "../../../core/labels";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
 import { iconSrc } from "../../lib/iconSrc";
-import { itemDescriptor, itemMetaLine, visibleOutcomes } from "../../lib/lookupDisplay";
+import { gearGroupLabel, gradeLabel, itemDescriptor, itemMetaLine } from "../../lib/itemLabels";
+import { visibleOutcomes } from "../../lib/lookupDisplay";
 import { ItemIcon } from "../../design-system/primitives/ItemIcon/ItemIcon";
 import { TierTag } from "./TierTag";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
@@ -105,7 +105,8 @@ export function ItemCardHeader({
    */
   gradeOverride?: string | null;
 }) {
-  const metaLine = itemMetaLine(item);
+  const { t } = useTranslation();
+  const metaLine = itemMetaLine(item, t);
   const isDetail = iconSize === "lg";
   const effectiveGrade = gradeOverride ?? item.grade;
 
@@ -122,7 +123,7 @@ export function ItemCardHeader({
           className={cn("m-0 truncate", isDetail ? "text-xs" : "text-[11px]")}
           style={{ color: gradeColor(effectiveGrade) }}
         >
-          {gradeLabel(effectiveGrade)} · {itemDescriptor(item)}
+          {gradeLabel(effectiveGrade, t)} · {itemDescriptor(item, t)}
         </p>
         {metaLine ? (
           <p className={cn("m-0 truncate text-muted", isDetail ? "text-xs" : "text-[11px]")}>
@@ -193,7 +194,7 @@ export function MaterialGroup({
   return (
     <div className="flex flex-col gap-1">
       <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-muted">
-        {typeLabel(group.gearGroup)}
+        {gearGroupLabel(group.gearGroup, t)}
       </p>
       <ul className="m-0 list-none space-y-0.5 p-0 text-[13px] text-fg">
         {shown.map((outcome, i) => (

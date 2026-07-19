@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { gradeLabel, typeLabel } from "../../../core/labels";
+import { gradeLabel, typeLabel } from "../../lib/itemLabels";
 import {
   LEVEL_MAX,
   LEVEL_MIN,
@@ -101,7 +101,7 @@ export function LookupFilters({
             {typeOptions.map((type) => (
               <Checkbox
                 key={type}
-                label={typeLabel(type)}
+                label={typeLabel(type, t)}
                 checked={typeFilter.includes(type)}
                 onCheckedChange={(checked) => toggleType(type, checked)}
               />
@@ -115,7 +115,7 @@ export function LookupFilters({
           allLabel={t("filters.allGrades")}
           value={gradeFilter}
           onValueChange={onGradeFilterChange}
-          options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g) }))}
+          options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g, t) }))}
         />
 
         {showGearFilters ? (
@@ -145,7 +145,7 @@ export function LookupFilters({
             allLabel={t("filters.allMaterialKinds")}
             value={materialKindFilter}
             onValueChange={onMaterialKindFilterChange}
-            options={materialKindOptions.map((m) => ({ value: m, label: typeLabel(m) }))}
+            options={materialKindOptions.map((m) => ({ value: m, label: typeLabel(m, t) }))}
           />
         ) : null}
       </div>
