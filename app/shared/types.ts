@@ -79,11 +79,12 @@ export interface ChestDropStats {
   rarePerHour: number;
   actPerHour: number;
   /**
-   * Session-scoped drop counts (new drops since the last `applySnapshot` /
-   * `reset`). These share the same time window as `*PerHour`
-   * (`sessionDropStart` → now), so `commonSession` / `commonPerHour` are
-   * always consistent — unlike `commonTotal`, which is cumulative across
-   * restarts. Surfaced in the Live tab so the displayed count and rate agree.
+   * Session-scoped drop counts. After `reset` these start at 0; after
+   * `applySnapshot` (app restart) these include the restored history so
+   * the displayed count matches the cumulative session totals. These share
+   * the same time window as `*PerHour` (`sessionDropStart` → now), so
+   * `commonSession` / `commonPerHour` are always consistent. Surfaced in
+   * the Live tab so the displayed count and rate agree.
    */
   commonSession: number;
   rareSession: number;

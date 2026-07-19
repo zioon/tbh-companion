@@ -332,12 +332,10 @@ export class ChestDropTracker {
   private sessionBaselineByKey = new Map<string, number>();
 
   /**
-   * Wall time of the first new drop recorded after the last baseline reset
-   * (via {@link reset} or {@link applySnapshot}). Used as the time anchor
-   * for perHour calculation instead of `tracker.elapsed` — which may span
-   * hours of idle time after an app restart (session_state.json restore).
-   * `null` means no drops have been recorded since the baseline was set;
-   * perHour returns 0 in that case regardless of elapsed time.
+   * Wall time anchoring the perHour rate window. Set to the earliest drop
+   * in `history` by `applySnapshot` (so restored history contributes to the
+   * rate window), or to the first new drop's wallTime after `reset`. `null`
+   * means no drops have been recorded; perHour returns 0 in that case.
    */
   private sessionDropStart: number | null = null;
 
@@ -558,9 +556,15 @@ export class ChestDropTracker {
     this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
     this.breakdownCache = null;
     this.historyCache = null;
-    // Restored counts are pre-existing history — they should not inflate the
-    // session perHour rates. Snapshot them as the baseline.
-    this.sessionBaselineByKey = new Map(this.countsByKey);
-    this.sessionDropStart = null;
+    // Restored counts are part of the ongoing session — keep baseline empty
+    // so all restored + future drops count toward session totals and rates.
+    // This keeps commonSession/commonPerHour consistent with the displayed
+    // totals: a 22h restored session with N drops shows N chests at N/22 hr,
+    // not "1 chest at 6/hr" (the old baseline behavior that hid restored
+    // counts and anchored perHour to only the post-restore drops).
+    this.sessionBaselineByKey = new Map();
+    // Anchor perHour to the earliest restored drop so the rate window spans
+    // the full session history, not just post-restore drops.
+    this.sessionDropStart = this.history.length > 0 ? this.history[0].wallTime : null;
   }
 }

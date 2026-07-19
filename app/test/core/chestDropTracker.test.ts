@@ -162,17 +162,21 @@ describe("ChestDropTracker", () => {
     expect(tracker.getStats(3600).readerRequired).toBe(true);
   });
 
-  it("applySnapshot baselines restored counts so rates start at zero", () => {
+  it("applySnapshot restores counts as part of the ongoing session", () => {
+    // Restored drops count toward session totals and perHour so the Live
+    // tab's displayed count and rate stay consistent after an app restart.
+    const oneHourAgo = Date.now() / 1000 - 3600;
     const tracker = new ChestDropTracker();
-    tracker.recordLogDrop(910151);
-    tracker.recordLogDrop(910151);
+    tracker.recordLogDrop(910151, oneHourAgo);
+    tracker.recordLogDrop(910151, oneHourAgo);
     const snap = tracker.captureSnapshot();
 
     const restored = new ChestDropTracker();
     restored.applySnapshot(snap);
     const stats = restored.getStats(3600);
     expect(stats.commonTotal).toBe(2);
-    expect(stats.commonPerHour).toBe(0); // restored counts are pre-session
+    expect(stats.commonSession).toBe(2); // restored counts are in-session
+    expect(stats.commonPerHour).toBe(2); // 2 drops / 1h window = 2/hr
   });
 
   it("clamps short elapsed to MIN_RATE_WINDOW_SEC to avoid perHour spikes", () => {
