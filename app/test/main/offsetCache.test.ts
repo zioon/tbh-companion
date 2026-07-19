@@ -37,6 +37,11 @@ function makeOffsets(version = VERSION): LiveOffsets {
       petSaveDatas: 0x68,
       itemSaveDatas: 0xa0,
       aggregates: 0,
+      boxData: 0,
+    },
+    boxData: {
+      boxTypes: 0,
+      boxQuantity: 0,
     },
     common: {
       playTime: 0x20,

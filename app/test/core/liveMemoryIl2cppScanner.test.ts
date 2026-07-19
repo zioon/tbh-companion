@@ -852,6 +852,7 @@ describe("findPlayerSaveData", () => {
       playerStaticOff: 0x10,
       petSaveDatas: 0x68,
       itemSaveDatas: 0xa0,
+      boxData: 0,
       petKey: 0x10,
       petIsUnlock: 0x14,
       itemKey: 0x10,

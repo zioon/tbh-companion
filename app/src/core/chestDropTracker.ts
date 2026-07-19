@@ -496,6 +496,7 @@ export class ChestDropTracker {
     const commonPerHour = sessionCommon / hours;
     const rarePerHour = sessionRare / hours;
     const actPerHour = sessionAct / hours;
+    const combinedSession = sessionCommon + sessionRare + sessionAct;
 
     // Mini overlay's boss-chest ring + "Box" countdown only track stage boss
     // (rare) drops — common chests drop too frequently to make a 7-min lap
@@ -517,6 +518,10 @@ export class ChestDropTracker {
       commonPerHour,
       rarePerHour,
       actPerHour,
+      commonSession: sessionCommon,
+      rareSession: sessionRare,
+      actSession: sessionAct,
+      combinedSession,
       breakdown,
       history,
       lastRareDropWallTime,

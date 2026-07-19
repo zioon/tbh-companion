@@ -339,7 +339,7 @@ export function Live() {
       : t("introLiveNoChest")
     : t("introSave");
 
-  const { commonTotal, rareTotal, commonPerHour, rarePerHour, readerRequired } = stats.chestDrops;
+  const { commonSession, rareSession, commonPerHour, rarePerHour, readerRequired } = stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
   const chestDetectionPending =
     readerRequired && liveScalars.connected && !liveScalars.hasChestDrops;
@@ -430,7 +430,7 @@ export function Live() {
           label={t("commonChests")}
           value={
             <LiveChestStatValue
-              total={commonTotal}
+              total={commonSession}
               perHour={commonPerHour}
               inactive={chestStatsInactive}
             />
@@ -441,7 +441,7 @@ export function Live() {
           label={t("stageBossChests")}
           value={
             <LiveChestStatValue
-              total={rareTotal}
+              total={rareSession}
               perHour={rarePerHour}
               countClassName="text-status-info"
               inactive={chestStatsInactive}

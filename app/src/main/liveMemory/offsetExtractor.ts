@@ -329,6 +329,12 @@ export function extractOffsets(
         petSaveDatas: player?.petSaveDatas ?? STRUCT_PET_SAVE_DATAS,
         itemSaveDatas: player?.itemSaveDatas ?? STRUCT_ITEM_SAVE_DATAS,
         aggregates: player?.aggregateSaveDatas ?? STRUCT_AGGREGATE_SAVE_DATAS,
+        boxData: player?.boxData ?? 0,
+      },
+
+      boxData: {
+        boxTypes: 0, // BoxData.BoxTypes — derived at runtime via findBoxDataFields (future)
+        boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime via findBoxDataFields (future)
       },
 
       common: {

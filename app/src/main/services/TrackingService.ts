@@ -16,6 +16,7 @@ import type {
   AppConfig,
   BoxOpenEntry,
   InventorySnapshot,
+  LiveChestSlots,
   LiveMemorySnapshot,
   LookupItem,
   LookupPriceSnapshot,
@@ -131,6 +132,13 @@ export class TrackingService {
       xpGained: number,
       goldGained: number,
     ) => void,
+    /**
+     * Called at ~5 Hz with live chest slot counts read from
+     * `PlayerSaveData.BoxData` runtime. `null` = reader active but offsets
+     * unavailable this tick; callers should fall back to save-derived counts.
+     * Used by AutoClassifyService for high-frequency reconcile.
+     */
+    private readonly onLiveChestSlots?: (slots: LiveChestSlots | null) => void,
     initialCatalog: LocaleCatalog = emptyLocaleCatalog(),
   ) {
     this.onInventory = onInventory;
@@ -697,6 +705,12 @@ export class TrackingService {
         }
       }
     }
+
+    // Live chest slot counts (5 Hz) → forwarded to the onLiveChestSlots
+    // callback. The appState wiring layer routes non-null values to
+    // AutoClassifyService.reconcileWithChestSlots; null is observed by the
+    // renderer to fall back to save-derived counts.
+    this.onLiveChestSlots?.(snap.chestSlots);
 
     if (snap.stageClears && snap.stageClears.length > 0) {
       // A stage clear also resets the per-map damage/kill counters even if the

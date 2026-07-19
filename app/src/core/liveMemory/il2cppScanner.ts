@@ -1248,6 +1248,8 @@ export interface PlayerAnchor {
   itemSaveDatas: number;
   /** Optional: PlayerSaveData.aggregateSaveDatas offset (for combat gold reading). */
   aggregateSaveDatas?: number;
+  /** Optional: PlayerSaveData.BoxData offset (for live chest slot reading). 0 = not derived. */
+  boxData?: number;
   petKey: number;
   petIsUnlock: number;
   itemKey: number;
@@ -1292,11 +1294,16 @@ export function findPlayerSaveData(
       if (itemsOff <= 0) itemsOff = findListField(ctx, obj, "ItemSaveData") ?? 0;
       if (petsOff <= 0 && itemsOff <= 0) continue;
 
+      // BoxData field — named match first (ES3-stable field name), structural
+      // fallback not yet needed. 0 = absent; reader falls back to save path.
+      const boxDataOff = fields.get("BoxData") ?? 0;
+
       return {
         commonSaveData: entry.slotRva,
         playerStaticOff: soff,
         petSaveDatas: petsOff,
         itemSaveDatas: itemsOff,
+        boxData: boxDataOff,
         petKey: namedClassField(ctx, entries, "PetSaveData", "PetKey"),
         petIsUnlock: namedClassField(ctx, entries, "PetSaveData", "IsUnlock"),
         itemKey: namedClassField(ctx, entries, "ItemSaveData", "ItemKey"),

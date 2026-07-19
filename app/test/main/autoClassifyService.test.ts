@@ -5,13 +5,16 @@ import { BoxOpenTracker } from "../../src/core/boxOpenTracker";
 import type { BoxTimerCatalogEntry } from "../../shared/types";
 import type { StageBoxTrackerRoute } from "../../src/core/stageBoxTracker";
 
+// Hoist the log mocks so test bodies can inspect call counts for log-suppression checks.
+const logMocks = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
 vi.mock("../../src/main/log", () => ({
-  createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  }),
+  createLogger: () => logMocks,
 }));
 
 // Fixed system time (ms). Drop/open wallTime values (seconds) are small (1.0, 2.0, ...)
@@ -566,12 +569,11 @@ describe("AutoClassifyService.getQueueSnapshot", () => {
     expect(snap.items).toHaveLength(3);
     // Sorted by autoOpenAtMs ascending: act:1 (63000), common:5 (302000), rare:5 (601000).
     expect(snap.items.map((i) => i.boxKey)).toEqual(["act:1", "common:5", "rare:5"]);
-    // autoOpenInMs must also be ascending (it's autoOpenAtMs - now). All three
-    // are heads of distinct boxKeys, so none are waiting (null).
+    // autoOpenInMs must also be ascending (it's autoOpenAtMs - now). Under the
+    // slot-parallel model every queued chest has a concrete autoOpenAtMs, so
+    // autoOpenInMs is always a number — no "waiting" state.
     for (let i = 1; i < snap.items.length; i++) {
-      expect(snap.items[i]!.autoOpenInMs).not.toBeNull();
-      expect(snap.items[i - 1]!.autoOpenInMs).not.toBeNull();
-      expect(snap.items[i]!.autoOpenInMs!).toBeGreaterThanOrEqual(snap.items[i - 1]!.autoOpenInMs!);
+      expect(snap.items[i]!.autoOpenInMs).toBeGreaterThanOrEqual(snap.items[i - 1]!.autoOpenInMs);
     }
 
     // Verify the act item's fields.
@@ -631,12 +633,15 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     chestDropTracker.recordLiveChestDrop("common", 2.0);
     expect(service.getQueueSnapshot().totalQueued).toBe(2);
 
-    // Save shows only 1 common chest remaining — the earliest-dropped one
+    // Save shows only 1 common chest remaining — the soonest-autoOpen one
     // (autoOpenAtMs=301000) should have opened already; prune it.
     service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(1);
     expect(snap.items[0]!.droppedAtMs).toBe(2000);
+    // Slot-parallel invariant: remaining item keeps its original autoOpenAtMs
+    // (302000), not re-timer'd. autoOpenInMs = 302000 - 10000 (now) = 292000.
+    expect(snap.items[0]!.autoOpenInMs).toBe(292_000);
   });
 
   it("prunes across multiple categories in one reconcile", () => {
@@ -731,5 +736,52 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     // No drops enqueued; slots show 5 chests (queue < slots, deficit logged).
     service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
     expect(service.getQueueSnapshot().totalQueued).toBe(0);
+  });
+
+  it("suppresses the 'queue < slots' info log when slots are unchanged across high-frequency reconcile calls", () => {
+    const { service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    logMocks.info.mockClear();
+    // Simulate 5 Hz live-snapshot reconcile: same slots, called repeatedly.
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    const firstCallInfoCount = logMocks.info.mock.calls.filter((c) =>
+      String(c[0]).includes("queue (0) < slots (5)"),
+    ).length;
+    expect(firstCallInfoCount).toBe(1); // first call logs the deficit
+    // Subsequent calls with same slots must NOT re-log the deficit.
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    const totalInfoCount = logMocks.info.mock.calls.filter((c) =>
+      String(c[0]).includes("queue (0) < slots (5)"),
+    ).length;
+    expect(totalInfoCount).toBe(1); // still 1 — suppressed on unchanged slots
+    // When slots change, the new deficit IS logged.
+    service.reconcileWithChestSlots({ common: 3, rare: 0, act: 0 });
+    const afterChangeCount = logMocks.info.mock.calls.filter((c) =>
+      String(c[0]).includes("queue (0) < slots (3)"),
+    ).length;
+    expect(afterChangeCount).toBe(1);
+  });
+
+  it("re-logs the deficit after disable/re-enable (lastReconcileSlots reset)", () => {
+    const { service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    service.setEnabled(false);
+    service.setEnabled(true);
+    logMocks.info.mockClear();
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    const reloggedCount = logMocks.info.mock.calls.filter((c) =>
+      String(c[0]).includes("queue (0) < slots (5)"),
+    ).length;
+    expect(reloggedCount).toBe(1); // first call after re-enable logs again
   });
 });

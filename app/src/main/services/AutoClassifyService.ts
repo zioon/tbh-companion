@@ -14,7 +14,6 @@ import {
   dequeue,
   enqueue,
   groupBoxOpenEvents,
-  promoteNextHead,
   pruneExpired,
   type QueueItem,
 } from "../../core/boxOpenAutoClassify";
@@ -77,6 +76,13 @@ export class AutoClassifyService {
   private pending: PendingPrompt | null = null;
   private nextPromptId = 1;
   private readonly deps: AutoClassifyServiceDeps;
+  /**
+   * Last slot counts seen by `reconcileWithChestSlots`. Used to suppress the
+   * "queue < slots" info log when slots are unchanged across high-frequency
+   * reconcile calls (5 Hz from live snapshots). Null = first call (always log).
+   * Reset to null on disable so re-enable re-logs the initial state.
+   */
+  private lastReconcileSlots: { common: number; rare: number; act: number } | null = null;
 
   constructor(deps: AutoClassifyServiceDeps) {
     this.deps = deps;
@@ -88,6 +94,7 @@ export class AutoClassifyService {
     if (!enabled) {
       this.queue = [];
       this.pending = null;
+      this.lastReconcileSlots = null;
     }
     log.info(`auto-classify ${enabled ? "enabled" : "disabled"}`);
   }
@@ -98,21 +105,28 @@ export class AutoClassifyService {
 
   /**
    * Snapshot of the queue for renderer display. Grouped by BoxCategory with
-   * the head item's remaining auto-open time, plus a per-item view for the
-   * detailed queue list. Called via IPC at 1 Hz by the renderer when
+   * the head and tail items' remaining auto-open time, plus a per-item view
+   * for the detailed queue list. Called via IPC at 1 Hz by the renderer when
    * auto-classify is enabled.
+   *
+   * Under the slot-parallel model every queued chest has a concrete
+   * `autoOpenAtMs`, so `nextAutoOpenInMs` (head) and `lastAutoOpenInMs`
+   * (tail) are always non-null when the category has queued items.
    */
   getQueueSnapshot(): AutoClassifyStatePayload {
     const now = Date.now();
     const order = ["common", "rare", "act"] as const;
     const byCategory = order.map((category) => {
       const items = this.queue.filter((item) => categoryFromBoxKey(item.boxKey) === category);
-      const head = items[0];
       let nextAutoOpenInMs: number | null = null;
-      if (head?.autoOpenAtMs != null) {
-        nextAutoOpenInMs = Math.max(0, head.autoOpenAtMs - now);
+      let lastAutoOpenInMs: number | null = null;
+      if (items.length > 0) {
+        // Queue is sorted by autoOpenAtMs ascending, so head is the soonest
+        // and tail is the latest.
+        nextAutoOpenInMs = Math.max(0, items[0]!.autoOpenAtMs - now);
+        lastAutoOpenInMs = Math.max(0, items[items.length - 1]!.autoOpenAtMs - now);
       }
-      return { category, count: items.length, nextAutoOpenInMs };
+      return { category, count: items.length, nextAutoOpenInMs, lastAutoOpenInMs };
     });
     const items: AutoClassifyQueueItem[] = this.queue.map((q) => {
       // Queue items are only ever enqueued with valid category boxKeys (see
@@ -120,21 +134,13 @@ export class AutoClassifyService {
       // practice — but it returns `BoxCategory | null` at the type level, so
       // fall back to "unclassified" to satisfy the non-null item shape.
       const category = categoryFromBoxKey(q.boxKey) ?? "unclassified";
-      // autoOpenAtMs is null when this chest is waiting behind another chest
-      // of the same boxKey (serial per-slot auto-open). In that case the
-      // renderer shows "waiting" instead of a countdown.
-      const autoOpenInMs: number | null =
-        q.autoOpenAtMs != null ? Math.max(0, q.autoOpenAtMs - now) : null;
       return {
         boxKey: q.boxKey,
         category,
         droppedAtMs: q.droppedAtMs,
         stageKey: q.stageKey,
-        autoOpenInMs,
-        // Waiting items (expiresAtMs == null) have no concrete expiry to
-        // count down from — surface as 0 so the UI shows "waiting" rather
-        // than a garbage countdown.
-        expiresInMs: q.expiresAtMs != null ? Math.max(0, q.expiresAtMs - now) : 0,
+        autoOpenInMs: Math.max(0, q.autoOpenAtMs - now),
+        expiresInMs: Math.max(0, q.expiresAtMs - now),
       };
     });
     return { enabled: this.enabled, totalQueued: this.queue.length, byCategory, items };
@@ -154,16 +160,14 @@ export class AutoClassifyService {
       log.warn(`could not resolve boxKey for drop category=${event.category} stageKey=${stageKey}`);
       return;
     }
+    // Slot-parallel model: every chest gets its own auto-open timer at drop
+    // time, independent of other queued chests in the same category. Manual
+    // opens of other chests do not affect this chest's timer.
     this.queue = enqueue(this.queue, {
       boxKey,
       droppedAtMs: event.wallTime * 1000,
       stageKey,
       autoOpenSeconds: this.autoOpenForBoxKey(boxKey, autoOpen),
-      // Serial queueing is per-category (common / rare / act): the game opens
-      // one chest slot at a time per category regardless of level, so chests
-      // of the same category queue serially while different categories run
-      // in parallel. event.category is already the canonical serialKey.
-      serialKey: event.category,
     });
     log.info(`queued drop boxKey=${boxKey} stageKey=${stageKey} queueLen=${this.queue.length}`);
   }
@@ -196,18 +200,36 @@ export class AutoClassifyService {
    * will still open on their own; only the loot-classification prompt path is
    * affected (the open will be classified via the unclassified-burst flow or
    * left under "unclassified" for manual reclassification).
+   *
+   * Under the slot-parallel model every queued chest already has a concrete
+   * `autoOpenAtMs`, so pruning is just a filter — no "waiting" items need
+   * promotion. Remaining items keep their original auto-open timers, which
+   * reflects the game's behavior: manual opens do not affect other slots'
+   * timers.
    */
   reconcileWithChestSlots(slots: { common: number; rare: number; act: number }): void {
     if (!this.enabled) return;
+    // High-frequency reconcile (5 Hz from live snapshots) would emit the same
+    // "queue < slots" info log on every tick when slots are unchanged. Suppress
+    // by tracking the last-seen slots and only logging the deficit info when
+    // slots actually change (or on the first call after enable). Pruning logs
+    // are not suppressed — they only fire on actual excess, which is rare.
+    const prev = this.lastReconcileSlots;
+    const slotsChanged =
+      prev == null ||
+      prev.common !== slots.common ||
+      prev.rare !== slots.rare ||
+      prev.act !== slots.act;
+    this.lastReconcileSlots = slots;
+
     const order = ["common", "rare", "act"] as const;
-    const now = Date.now();
     let prunedTotal = 0;
     for (const category of order) {
       const slotCount = slots[category];
       const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
       const queueCount = matching.length;
       if (queueCount <= slotCount) {
-        if (queueCount < slotCount) {
+        if (slotsChanged && queueCount < slotCount) {
           log.info(
             `reconcile: ${category} queue (${queueCount}) < slots (${slotCount}); ` +
               `${slotCount - queueCount} chest(s) predate live tracking or were missed`,
@@ -216,21 +238,14 @@ export class AutoClassifyService {
         continue;
       }
       const excess = queueCount - slotCount;
-      // Queue is sorted with active heads first (by autoOpenAtMs ascending),
-      // then waiting (null) items by droppedAtMs ascending. The first
-      // `excess` matching items in array order are the ones that should have
-      // opened already (they're either the active head or a waiting item
-      // whose predecessor was among the pruned). Prune them.
+      // Queue is sorted by autoOpenAtMs ascending. The first `excess`
+      // matching items are the ones with the soonest auto-open times — they
+      // should have opened already. Prune them; remaining items keep their
+      // original autoOpenAtMs (slot-parallel model: their timers are
+      // independent of the pruned chests).
       const toRemove = new Set(matching.slice(0, excess));
       this.queue = this.queue.filter((q) => !toRemove.has(q));
       prunedTotal += excess;
-      // After pruning, the next waiting item of this category (if any) must
-      // be promoted to active head — its timer starts now, modeling the
-      // serial per-slot auto-open. Serial queueing is per-category, so a
-      // single promote call covers all chests of this category regardless of
-      // their boxKey levels. `now` is used as an upper bound (the pruned
-      // chests opened at or before now).
-      this.queue = promoteNextHead(this.queue, category, now);
       log.info(
         `reconcile: pruned ${excess} excess ${category} item(s) ` +
           `(queue ${queueCount} > slots ${slotCount})`,

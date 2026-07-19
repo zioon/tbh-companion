@@ -57,6 +57,7 @@ describe("buildStats", () => {
       gold: null,
       heroes: [{ heroKey: 101, level: 12, exp: 200 }],
       chestDrops: null,
+      chestSlots: null,
       boxOpens: null,
       inventoryItems: null,
       stageClears: null,

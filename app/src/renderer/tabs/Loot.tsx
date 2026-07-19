@@ -5,14 +5,13 @@ import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { useBoxTimers } from "../lib/useBoxTimers";
 import { useChests } from "../lib/useChests";
 import { useStats } from "../lib/useStats";
-import { translateBoxLabel } from "../lib/boxLabel";
+import { useLiveMemoryField } from "../lib/useLiveMemory";
 import type { LootRingSeconds, LookupItem } from "../../../shared/types";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
 import { DialogClose, DialogTitle } from "../design-system/primitives/Dialog/DialogParts";
 import { HintBanner } from "../design-system/primitives/HintBanner/HintBanner";
 import { Switch } from "../design-system/primitives/Switch/Switch";
-import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LootBoxSection } from "../components/loot/LootBoxSection";
 import { LootRecentDrops } from "../components/loot/LootRecentDrops";
@@ -22,14 +21,6 @@ import { useTbhContext } from "../context/tbhContext";
 import { reportIpcError } from "../lib/reportError";
 
 const DEFAULT_RING_SECONDS: LootRingSeconds = { common: 5 * 60, stage: 7 * 60 };
-
-/** Format ms as m:ss, clamping negatives to 0. */
-function formatCountdown(ms: number): string {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
 
 export function Loot() {
   const { t } = useTranslation("loot");
@@ -75,6 +66,13 @@ export function Loot() {
     [stats?.chestDrops?.commonPerHour, stats?.chestDrops?.rarePerHour],
   );
 
+  // Live chest slot counts (5 Hz) from PlayerSaveData.BoxData runtime.
+  // Selector returns the chestSlots field (or null when the reader is detached
+  // / offsets unavailable); useSyncExternalStore ensures the component only
+  // re-renders when the reference changes. Passed to LootQueueSlots, which
+  // prefers live quantity over the save-derived slot.quantity.
+  const liveChestSlots = useLiveMemoryField((snap) => snap?.chestSlots ?? null);
+
   const [ringSeconds, setRingSeconds] = useState<LootRingSeconds>(DEFAULT_RING_SECONDS);
 
   useEffect(() => {
@@ -97,7 +95,20 @@ export function Loot() {
 
   return (
     <TabPage>
-      <TabHeader title={t("tabTitle")} intro={t("intro")} />
+      <header className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="m-0 text-lg font-semibold">{t("tabTitle")}</h1>
+          <label className="flex items-center gap-2 text-xs text-muted">
+            <Switch
+              checked={autoClassifyEnabled}
+              onCheckedChange={(c) => void setAutoClassifyEnabled(c)}
+              aria-label={t("autoClassifyAria")}
+            />
+            {t("autoClassifyLabel")}
+          </label>
+        </div>
+        <p className="m-0 text-[13px] leading-snug text-muted">{t("intro")}</p>
+      </header>
       {catalogStatus?.stale && (
         <HintBanner>
           {t("catalogStaleBanner", {
@@ -106,36 +117,16 @@ export function Loot() {
           })}
         </HintBanner>
       )}
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {autoClassifyEnabled && (
-          <div className="flex items-center gap-3 rounded border border-border bg-panel px-3 py-1.5 text-xs">
-            <span className="font-medium text-text">
-              {t("queueCount", { count: autoClassifyState.totalQueued })}
-            </span>
-            {autoClassifyState.items.slice(0, 3).map((item, i) => (
-              <span key={`${item.boxKey}-${item.droppedAtMs}-${i}`} className="text-muted">
-                <span className="font-medium text-text">{translateBoxLabel(t, item.boxKey)}</span>
-                {item.autoOpenInMs != null && (
-                  <span className="ml-1 text-muted">({formatCountdown(item.autoOpenInMs)})</span>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
-        <label className="flex items-center gap-2 text-xs text-muted">
-          <Switch
-            checked={autoClassifyEnabled}
-            onCheckedChange={(c) => void setAutoClassifyEnabled(c)}
-            aria-label={t("autoClassifyAria")}
-          />
-          {t("autoClassifyLabel")}
-        </label>
-      </div>
 
       {(autoClassifyEnabled || recentDrops.length > 0) && (
         <div className="grid grid-cols-2 items-stretch gap-3 max-[720px]:grid-cols-1">
           {autoClassifyEnabled && (
-            <LootQueueSlots queue={autoClassifyState} chests={chests} dropsPerHour={dropsPerHour} />
+            <LootQueueSlots
+              queue={autoClassifyState}
+              chests={chests}
+              liveChestSlots={liveChestSlots}
+              dropsPerHour={dropsPerHour}
+            />
           )}
           {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />}
         </div>

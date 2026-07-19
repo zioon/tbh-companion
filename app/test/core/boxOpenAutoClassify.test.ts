@@ -4,7 +4,6 @@ import {
   enqueue,
   dequeue,
   pruneExpired,
-  promoteNextHead,
   groupBoxOpenEvents,
   type QueueItem,
 } from "../../src/core/boxOpenAutoClassify";
@@ -35,177 +34,163 @@ describe("enqueue", () => {
       droppedAtMs: now,
       stageKey: 3303,
       autoOpenSeconds: 600,
-      serialKey: "rare",
     });
     expect(queue).toHaveLength(1);
     expect(queue[0]?.boxKey).toBe("rare:3");
     expect(queue[0]?.droppedAtMs).toBe(now);
-    // TTL is anchored to autoOpenAtMs (not droppedAtMs): for the head of a
-    // chain, autoOpenAtMs = droppedAtMs + autoOpenSeconds*1000, so
-    // expiresAtMs = autoOpenAtMs + ttlMs = (now + 600_000) + 1_230_000.
+    // Slot-parallel: autoOpenAtMs = droppedAtMs + autoOpenSeconds*1000.
+    // TTL is anchored to autoOpenAtMs: expiresAtMs = autoOpenAtMs + ttlMs.
+    //   autoOpenAtMs = 1000000 + 600*1000 = 1600000
+    //   ttlMs = max(600*2*1000, 60000) + 30000 = 1230000
+    //   expiresAtMs = 1600000 + 1230000 = 2830000
     expect(queue[0]?.autoOpenAtMs).toBe(now + 600_000);
     expect(queue[0]?.expiresAtMs).toBe(now + 600_000 + 1_230_000);
     expect(queue[0]?.autoOpenSeconds).toBe(600);
-    expect(queue[0]?.serialKey).toBe("rare");
   });
 
-  it("queues same-serialKey chests serially (only head is active; rest wait)", () => {
+  it("assigns every chest a concrete autoOpenAtMs (slot-parallel, no waiting)", () => {
     // Three common chests dropped at 1000, 1100, 1200 — all with autoOpen=300s.
-    // Serial per-category auto-open: only the first chest's timer is running;
-    // the second and third wait until their predecessor is actually opened.
-    //   1st: active, autoOpenAtMs = 1000 + 300*1000 = 301000
-    //   2nd: waiting, autoOpenAtMs = null
-    //   3rd: waiting, autoOpenAtMs = null
+    // Slot-parallel model: every chest gets its own timer at drop time; no
+    // chest "waits" for another to open first.
+    //   1st: autoOpenAtMs = 1000 + 300*1000 = 301000
+    //   2nd: autoOpenAtMs = 1100 + 300*1000 = 301100
+    //   3rd: autoOpenAtMs = 1200 + 300*1000 = 301200
     let q = enqueue([], {
       boxKey: "common:5",
       droppedAtMs: 1000,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     q = enqueue(q, {
       boxKey: "common:5",
       droppedAtMs: 1100,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     q = enqueue(q, {
       boxKey: "common:5",
       droppedAtMs: 1200,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
-    expect(q.map((i) => i.autoOpenAtMs)).toEqual([301_000, null, null]);
-    // Order within the chain is FIFO by drop time.
+    // All items have a concrete autoOpenAtMs (no null/waiting).
+    expect(q.map((i) => i.autoOpenAtMs)).toEqual([301_000, 301_100, 301_200]);
+    // Order is by autoOpenAtMs ascending (which matches drop order here).
     expect(q.map((i) => i.droppedAtMs)).toEqual([1000, 1100, 1200]);
-    // TTL is null for waiting items — the clock hasn't started yet. Only the
-    // active head has a concrete expiresAtMs; waiting items get one when
-    // promoted via dequeue/reconcile.
+    // Every item has a concrete expiresAtMs anchored to its own autoOpenAtMs.
     //   ttlMs = max(300*2*1000, 60000) + 30000 = 630000
     //   1st expiresAtMs = 301000 + 630000 = 931000
-    //   2nd expiresAtMs = null (waiting)
-    //   3rd expiresAtMs = null (waiting)
-    expect(q.map((i) => i.expiresAtMs)).toEqual([931_000, null, null]);
+    //   2nd expiresAtMs = 301100 + 630000 = 931100
+    //   3rd expiresAtMs = 301200 + 630000 = 931200
+    expect(q.map((i) => i.expiresAtMs)).toEqual([931_000, 931_100, 931_200]);
   });
 
-  it("queues same-serialKey chests of different boxKey levels serially", () => {
-    // Two common chests of different levels (common:3 and common:5) share the
-    // same serialKey "common" — they queue serially because the game opens one
-    // common slot at a time regardless of level.
+  it("assigns independent timers to same-category chests of different levels", () => {
+    // Two common chests of different levels (common:3 and common:5) — both
+    // get their own timer at drop time. The slot-parallel model does not
+    // chain them.
     let q = enqueue([], {
       boxKey: "common:3",
       droppedAtMs: 1000,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     q = enqueue(q, {
       boxKey: "common:5",
       droppedAtMs: 1100,
       stageKey: 1105,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
-    // 1st: active, autoOpenAtMs = 1000 + 300*1000 = 301000
-    // 2nd: waiting (different boxKey but same serialKey "common")
-    expect(q.map((i) => `${i.boxKey}@${i.autoOpenAtMs ?? "null"}`)).toEqual([
+    // Both have concrete autoOpenAtMs computed from their own drop time.
+    expect(q.map((i) => `${i.boxKey}@${i.autoOpenAtMs}`)).toEqual([
       "common:3@301000",
-      "common:5@null",
+      "common:5@301100",
     ]);
   });
 
-  it("does NOT chain across different serialKeys (different categories open independently)", () => {
-    // common:5 (serialKey "common") and rare:5 (serialKey "rare") are different
-    // categories — each is the head of its own chain, so both get a concrete
-    // autoOpenAtMs from their own drop time.
+  it("runs different categories fully in parallel (independent timers)", () => {
+    // common:5 (autoOpen=300s) and rare:5 (autoOpen=600s) drop at 1000ms and
+    // 1100ms respectively. Each gets its own timer from its own drop time;
+    // neither waits for the other.
     const q1 = enqueue([], {
       boxKey: "common:5",
       droppedAtMs: 1000,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     const q2 = enqueue(q1, {
       boxKey: "rare:5",
       droppedAtMs: 1100,
       stageKey: 1101,
       autoOpenSeconds: 600,
-      serialKey: "rare",
     });
     // common:5 → 1000 + 300*1000 = 301000
-    // rare:5   → 1100 + 600*1000 = 601100 (NOT chained to common's autoOpenAtMs)
+    // rare:5   → 1100 + 600*1000 = 601100
     expect(q2[0]).toMatchObject({ boxKey: "common:5", autoOpenAtMs: 301_000 });
     expect(q2[1]).toMatchObject({ boxKey: "rare:5", autoOpenAtMs: 601_100 });
   });
 
-  it("queues each of the three chest categories serially (common / rare / act)", () => {
-    // Drop two of each category, all at the same wall time (1000ms). Each
-    // category chains independently: only the first of each is active.
-    //   common (300s): 1st=301000 (active), 2nd=null (waiting)
-    //   rare   (600s): 1st=601000 (active), 2nd=null (waiting)
-    //   act     (60s): 1st=61000  (active), 2nd=null (waiting)
-    // Active heads sort first by autoOpenAtMs ascending:
-    //   act(61000) → common(301000) → rare(601000)
-    // Waiting items sort after all active heads, by droppedAtMs ascending
-    // (all equal here → stable insertion order: common, rare, act):
-    //   common(null) → rare(null) → act(null)
+  it("assigns independent timers across all three chest categories", () => {
+    // Drop two of each category at the same wall time (1000ms). Under the
+    // slot-parallel model, every chest gets its own timer — no waiting.
+    //   common (300s): 1st=301000, 2nd=301000 (same drop time → same timer)
+    //   rare   (600s): 1st=601000, 2nd=601000
+    //   act     (60s): 1st=61000,  2nd=61000
+    // Sorted by autoOpenAtMs ascending, ties broken by droppedAtMs (all
+    // equal here → stable insertion order: common, common, rare, rare, act, act)
+    // Wait — let me recompute: act(61000) < common(301000) < rare(601000),
+    // so the expected order is: act, act, common, common, rare, rare.
     let q: QueueItem[] = [];
     q = enqueue(q, {
       boxKey: "common:5",
       droppedAtMs: 1000,
       stageKey: 1105,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     q = enqueue(q, {
       boxKey: "common:5",
       droppedAtMs: 1000,
       stageKey: 1105,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     q = enqueue(q, {
       boxKey: "rare:5",
       droppedAtMs: 1000,
       stageKey: 1105,
       autoOpenSeconds: 600,
-      serialKey: "rare",
     });
     q = enqueue(q, {
       boxKey: "rare:5",
       droppedAtMs: 1000,
       stageKey: 1105,
       autoOpenSeconds: 600,
-      serialKey: "rare",
     });
     q = enqueue(q, {
       boxKey: "act:1",
       droppedAtMs: 1000,
       stageKey: 1105,
       autoOpenSeconds: 60,
-      serialKey: "act",
     });
     q = enqueue(q, {
       boxKey: "act:1",
       droppedAtMs: 1000,
       stageKey: 1105,
       autoOpenSeconds: 60,
-      serialKey: "act",
     });
 
-    expect(q.map((i) => `${i.boxKey}@${i.autoOpenAtMs ?? "null"}`)).toEqual([
+    // All items have concrete autoOpenAtMs (no null/waiting). Sorted by
+    // autoOpenAtMs ascending: act(61000) x2, common(301000) x2, rare(601000) x2.
+    expect(q.map((i) => `${i.boxKey}@${i.autoOpenAtMs}`)).toEqual([
+      "act:1@61000",
       "act:1@61000",
       "common:5@301000",
+      "common:5@301000",
       "rare:5@601000",
-      "common:5@null",
-      "rare:5@null",
-      "act:1@null",
+      "rare:5@601000",
     ]);
   });
 
-  it("keeps active heads sorted by autoOpenAtMs ascending across categories", () => {
+  it("keeps the queue sorted by autoOpenAtMs ascending across categories", () => {
     // common@1000s autoOpen=300s → autoOpenAtMs=301000
     // rare@2000s   autoOpen=600s → autoOpenAtMs=602000
     // Despite rare being enqueued first, common should sort to the head.
@@ -214,18 +199,17 @@ describe("enqueue", () => {
       droppedAtMs: 2000,
       stageKey: 3303,
       autoOpenSeconds: 600,
-      serialKey: "rare",
     });
     const q2 = enqueue(q1, {
       boxKey: "common",
       droppedAtMs: 1000,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     expect(q2.map((i) => i.boxKey)).toEqual(["common", "rare:3"]);
     expect(q2[0]?.autoOpenAtMs).toBeLessThan(q2[1]?.autoOpenAtMs ?? Infinity);
   });
+
   it("inserts act boss (short autoOpen) before common (long autoOpen) even when dropped later", () => {
     // common@1000s autoOpen=300s → autoOpenAtMs=301000
     // act@5000s    autoOpen=60s  → autoOpenAtMs=56000 (sooner despite later drop)
@@ -234,14 +218,12 @@ describe("enqueue", () => {
       droppedAtMs: 1000,
       stageKey: 1101,
       autoOpenSeconds: 300,
-      serialKey: "common",
     });
     const q2 = enqueue(q1, {
       boxKey: "act",
       droppedAtMs: 5000,
       stageKey: 0,
       autoOpenSeconds: 60,
-      serialKey: "act",
     });
     expect(q2.map((i) => i.boxKey)).toEqual(["act", "common"]);
   });
@@ -260,7 +242,6 @@ describe("dequeue", () => {
       stageKey: 1,
       expiresAtMs: 9999,
       autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 5000,
     };
     const b: QueueItem = {
@@ -269,7 +250,6 @@ describe("dequeue", () => {
       stageKey: 2,
       expiresAtMs: 9999,
       autoOpenSeconds: 600,
-      serialKey: "rare",
       autoOpenAtMs: 6000,
     };
     const { queue, item } = dequeue([a, b], 1500);
@@ -283,7 +263,6 @@ describe("dequeue", () => {
       stageKey: 1,
       expiresAtMs: 500,
       autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 1000,
     };
     const live: QueueItem = {
@@ -292,206 +271,52 @@ describe("dequeue", () => {
       stageKey: 2,
       expiresAtMs: 9999,
       autoOpenSeconds: 600,
-      serialKey: "rare",
       autoOpenAtMs: 2000,
     };
     const { queue, item } = dequeue([expired, live], 1000);
     expect(item).toBe(live);
     expect(queue).toEqual([]);
   });
-  it("promotes the next waiting same-serialKey item to active head on dequeue", () => {
-    // Two common chests queued serially: head active, second waiting (null).
-    // On dequeue at now=5000, the second is promoted to active head with
-    // autoOpenAtMs = 5000 + 300*1000 = 305000 and expiresAtMs recomputed
-    // from that new autoOpenAtMs:
-    //   ttlMs = max(300*2*1000, 60000) + 30000 = 630000
-    //   expiresAtMs = 305000 + 630000 = 935000
+  it("does not modify remaining items' autoOpenAtMs when dequeuing the head", () => {
+    // Slot-parallel model: dequeuing the head does not promote or re-timer
+    // any other item. Each remaining chest keeps its original autoOpenAtMs.
     const a: QueueItem = {
       boxKey: "common",
       droppedAtMs: 1000,
       stageKey: 1,
       expiresAtMs: 9999,
       autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: 301000,
-    };
-    const b: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 1100,
-      stageKey: 1,
-      expiresAtMs: null,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
-    };
-    const { queue, item } = dequeue([a, b], 5000);
-    expect(item).toBe(a);
-    expect(queue).toHaveLength(1);
-    expect(queue[0]?.boxKey).toBe("common");
-    expect(queue[0]?.autoOpenAtMs).toBe(305000);
-    expect(queue[0]?.expiresAtMs).toBe(935000);
-  });
-  it("promotes a waiting same-serialKey item of a different boxKey level", () => {
-    // common:3 (head, active) and common:5 (waiting) share serialKey "common".
-    // On dequeue, common:5 is promoted even though its boxKey differs.
-    const a: QueueItem = {
-      boxKey: "common:3",
-      droppedAtMs: 1000,
-      stageKey: 1,
-      expiresAtMs: 9999,
-      autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 5000,
     };
     const b: QueueItem = {
-      boxKey: "common:5",
+      boxKey: "common",
       droppedAtMs: 1100,
-      stageKey: 2,
-      expiresAtMs: null,
+      stageKey: 1,
+      expiresAtMs: 9999,
       autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
+      // b's timer was set at drop time and is independent of a's fate.
+      autoOpenAtMs: 301100,
     };
     const { queue, item } = dequeue([a, b], 1500);
     expect(item).toBe(a);
     expect(queue).toHaveLength(1);
-    expect(queue[0]?.boxKey).toBe("common:5");
-    expect(queue[0]?.autoOpenAtMs).toBe(301500);
+    expect(queue[0]?.boxKey).toBe("common");
+    // b's autoOpenAtMs is unchanged — no promotion, no re-timer.
+    expect(queue[0]?.autoOpenAtMs).toBe(301100);
+    expect(queue[0]?.expiresAtMs).toBe(9999);
   });
-  it("does not promote a different serialKey's waiting item on dequeue", () => {
-    // Head is common (active), second is rare (active, different serialKey),
-    // third is common (waiting). On dequeue, common's waiting item should be
-    // promoted, rare's item should be untouched.
-    const a: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1,
-      expiresAtMs: 9999,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: 5000,
-    };
-    const b: QueueItem = {
-      boxKey: "rare",
-      droppedAtMs: 2000,
-      stageKey: 2,
-      expiresAtMs: 9999,
-      autoOpenSeconds: 600,
-      serialKey: "rare",
-      autoOpenAtMs: 6000,
-    };
-    const c: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 3000,
-      stageKey: 1,
-      expiresAtMs: null,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
-    };
-    const { queue, item } = dequeue([a, b, c], 1500);
-    expect(item).toBe(a);
-    // b stays at autoOpenAtMs=6000 (untouched); c promoted to 1500+300000=301500.
-    expect(queue).toHaveLength(2);
-    expect(queue[0]).toMatchObject({ boxKey: "rare", autoOpenAtMs: 6000 });
-    expect(queue[1]).toMatchObject({ boxKey: "common", autoOpenAtMs: 301500 });
-  });
-  it("returns null when the head is a waiting item (no active head to consume)", () => {
-    // If the queue only has waiting items (no active head), dequeue can't
-    // match — there's no chest currently counting down to auto-open. Return
-    // null and preserve the queue so the caller falls back to the prompt path.
-    const waiting: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1,
-      expiresAtMs: null,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
-    };
-    const { queue, item } = dequeue([waiting], 5000);
-    expect(item).toBeNull();
-    expect(queue).toEqual([waiting]);
-  });
-  it("promotes next waiting item after skipping an expired head", () => {
-    // Head is expired (expiresAtMs <= now); dequeue drops it and promotes
-    // the next waiting item of the same serialKey to active head, then
-    // returns the promoted item as the match target.
+  it("returns null when all items are expired", () => {
     const expired: QueueItem = {
       boxKey: "common",
       droppedAtMs: 0,
       stageKey: 1,
       expiresAtMs: 500,
       autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 1000,
     };
-    const waiting: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 200,
-      stageKey: 1,
-      expiresAtMs: null,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
-    };
-    const { queue, item } = dequeue([expired, waiting], 1000);
-    // expired is dropped; waiting is promoted to active head with
-    // autoOpenAtMs = 1000 + 300*1000 = 301000, then dequeued as the match.
-    expect(item).not.toBeNull();
-    expect(item?.boxKey).toBe("common");
-    expect(item?.autoOpenAtMs).toBe(301_000);
-    expect(item?.expiresAtMs).toBe(931_000);
+    const { queue, item } = dequeue([expired], 1000);
+    expect(item).toBeNull();
     expect(queue).toEqual([]);
-  });
-});
-
-describe("promoteNextHead", () => {
-  it("promotes the first waiting item of serialKey to active head and recomputes expiresAtMs", () => {
-    const a: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1,
-      expiresAtMs: null, // waiting — promote recomputes from new autoOpenAtMs
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
-    };
-    const result = promoteNextHead([a], "common", 5000);
-    // autoOpenAtMs = 5000 + 300*1000 = 305000
-    expect(result[0]?.autoOpenAtMs).toBe(305000);
-    // ttlMs = max(300*2*1000, 60000) + 30000 = 630000
-    // expiresAtMs = 305000 + 630000 = 935000 (anchored to new autoOpenAtMs)
-    expect(result[0]?.expiresAtMs).toBe(935000);
-  });
-  it("leaves the queue unchanged when no matching serialKey exists", () => {
-    const a: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1,
-      expiresAtMs: null,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
-    };
-    const original = [a];
-    const result = promoteNextHead(original, "rare", 5000);
-    expect(result).toBe(original); // referentially equal — no copy
-    expect(result).toEqual([a]);
-  });
-  it("leaves the queue unchanged when the next item is already active", () => {
-    const a: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 1000,
-      stageKey: 1,
-      expiresAtMs: 9999,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: 5000,
-    };
-    const original = [a];
-    const result = promoteNextHead(original, "common", 9999);
-    expect(result).toBe(original); // referentially equal — no copy
   });
 });
 
@@ -506,7 +331,6 @@ describe("pruneExpired", () => {
       stageKey: 1,
       expiresAtMs: 500,
       autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 1000,
     };
     const b: QueueItem = {
@@ -515,7 +339,6 @@ describe("pruneExpired", () => {
       stageKey: 2,
       expiresAtMs: 1500,
       autoOpenSeconds: 600,
-      serialKey: "rare",
       autoOpenAtMs: 2000,
     };
     expect(pruneExpired([a, b], 1000)).toEqual([b]);
@@ -527,76 +350,47 @@ describe("pruneExpired", () => {
       stageKey: 1,
       expiresAtMs: 1001,
       autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 2000,
     };
     expect(pruneExpired([a], 1000)).toEqual([a]);
   });
-  it("keeps waiting items (expiresAtMs == null) — their TTL hasn't started", () => {
-    const waiting: QueueItem = {
+  it("returns the same array reference when no items are pruned", () => {
+    const a: QueueItem = {
       boxKey: "common",
       droppedAtMs: 0,
       stageKey: 1,
-      expiresAtMs: null,
+      expiresAtMs: 9999,
       autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
+      autoOpenAtMs: 2000,
     };
-    // Even at now=9999999, waiting items survive — their clock hasn't started.
-    expect(pruneExpired([waiting], 9_999_999)).toEqual([waiting]);
+    const original = [a];
+    expect(pruneExpired(original, 1000)).toBe(original);
   });
-  it("promotes the next waiting item of a pruned serialKey to active head", () => {
-    // Active head expired → pruned. The next waiting item of the same
-    // serialKey is promoted to active head with autoOpenAtMs and expiresAtMs
-    // computed from `now`.
+  it("does not modify remaining items' timers when pruning expired ones", () => {
+    // Slot-parallel model: pruning expired items does not re-timer the
+    // remaining ones. Each surviving chest keeps its original autoOpenAtMs.
     const expired: QueueItem = {
       boxKey: "common",
       droppedAtMs: 0,
       stageKey: 1,
       expiresAtMs: 500,
       autoOpenSeconds: 300,
-      serialKey: "common",
       autoOpenAtMs: 1000,
     };
-    const waiting: QueueItem = {
+    const live: QueueItem = {
       boxKey: "common",
       droppedAtMs: 200,
       stageKey: 1,
-      expiresAtMs: null,
+      expiresAtMs: 9999,
       autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: null,
+      // live's timer was set at drop time and is independent of expired's fate.
+      autoOpenAtMs: 300200,
     };
-    const result = pruneExpired([expired, waiting], 1000);
+    const result = pruneExpired([expired, live], 1000);
     expect(result).toHaveLength(1);
-    // Promoted: autoOpenAtMs = 1000 + 300*1000 = 301000
-    expect(result[0]?.autoOpenAtMs).toBe(301_000);
-    // expiresAtMs = 301000 + ttlMs(630000) = 931000
-    expect(result[0]?.expiresAtMs).toBe(931_000);
-  });
-  it("does not promote waiting items of unaffected serialKeys", () => {
-    // common head expired; rare waiting item should be untouched (different
-    // serialKey, so no promotion).
-    const expiredCommon: QueueItem = {
-      boxKey: "common",
-      droppedAtMs: 0,
-      stageKey: 1,
-      expiresAtMs: 500,
-      autoOpenSeconds: 300,
-      serialKey: "common",
-      autoOpenAtMs: 1000,
-    };
-    const waitingRare: QueueItem = {
-      boxKey: "rare",
-      droppedAtMs: 0,
-      stageKey: 2,
-      expiresAtMs: null,
-      autoOpenSeconds: 600,
-      serialKey: "rare",
-      autoOpenAtMs: null,
-    };
-    const result = pruneExpired([expiredCommon, waitingRare], 1000);
-    expect(result).toEqual([waitingRare]);
+    // autoOpenAtMs unchanged — no promotion.
+    expect(result[0]?.autoOpenAtMs).toBe(300_200);
+    expect(result[0]?.expiresAtMs).toBe(9999);
   });
 });
 

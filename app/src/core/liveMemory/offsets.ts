@@ -41,6 +41,23 @@ export interface LiveOffsets {
      * Used by combat gold reader (GoldEarn[SubKey=1]). 0 = known fallback to wallet balance.
      */
     aggregates: number;
+    /**
+     * PlayerSaveData.BoxData — BoxData instance field offset. Holds the runtime
+     * equivalent of the save `BoxData` struct (BoxTypes[] + BoxQuantity[]).
+     * 0 = not derived; reader falls back to save path for slot quantities.
+     */
+    boxData: number;
+  };
+  /**
+   * BoxData struct field offsets. BoxData is held by PlayerSaveData and contains
+   * two parallel int arrays: BoxTypes (chest type IDs) and BoxQuantity (per-type
+   * counts). Used by readRuntimeChestSlots for live slot-quantity reading.
+   */
+  boxData: {
+    /** BoxData.BoxTypes — List<int> field offset. 0 = not derived. */
+    boxTypes: number;
+    /** BoxData.BoxQuantity — List<int> field offset. 0 = not derived. */
+    boxQuantity: number;
   };
   common: {
     playTime: number;
@@ -251,6 +268,11 @@ const V1_00_23: LiveOffsets = {
     petSaveDatas: 0x70, // PlayerSaveData.PetSaveData (was 0x68 in v1.00.21)
     itemSaveDatas: 0xa8, // PlayerSaveData.itemSaveDatas (was 0xa0 in v1.00.21)
     aggregates: 0xb8, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+    boxData: 0, // PlayerSaveData.BoxData — derived at runtime via findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0, // BoxData.BoxTypes — derived at runtime
+    boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime
   },
   common: {
     playTime: 0x20,
@@ -298,6 +320,11 @@ const V1_00_21: LiveOffsets = {
     petSaveDatas: 0x68, // PlayerSaveData.PetSaveData (List<PetSaveData>)
     itemSaveDatas: 0xa0, // PlayerSaveData.itemSaveDatas (List<ItemSaveData>)
     aggregates: 0xb0, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+    boxData: 0, // PlayerSaveData.BoxData — derived at runtime via findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0, // BoxData.BoxTypes — derived at runtime
+    boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime
   },
   common: {
     playTime: 0x20,
@@ -350,6 +377,11 @@ const V1_00_27: LiveOffsets = {
     petSaveDatas: 0x70, // PlayerSaveData.PetSaveData (same layout as v1.00.23)
     itemSaveDatas: 0xa8, // PlayerSaveData.itemSaveDatas
     aggregates: 0xb8, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+    boxData: 0, // PlayerSaveData.BoxData — derived at runtime via findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0, // BoxData.BoxTypes — derived at runtime
+    boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime
   },
   common: {
     playTime: 0x20,

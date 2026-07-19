@@ -1,5 +1,10 @@
 import { useTranslation } from "react-i18next";
-import type { AutoClassifyStatePayload, BoxSlotStatus, ChestState } from "../../../../shared/types";
+import type {
+  AutoClassifyStatePayload,
+  BoxSlotStatus,
+  ChestState,
+  LiveChestSlots,
+} from "../../../../shared/types";
 import { Badge } from "../../design-system/primitives/Badge/Badge";
 import { CapacityBar } from "../../design-system/primitives/CapacityBar/CapacityBar";
 import { Card } from "../../design-system/primitives/Card/Card";
@@ -75,6 +80,18 @@ interface LootQueueSlotsProps {
   /** Live chest slot state from `useChests()`. `null` while waiting for save. */
   chests: ChestState | null;
   /**
+   * Live per-category chest slot counts from `PlayerSaveData.BoxData` runtime
+   * (5 Hz via LiveMemorySnapshot). When non-null, the renderer prefers these
+   * over the save-derived `slot.quantity` for the "current/capacity" display —
+   * this gives second-level responsiveness to manual opens and auto-opens
+   * (save path has tens-of-seconds latency).
+   *
+   * `null` = live path unavailable this tick → fall back to `slot.quantity`.
+   * `capacity` always comes from `slot.capacity` (save path is authoritative
+   * for rune-purchased cap increases, which are low-frequency).
+   */
+  liveChestSlots?: LiveChestSlots | null;
+  /**
    * Per-category drop rate (chests/hour). `common` and `rare` come from
    * `stats.chestDrops.commonPerHour` / `rarePerHour`; `act` has no periodic
    * drop rate so it should be `null`.
@@ -82,7 +99,7 @@ interface LootQueueSlotsProps {
   dropsPerHour: { [K in QueueCategory]: number | null };
 }
 
-export function LootQueueSlots({ queue, chests, dropsPerHour }: LootQueueSlotsProps) {
+export function LootQueueSlots({ queue, chests, liveChestSlots, dropsPerHour }: LootQueueSlotsProps) {
   const { t } = useTranslation("loot");
 
   return (
@@ -93,25 +110,32 @@ export function LootQueueSlots({ queue, chests, dropsPerHour }: LootQueueSlotsPr
       <div className="flex flex-col gap-1.5">
         {SLOT_ROWS.map((row) => {
           const queueEntry = queue.byCategory.find((c) => c.category === row.queueCategory);
-          const queuedCount = queueEntry?.count ?? 0;
           const nextAutoOpenInMs = queueEntry?.nextAutoOpenInMs ?? null;
+          const lastAutoOpenInMs = queueEntry?.lastAutoOpenInMs ?? null;
 
           const slot: BoxSlotStatus | null = chests?.[row.slotKey] ?? null;
-          const autoOpenSeconds = chests?.autoOpen?.[row.slotKey] ?? null;
 
-          const quantity = slot?.quantity ?? 0;
+          // Live quantity takes precedence when available (5 Hz); falls back to
+          // save-derived `slot.quantity` when the live path is unavailable this
+          // tick (offsets not derived / pointer walk failed / reader detached).
+          // `capacity` always comes from save (rune-purchased cap is
+          // low-frequency, save path is authoritative).
+          const saveQuantity = slot?.quantity ?? 0;
+          const liveQuantity = liveChestSlots?.[row.queueCategory];
+          const quantity = liveQuantity ?? saveQuantity;
           const capacity = slot?.capacity ?? 0;
-          const isFull = slot?.isFull ?? false;
-          const pct = capacity > 0 ? Math.min(100, (quantity / capacity) * 100) : 0;
+          // `isFull` re-derived from the merged quantity + save capacity so the
+          // "Full" badge reflects the live state, not the stale save state.
+          const isFull = capacity > 0 ? quantity >= capacity : false;
+          const pct =
+            capacity > 0 ? Math.min(100, (quantity / capacity) * 100) : 0;
 
-          // Queue clears-in: time for every queued chest of this category to
-          // auto-open. Head opens in `nextAutoOpenInMs`; each subsequent chest
-          // opens `autoOpenSeconds` later (serial per-category auto-open).
-          // `null` when the queue is empty or auto-open seconds are unknown.
-          let clearsInMs: number | null = null;
-          if (queuedCount > 0 && nextAutoOpenInMs != null && autoOpenSeconds != null) {
-            clearsInMs = nextAutoOpenInMs + (queuedCount - 1) * autoOpenSeconds * 1000;
-          }
+          // Queue clears-in: under the slot-parallel model every queued chest
+          // has its own independent timer. The queue is fully cleared when
+          // the latest-opening (tail) chest auto-opens, so `clearsInMs` is
+          // simply the tail item's remaining time. `null` when the queue is
+          // empty.
+          const clearsInMs = lastAutoOpenInMs;
 
           // Slots fill-in: time for `quantity` to reach `capacity` based on
           // the observed drop rate. `null` when already full, no rate, or

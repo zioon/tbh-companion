@@ -58,7 +58,9 @@ import {
 } from "../../core/liveMemory/runtime";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import { readRuntimeChestSlots, type ReadChestSlotsResult } from "../../core/liveMemory/chestSlots";
+import { loadBoxTypeCatalog, boxTypeIndex } from "../../core/boxes/catalog";
+import type { BoxCategory, LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -151,6 +153,13 @@ export class LiveMemoryReader {
   private lowFreqLoaded = false;
   private cachedInventory: ReadInventoryResult | null = null;
   private cachedPets: ReadPetsResult | null = null;
+  /**
+   * boxType → BoxCategory map for readRuntimeChestSlots. Built once from the
+   * bundled `box_types.json` catalog and reused for the reader's lifetime.
+   * Null until first use (lazy init keeps tests that don't touch chest slots
+   * from needing to mock the catalog).
+   */
+  private boxTypeCatalogMap: ReadonlyMap<number, BoxCategory> | null = null;
 
   // BoxOpenLog list length observed on the previous tick. Used by the heal
   // scheduler to detect "player just opened a box" — the only precondition
@@ -492,6 +501,7 @@ export class LiveMemoryReader {
     this.lowFreqLoaded = false;
     this.cachedInventory = null;
     this.cachedPets = null;
+    this.boxTypeCatalogMap = null;
     this.boxOpenCountPrev = null;
     this.boxOpenEventPending = false;
   }
@@ -632,6 +642,17 @@ export class LiveMemoryReader {
       }
     }
 
+    // Live chest slot counts (high-frequency, every tick). Falls back to null
+    // when offsets unavailable — the renderer falls back to save-derived counts.
+    const chestSlotsResult: ReadChestSlotsResult = readRuntimeChestSlots(
+      p,
+      ga.base,
+      ga.size,
+      o,
+      this.getBoxTypeCatalogMap(),
+      this.playerPtr,
+    );
+
     return {
       connected: true,
       stageKey: stage.stageKey,
@@ -647,6 +668,8 @@ export class LiveMemoryReader {
       chestDrops: chestResult.drops,
       chestDropsStatus: chestResult.status || undefined,
       chestLogDebug: chestResult.debug,
+      chestSlots: chestSlotsResult.slots,
+      chestSlotsStatus: chestSlotsResult.status || undefined,
       boxOpens: boxOpenResult.opens,
       boxOpensStatus: boxOpenResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
@@ -660,6 +683,25 @@ export class LiveMemoryReader {
       readMs: Date.now() - t0,
       at: Date.now(),
     };
+  }
+
+  /** Lazy-init the boxType → BoxCategory map from the bundled catalog. */
+  private getBoxTypeCatalogMap(): ReadonlyMap<number, BoxCategory> {
+    if (this.boxTypeCatalogMap == null) {
+      try {
+        const catalog = loadBoxTypeCatalog();
+        const idx = boxTypeIndex(catalog);
+        this.boxTypeCatalogMap = new Map(
+          Array.from(idx.entries()).map(([k, v]) => [k, v.category] as const),
+        );
+      } catch (err) {
+        // Catalog missing/unreadable — fall back to empty map (all BoxTypes
+        // become "unknown" and slots stays {0,0,0}; better than crashing).
+        this.log(`boxType catalog load failed: ${(err as Error).message}`);
+        this.boxTypeCatalogMap = new Map();
+      }
+    }
+    return this.boxTypeCatalogMap;
   }
 
   /**

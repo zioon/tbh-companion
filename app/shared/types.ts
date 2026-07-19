@@ -78,6 +78,17 @@ export interface ChestDropStats {
   commonPerHour: number;
   rarePerHour: number;
   actPerHour: number;
+  /**
+   * Session-scoped drop counts (new drops since the last `applySnapshot` /
+   * `reset`). These share the same time window as `*PerHour`
+   * (`sessionDropStart` → now), so `commonSession` / `commonPerHour` are
+   * always consistent — unlike `commonTotal`, which is cumulative across
+   * restarts. Surfaced in the Live tab so the displayed count and rate agree.
+   */
+  commonSession: number;
+  rareSession: number;
+  actSession: number;
+  combinedSession: number;
   breakdown: ChestDropBreakdownRow[];
   history: ChestDropHistoryEntry[];
   /**
@@ -1245,6 +1256,18 @@ export interface LiveInventoryItem {
   isChaotic: boolean;
 }
 
+/**
+ * Live per-category chest slot counts (unopened chests) read from
+ * `PlayerSaveData.BoxData` runtime. Categories mirror {@link BoxCategory}
+ * minus `unclassified` (which is tracker-side only and never counted as a slot).
+ */
+export interface LiveChestSlots {
+  common: number;
+  /** Stage boss chests (auto-classify "rare" category). */
+  rare: number;
+  act: number;
+}
+
 /** Pet unlock state read from save-layer heap (PetSaveData). */
 export interface LivePetData {
   petKey: number;
@@ -1288,6 +1311,16 @@ export interface LiveMemorySnapshot {
    * new and can cause duplicate recordings.
    */
   chestLogDebug?: { count: number; lastCountBefore: number; start: number; entriesRead: number };
+  /**
+   * Live per-category chest slot quantities (current count of unopened chests
+   * of each type), read from `PlayerSaveData.BoxData` runtime. `null` = reader
+   * active but offsets unavailable / pointer walk failed this tick — fall back
+   * to save-derived slot counts. Used by AutoClassifyService for high-frequency
+   * reconcile and by the renderer's `LootQueueSlots` for live quantity display.
+   */
+  chestSlots: LiveChestSlots | null;
+  /** Diagnostics: why `chestSlots` is null this tick. Dev-only. */
+  chestSlotsStatus?: string;
   /** Live inventory items from PlayerSaveData.itemSaveDatas snapshot (null ⇒ unavailable). */
   inventoryItems: LiveInventoryItem[] | null;
   /** Diagnostics: why `inventoryItems` is null this tick. Dev-only. */
