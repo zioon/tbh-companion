@@ -5,7 +5,7 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = (await importOriginal()) as typeof import("node:fs");
   return {
     ...actual,
     existsSync: vi.fn(() => false),

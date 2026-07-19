@@ -2,6 +2,7 @@
 
 import { currencyCode, parseMinorUnits, parseMoney, TBH_STEAM_APP_ID } from "../../core/steamPrice";
 import { getProxyDispatcher } from "./proxyResolver";
+import { parseRetryAfterMs } from "./retryAfter";
 
 const HISTOGRAM = "https://steamcommunity.com/market/itemordershistogram";
 
@@ -19,6 +20,8 @@ export interface BuyOrderFetchResult {
   buyOrderQuantity?: number | null;
   /** Full buy-side order book, sorted descending by price. */
   buyOrderLevels?: BuyOrderLevel[] | null;
+  /** Set only on 429: ms Steam suggested we wait before retrying. */
+  retryAfterMs?: number;
 }
 
 function parseQuantityString(raw: string | null | undefined): number | null {
@@ -94,7 +97,11 @@ export async function fetchSteamBuyOrder(
   } catch {
     return { ok: false, status: 0 };
   }
-  if (!res.ok) return { ok: false, status: res.status };
+  if (!res.ok) {
+    return res.status === 429
+      ? { ok: false, status: res.status, retryAfterMs: parseRetryAfterMs(res) }
+      : { ok: false, status: res.status };
+  }
 
   const data = (await res.json()) as {
     success?: number;

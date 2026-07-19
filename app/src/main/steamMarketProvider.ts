@@ -21,9 +21,25 @@ export type { PriceEntry };
 
 const log = createLogger("market");
 
-const DEFAULT_DELAY_MS = 1500;
+// Inter-request delay. Steam's priceoverview endpoint throttles aggressively
+// (no documented quota, but empirically ~20 req/min). 3s = 20 req/min, which
+// stays under the limit. Lower values trigger 429 cascades that waste the
+// rate-limit budget on retries instead of fresh lookups.
+const DEFAULT_DELAY_MS = 3000;
 const MAX_DELAY_MS = 60000;
 const PERSIST_EVERY_PRICED = 5;
+// Per-target cap on 429 retries. After this many consecutive 429s on the
+// SAME target, we give up on it and advance to the next. Keeps a single
+// bad hash (e.g. a placeholder Steam will never serve) from looping
+// forever. Must stay below MAX_CONSECUTIVE_RATE_LIMITS so the per-target
+// give-up fires before the global breaker.
+const MAX_RETRIES_PER_TARGET = 2;
+// Circuit breaker: stop the whole refresh after this many consecutive 429s
+// across targets. Without this, a 60-target refresh against an already-spent
+// quota would burn 60 × 2 = 120 retries before exhausting the list. With
+// the breaker, three consecutive 429s end the run early and leave the
+// remaining targets for the next refresh cycle.
+const MAX_CONSECUTIVE_RATE_LIMITS = 3;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -49,7 +65,13 @@ type RefreshCounters = {
   failed: number;
 };
 
-type FetchStep = "advance" | "retry";
+/**
+ * Outcome of pricing a single target. `retry` carries the `Retry-After`
+ * hint Steam returned with a 429 (parsed to ms) so the orchestrator can
+ * honor the server's recommended recovery window instead of only the
+ * exponential backoff.
+ */
+type FetchStep = { kind: "advance" } | { kind: "retry"; retryAfterMs?: number };
 
 function emptyRefreshResult(currency: string): PriceRefreshResult {
   return {
@@ -260,6 +282,11 @@ export class SteamMarketProvider {
     const counters: RefreshCounters = { priced: 0, skipped: 0, failed: 0 };
     let delayMs = DEFAULT_DELAY_MS;
     let sawRateLimit = false;
+    let retriesForCurrentTarget = 0;
+    // Circuit breaker: counts consecutive 429s across targets. A single
+    // success resets it; MAX_CONSECUTIVE_RATE_LIMITS consecutive 429s break
+    // the whole refresh so we stop burning quota against an exhausted limit.
+    let consecutiveRateLimits = 0;
 
     for (let index = 0; index < targets.length; ) {
       if (this.cancelled) break;
@@ -268,26 +295,68 @@ export class SteamMarketProvider {
       if (!force && this.isFreshTarget(target, now)) {
         counters.skipped++;
         this.emitProgress(opts, targets.length, index + 1, targetLabel(target), counters);
+        retriesForCurrentTarget = 0;
         index++;
         continue;
       }
 
       const step = await this.priceTarget(target, counters, opts);
-      if (step === "retry") {
+      if (step.kind === "retry") {
+        consecutiveRateLimits++;
+        retriesForCurrentTarget++;
+        // Circuit breaker: when Steam keeps returning 429 across targets,
+        // the quota is spent — stop launching new requests. The breaker
+        // fires before per-target give-up so we don't burn the remaining
+        // budget grinding through the rest of the target list.
+        if (consecutiveRateLimits >= MAX_CONSECUTIVE_RATE_LIMITS) {
+          sawRateLimit = true;
+          log.warn(
+            `Circuit breaker: ${MAX_CONSECUTIVE_RATE_LIMITS} consecutive rate limits, stopping refresh ` +
+              `at target ${index + 1}/${targets.length}`,
+          );
+          this.emitProgress(opts, targets.length, index + 1, `(rate-limited, stopping)`, counters);
+          break;
+        }
+
+        // Per-target give-up: a single bad hash (e.g. placeholder Steam
+        // will never serve) shouldn't loop forever. Advance and let the
+        // breaker catch a broader outage.
+        if (retriesForCurrentTarget >= MAX_RETRIES_PER_TARGET) {
+          counters.failed++;
+          log.warn(
+            `Rate-limited ${targetLabel(target)} giving up after ${MAX_RETRIES_PER_TARGET} retries`,
+          );
+          retriesForCurrentTarget = 0;
+          delayMs = DEFAULT_DELAY_MS;
+          this.emitProgress(opts, targets.length, index + 1, targetLabel(target), counters);
+          index++;
+          continue;
+        }
         sawRateLimit = true;
-        delayMs = Math.min(delayMs * 2, MAX_DELAY_MS);
-        log.warn(`Rate-limited ${targetLabel(target)} backoff=${Math.round(delayMs / 1000)}s`);
+        // Honor Steam's Retry-After hint when present; otherwise fall back
+        // to exponential backoff. Use the larger of the two — never shorten
+        // the server's recommended wait.
+        const backoffMs = Math.min(delayMs * 2, MAX_DELAY_MS);
+        const waitMs = Math.max(step.retryAfterMs ?? 0, backoffMs);
+        delayMs = waitMs;
+        log.warn(
+          `Rate-limited ${targetLabel(target)} backoff=${Math.round(waitMs / 1000)}s ` +
+            `(retry ${retriesForCurrentTarget}/${MAX_RETRIES_PER_TARGET})`,
+        );
         this.emitProgress(
           opts,
           targets.length,
           index + 1,
-          `${targetLabel(target)} (rate-limited, waiting ${Math.round(delayMs / 1000)}s)`,
+          `${targetLabel(target)} (rate-limited, waiting ${Math.round(waitMs / 1000)}s)`,
           counters,
         );
-        await sleepUntil(delayMs, () => this.cancelled);
+        await sleepUntil(waitMs, () => this.cancelled);
         continue;
       }
 
+      // Success — reset both per-target and consecutive rate-limit counters.
+      retriesForCurrentTarget = 0;
+      consecutiveRateLimits = 0;
       delayMs = DEFAULT_DELAY_MS;
       this.emitProgress(opts, targets.length, index + 1, targetLabel(target), counters);
       if (counters.priced > 0 && counters.priced % PERSIST_EVERY_PRICED === 0) {
@@ -311,7 +380,7 @@ export class SteamMarketProvider {
     const hash = limitGearVariantHashes(target.candidates)[0];
     if (!hash) {
       counters.failed++;
-      return "advance";
+      return { kind: "advance" };
     }
     return this.priceOneHash(hash, counters, opts);
   }
@@ -325,7 +394,9 @@ export class SteamMarketProvider {
     const countAsPriced = options.countAsPriced !== false;
     try {
       const response = await fetchSteamPrice(name, this.currency);
-      if (response.status === 429) return "retry";
+      if (!response.ok && response.status === 429) {
+        return { kind: "retry", retryAfterMs: response.retryAfterMs };
+      }
 
       const entry = response.ok ? response.entry : response.entry;
       if (!entry) {
@@ -339,7 +410,7 @@ export class SteamMarketProvider {
             if (countAsPriced) {
               counters.priced++;
             }
-            return "advance";
+            return { kind: "advance" };
           }
           const detail = describeSteamPriceFailure(response);
           options.onFail?.(detail);
@@ -348,11 +419,11 @@ export class SteamMarketProvider {
             log.warn(`Price failed: ${name} (${this.currency}) - ${detail}`);
           }
         }
-        return "advance";
+        return { kind: "advance" };
       }
 
       const buyStep = await this.attachBuyOrder(name, entry);
-      if (buyStep === "retry") return "retry";
+      if (buyStep.kind === "retry") return buyStep;
 
       this.cache.prices[name] = entry;
       if (countAsPriced) {
@@ -368,7 +439,7 @@ export class SteamMarketProvider {
           log.warn(`Price failed: ${name} (${this.currency}) - ${detail}`);
         }
       }
-      return "advance";
+      return { kind: "advance" };
     } catch (err) {
       const detail = err instanceof Error ? err.message : "unexpected error";
       options.onFail?.(detail);
@@ -376,7 +447,7 @@ export class SteamMarketProvider {
         counters.failed++;
         log.warn(`Price failed: ${name} (${this.currency}) - ${detail}`);
       }
-      return "advance";
+      return { kind: "advance" };
     }
   }
 
@@ -386,20 +457,24 @@ export class SteamMarketProvider {
 
     const nameIdService = getSteamItemNameIdService();
     const resolved = await nameIdService.resolve(name);
-    if (resolved.status === 429) return "retry";
+    if (!resolved.ok && resolved.status === 429) {
+      return { kind: "retry", retryAfterMs: resolved.retryAfterMs };
+    }
     const nameId = resolved.ok ? resolved.nameId : (nameIdService.getSync(name) ?? undefined);
-    if (nameId == null) return "advance";
+    if (nameId == null) return { kind: "advance" };
 
     const buy = await fetchSteamBuyOrder(nameId, name, this.currency);
-    if (buy.status === 429) return "retry";
-    if (!buy.ok) return "advance";
+    if (buy.status === 429) {
+      return { kind: "retry", retryAfterMs: buy.retryAfterMs };
+    }
+    if (!buy.ok) return { kind: "advance" };
 
     entry.buyOrderFetched = true;
     entry.buyOrder = buy.buyOrder ?? null;
     entry.rawBuyOrder = buy.rawBuyOrder ?? null;
     entry.buyOrderQuantity = buy.buyOrderQuantity ?? null;
     entry.buyOrderLevels = buy.buyOrderLevels ?? null;
-    return "advance";
+    return { kind: "advance" };
   }
 
   private emitProgress(

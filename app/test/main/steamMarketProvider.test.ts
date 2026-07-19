@@ -75,7 +75,11 @@ describe("SteamMarketProvider", () => {
   async function runRefresh(
     provider: SteamMarketProvider,
     targets: OwnedPriceTarget[],
-    opts: { force?: boolean; onFinished?: (r: unknown) => void } = {},
+    opts: {
+      force?: boolean;
+      onProgress?: (p: unknown) => void;
+      onFinished?: (r: unknown) => void;
+    } = {},
   ) {
     const promise = provider.refresh(targets, opts);
     await vi.runAllTimersAsync();
@@ -198,5 +202,105 @@ describe("SteamMarketProvider", () => {
     const cached = provider.get("Boots (Legendary) A");
     expect(cached?.buyOrder).toBeCloseTo(0.5);
     expect(cached?.buyOrderFetched).toBe(true);
+  });
+
+  it("gives up on a target after MAX_RETRIES_PER_TARGET 429s and advances to the next", async () => {
+    // With MAX_RETRIES_PER_TARGET=2, a stuck target burns 2 calls before
+    // the give-up branch fires. After give-up, consecutiveRateLimits=2
+    // (below the breaker threshold of 3), so the refresh continues to the
+    // next target, which succeeds and resets the breaker counter.
+    const rateLimited = { ok: false, status: 429, reason: "http" as const };
+    fetchSteamPrice
+      .mockResolvedValueOnce(rateLimited)
+      .mockResolvedValueOnce(rateLimited) // target A: give up, failed=1
+      .mockResolvedValue({ ok: true, status: 200, entry }); // target B succeeds
+
+    const provider = new SteamMarketProvider("USD");
+    const result = await runRefresh(provider, [mat("Stuck Item"), mat("Healthy Item")], {
+      force: true,
+    });
+
+    expect(result.failed).toBe(1);
+    expect(result.priced).toBe(1);
+    expect(result.stopped).toBe("completed");
+    expect(fetchSteamPrice).toHaveBeenCalledTimes(3);
+  });
+
+  it("circuit breaker stops the refresh after MAX_CONSECUTIVE_RATE_LIMITS 429s", async () => {
+    // With MAX_CONSECUTIVE_RATE_LIMITS=3 and MAX_RETRIES_PER_TARGET=2, the
+    // breaker fires after target A gives up (2 retries) and target B's first
+    // retry — that's 3 consecutive 429s. Healthy target C is never probed.
+    const rateLimited = { ok: false, status: 429, reason: "http" as const };
+    fetchSteamPrice
+      .mockResolvedValueOnce(rateLimited)
+      .mockResolvedValueOnce(rateLimited) // target A: give up, failed=1
+      .mockResolvedValueOnce(rateLimited) // target B retry 1 → consecutive=3 → breaker
+      .mockResolvedValue({ ok: true, status: 200, entry }); // never called
+
+    const provider = new SteamMarketProvider("USD");
+    const result = await runRefresh(
+      provider,
+      [mat("Stuck Item"), mat("Also Stuck"), mat("Healthy Item")],
+      { force: true },
+    );
+
+    // Breaker fired: only 3 calls, no successes, stopped="rate-limited".
+    expect(result.failed).toBe(1); // target A gave up before breaker
+    expect(result.priced).toBe(0);
+    expect(result.stopped).toBe("rate-limited");
+    expect(fetchSteamPrice).toHaveBeenCalledTimes(3);
+  });
+
+  it("honors Retry-After header when Steam provides it", async () => {
+    // Steam returns 429 with Retry-After: 10 (seconds). The backoff should
+    // be max(retryAfterMs=10000, exponentialBackoff=6000) = 10000ms, not
+    // the default 6000ms exponential backoff.
+    const rateLimited = {
+      ok: false,
+      status: 429,
+      reason: "http" as const,
+      retryAfterMs: 10000,
+    };
+    fetchSteamPrice
+      .mockResolvedValueOnce(rateLimited)
+      .mockResolvedValueOnce(rateLimited) // give up after 2 retries
+      .mockResolvedValue({ ok: true, status: 200, entry });
+
+    const provider = new SteamMarketProvider("USD");
+    const onProgress = vi.fn();
+    await runRefresh(provider, [mat("Stuck Item"), mat("Healthy Item")], {
+      force: true,
+      onProgress,
+    });
+
+    // Find the rate-limited progress event — it should mention 10s wait.
+    const rateLimitedProgress = onProgress.mock.calls.find((call) => {
+      const p = call[0] as { current?: string } | undefined;
+      return p?.current?.includes("rate-limited, waiting 10s");
+    });
+    expect(rateLimitedProgress).toBeDefined();
+  });
+
+  it("resets consecutive rate-limit counter on success", async () => {
+    // Two 429s then a success then two more 429s: breaker should NOT fire
+    // because the success reset the counter.
+    const rateLimited = { ok: false, status: 429, reason: "http" as const };
+    fetchSteamPrice
+      .mockResolvedValueOnce(rateLimited)
+      .mockResolvedValueOnce(rateLimited) // target A: give up, failed=1
+      .mockResolvedValueOnce({ ok: true, status: 200, entry }) // target B: success
+      .mockResolvedValueOnce(rateLimited)
+      .mockResolvedValueOnce(rateLimited) // target C: give up, failed=2
+      .mockResolvedValue({ ok: true, status: 200, entry }); // target D: success
+
+    const provider = new SteamMarketProvider("USD");
+    const result = await runRefresh(provider, [mat("A"), mat("B"), mat("C"), mat("D")], {
+      force: true,
+    });
+
+    // Two give-ups but no breaker (each give-up followed by success).
+    expect(result.failed).toBe(2);
+    expect(result.priced).toBe(2);
+    expect(result.stopped).toBe("completed");
   });
 });

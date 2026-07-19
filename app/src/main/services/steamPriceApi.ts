@@ -1,6 +1,7 @@
 import { currencyCode, parseMoney } from "../../core/steamPrice";
 import type { PriceEntry } from "./priceCache";
 import { getProxyDispatcher } from "./proxyResolver";
+import { parseRetryAfterMs } from "./retryAfter";
 
 const APP_ID = 3678970;
 const PRICEOVERVIEW = "https://steamcommunity.com/market/priceoverview/";
@@ -9,7 +10,13 @@ export type SteamPriceFailReason = "network" | "http" | "no_listing" | "no_sell_
 
 export type SteamPriceFetchResult =
   | { ok: true; status: number; entry: PriceEntry }
-  | { ok: false; status: number; reason: SteamPriceFailReason; entry?: PriceEntry };
+  | {
+      ok: false;
+      status: number;
+      reason: SteamPriceFailReason;
+      entry?: PriceEntry;
+      retryAfterMs?: number;
+    };
 
 export function describeSteamPriceFailure(
   result: Extract<SteamPriceFetchResult, { ok: false }>,
@@ -47,7 +54,11 @@ export async function fetchSteamPrice(
   } catch {
     return { ok: false, status: 0, reason: "network" };
   }
-  if (!res.ok) return { ok: false, status: res.status, reason: "http" };
+  if (!res.ok) {
+    return res.status === 429
+      ? { ok: false, status: res.status, reason: "http", retryAfterMs: parseRetryAfterMs(res) }
+      : { ok: false, status: res.status, reason: "http" };
+  }
 
   const fetchedUtc = new Date().toISOString();
   const data = (await res.json()) as {

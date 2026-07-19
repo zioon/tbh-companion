@@ -8,6 +8,7 @@ import { readBundledJson } from "../../core/bundledData";
 import { TBH_STEAM_APP_ID } from "../../core/steamPrice";
 import { createLogger } from "../log";
 import { getProxyDispatcher } from "./proxyResolver";
+import { parseRetryAfterMs } from "./retryAfter";
 
 const log = createLogger("market");
 
@@ -17,7 +18,7 @@ const LISTING_NAMEID_RE = /Market_LoadOrderSpread\s*\(\s*(\d+)/;
 
 export type NameIdResolveResult =
   | { ok: true; nameId: number; status: number }
-  | { ok: false; status: number };
+  | { ok: false; status: number; retryAfterMs?: number };
 
 type NameIdMap = Record<string, number>;
 
@@ -93,7 +94,9 @@ export class SteamItemNameIdService {
         signal: AbortSignal.timeout(30_000),
         ...getProxyDispatcher(),
       });
-      if (res.status === 429) return { ok: false, status: 429 };
+      if (res.status === 429) {
+        return { ok: false, status: 429, retryAfterMs: parseRetryAfterMs(res) };
+      }
       if (!res.ok) {
         log.warn(`Nameid scrape HTTP ${res.status} for ${marketHashName}`);
         return { ok: false, status: res.status };
