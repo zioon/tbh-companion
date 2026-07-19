@@ -121,7 +121,10 @@ function resolveAssetPaths(installDir: string): AssetPaths {
 export class CatalogRefreshService {
   private lastRefreshMs: number | null = null;
   private lastError: string | null = null;
-  /** Cached locale data — written by refresh(), read by getLocaleData(). */
+  /** Cached locale data — written by refresh(), read by getLocaleData().
+   * Initialized from userData/locale.json in the constructor so the 12
+   * languages without offline locale_strings_<lang>.json get native item
+   * names immediately on startup (before any manual refresh). */
   private cachedLocale: GameLocaleData | null = null;
 
   constructor(
@@ -129,7 +132,33 @@ export class CatalogRefreshService {
     private readonly liveMemory: LiveMemoryService,
     private readonly userDataDir: string = resolveUserDataDir(),
     private readonly broadcast?: BroadcastFn,
-  ) {}
+  ) {
+    this.loadCachedLocaleFromDisk();
+  }
+
+  /**
+   * Load userData/locale.json into cachedLocale if it exists. Called from
+   * the constructor so `getLocaleData()` returns useful data on the first
+   * `reloadLocaleCatalog()` call — without this, the 12 fallback languages
+   * would show English item names until the user manually triggered a
+   * catalog refresh.
+   */
+  private loadCachedLocaleFromDisk(): void {
+    try {
+      const localePath = join(this.userDataDir, LOCALE_FILE);
+      if (!existsSync(localePath)) return;
+      const raw = readFileSync(localePath, "utf-8");
+      const parsed = JSON.parse(raw) as GameLocaleData;
+      if (parsed && parsed.locales && typeof parsed.locales === "object") {
+        this.cachedLocale = parsed;
+        log.info(
+          `loaded cached locale.json: ${Object.keys(parsed.locales).length} languages (version=${parsed.version ?? "?"})`,
+        );
+      }
+    } catch (err) {
+      log.warn(`failed to load cached locale.json: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   /** Current status snapshot. Call after any refresh attempt or version change. */
   getStatus(): CatalogStatus {

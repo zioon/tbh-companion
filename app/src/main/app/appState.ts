@@ -297,6 +297,28 @@ export function startTracking(): SessionUiSnapshot {
   // building Stats / BoxTimerState / StageRunStats / ResolvedInventory /
   // LiveMemorySnapshot.heroes.
   reloadLocaleCatalog();
+
+  // Auto-trigger catalog refresh if locale data is missing or stale. This
+  // ensures the 12 languages without offline locale_strings_<lang>.json get
+  // native item/stage/hero names from the game's own locale bundles on first
+  // run (or after a game update). Fire-and-forget: refresh runs in the
+  // background, and on success we reload the catalog + re-emit snapshots so
+  // the renderer sees the updated names without a manual refresh click.
+  void (async () => {
+    const status = catalogRefresh.getStatus();
+    const localeData = catalogRefresh.getLocaleData();
+    const needsRefresh = !localeData || status.stale;
+    if (!needsRefresh) return;
+    const result = await catalogRefresh.refresh();
+    if (!result.ok) return;
+    reloadLocaleCatalog();
+    // Re-emit snapshots so the renderer picks up the new translations.
+    // tracking pushes on its own cadence; the others need a nudge.
+    boxTimers.push();
+    stageRuns.push();
+    inventory.resolveAndPushInventory();
+  })();
+
   return ui;
 }
 
