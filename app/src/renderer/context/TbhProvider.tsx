@@ -47,6 +47,8 @@ export function TbhProvider({ children }: { children: ReactNode }) {
       .catch(reportIpcError);
 
     const offInventory = window.tbh.onInventory((inv) => {
+      // deno-fmt-ignore
+      console.warn("[TbhProvider] onInventory received", inv.rows.length, "rows, first name:", inv.rows[0]?.name);
       if (mounted) setInventory(inv);
     });
     const offNotificationSound = window.tbh.onPlayNotificationSound(handleNotificationSoundPayload);

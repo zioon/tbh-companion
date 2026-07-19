@@ -129,6 +129,7 @@ export const LootBoxSection = memo(function LootBoxSection({
   ringSeconds,
   onUpdateRingSeconds,
   className,
+  language: _language,
 }: {
   stats: BoxOpenStats;
   currentStageKey: number | null;
@@ -140,6 +141,8 @@ export const LootBoxSection = memo(function LootBoxSection({
   ringSeconds: LootRingSeconds;
   onUpdateRingSeconds: (next: LootRingSeconds) => void;
   className?: string;
+  /** Forces React.memo to re-render on language change (i18n from useTranslation alone isn't enough). */
+  language?: string;
 }) {
   const { t } = useTranslation("loot");
   const [filter, setFilter] = useState<LootFilterState>(DEFAULT_LOOT_FILTER_STATE);

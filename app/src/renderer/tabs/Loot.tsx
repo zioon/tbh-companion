@@ -5,7 +5,6 @@ import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { useBoxTimers } from "../lib/useBoxTimers";
 import { useChests } from "../lib/useChests";
 import { useStats } from "../lib/useStats";
-import { useLiveMemoryField } from "../lib/useLiveMemory";
 import type { LootRingSeconds, LookupItem } from "../../../shared/types";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
@@ -23,7 +22,7 @@ import { reportIpcError } from "../lib/reportError";
 const DEFAULT_RING_SECONDS: LootRingSeconds = { common: 5 * 60, stage: 7 * 60 };
 
 export function Loot() {
-  const { t } = useTranslation("loot");
+  const { t, i18n } = useTranslation("loot");
   const {
     boxOpens,
     lootStatus,
@@ -65,13 +64,6 @@ export function Loot() {
     }),
     [stats?.chestDrops?.commonPerHour, stats?.chestDrops?.rarePerHour],
   );
-
-  // Live chest slot counts (5 Hz) from PlayerSaveData.BoxData runtime.
-  // Selector returns the chestSlots field (or null when the reader is detached
-  // / offsets unavailable); useSyncExternalStore ensures the component only
-  // re-renders when the reference changes. Passed to LootQueueSlots, which
-  // prefers live quantity over the save-derived slot.quantity.
-  const liveChestSlots = useLiveMemoryField((snap) => snap?.chestSlots ?? null);
 
   const [ringSeconds, setRingSeconds] = useState<LootRingSeconds>(DEFAULT_RING_SECONDS);
 
@@ -124,7 +116,6 @@ export function Loot() {
             <LootQueueSlots
               queue={autoClassifyState}
               chests={chests}
-              liveChestSlots={liveChestSlots}
               dropsPerHour={dropsPerHour}
             />
           )}
@@ -152,6 +143,7 @@ export function Loot() {
                 ringSeconds={ringSeconds}
                 onUpdateRingSeconds={updateRingSeconds}
                 className={stats.category === "unclassified" ? "col-span-2" : undefined}
+                language={i18n.resolvedLanguage ?? i18n.language}
               />
             ))}
           </div>
