@@ -29,8 +29,6 @@ function start(): void {
     })
     .catch((err: unknown) => reportIpcError(err, "useStats:getStats"));
   const off = window.tbh.onStats((s) => {
-    // deno-fmt-ignore
-    console.warn("[useStats] onStats received", s?.boxOpens?.length ?? 0, "boxOpens, first boxKey:", s?.boxOpens?.[0]?.boxKey, "label:", s?.boxOpens?.[0]?.label);
     stats = s;
     notify();
   });

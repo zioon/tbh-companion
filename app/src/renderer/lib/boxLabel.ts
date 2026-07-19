@@ -16,17 +16,10 @@ export function translateBoxLabel(t: TFunction<"loot">, boxKey: string): string 
     const level = Number(levelStr);
     if (Number.isFinite(level) && level > 0) {
       const base = baseCategoryLabel(t, category);
-      if (base != null) {
-        const result = t("levelSuffix", { base, level: Math.trunc(level) });
-        // deno-fmt-ignore
-        console.warn("[translateBoxLabel]", boxKey, "→ base:", base, "→ result:", result, "| t.language:", (t as any).language);
-        return result;
-      }
+      if (base != null) return t("levelSuffix", { base, level: Math.trunc(level) });
     }
   }
   const direct = baseCategoryLabel(t, boxKey);
-  // deno-fmt-ignore
-  console.warn("[translateBoxLabel]", boxKey, "→ direct:", direct, "| t.language:", (t as any).language);
   return direct ?? boxKey;
 }
 

@@ -226,15 +226,9 @@ function reloadLocaleCatalog(): void {
   // offline JSON, game values still win (they track the current game version).
   const gameLocale = catalogRefresh.getLocaleData();
   const catalog = mergeGameLocaleIntoCatalog(baseCatalog, gameLocale, resolved);
-  // Diagnostic: verify the merged catalog has translations for a known item.
-  const sampleKey = "110001";
-  const sampleName = catalog.items[sampleKey];
-  const baseName = baseCatalog.items[sampleKey];
-  const gameName = gameLocale?.locales[resolved]?.[`ItemName_${sampleKey}`];
+  const gameItemCount = gameLocale ? Object.keys(gameLocale.locales[resolved] ?? {}).filter(k => k.startsWith("ItemName_")).length : 0;
   appDataLog.info(
-    `reloadLocaleCatalog: lang=${resolved} baseItems=${Object.keys(baseCatalog.items).length} ` +
-    `gameLocale=${gameLocale ? `${Object.keys(gameLocale.locales).length}langs` : "null"} ` +
-    `item[${sampleKey}] base="${baseName}" game="${gameName ?? "N/A"}" merged="${sampleName}"`,
+    `catalog loaded: lang=${resolved} base=${Object.keys(baseCatalog.items).length} items, game=${gameItemCount} items`,
   );
   tracking.setLocaleCatalog(catalog);
   inventory.setLocaleCatalog(catalog);
