@@ -9,24 +9,27 @@ import { TbhContext } from "./tbhContext";
 export function TbhProvider({ children }: { children: ReactNode }) {
   const [inventory, setInventory] = useState<ResolvedInventory | null>(null);
   const [lastPriceRefreshMessage, setLastPriceRefreshMessage] = useState<string | null>(null);
+  const [i18nReady, setI18nReady] = useState(false);
   const { status: catalogStatus, refresh: refreshCatalog } = useCatalogStatus();
 
-  // Initialize i18next as soon as the provider mounts. We don't gate the
-  // render on this — react-i18next's useTranslation() will subscribe to the
-  // i18next instance and re-render automatically once init resolves. Before
-  // that, t() returns the bare key (acceptable fallback for the first frame).
+  // Initialize i18next as soon as the provider mounts. We gate the render on
+  // this — react-i18next's useTranslation() crashes if it runs before the
+  // global i18next instance has been initialized (the singleton's options and
+  // translator are not set up until init() runs, and calling t() in that
+  // state throws "Cannot read properties of null (reading '1')").
   useEffect(() => {
     let mounted = true;
     void window.tbh
       .getConfig()
       .then((cfg) => initRendererI18n(cfg.language, cfg.resolvedLanguage))
+      .then(() => {
+        if (mounted) setI18nReady(true);
+      })
       .catch((err) => {
         reportIpcError(err);
-      })
-      .finally(() => {
-        if (mounted) {
-          // No state update needed — i18next drives re-renders via languageChanged.
-        }
+        // Even on failure, mark ready so the UI can render with fallback
+        // keys rather than staying blank forever.
+        if (mounted) setI18nReady(true);
       });
     return () => {
       mounted = false;
@@ -84,5 +87,6 @@ export function TbhProvider({ children }: { children: ReactNode }) {
     [inventory, lastPriceRefreshMessage, catalogStatus, refreshCatalog],
   );
 
+  if (!i18nReady) return null;
   return <TbhContext.Provider value={value}>{children}</TbhContext.Provider>;
 }

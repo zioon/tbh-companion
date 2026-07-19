@@ -336,42 +336,60 @@ export class InventoryService {
 
   private currentOwnedPriceTargets(): OwnedPriceTarget[] {
     if (!this.lastInventoryRaw) return [];
+    // Price targets MUST use the English market_hash_name — Steam Market
+    // rejects localized names. The display-only `getMergedGameItem` would
+    // return a localized name when a LocaleCatalog is set, breaking both
+    // the API call and the `lookupPriceSnapshot.prices[hash]` lookup (which
+    // is keyed by English names). See getEnglishMergedGameItem for details.
     return ownedPriceTargets(
       this.lastInventoryRaw,
-      (key) => this.getMergedGameItem(key),
+      (key) => this.getEnglishMergedGameItem(key),
       (key) => this.excludeFromInventoryListing(key),
     );
   }
 
   /**
    * Fetch a single `GameItem` with placeholder name replaced by the real
-   * name from {@link lookupCatalog}. Mirrors the merge applied by
-   * {@link buildMergedGameDataLookup} for the worker payload, so per-row
+   * **English** name from {@link lookupCatalog}. Mirrors the merge applied
+   * by {@link buildMergedGameDataLookup} for the worker payload, so per-row
    * price refresh targets resolve the same `market_hash_name` the worker
    * resolved for the table row.
    *
-   * Localization: when a {@link localeCatalog} is set, `ItemName_<id>`
-   * placeholders are first resolved to the user's language via
-   * {@link gameItemName}. If the catalog lacks the entry, the placeholder
-   * falls through to the lookup catalog's English name (same as the
-   * pre-locale-catalog behavior).
+   * This is the **non-localized** variant — used for Steam Market lookups
+   * (which require the English `market_hash_name`) and for diagnostic logs.
+   * For display name resolution, use {@link getMergedGameItem} instead.
    */
-  private getMergedGameItem(itemKey: number): GameItem | undefined {
+  private getEnglishMergedGameItem(itemKey: number): GameItem | undefined {
     const item = this.gameData.get(itemKey);
     if (!item) return undefined;
-    // Localize first: `gameItemName` resolves `ItemName_<id>` to the user's
-    // language when the catalog has an entry, and returns `item.name`
-    // unchanged otherwise (empty catalog, missing id, or non-placeholder).
-    const localizedName = gameItemName(item, this.localeCatalog);
-    if (localizedName !== item.name) {
-      return { ...item, name: localizedName };
-    }
-    // Fall back to the lookup catalog's English name for placeholders the
-    // locale catalog couldn't resolve.
     if (!isPlaceholderItemName(item.name)) return item;
     const lookupItem = this.lookupCatalog.get(item.id);
     if (!lookupItem?.name) return item;
     return { ...item, name: lookupItem.name };
+  }
+
+  /**
+   * Fetch a single `GameItem` with placeholder name replaced by the real
+   * name from {@link lookupCatalog}, then localized to the user's language
+   * via {@link gameItemName}. Used for the display `row.name` in
+   * {@link publishResolved}; never used for Steam Market lookups (those
+   * require the English `market_hash_name` — see
+   * {@link getEnglishMergedGameItem}).
+   *
+   * Localization: when a {@link localeCatalog} is set, `ItemName_<id>`
+   * placeholders (and even hardcoded English names) are replaced with the
+   * localized name. If the catalog lacks the entry, the placeholder falls
+   * through to the lookup catalog's English name (same as the
+   * pre-locale-catalog behavior).
+   */
+  private getMergedGameItem(itemKey: number): GameItem | undefined {
+    const item = this.getEnglishMergedGameItem(itemKey);
+    if (!item) return undefined;
+    const localizedName = gameItemName(item, this.localeCatalog);
+    if (localizedName !== item.name) {
+      return { ...item, name: localizedName };
+    }
+    return item;
   }
 
   private targetKey(target: OwnedPriceTarget): string {
@@ -475,7 +493,11 @@ export class InventoryService {
       };
     }
 
-    const item = this.getMergedGameItem(itemKey);
+    // Price targets MUST use the English market_hash_name (Steam Market
+    // rejects localized names). The display-only `getMergedGameItem` would
+    // return a localized name when a LocaleCatalog is set, breaking the
+    // API call. See getEnglishMergedGameItem for details.
+    const item = this.getEnglishMergedGameItem(itemKey);
     if (!item) {
       return {
         ok: false,
