@@ -182,6 +182,53 @@ the `t(key)` hook. Module-level catalogs that used to hold English labels
 `descriptionKey` / `titleKey` / `bulletsKey` strings and resolve them at
 render time so a language switch takes effect without a reload.
 
+### 游戏数据的本地化（Locale Catalog）
+
+i18next 命名空间只覆盖 UI 字符串；游戏中动态产生的数据——地图名、英雄名、
+物品名——来自游戏的 Unity Localization bundle，不是 UI 字符串，因此另走一套
+独立的本地化链路。实现分为四层：
+
+- **离线提取**：`scripts/extract_locale_catalog.py` 从游戏的 4 个 locale
+  bundle（en-us / zh-hans / ja-jp / ko-kr）+ `SharedTableData` 中提取翻译，
+  输出 4 份 JSON 到 `data/locale_strings_{en,zh-CN,ja,ko}.json`。每份文件
+  包含四个映射表：`items`（511 件物品，按 `ItemName_` key）、`stages`
+  （30 张地图，按 4 位 `<act><stage>` 编号）、`heroes`（6 位英雄）、
+  `difficulties`（NORMAL / NIGHTMARE / HELL / TORMENT）。
+- **运行时加载**：`app/src/core/localeCatalog.ts` 的 `loadLocaleCatalog(lang)`
+  通过 `core/bundledData.readBundledJson` 同步读取对应语言的 JSON，按
+  `ResolvedLanguage` 缓存到进程生命周期（catalog 内容运行期不变，切换语言
+  时新建一个缓存条目而非原地修改）。`LocaleCatalog` 是纯数据结构，通过
+  service 构造函数注入到 main 端服务，core 层不依赖 Electron / fetch。
+- **服务端注入**：`app/src/main/app/appState.ts` 的 `reloadLocaleCatalog()`
+  在启动期间和语言切换时各调用一次，将 catalog 注入到 5 个 main 服务：
+  `TrackingService` / `BoxTimerService` / `StageRunService` / `InventoryService` /
+  `LiveMemoryService`。每个服务通过 `setLocaleCatalog(catalog)` 更新内部
+  状态。`setLocaleCatalog` 自身不主动 re-broadcast；语言切换后由调用方显式
+  触发 re-emit，渲染层立即收到新本地化名称。
+- **IPC 字段扩展**：本地化名称通过现有 IPC 通道的 payload 字段传递，**不新增
+  IPC 通道**：
+  - `Stats.stageName`（`onStats`）
+  - `StageRunHistoryEntry.stageName?`（`onStageRuns`）
+  - `HistoryEntry.stageName?`（`onStats.history`，由 main 端 `buildStats`
+    填充）
+  - `BoxTimerState.currentStageLabel`（`onBoxTimers`）
+  - `LiveHeroData.name?`（`onLiveMemory`）
+  - `ResolvedInventory.rows[].name`（`onInventory`，post-process 阶段填充）
+  - `AppConfig.stageMetadata?`（`getConfig`，120 条 stageKey → 名称映射，
+    供渲染层做文本匹配）
+
+**渲染层只读**：renderer 不再 import `core/stages` 或 `core/heroes`，所有
+本地化名从 IPC payload 字段读取。`boxLootFilters` 通过 `AppConfig.stageMetadata`
+进行文本匹配，而非直接查 core 的 stage 表。
+
+注意事项：
+
+- 5,224 件硬编码英文名的装备物品（无 `ItemName_` key）不本地化，原样返回
+  英文。
+- `marketHashName` 始终保留英文（Steam 市场依赖英文名做查价与链接）。
+- 切换语言时，5 个服务会重新广播当前状态，渲染层无需重新加载窗口即可看到
+  新本地化名。
+
 ## Tests
 
 Vitest layout mirrors source:
