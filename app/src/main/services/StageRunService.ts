@@ -2,7 +2,9 @@ import { app } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { StageRunTracker } from "../../core/stageRunTracker";
-import type { StageRunStats, StageRunTrackerSnapshot } from "../../../shared/types";
+import { stageName } from "../../core/stages";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
+import type { StageRunHistoryEntry, StageRunStats, StageRunTrackerSnapshot } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
 import { broadcast } from "./broadcast";
 import { STAGE_RUN_FILE } from "./appData";
@@ -18,8 +20,17 @@ const log = createLogger("stageRuns");
  */
 export class StageRunService {
   private readonly tracker = new StageRunTracker();
+  /**
+   * LocaleCatalog used for stage name localization in getStats. Set once at
+   * construction (defaults to emptyLocaleCatalog) and swapped via
+   * {@link setLocaleCatalog} when the user changes language. Kept as a field
+   * (not threaded through every call) so getStats stays parameterless — same
+   * pattern as TrackingService / BoxTimerService.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
 
-  constructor() {
+  constructor(initialCatalog: LocaleCatalog = emptyLocaleCatalog()) {
+    this.localeCatalog = initialCatalog;
     this.load();
   }
 
@@ -31,7 +42,24 @@ export class StageRunService {
   }
 
   getStats(): StageRunStats {
-    return this.tracker.getStats();
+    const raw = this.tracker.getStats();
+    // Recompute stageName on every call so a language switch via
+    // setLocaleCatalog is reflected without re-recording history. The
+    // persisted snapshot may also carry a stale (or absent, pre-v1.19.x)
+    // stageName, so we can't trust a stored value either.
+    return {
+      ...raw,
+      history: raw.history.map((entry) => withStageName(entry, this.localeCatalog)),
+    };
+  }
+
+  /**
+   * Swap the LocaleCatalog used for stage name localization. Called by
+   * appState when the user changes language. Callers should re-emit state
+   * via push() afterwards so the renderer sees the renamed entries.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
   }
 
   /** Clear in-memory history after stage_run_history.json was deleted from Settings. */
@@ -41,7 +69,7 @@ export class StageRunService {
   }
 
   push(): void {
-    broadcast(IPC.STAGE_RUNS, this.tracker.getStats());
+    broadcast(IPC.STAGE_RUNS, this.getStats());
   }
 
   private persistPath(): string {
@@ -72,4 +100,17 @@ export class StageRunService {
       log.warn(`Stage run persist failed: ${(err as Error).message}`);
     }
   }
+}
+
+/**
+ * Attach a localized `stageName` to a history entry. Always recomputes from
+ * `stageKey + catalog` (never trusts a stored `stageName`) so a language
+ * switch via {@link StageRunService.setLocaleCatalog} is reflected on the
+ * next `getStats()` call without re-recording history.
+ */
+function withStageName(
+  entry: StageRunHistoryEntry,
+  catalog: LocaleCatalog,
+): StageRunHistoryEntry {
+  return { ...entry, stageName: stageName(entry.stageKey, catalog) };
 }
