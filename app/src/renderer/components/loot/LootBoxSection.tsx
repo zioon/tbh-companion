@@ -33,6 +33,7 @@ import { ItemLink } from "../ItemLink";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../../core/steamPrice";
 import { LootRing } from "./LootRing";
+import { translateBoxLabel } from "../../lib/boxLabel";
 
 function fmtPct(pct: number): string {
   return `${(pct * 100).toFixed(1)}%`;
@@ -146,6 +147,12 @@ export const LootBoxSection = memo(function LootBoxSection({
   const [reclassifyState, setReclassifyState] = useState<Record<number, ReclassifyRowState>>({});
   const [editingRing, setEditingRing] = useState(false);
   const [ringDraft, setRingDraft] = useState<string>("");
+
+  // Re-translate boxKey via i18next so the chest category and level honor the
+  // active locale. The main-process `stats.label` is English-only (core layer
+  // can't import i18next); this renderer-side translation is the source of
+  // truth for display.
+  const localizedLabel = translateBoxLabel(t, stats.boxKey);
 
   const { open: openEntity } = useEntityPanel();
   const { inventory } = useTbhContext();
@@ -318,7 +325,7 @@ export const LootBoxSection = memo(function LootBoxSection({
               variant="ghost"
               size="sm"
               onClick={openRingEditor}
-              aria-label={t("boxSection.ringAriaLabel", { label: stats.label })}
+              aria-label={t("boxSection.ringAriaLabel", { label: localizedLabel })}
               title={t("boxSection.ringLapTitle", { minutes: Math.round(ringLapSeconds / 60) })}
             >
               {"\u2699"}
@@ -445,7 +452,7 @@ export const LootBoxSection = memo(function LootBoxSection({
         >
           <div className="flex flex-col gap-3">
             <DialogTitle className="m-0 text-base font-semibold">
-              {t("boxSection.resetTitle", { label: stats.label })}
+              {t("boxSection.resetTitle", { label: localizedLabel })}
             </DialogTitle>
             <p className="m-0 text-sm text-muted">{t("boxSection.resetBody")}</p>
             <div className="mt-1 flex flex-wrap justify-end gap-2">
@@ -479,7 +486,7 @@ export const LootBoxSection = memo(function LootBoxSection({
         >
           <div className="flex flex-col gap-3">
             <DialogTitle className="m-0 text-base font-semibold">
-              {t("boxSection.ringDialogTitle", { label: stats.label })}
+              {t("boxSection.ringDialogTitle", { label: localizedLabel })}
             </DialogTitle>
             <p className="m-0 text-sm text-muted">{t("boxSection.ringDialogBody")}</p>
             <label className="flex items-center gap-2 text-sm">

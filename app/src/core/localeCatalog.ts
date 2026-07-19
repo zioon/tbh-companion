@@ -11,6 +11,7 @@
 // cached for process lifetime. No electron / no fetch.
 
 import type { ResolvedLanguage } from "../../shared/language";
+import type { GameLocaleData } from "../../shared/types";
 import { readBundledJson } from "./bundledData";
 
 export interface LocaleCatalog {
@@ -103,4 +104,66 @@ export function emptyLocaleCatalog(): LocaleCatalog {
 /** Test-only: clear the cache so subsequent `loadLocaleCatalog` calls re-read. */
 export function _resetLocaleCatalogCacheForTests(): void {
   cache.clear();
+}
+
+// --- Game locale overlay ---
+//
+// The bundled `locale_strings_<lang>.json` files only exist for 4 languages
+// (en, zh-CN, ja, ko). The remaining 12 game-supported languages fall back to
+// the English file, so item/stage/hero/difficulty names would appear in
+// English even when the player selects e.g. French or German.
+//
+// The game's own locale bundles (extracted at runtime by
+// `catalogRefreshService` into `GameLocaleData`) contain translations for ALL
+// 16 languages, keyed by prefixes: `ItemName_*`, `StageName_*`, `HeroName_*`,
+// `Difficulty_*`. `mergeGameLocaleIntoCatalog` overlays these onto a base
+// catalog so the 12 fallback languages get native translations for the
+// 511 items / 30 stages / 6 heroes / 4 difficulties the game ships.
+//
+// For the 4 languages with dedicated offline JSON, game values still win —
+// they reflect the current game version, while the offline file may be stale.
+
+const ITEM_NAME_PREFIX = "ItemName_";
+const STAGE_NAME_PREFIX = "StageName_";
+const HERO_NAME_PREFIX = "HeroName_";
+const DIFFICULTY_PREFIX = "Difficulty_";
+
+/**
+ * Overlay game-extracted locale entries onto a base LocaleCatalog.
+ *
+ * - `ItemName_<key>` → `items[<key>]`
+ * - `StageName_<key>` → `stages[<key>]`
+ * - `HeroName_<key>` → `heroes[<key>]`
+ * - `Difficulty_<key>` → `difficulties[<key>]`
+ *
+ * Game values override bundled values for the same key. Returns the base
+ * catalog unchanged if `gameLocale` is null or has no entry for `lang`.
+ */
+export function mergeGameLocaleIntoCatalog(
+  base: LocaleCatalog,
+  gameLocale: GameLocaleData | null,
+  lang: ResolvedLanguage,
+): LocaleCatalog {
+  if (!gameLocale) return base;
+  const locale = gameLocale.locales[lang];
+  if (!locale) return base;
+
+  const items: Record<string, string> = { ...base.items };
+  const stages: Record<string, string> = { ...base.stages };
+  const heroes: Record<string, string> = { ...base.heroes };
+  const difficulties: Record<string, string> = { ...base.difficulties };
+
+  for (const [key, value] of Object.entries(locale)) {
+    if (key.startsWith(ITEM_NAME_PREFIX)) {
+      items[key.slice(ITEM_NAME_PREFIX.length)] = value;
+    } else if (key.startsWith(STAGE_NAME_PREFIX)) {
+      stages[key.slice(STAGE_NAME_PREFIX.length)] = value;
+    } else if (key.startsWith(HERO_NAME_PREFIX)) {
+      heroes[key.slice(HERO_NAME_PREFIX.length)] = value;
+    } else if (key.startsWith(DIFFICULTY_PREFIX)) {
+      difficulties[key.slice(DIFFICULTY_PREFIX.length)] = value;
+    }
+  }
+
+  return { items, stages, heroes, difficulties };
 }

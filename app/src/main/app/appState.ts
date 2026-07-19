@@ -44,7 +44,7 @@ import { isAppQuitting, rebuildTrayMenu } from "../tray/trayService";
 import { applyWindowTopmost } from "../windows/alwaysOnTop";
 import { changeLanguage, readGameLanguage, t } from "../i18n";
 import { resolveLanguage, type ResolvedLanguage } from "../../../shared/language";
-import { loadLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
+import { loadLocaleCatalog, mergeGameLocaleIntoCatalog } from "../../core/localeCatalog";
 
 let config: AppConfig;
 
@@ -176,16 +176,12 @@ const tracking = new TrackingService(
   (stageKey, clearTimeSec, xpGained, goldGained) => {
     stageRuns.recordClear(stageKey, clearTimeSec, xpGained, goldGained);
   },
-  // High-frequency live chest slot counts (5 Hz) from PlayerSaveData.BoxData
-  // runtime. Forwarded to AutoClassifyService.reconcileWithChestSlots when
-  // non-null; null ticks are skipped (save path still triggers independently
-  // via chests.setOnReconcile below). autoClassify is assigned later in
-  // initTracking() — closure reads the live binding at call time.
-  (slots) => {
-    if (slots != null && autoClassify) {
-      autoClassify.reconcileWithChestSlots(slots);
-    }
-  },
+  // Live chest slot counts from PlayerSaveData.BoxData runtime are no longer
+  // routed to AutoClassifyService — the service now tracks slots via save data
+  // (recalibration on every save parse) + real-time adjustments (drops +1,
+  // opens/auto-opens -1). This works on all game versions including v1.00.28
+  // where the live memory path is unavailable. The `chestSlots` field still
+  // exists in LiveMemorySnapshot for diagnostic/display purposes.
 );
 
 let mainWindow: BrowserWindow | null = null;
@@ -222,7 +218,13 @@ function reloadLocaleCatalog(): void {
     safeGetSystemLocale(),
     gameLang,
   );
-  const catalog: LocaleCatalog = loadLocaleCatalog(resolved);
+  const baseCatalog = loadLocaleCatalog(resolved);
+  // Overlay game-extracted translations (ItemName_*, StageName_*, etc.) on top
+  // of the bundled offline JSON. This is what gives the 12 languages without
+  // dedicated locale_strings_<lang>.json files native item/stage/hero names
+  // from the game's own localization bundles. For the 4 languages with
+  // offline JSON, game values still win (they track the current game version).
+  const catalog = mergeGameLocaleIntoCatalog(baseCatalog, catalogRefresh.getLocaleData(), resolved);
   tracking.setLocaleCatalog(catalog);
   inventory.setLocaleCatalog(catalog);
   boxTimers.setLocaleCatalog(catalog);
