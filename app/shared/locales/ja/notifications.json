@@ -1,0 +1,48 @@
+{
+  "updateAvailableTitle": "更新が利用可能",
+  "updateAvailableBody": "TBH コンパニオン v{{version}} が公開されました。「バージョン情報」を開いてダウンロードしてください。",
+  "inventoryAlmostFullTitle": "インベントリがほぼ満杯",
+  "inventoryAlmostFullBody": "{{used}}/{{capacity}} スロット使用中（{{percent}}%）。",
+  "slots_one": "{{count}} スロット使用中",
+  "slots_other": "{{count}} スロット使用中",
+  "kinds": {
+    "chestDrop": {
+      "label": "宝箱ドロップ",
+      "description": "追跡中のステージボスが宝箱をドロップしたときに発火します。"
+    },
+    "chestReady": {
+      "label": "宝箱準備完了",
+      "description": "追跡中の宝箱のクールダウンが終了したときに発火します。"
+    },
+    "heroLevelUp": {
+      "label": "ヒーローレベルアップ",
+      "description": "セーブファイル内のヒーローがレベルアップしたときに発火します。"
+    },
+    "inventoryAlmostFull": {
+      "label": "インベントリがほぼ満杯",
+      "description": "アンロック済みインベントリスロットが設定された充填しきい値に達したときに発火します。"
+    }
+  },
+  "sounds": {
+    "softChime": "ソフトチャイム",
+    "doubleTap": "ダブルタップ",
+    "woodTick": "ウッドティック",
+    "whisperPing": "ウィスパーピング",
+    "brightPop": "ブライトポップ",
+    "clearBell": "クリアベル",
+    "softDing": "ソフトディング",
+    "quickRise": "クイックライズ",
+    "gameBlip": "ゲームブリップ",
+    "arcadeTone": "アーケードトーン",
+    "crystalChime": "クリスタルチャイム",
+    "happyPing": "ハッピーピング",
+    "magicSpark": "マジックスパーク",
+    "levelTriumph": "レベルアップファンファーレ",
+    "treasureFanfare": "宝箱ファンファーレ",
+    "gentleAlert": "ジェントルアラート"
+  },
+  "soundFieldLabel": "通知音",
+  "soundNone": "なし（サイレント）",
+  "previewSound": "通知音を試聴",
+  "previewPlaying": "再生中…"
+}

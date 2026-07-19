@@ -1,0 +1,48 @@
+{
+  "updateAvailableTitle": "업데이트 가능",
+  "updateAvailableBody": "TBH Companion v{{version}}이(가) 출시되었습니다. 정보 탭에서 다운로드하세요.",
+  "inventoryAlmostFullTitle": "인벤토리가 거의 찼습니다",
+  "inventoryAlmostFullBody": "{{used}}/{{capacity}} 슬롯 사용 중({{percent}}%).",
+  "slots_one": "{{count}}개 슬롯 사용 중",
+  "slots_other": "{{count}}개 슬롯 사용 중",
+  "kinds": {
+    "chestDrop": {
+      "label": "보관함 드롭",
+      "description": "추적 중인 스테이지 보스가 보관함을 드롭할 때 트리거됩니다."
+    },
+    "chestReady": {
+      "label": "보관함 준비 완료",
+      "description": "추적 중인 보관함의 재사용 대기시간이 끝나면 트리거됩니다."
+    },
+    "heroLevelUp": {
+      "label": "영웅 레벨 업",
+      "description": "세이브 파일에서 영웅이 레벨 업하면 트리거됩니다."
+    },
+    "inventoryAlmostFull": {
+      "label": "인벤토리 거의 가득 참",
+      "description": "잠금 해제된 인벤토리 슬롯이 설정된 채움 임계값에 도달하면 트리거됩니다."
+    }
+  },
+  "sounds": {
+    "softChime": "부드러운 차임",
+    "doubleTap": "더블 탭",
+    "woodTick": "나무 소리",
+    "whisperPing": "속삭임 핑",
+    "brightPop": "밝은 팝",
+    "clearBell": "맑은 종",
+    "softDing": "부드러운 딩",
+    "quickRise": "빠른 상승",
+    "gameBlip": "게임 블립",
+    "arcadeTone": "아케이드 톤",
+    "crystalChime": "크리스털 차임",
+    "happyPing": "행복한 핑",
+    "magicSpark": "마법 스파크",
+    "levelTriumph": "레벨 업 팡파레",
+    "treasureFanfare": "보관함 팡파레",
+    "gentleAlert": "부드러운 알림"
+  },
+  "soundFieldLabel": "소리",
+  "soundNone": "없음(무음)",
+  "previewSound": "소리 미리 듣기",
+  "previewPlaying": "재생 중…"
+}

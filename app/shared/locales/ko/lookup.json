@@ -1,0 +1,115 @@
+{
+  "tabTitle": "도감",
+  "intro": "획득 가능한 모든 아이템, 능력치, 획득처를 탐색하세요 — 거래 가능한 아이템은 Steam 마켓 가격을 표시합니다.",
+  "loading": "아이템 카탈로그 불러오는 중…",
+  "emptyFiltered": "이 필터와 일치하는 아이템이 없습니다.",
+  "backToTop": "맨 위로",
+  "more": "+{{count}}개 더",
+  "tierTag": "T{{tier}}",
+  "tierLevelBand": "T{{tier}}(레벨 {{min}}–{{max}})",
+  "coinFallback": "코인 {{id}}",
+  "itemFallback": "아이템 {{id}}",
+  "filters": {
+    "itemType": "아이템 유형",
+    "grade": "등급",
+    "allGrades": "모든 등급",
+    "gearType": "장비 유형",
+    "allGearTypes": "모든 장비 유형",
+    "modifier": "접두어",
+    "allModifiers": "모든 접두어",
+    "materialKind": "재료 종류",
+    "allMaterialKinds": "모든 재료 종류",
+    "level": "레벨",
+    "uniqueOnly": "유니크만",
+    "searchItems": "아이템 검색…",
+    "itemsCount": "{{count}}개 아이템"
+  },
+  "sort": {
+    "name": "이름",
+    "grade": "등급",
+    "level": "레벨",
+    "type": "유형"
+  },
+  "stats": {
+    "base": "기본 능력치",
+    "inherent": "고유 능력치",
+    "unique": "유니크 효과"
+  },
+  "price": {
+    "noListingTitle": "활성 Steam 마켓 등록 없음 — 열어서 최신 확인",
+    "approximateTitle": "Steam 마켓 근사 가격(USD에서 변환) — 등록 페이지 열기",
+    "noListedPrice": "등록 가격 없음"
+  },
+  "entityDetail": {
+    "itemNotFound": "아이템을 찾을 수 없습니다.",
+    "boxNotFound": "보관함을 찾을 수 없습니다.",
+    "stageNotFound": "스테이지를 찾을 수 없습니다.",
+    "monsters": "몬스터",
+    "boxes": "보관함"
+  },
+  "whereToFind": "획득처",
+  "notAcquirable": "드롭, 제작, 합성, 헌납으로는 획득할 수 없습니다.",
+  "crafting": {
+    "label": "제작",
+    "help": "각 레시피 아래의 재료를 사용하여 이 아이템을 제작합니다. 각 행은 티어, 레벨 구간, 슬롯 유형이며, %는 해당 제작에서 이 아이템을 얻을 확률입니다.",
+    "helpLabel": "제작 작동 방식"
+  },
+  "drop": {
+    "label": "드롭",
+    "help": "이 아이템을 포함할 수 있는 보스 보관함입니다. %는 해당 보관함의 전리품 테이블에 이 아이템이 등장하는 빈도입니다.",
+    "helpLabel": "드롭 작동 방식"
+  },
+  "synthesis": {
+    "label": "합성",
+    "help": "큐브에 9개 아이템을 넣어 합성합니다. 각 행은 레시피 티어와 결과 레벨 구간이며, %는 이 아이템을 얻을 확률입니다. 아이템 평균 레벨이 적용되는 레시피에 영향을 줍니다. 왼쪽 초록색 가장자리는 모든 경로 중 최고 확률을 표시합니다.",
+    "helpLabel": "합성 작동 방식",
+    "tierRange": "티어 {{tier}}({{range}})",
+    "tierOnly": "티어 {{tier}}"
+  },
+  "offering": {
+    "sourceLabel": "헌납",
+    "sourceHelp": "아래 코인 중 하나를 큐브에 던지면 이 아이템을 포함해 전리품 테이블의 모든 것을 얻을 기회가 있습니다. %는 해당 코인에서 이 특정 아이템을 얻을 확률입니다.",
+    "sourceHelpLabel": "헌납 작동 방식",
+    "lootLabel": "헌납 전리품",
+    "lootHelp": "이 코인을 큐브에 던지면 전리품 테이블에서 아이템 하나를 굴립니다 — 정확히 하나를 얻습니다. %는 해당 특정 아이템을 얻을 확률입니다.",
+    "lootHelpLabel": "헌납 작동 방식"
+  },
+  "usedIn": {
+    "label": "재료로 사용",
+    "help": "이 재료를 소모하는 레시피입니다. 각 블록은 필요한 것과 해당 레시피의 전리품 풀에서 나올 수 있는 장비를 나열합니다 — 이 아이템을 제작하는 레시피는 제외됩니다.",
+    "helpLabel": "재료 레시피 작동 방식",
+    "possibleOutputs": "{{count}}개 가능한 결과",
+    "searchOutputs": "결과 검색…",
+    "noMatch": "검색과 일치하는 아이템이 없습니다."
+  },
+  "box": {
+    "firstDropOnly": "첫 클리어만",
+    "firstDropOnlySuffix": "· {{label}}",
+    "categoryCommon": "일반 보관함",
+    "categoryStageBoss": "스테이지 보스 보관함",
+    "categoryActBoss": "챕터 보스 보관함",
+    "categoryDefault": "보관함",
+    "stageRanges": "스테이지 범위",
+    "dropSources": "드롭 출처",
+    "whereLabel": "획득처",
+    "whereHelp": "이 보관함이 반복 사냥으로 드롭될 수 있는 스테이지입니다. 위의 드롭 출처는 처치 유형과 스폰 % 범위를 표시합니다. 각 행의 %는 조건에 맞는 처치당 드롭 확률이며, 스테이지에 따라 다를 수 있습니다.",
+    "whereHelpLabel": "보관함 드롭 작동 방식",
+    "firstClearLabel": "첫 클리어",
+    "firstClearHelp": "해당 스테이지를 처음 클리어했을 때의 일회성 보상입니다. 이 보관함은 몬스터나 보스 처치로 파밍할 수 없습니다.",
+    "firstClearHelpLabel": "첫 클리어 보관함 작동 방식",
+    "noLocation": "카탈로그에 아직 알려진 드롭 위치가 없습니다.",
+    "searchStages": "스테이지 검색…",
+    "stagesCount": "{{count}}개 스테이지",
+    "noStagesMatch": "검색과 일치하는 스테이지가 없습니다.",
+    "lootLabel": "전리품 테이블",
+    "lootHelp": "이 보관함을 열면 전리품 테이블에서 정확히 하나의 아이템을 얻습니다. %는 해당 특정 아이템을 얻을 확률입니다.",
+    "lootHelpLabel": "보관함 전리품 작동 방식",
+    "searchLoot": "전리품 검색…",
+    "itemsCount": "{{count}}개 아이템",
+    "noLootMatch": "검색과 일치하는 전리품이 없습니다.",
+    "noLootMatchFilters": "이 필터와 일치하는 전리품이 없습니다.",
+    "viaMonsterKill": "몬스터 처치",
+    "viaStageBossKill": "스테이지 보스 처치",
+    "viaActBossKill": "챕터 보스 처치"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "tabTitle": "Pets",
+  "waiting": "Waiting for save data…",
+  "intro": "{{unlocked}} of {{total}} companions unlocked. Passive bonuses apply even when a pet is not equipped — the slot is cosmetic.",
+  "currentPassiveBonus": "Current passive bonus",
+  "noPassiveBonus": "Unlock pets to gain passive bonuses.",
+  "unlockByFarming": "Unlock by farming",
+  "unlockByFarmingSummary": "{{unlocked}} of {{total}} unlocked · {{count}} kills per target monster",
+  "dlcSummary": "{{unlocked}} of {{total}} unlocked · purchased with the Supporter Pack",
+  "badgeEquipped": "Equipped",
+  "badgeUnlocked": "Unlocked",
+  "badgeDlc": "DLC",
+  "badgeInProgress": "In progress",
+  "killsProgress": "{{count}} / {{target}} kills",
+  "killsRemaining": "{{count}} kills remaining",
+  "unlockViaDlc": "Unlock via {{label}}",
+  "defaultDlcLabel": "Supporter Pack",
+  "bestStages": "Best stages",
+  "whereToFind": "Where to find it",
+  "spawnPercent": "{{value}}% spawn",
+  "killsPerClear": "~{{value}} kills/clear"
+}

@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { STEAM_CURRENCIES } from "../../core/steamPrice";
 import type {
   NotificationKindId,
   NotificationKindPreference,
 } from "../../../shared/notificationCatalog";
+import { APP_LANGUAGES, type AppLanguage } from "../../../shared/language";
 import type { AppConfig, AppDataClearTarget, AppDataPaths } from "../../../shared/types";
 import { reportIpcError } from "../lib/reportError";
 import { cn } from "../lib/cn";
+import { changeRendererLanguage } from "../i18n";
 import { Accordion } from "../design-system/primitives/Accordion/Accordion";
 import { NotificationSoundAccordion } from "../components/NotificationKindRow";
 import { LiveMemorySettings } from "../components/LiveMemorySettings";
@@ -23,47 +26,12 @@ import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { useTbhContext } from "../context/tbhContext";
 
-const CLEAR_ACTIONS: {
-  target: AppDataClearTarget;
-  label: string;
-  detail: string;
-  confirm: string;
-}[] = [
-  {
-    target: "prices",
-    label: "Clear Steam Market prices",
-    detail: "prices.*.json",
-    confirm:
-      "Remove all cached Steam Market prices? Inventory values will need to be fetched again from the Market tab.",
-  },
-  {
-    target: "lookup-prices",
-    label: "Clear Lookup market prices",
-    detail: "lookup_prices.json",
-    confirm:
-      "Remove the cached Lookup price snapshot? It will be downloaded again on the next check.",
-  },
-  {
-    target: "box-timers",
-    label: "Reset stage boss chest tracker",
-    detail: "box_timers.json",
-    confirm:
-      "Reset stage boss chest tracker timers and enabled routes to defaults? Active cooldowns will be cleared.",
-  },
-  {
-    target: "session",
-    label: "Clear session snapshot",
-    detail: "session_state.json",
-    confirm:
-      "Clear the saved session snapshot and reset live stats? Your current session totals and history will start fresh.",
-  },
-  {
-    target: "all-except-config",
-    label: "Clear all except settings",
-    detail: "All caches above; config.json is kept",
-    confirm:
-      "Clear all cached data except config.json? Catalog, prices, box timers, and live session stats will reset.",
-  },
+const CLEAR_ACTION_TARGETS: AppDataClearTarget[] = [
+  "prices",
+  "lookup-prices",
+  "box-timers",
+  "session",
+  "all-except-config",
 ];
 
 type SettingsPatch = Omit<AppConfig, "es3Password">;
@@ -76,6 +44,8 @@ function CacheActionRow({
   disabled,
   busy,
   onClear,
+  clearLabel,
+  clearingLabel,
 }: {
   title: string;
   detail: string;
@@ -84,6 +54,8 @@ function CacheActionRow({
   disabled?: boolean;
   busy?: boolean;
   onClear: () => void;
+  clearLabel: string;
+  clearingLabel: string;
 }) {
   return (
     <Card padding="compact" className="flex items-start justify-between gap-3">
@@ -93,7 +65,7 @@ function CacheActionRow({
         {missingHint ? <span className="text-xs text-muted">{missingHint}</span> : null}
       </div>
       <Button variant={variant} className="shrink-0" disabled={disabled} onClick={onClear}>
-        {busy ? "Clearing…" : "Clear"}
+        {busy ? clearingLabel : clearLabel}
       </Button>
     </Card>
   );
@@ -113,6 +85,33 @@ export function Settings() {
   const pendingThresholdRef = useRef<number | null>(null);
   const thresholdSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { catalogStatus, refreshCatalog } = useTbhContext();
+  const { t: tSettings } = useTranslation("settings");
+
+  async function changeLanguage(next: AppLanguage): Promise<void> {
+    // For "game" we need the main-process-resolved language (read from the
+    // game's registry) before we can switch the renderer's i18n. savePartial
+    // triggers applyConfigPatch → onLanguageChanged → main changeLanguage +
+    // rebuildTrayMenu; the main process re-reads the registry there. We then
+    // re-fetch the config (now carrying resolvedLanguage) and switch the
+    // renderer. For non-"game" values we keep the optimistic path.
+    if (next === "game") {
+      await savePartial({ language: next }, undefined, { silent: true });
+      // Re-fetch config to pick up the main-process-injected resolvedLanguage.
+      if (typeof window.tbh?.getConfig === "function") {
+        try {
+          const fresh = await window.tbh.getConfig();
+          await changeRendererLanguage(next, fresh.resolvedLanguage);
+        } catch (err) {
+          reportIpcError(err);
+        }
+      }
+      return;
+    }
+    // Optimistically switch the renderer's i18n so labels update instantly; the
+    // main-process i18n + tray follow via applyConfigPatch's onLanguageChanged.
+    void changeRendererLanguage(next);
+    await savePartial({ language: next }, undefined, { silent: true });
+  }
 
   async function refreshDataPaths(): Promise<void> {
     if (typeof window.tbh?.getDataPaths !== "function") return;
@@ -125,24 +124,30 @@ export function Settings() {
 
   useEffect(() => {
     if (typeof window.tbh?.getConfig !== "function") {
-      setLoadError(
-        "Settings API is not loaded. Quit the app completely and start it again (after git pull, restart npm run dev too).",
-      );
+      setLoadError(tSettings("settingsApiNotLoaded"));
       return;
     }
+    let mounted = true;
     void window.tbh
       .getConfig()
       .then((c) => {
+        if (!mounted) return;
         setCfg(c);
         setLoadError(null);
       })
       .catch((err: unknown) => {
+        if (!mounted) return;
         reportIpcError(err);
-        const text = err instanceof Error ? err.message : "Could not load settings.";
+        const text = err instanceof Error ? err.message : tSettings("loadErrorDefault");
         setLoadError(text);
       });
-    void refreshDataPaths();
-  }, []);
+    void refreshDataPaths().then(() => {
+      if (!mounted) return;
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [tSettings]);
 
   async function savePartial(
     patch: Partial<SettingsPatch>,
@@ -162,7 +167,7 @@ export function Settings() {
     } catch (err) {
       reportIpcError(err);
       setCfg(prev);
-      setMessage("Failed to save settings.");
+      setMessage(tSettings("messages.failedToSave"));
       return null;
     } finally {
       if (!options?.silent) setSaveBusy(false);
@@ -234,7 +239,7 @@ export function Settings() {
   if (loadError) {
     return (
       <div className="flex flex-col gap-1.5">
-        <h1 className="m-0 text-lg font-semibold">Settings</h1>
+        <h1 className="m-0 text-lg font-semibold">{tSettings("tabTitle")}</h1>
         <p className="m-0 text-muted">{loadError}</p>
       </div>
     );
@@ -243,25 +248,25 @@ export function Settings() {
   if (!cfg) {
     return (
       <div className="flex flex-col gap-1.5">
-        <h1 className="m-0 text-lg font-semibold">Settings</h1>
-        <p className="m-0 text-muted">Loading...</p>
+        <h1 className="m-0 text-lg font-semibold">{tSettings("tabTitle")}</h1>
+        <p className="m-0 text-muted">{tSettings("loading")}</p>
       </div>
     );
   }
 
   async function onBrowseSave() {
     if (typeof window.tbh?.pickSaveFile !== "function") {
-      setMessage("Save picker is not loaded. Restart the app and try again.");
+      setMessage(tSettings("saveFile.savePickerNotLoaded"));
       return;
     }
     setBrowseBusy(true);
     setMessage(null);
     try {
       const path = await window.tbh.pickSaveFile();
-      if (path) await savePartial({ savePath: path }, "Save path updated.");
+      if (path) await savePartial({ savePath: path }, tSettings("saveFile.savePathUpdated"));
     } catch (err) {
       reportIpcError(err);
-      setMessage("Could not open the save file picker.");
+      setMessage(tSettings("saveFile.couldNotOpenPicker"));
     } finally {
       setBrowseBusy(false);
     }
@@ -269,14 +274,10 @@ export function Settings() {
 
   async function onClearDiagnosticLogs() {
     if (typeof window.tbh?.clearDiagnosticLogs !== "function") {
-      setMessage("Diagnostics API is not loaded. Restart the app and try again.");
+      setMessage(tSettings("messages.diagnosticsApiNotLoaded"));
       return;
     }
-    if (
-      !window.confirm(
-        "Delete diagnostic log files? Use this if logs grow large. XP history CSV is not removed.",
-      )
-    ) {
+    if (!window.confirm(tSettings("advanced.clearDiagnosticLogsConfirm"))) {
       return;
     }
 
@@ -285,19 +286,21 @@ export function Settings() {
     try {
       const result = await window.tbh.clearDiagnosticLogs();
       if (!result.ok) {
-        setMessage(result.error ?? "Could not clear diagnostic logs.");
+        setMessage(result.error ?? tSettings("messages.couldNotClearLogs"));
         return;
       }
       await refreshDataPaths();
       const count = result.cleared.length;
       setMessage(
         count > 0
-          ? `Cleared ${count} log file${count === 1 ? "" : "s"}.`
-          : "Nothing to clear — log files were already missing.",
+          ? count === 1
+            ? tSettings("messages.clearedFilesOne")
+            : tSettings("messages.clearedFilesOther", { count })
+          : tSettings("messages.nothingToClearLogs"),
       );
     } catch (err) {
       reportIpcError(err, "settings-clear-logs");
-      setMessage("Could not clear diagnostic logs.");
+      setMessage(tSettings("messages.couldNotClearLogs"));
     } finally {
       setClearLogsBusy(false);
     }
@@ -305,7 +308,7 @@ export function Settings() {
 
   async function onClearCache(target: AppDataClearTarget, confirmText: string) {
     if (typeof window.tbh?.clearAppData !== "function") {
-      setMessage("Clear-cache API is not loaded. Restart the app and try again.");
+      setMessage(tSettings("messages.clearCacheApiNotLoaded"));
       return;
     }
     if (!window.confirm(confirmText)) return;
@@ -315,19 +318,21 @@ export function Settings() {
     try {
       const result = await window.tbh.clearAppData(target);
       if (!result.ok) {
-        setMessage(result.error ?? "Could not clear cache.");
+        setMessage(result.error ?? tSettings("messages.couldNotClearCache"));
         return;
       }
       await refreshDataPaths();
       const count = result.cleared.length;
       setMessage(
         count > 0
-          ? `Cleared ${count} file${count === 1 ? "" : "s"}.`
-          : "Nothing to clear — those files were already missing.",
+          ? count === 1
+            ? tSettings("messages.clearedFilesOne")
+            : tSettings("messages.clearedFilesOther", { count })
+          : tSettings("messages.nothingToClear"),
       );
     } catch (err) {
       reportIpcError(err);
-      setMessage("Could not clear cache.");
+      setMessage(tSettings("messages.couldNotClearCache"));
     } finally {
       setClearBusy(null);
     }
@@ -346,27 +351,40 @@ export function Settings() {
 
   return (
     <TabPage>
-      <TabHeader
-        title="Settings"
-        intro="Choose where the app reads your save and how live stats and prices behave. Changes save automatically."
-      />
+      <TabHeader title={tSettings("tabTitle")} intro={tSettings("intro")} />
 
       <div className="flex max-w-md flex-col gap-3.5">
-        <Section title="Save file">
+        <Section title={tSettings("language.label")}>
+          <Field label={tSettings("language.label")}>
+            <Select
+              value={cfg.language}
+              disabled={saveBusy}
+              onValueChange={(value) => void changeLanguage(value as AppLanguage)}
+              options={[
+                { value: "auto", label: tSettings("language.auto") },
+                { value: "game", label: tSettings("language.game") },
+                ...APP_LANGUAGES.map((lang) => ({ value: lang, label: lang })),
+              ]}
+            />
+          </Field>
+          <p className="m-0 text-xs text-muted">{tSettings("language.restartHint")}</p>
+        </Section>
+
+        <Section title={tSettings("saveFile.sectionTitle")}>
           <div className="flex flex-col gap-2">
-            <span className="text-xs text-muted">Current save file</span>
+            <span className="text-xs text-muted">{tSettings("saveFile.currentSaveFile")}</span>
             <code className="break-all rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-muted">
               {cfg.savePath}
             </code>
             <Button disabled={browseBusy || saveBusy} onClick={() => void onBrowseSave()}>
-              {browseBusy ? "Opening…" : "Browse…"}
+              {browseBusy ? tSettings("saveFile.opening") : tSettings("saveFile.browse")}
             </Button>
           </div>
         </Section>
 
-        <Section title="Save file polling">
+        <Section title={tSettings("savePolling.sectionTitle")}>
           <div className="flex flex-col gap-3">
-            <Field label="Poll interval (seconds)">
+            <Field label={tSettings("savePolling.pollInterval")}>
               <NumberInput
                 min={1}
                 defaultValue={cfg.pollIntervalSeconds}
@@ -381,8 +399,8 @@ export function Settings() {
             </Field>
 
             <Field
-              label="Rolling window (minutes)"
-              hint="Changing this resets the current session."
+              label={tSettings("savePolling.rollingWindow")}
+              hint={tSettings("savePolling.rollingWindowHint")}
             >
               <NumberInput
                 min={1}
@@ -392,24 +410,20 @@ export function Settings() {
                 onBlur={(e) => {
                   const value = Math.max(1, Number(e.target.value) || 1);
                   if (value === cfg.rollingWindowMinutes) return;
-                  if (
-                    !window.confirm(
-                      "Changing the rolling window resets your current session stats and history. Continue?",
-                    )
-                  ) {
+                  if (!window.confirm(tSettings("savePolling.rollingWindowConfirm"))) {
                     e.target.value = String(cfg.rollingWindowMinutes);
                     return;
                   }
                   void savePartial(
                     { rollingWindowMinutes: value },
-                    "Session stats were reset for the new rolling window.",
+                    tSettings("savePolling.rollingWindowSuccess"),
                   );
                 }}
               />
             </Field>
 
             <Checkbox
-              label="Log XP history to CSV"
+              label={tSettings("savePolling.logHistoryCsv")}
               checked={cfg.logHistoryCsv}
               disabled={saveBusy}
               onCheckedChange={(checked) => void savePartial({ logHistoryCsv: checked })}
@@ -423,8 +437,8 @@ export function Settings() {
           onChange={(next) => void savePartial({ liveMemory: next })}
         />
 
-        <Section title="Steam Market">
-          <Field label="Market currency">
+        <Section title={tSettings("steamMarket.sectionTitle")}>
+          <Field label={tSettings("steamMarket.marketCurrency")}>
             <Select
               value={cfg.currency}
               disabled={saveBusy}
@@ -437,14 +451,11 @@ export function Settings() {
           </Field>
         </Section>
 
-        <Section title="Notifications">
-          <p className="m-0 text-xs text-muted">
-            Sound alerts play in the app when enabled below. App updates can show a Windows
-            notification when that option is on.
-          </p>
+        <Section title={tSettings("notifications.sectionTitle")}>
+          <p className="m-0 text-xs text-muted">{tSettings("notifications.intro")}</p>
           <div className="flex flex-col gap-3">
             <Checkbox
-              label="Enable notifications"
+              label={tSettings("notifications.enable")}
               checked={cfg.notificationsEnabled}
               disabled={saveBusy}
               onCheckedChange={(checked) => void savePartial({ notificationsEnabled: checked })}
@@ -452,7 +463,7 @@ export function Settings() {
 
             <div className="flex flex-col gap-1">
               <Checkbox
-                label="Notify when an app update is available"
+                label={tSettings("notifications.notifyOnUpdate")}
                 checked={cfg.notifyOnUpdateAvailable}
                 disabled={!cfg.notificationsEnabled || saveBusy}
                 onCheckedChange={(checked) =>
@@ -465,7 +476,7 @@ export function Settings() {
                   cfg.notificationsEnabled && "invisible",
                 )}
               >
-                Enable notifications above first.
+                {tSettings("notifications.enableFirst")}
               </span>
             </div>
 
@@ -476,7 +487,7 @@ export function Settings() {
                 step={1}
                 value={cfg.notificationVolume}
                 disabled={!cfg.notificationsEnabled}
-                label="Sound volume"
+                label={tSettings("notifications.soundVolume")}
                 formatValue={(n) => `${n}%`}
                 onValueChange={(value) => {
                   setCfg({ ...cfg, notificationVolume: value });
@@ -487,8 +498,8 @@ export function Settings() {
               />
               <span className="min-h-[2.5rem] text-xs text-muted">
                 {!cfg.notificationsEnabled
-                  ? "Enable notifications above first."
-                  : "Applies to all notification sounds below. Windows update toasts are not affected."}
+                  ? tSettings("notifications.enableFirst")
+                  : tSettings("notifications.soundVolumeHint")}
               </span>
             </div>
 
@@ -499,7 +510,7 @@ export function Settings() {
                 step={1}
                 value={cfg.inventoryAlmostFullThresholdPercent}
                 disabled={!cfg.notificationsEnabled || saveBusy}
-                label="Inventory almost full threshold"
+                label={tSettings("notifications.inventoryThreshold")}
                 formatValue={(n) => `${n}%`}
                 onValueChange={(value) => {
                   setCfg({ ...cfg, inventoryAlmostFullThresholdPercent: value });
@@ -510,12 +521,12 @@ export function Settings() {
               />
               <span className="min-h-[2.5rem] text-xs text-muted">
                 {!cfg.notificationsEnabled
-                  ? "Enable notifications above first."
-                  : "Notifies once your unlocked inventory slots reach this fill percentage."}
+                  ? tSettings("notifications.enableFirst")
+                  : tSettings("notifications.inventoryThresholdHint")}
               </span>
             </div>
 
-            <Accordion variant="panel" title="Notification sounds">
+            <Accordion variant="panel" title={tSettings("notifications.soundsAccordion")}>
               <NotificationSoundAccordion
                 prefs={cfg.notificationPrefs}
                 disabled={!cfg.notificationsEnabled}
@@ -534,37 +545,36 @@ export function Settings() {
           </div>
         </Section>
 
-        <Section title="Window & tray">
+        <Section title={tSettings("windowTray.sectionTitle")}>
           <div className="flex flex-col gap-3">
             <Checkbox
-              label="Keep all windows on top"
+              label={tSettings("windowTray.keepOnTop")}
               checked={cfg.startTopmost}
               disabled={saveBusy}
               onCheckedChange={(checked) => void savePartial({ startTopmost: checked })}
             />
             <p className="m-0 text-xs text-muted">
-              Closing the main window keeps TBH Companion running in the system tray. Use{" "}
-              <strong>Quit</strong> from the tray menu to exit fully.
+              <Trans i18nKey="settings:windowTray.trayHint" components={{ strong: <strong /> }} />
             </p>
           </div>
         </Section>
 
-        <Accordion variant="panel" title="Advanced — logs and cached data">
-          <Section title="Diagnostics">
-            <p className="m-0 text-xs text-muted">
-              When reporting an issue, you can send the diagnostic log file from Settings.
-            </p>
+        <Accordion variant="panel" title={tSettings("advanced.accordionTitle")}>
+          <Section title={tSettings("advanced.diagnosticsTitle")}>
+            <p className="m-0 text-xs text-muted">{tSettings("advanced.diagnosticsIntro")}</p>
             {dataPaths ? (
               <p className="m-0 text-xs text-muted">
-                <span>Log file:</span>{" "}
+                <span>{tSettings("advanced.logFileLabel")}</span>{" "}
                 <code className="break-all">{dataPaths.diagnosticLogPath}</code>
               </p>
             ) : (
-              <p className="m-0 text-xs text-muted">Loading log path…</p>
+              <p className="m-0 text-xs text-muted">{tSettings("advanced.loadingLogPath")}</p>
             )}
             <CacheActionRow
-              title="Clear diagnostic logs"
-              detail="app.log, main.log (legacy), and rotated archives"
+              title={tSettings("advanced.clearDiagnosticLogsTitle")}
+              detail={tSettings("advanced.clearDiagnosticLogsDetail")}
+              clearLabel={tSettings("cacheAction.clear")}
+              clearingLabel={tSettings("cacheAction.clearing")}
               disabled={
                 clearLogsBusy ||
                 Boolean(clearBusy) ||
@@ -575,36 +585,40 @@ export function Settings() {
             />
           </Section>
 
-          <Section title="Data & cache">
+          <Section title={tSettings("advanced.dataCacheTitle")}>
             <p className="m-0 text-xs text-muted">
-              Cached prices and tracker data live in your app user-data folder.{" "}
-              <code>config.json</code> is never removed by these actions.
+              <Trans i18nKey="settings:advanced.dataCacheIntro" components={{ code: <code /> }} />
             </p>
             {dataPaths ? (
               <p className="m-0 text-xs text-muted">
-                <span>Folder:</span> <code className="break-all">{dataPaths.userDataDir}</code>
+                <span>{tSettings("advanced.folderLabel")}</span>{" "}
+                <code className="break-all">{dataPaths.userDataDir}</code>
               </p>
             ) : (
-              <p className="m-0 text-xs text-muted">Loading cache paths…</p>
+              <p className="m-0 text-xs text-muted">{tSettings("advanced.loadingCachePaths")}</p>
             )}
 
             <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-              {CLEAR_ACTIONS.map((action) => {
-                const hasData = pathEntryExists(action.target);
-                const isBusy = clearBusy === action.target;
-                const isDanger = action.target === "all-except-config";
+              {CLEAR_ACTION_TARGETS.map((target) => {
+                const hasData = pathEntryExists(target);
+                const isBusy = clearBusy === target;
+                const isDanger = target === "all-except-config";
                 return (
-                  <li key={action.target} className="list-none">
+                  <li key={target} className="list-none">
                     <CacheActionRow
-                      title={action.label}
-                      detail={action.detail}
+                      title={tSettings(`clearActions.${target}.label`)}
+                      detail={tSettings(`clearActions.${target}.detail`)}
                       missingHint={
-                        showMissingHint(action.target) ? "Nothing cached yet." : undefined
+                        showMissingHint(target) ? tSettings("advanced.nothingCached") : undefined
                       }
                       variant={isDanger ? "danger" : "default"}
+                      clearLabel={tSettings("cacheAction.clear")}
+                      clearingLabel={tSettings("cacheAction.clearing")}
                       disabled={Boolean(clearBusy) || !hasData}
                       busy={isBusy}
-                      onClear={() => void onClearCache(action.target, action.confirm)}
+                      onClear={() =>
+                        void onClearCache(target, tSettings(`clearActions.${target}.confirm`))
+                      }
                     />
                   </li>
                 );
@@ -613,14 +627,21 @@ export function Settings() {
           </Section>
         </Accordion>
 
-        <Section title="Item catalog">
+        <Section title={tSettings("itemCatalog.sectionTitle")}>
           <p className="m-0 text-xs text-muted">
-            Catalog version: {catalogStatus?.catalogVersion ?? "unknown"}
-            {catalogStatus?.gameVersion ? ` · Game version: ${catalogStatus.gameVersion}` : ""}
-            {catalogStatus?.stale ? " · outdated" : ""}
+            {catalogStatus?.catalogVersion
+              ? tSettings("itemCatalog.catalogVersion", { version: catalogStatus.catalogVersion })
+              : tSettings("itemCatalog.catalogVersionUnknown")}
+            {catalogStatus?.gameVersion
+              ? tSettings("itemCatalog.gameVersionSuffix", { version: catalogStatus.gameVersion })
+              : ""}
+            {catalogStatus?.stale ? tSettings("itemCatalog.outdatedSuffix") : ""}
           </p>
           <p className="m-0 text-xs text-muted">
-            {catalogStatus?.itemCount ?? 0} items loaded from {catalogStatus?.source ?? "bundled"}.
+            {tSettings("itemCatalog.itemsLoaded", {
+              count: catalogStatus?.itemCount ?? 0,
+              source: catalogStatus?.source ?? tSettings("itemCatalog.sourceBundled"),
+            })}
           </p>
           <CatalogRefreshButton status={catalogStatus} onRefresh={refreshCatalog} />
         </Section>

@@ -1,0 +1,49 @@
+{
+  "clear": "清除",
+  "clearing": "清除中…",
+  "save": "保存",
+  "saving": "保存中…",
+  "cancel": "取消",
+  "ok": "确定",
+  "yes": "是",
+  "no": "否",
+  "refresh": "刷新",
+  "loading": "加载中…",
+  "error": "错误",
+  "retry": "重试",
+  "toolbar": {
+    "ariaLabel": "浮窗",
+    "miniButtonTitle": "打开迷你数据浮窗",
+    "miniButtonLabel": "迷你",
+    "boxTrackerButtonTitle": "打开关卡 Boss 宝箱追踪器",
+    "boxTrackerButtonLabel": "Boss 宝箱",
+    "supportButtonLabel": "支持"
+  },
+  "liveReader": {
+    "scanning": "实时：扫描中",
+    "live": "实时",
+    "unsupportedTitle": "此游戏版本暂不支持实时数据",
+    "unsupported": "实时：不支持",
+    "waitingForGame": "实时：等待游戏启动"
+  },
+  "catalog": {
+    "refresh": "刷新目录",
+    "refreshing": "刷新中…",
+    "refreshFailed": "刷新失败：{{error}}",
+    "refreshedWithVersion": "已为 v{{version}} 刷新 {{count}} 个物品",
+    "refreshedNoVersion": "已刷新 {{count}} 个物品"
+  },
+  "entityPanel": {
+    "defaultTitle": "详情",
+    "itemFallback": "物品 #{{id}}",
+    "boxFallback": "宝箱 #{{id}}",
+    "stageFallback": "关卡 #{{id}}"
+  },
+  "sort": {
+    "sortBy": "排序依据",
+    "ascending": "升序",
+    "descending": "降序",
+    "sortAscending": "升序排列",
+    "sortDescending": "降序排列"
+  }
+}

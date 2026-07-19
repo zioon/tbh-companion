@@ -1,0 +1,22 @@
+{
+  "tabTitle": "펫",
+  "waiting": "세이브 데이터 대기 중…",
+  "intro": "{{total}} 중 {{unlocked}}마리 동료가 잠금 해제되었습니다. 펫이 장착되지 않았을 때도 패시브 보너스가 적용됩니다 — 슬롯은 외형용입니다.",
+  "currentPassiveBonus": "현재 패시브 보너스",
+  "noPassiveBonus": "패시브 보너스를 얻으려면 펫을 잠금 해제하세요.",
+  "unlockByFarming": "사냥으로 잠금 해제",
+  "unlockByFarmingSummary": "{{total}} 중 {{unlocked}} 잠금 해제 · 대상 몬스터당 {{count}}회 처치 필요",
+  "dlcSummary": "{{total}} 중 {{unlocked}} 잠금 해제 · 서포터 팩으로 구매",
+  "badgeEquipped": "장착됨",
+  "badgeUnlocked": "잠금 해제됨",
+  "badgeDlc": "DLC",
+  "badgeInProgress": "진행 중",
+  "killsProgress": "{{count}} / {{target}}회 처치",
+  "killsRemaining": "{{count}}회 처치 남음",
+  "unlockViaDlc": "{{label}}을(를) 통해 잠금 해제",
+  "defaultDlcLabel": "서포터 팩",
+  "bestStages": "최적 스테이지",
+  "whereToFind": "획득처",
+  "spawnPercent": "{{value}}% 스폰",
+  "killsPerClear": "클리어당 약 {{value}}회 처치"
+}

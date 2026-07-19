@@ -1,0 +1,49 @@
+{
+  "clear": "クリア",
+  "clearing": "クリア中…",
+  "save": "保存",
+  "saving": "保存中…",
+  "cancel": "キャンセル",
+  "ok": "OK",
+  "yes": "はい",
+  "no": "いいえ",
+  "refresh": "更新",
+  "loading": "読み込み中…",
+  "error": "エラー",
+  "retry": "再試行",
+  "toolbar": {
+    "ariaLabel": "オーバーレイ",
+    "miniButtonTitle": "ミニ統計オーバーレイを開く",
+    "miniButtonLabel": "ミニ",
+    "boxTrackerButtonTitle": "ステージボス宝箱トラッカーを開く",
+    "boxTrackerButtonLabel": "ボス宝箱",
+    "supportButtonLabel": "サポート"
+  },
+  "liveReader": {
+    "scanning": "ライブ: スキャン中",
+    "live": "ライブ",
+    "unsupportedTitle": "このゲームバージョンではライブ統計は利用できません",
+    "unsupported": "ライブ: 非対応",
+    "waitingForGame": "ライブ: ゲーム起動待ち"
+  },
+  "catalog": {
+    "refresh": "カタログを更新",
+    "refreshing": "更新中…",
+    "refreshFailed": "更新に失敗しました: {{error}}",
+    "refreshedWithVersion": "v{{version}} のアイテム {{count}} 個を更新しました",
+    "refreshedNoVersion": "アイテム {{count}} 個を更新しました"
+  },
+  "entityPanel": {
+    "defaultTitle": "詳細",
+    "itemFallback": "アイテム #{{id}}",
+    "boxFallback": "宝箱 #{{id}}",
+    "stageFallback": "ステージ #{{id}}"
+  },
+  "sort": {
+    "sortBy": "並び替え基準",
+    "ascending": "昇順",
+    "descending": "降順",
+    "sortAscending": "昇順で並び替え",
+    "sortDescending": "降順で並び替え"
+  }
+}

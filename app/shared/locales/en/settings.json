@@ -1,0 +1,118 @@
+{
+  "tabTitle": "Settings",
+  "intro": "Choose where the app reads your save and how live stats and prices behave. Changes save automatically.",
+  "loading": "Loading...",
+  "loadErrorDefault": "Could not load settings.",
+  "settingsApiNotLoaded": "Settings API is not loaded. Quit the app completely and start it again (after git pull, restart npm run dev too).",
+  "language": {
+    "label": "Language",
+    "auto": "Follow system",
+    "game": "Follow game",
+    "restartHint": "Other windows will pick up the new language on restart."
+  },
+  "saveFile": {
+    "sectionTitle": "Save file",
+    "currentSaveFile": "Current save file",
+    "browse": "Browse…",
+    "opening": "Opening…",
+    "savePathUpdated": "Save path updated.",
+    "savePickerNotLoaded": "Save picker is not loaded. Restart the app and try again.",
+    "couldNotOpenPicker": "Could not open the save file picker."
+  },
+  "savePolling": {
+    "sectionTitle": "Save file polling",
+    "pollInterval": "Poll interval (seconds)",
+    "rollingWindow": "Rolling window (minutes)",
+    "rollingWindowHint": "Changing this resets the current session.",
+    "rollingWindowConfirm": "Changing the rolling window resets your current session stats and history. Continue?",
+    "rollingWindowSuccess": "Session stats were reset for the new rolling window.",
+    "logHistoryCsv": "Log XP history to CSV"
+  },
+  "steamMarket": {
+    "sectionTitle": "Steam Market",
+    "marketCurrency": "Market currency"
+  },
+  "notifications": {
+    "sectionTitle": "Notifications",
+    "intro": "Sound alerts play in the app when enabled below. App updates can show a Windows notification when that option is on.",
+    "enable": "Enable notifications",
+    "enableFirst": "Enable notifications above first.",
+    "notifyOnUpdate": "Notify when an app update is available",
+    "soundVolume": "Sound volume",
+    "soundVolumeHint": "Applies to all notification sounds below. Windows update toasts are not affected.",
+    "inventoryThreshold": "Inventory almost full threshold",
+    "inventoryThresholdHint": "Notifies once your unlocked inventory slots reach this fill percentage.",
+    "soundsAccordion": "Notification sounds"
+  },
+  "windowTray": {
+    "sectionTitle": "Window & tray",
+    "keepOnTop": "Keep all windows on top",
+    "trayHint": "Closing the main window keeps TBH Companion running in the system tray. Use <strong>Quit</strong> from the tray menu to exit fully."
+  },
+  "advanced": {
+    "accordionTitle": "Advanced — logs and cached data",
+    "diagnosticsTitle": "Diagnostics",
+    "diagnosticsIntro": "When reporting an issue, you can send the diagnostic log file from Settings.",
+    "logFileLabel": "Log file:",
+    "loadingLogPath": "Loading log path…",
+    "clearDiagnosticLogsTitle": "Clear diagnostic logs",
+    "clearDiagnosticLogsDetail": "app.log, main.log (legacy), and rotated archives",
+    "clearDiagnosticLogsConfirm": "Delete diagnostic log files? Use this if logs grow large. XP history CSV is not removed.",
+    "dataCacheTitle": "Data & cache",
+    "dataCacheIntro": "Cached prices and tracker data live in your app user-data folder. <code>config.json</code> is never removed by these actions.",
+    "folderLabel": "Folder:",
+    "loadingCachePaths": "Loading cache paths…",
+    "nothingCached": "Nothing cached yet."
+  },
+  "itemCatalog": {
+    "sectionTitle": "Item catalog",
+    "catalogVersion": "Catalog version: {{version}}",
+    "catalogVersionUnknown": "Catalog version: unknown",
+    "gameVersionSuffix": " · Game version: {{version}}",
+    "outdatedSuffix": " · outdated",
+    "itemsLoaded": "{{count}} items loaded from {{source}}.",
+    "sourceBundled": "bundled"
+  },
+  "cacheAction": {
+    "clear": "Clear",
+    "clearing": "Clearing…"
+  },
+  "clearActions": {
+    "prices": {
+      "label": "Clear Steam Market prices",
+      "detail": "prices.*.json",
+      "confirm": "Remove all cached Steam Market prices? Inventory values will need to be fetched again from the Market tab."
+    },
+    "lookup-prices": {
+      "label": "Clear Lookup market prices",
+      "detail": "lookup_prices.json",
+      "confirm": "Remove the cached Lookup price snapshot? It will be downloaded again on the next check."
+    },
+    "box-timers": {
+      "label": "Reset stage boss chest tracker",
+      "detail": "box_timers.json",
+      "confirm": "Reset stage boss chest tracker timers and enabled routes to defaults? Active cooldowns will be cleared."
+    },
+    "session": {
+      "label": "Clear session snapshot",
+      "detail": "session_state.json",
+      "confirm": "Clear the saved session snapshot and reset live stats? Your current session totals and history will start fresh."
+    },
+    "all-except-config": {
+      "label": "Clear all except settings",
+      "detail": "All caches above; config.json is kept",
+      "confirm": "Clear all cached data except config.json? Catalog, prices, box timers, and live session stats will reset."
+    }
+  },
+  "messages": {
+    "failedToSave": "Failed to save settings.",
+    "clearCacheApiNotLoaded": "Clear-cache API is not loaded. Restart the app and try again.",
+    "diagnosticsApiNotLoaded": "Diagnostics API is not loaded. Restart the app and try again.",
+    "couldNotClearCache": "Could not clear cache.",
+    "couldNotClearLogs": "Could not clear diagnostic logs.",
+    "clearedFilesOne": "Cleared 1 file.",
+    "clearedFilesOther": "Cleared {{count}} files.",
+    "nothingToClear": "Nothing to clear — those files were already missing.",
+    "nothingToClearLogs": "Nothing to clear — log files were already missing."
+  }
+}

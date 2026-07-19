@@ -1,0 +1,22 @@
+{
+  "tabTitle": "ペット",
+  "waiting": "セーブデータを待機中…",
+  "intro": "{{unlocked}} / {{total}} 体の仲間をアンロック済み。ペットを装備していなくてもパッシブボーナスは有効です — スロットは外見用です。",
+  "currentPassiveBonus": "現在のパッシブボーナス",
+  "noPassiveBonus": "パッシブボーナスを得るにはペットをアンロックしてください。",
+  "unlockByFarming": "狩りでアンロック",
+  "unlockByFarmingSummary": "{{unlocked}} / {{total}} アンロック · 対象モンスター 1 体あたり {{count}} キル必要",
+  "dlcSummary": "{{unlocked}} / {{total}} アンロック · サポーターパックで購入",
+  "badgeEquipped": "装備済み",
+  "badgeUnlocked": "アンロック済み",
+  "badgeDlc": "DLC",
+  "badgeInProgress": "進行中",
+  "killsProgress": "{{count}} / {{target}} キル",
+  "killsRemaining": "あと {{count}} キル",
+  "unlockViaDlc": "{{label}} でアンロック",
+  "defaultDlcLabel": "サポーターパック",
+  "bestStages": "ベストステージ",
+  "whereToFind": "入手場所",
+  "spawnPercent": "出現 {{value}}%",
+  "killsPerClear": "1 クリアあたり約 {{value}} キル"
+}

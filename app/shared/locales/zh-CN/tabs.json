@@ -1,0 +1,13 @@
+{
+  "live": "实时",
+  "inventory": "物品栏",
+  "chests": "宝箱",
+  "loot": "掉落",
+  "pets": "宠物",
+  "lookup": "图鉴",
+  "market": "市场",
+  "settings": "设置",
+  "about": "关于",
+  "debug": "调试",
+  "mainTabsAriaLabel": "主标签栏"
+}

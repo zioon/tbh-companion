@@ -1,0 +1,115 @@
+{
+  "tabTitle": "图鉴",
+  "intro": "浏览每个可获取的物品、其属性与获取途径 —— 可交易物品会显示 Steam 市场价格。",
+  "loading": "正在加载物品目录…",
+  "emptyFiltered": "没有物品匹配这些筛选条件。",
+  "backToTop": "回到顶部",
+  "more": "另有 {{count}} 项",
+  "tierTag": "T{{tier}}",
+  "tierLevelBand": "T{{tier}}（等级 {{min}}–{{max}}）",
+  "coinFallback": "硬币 {{id}}",
+  "itemFallback": "物品 {{id}}",
+  "filters": {
+    "itemType": "物品类型",
+    "grade": "品质",
+    "allGrades": "全部品质",
+    "gearType": "装备类型",
+    "allGearTypes": "全部装备类型",
+    "modifier": "词条",
+    "allModifiers": "全部词条",
+    "materialKind": "材料种类",
+    "allMaterialKinds": "全部材料种类",
+    "level": "等级",
+    "uniqueOnly": "仅唯一",
+    "searchItems": "搜索物品…",
+    "itemsCount": "{{count}} 个物品"
+  },
+  "sort": {
+    "name": "名称",
+    "grade": "品质",
+    "level": "等级",
+    "type": "类型"
+  },
+  "stats": {
+    "base": "基础属性",
+    "inherent": "固有属性",
+    "unique": "唯一效果"
+  },
+  "price": {
+    "noListingTitle": "暂无 Steam 市场挂单 —— 打开查看最新",
+    "approximateTitle": "Steam 市场近似价格（由美元换算）—— 打开挂单页",
+    "noListedPrice": "暂无挂单价"
+  },
+  "entityDetail": {
+    "itemNotFound": "未找到物品。",
+    "boxNotFound": "未找到宝箱。",
+    "stageNotFound": "未找到关卡。",
+    "monsters": "怪物",
+    "boxes": "宝箱"
+  },
+  "whereToFind": "获取途径",
+  "notAcquirable": "无法通过掉落、制作、合成或献祭获取。",
+  "crafting": {
+    "label": "制作",
+    "help": "使用每个配方下方的材料制作此物品。每行对应一个阶层、等级区间与槽位类型；百分比为你从该配方获得此物品的概率。",
+    "helpLabel": "制作机制说明"
+  },
+  "drop": {
+    "label": "掉落",
+    "help": "可能包含此物品的 Boss 宝箱。百分比为该物品在此宝箱掉落表中出现的概率。",
+    "helpLabel": "掉落机制说明"
+  },
+  "synthesis": {
+    "label": "合成",
+    "help": "在立方体中投入 9 件物品进行合成。每行对应一个配方阶层与结果等级区间；百分比为你获得此物品的概率。物品平均等级会影响适用配方。左侧绿色边缘标记所有路径中概率最高者。",
+    "helpLabel": "合成机制说明",
+    "tierRange": "阶层 {{tier}}（{{range}}）",
+    "tierOnly": "阶层 {{tier}}"
+  },
+  "offering": {
+    "sourceLabel": "献祭",
+    "sourceHelp": "将下方任意硬币投入立方体，有机会获得此物品及其掉落表中的其他物品。百分比为从该硬币获得此特定物品的概率。",
+    "sourceHelpLabel": "献祭机制说明",
+    "lootLabel": "献祭掉落",
+    "lootHelp": "将此硬币投入立方体即可从其掉落表中随机获得一件物品 —— 必得一件。百分比为获得该特定物品的概率。",
+    "lootHelpLabel": "献祭机制说明"
+  },
+  "usedIn": {
+    "label": "用作材料",
+    "help": "消耗此材料作为配方的合成公式。每个区块列出所需材料与该配方掉落池可能产出的装备 —— 不包含制作此物品本身的配方。",
+    "helpLabel": "材料配方说明",
+    "possibleOutputs": "{{count}} 种可能产出",
+    "searchOutputs": "搜索产出…",
+    "noMatch": "没有物品匹配你的搜索。"
+  },
+  "box": {
+    "firstDropOnly": "仅首次通关",
+    "firstDropOnlySuffix": "· {{label}}",
+    "categoryCommon": "普通宝箱",
+    "categoryStageBoss": "关卡 Boss 宝箱",
+    "categoryActBoss": "章节 Boss 宝箱",
+    "categoryDefault": "宝箱",
+    "stageRanges": "关卡区间",
+    "dropSources": "掉落来源",
+    "whereLabel": "获取途径",
+    "whereHelp": "此宝箱可重复刷怪掉落的关卡。上方“掉落来源”显示击杀类型与刷新百分比区间。每行的百分比为每次符合条件的击杀的掉落概率，可能因关卡而异。",
+    "whereHelpLabel": "宝箱掉落说明",
+    "firstClearLabel": "首次通关",
+    "firstClearHelp": "首次通关该关卡时的一次性奖励。此宝箱无法通过击杀怪物或 Boss 重复刷取。",
+    "firstClearHelpLabel": "首通宝箱说明",
+    "noLocation": "目录中暂无已知掉落关卡。",
+    "searchStages": "搜索关卡…",
+    "stagesCount": "{{count}} 个关卡",
+    "noStagesMatch": "没有关卡匹配你的搜索。",
+    "lootLabel": "掉落表",
+    "lootHelp": "开启此宝箱必得其掉落表中的一件物品。百分比为获得该特定物品的概率。",
+    "lootHelpLabel": "宝箱掉落表说明",
+    "searchLoot": "搜索掉落…",
+    "itemsCount": "{{count}} 个物品",
+    "noLootMatch": "没有掉落匹配你的搜索。",
+    "noLootMatchFilters": "没有掉落匹配这些筛选条件。",
+    "viaMonsterKill": "击杀怪物",
+    "viaStageBossKill": "击杀关卡 Boss",
+    "viaActBossKill": "击杀章节 Boss"
+  }
+}

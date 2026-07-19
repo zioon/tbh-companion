@@ -1,0 +1,118 @@
+{
+  "tabTitle": "設定",
+  "intro": "アプリがセーブを読み取る場所と、ライブ統計・価格の更新動作を選択します。変更は自動的に保存されます。",
+  "loading": "読み込み中…",
+  "loadErrorDefault": "設定を読み込めませんでした。",
+  "settingsApiNotLoaded": "設定 API が読み込まれていません。アプリを完全に終了して再起動してください（git pull 後は pnpm dev も再起動してください）。",
+  "language": {
+    "label": "言語",
+    "auto": "システムに従う",
+    "game": "ゲームに従う",
+    "restartHint": "他のウィンドウは次回再起動時に新しい言語を適用します。"
+  },
+  "saveFile": {
+    "sectionTitle": "セーブファイル",
+    "currentSaveFile": "現在のセーブファイル",
+    "browse": "参照…",
+    "opening": "開いています…",
+    "savePathUpdated": "セーブパスが更新されました。",
+    "savePickerNotLoaded": "セーブピッカーが読み込まれていません。アプリを再起動して再試行してください。",
+    "couldNotOpenPicker": "セーブピッカーを開けませんでした。"
+  },
+  "savePolling": {
+    "sectionTitle": "セーブファイルポーリング",
+    "pollInterval": "ポーリング間隔（秒）",
+    "rollingWindow": "ローリングウィンドウ（分）",
+    "rollingWindowHint": "変更すると現在のセッションがリセットされます。",
+    "rollingWindowConfirm": "ローリングウィンドウを変更すると現在のセッション統計と履歴がリセットされます。続行しますか？",
+    "rollingWindowSuccess": "新しいローリングウィンドウ用にセッション統計がリセットされました。",
+    "logHistoryCsv": "XP 履歴を CSV に記録"
+  },
+  "steamMarket": {
+    "sectionTitle": "Steam マーケット",
+    "marketCurrency": "マーケット通貨"
+  },
+  "notifications": {
+    "sectionTitle": "通知",
+    "intro": "以下で有効化すると、アプリ内で通知音が再生されます。対応オプションをオンにすると、アプリの更新時に Windows システム通知を表示します。",
+    "enable": "通知を有効化",
+    "enableFirst": "上で通知を有効化してください。",
+    "notifyOnUpdate": "アプリの更新が利用可能なときに通知",
+    "soundVolume": "通知音の音量",
+    "soundVolumeHint": "以下のすべての通知音に適用されます。Windows 更新トースト通知はこの設定の影響を受けません。",
+    "inventoryThreshold": "インベントリほぼ満杯しきい値",
+    "inventoryThresholdHint": "アンロック済みインベントリスロットがこの充填率に達したときに一度だけ通知します。",
+    "soundsAccordion": "通知音"
+  },
+  "windowTray": {
+    "sectionTitle": "ウィンドウとトレイ",
+    "keepOnTop": "すべてのウィンドウを最前面に固定",
+    "trayHint": "メインウィンドウを閉じても、TBH コンパニオンはシステムトレイで動き続けます。完全に終了するにはトレイメニューから<strong>終了</strong>を選んでください。"
+  },
+  "advanced": {
+    "accordionTitle": "詳細 — ログとキャッシュデータ",
+    "diagnosticsTitle": "診断",
+    "diagnosticsIntro": "問題を報告するときは、設定から診断ログファイルを送信できます。",
+    "logFileLabel": "ログファイル:",
+    "loadingLogPath": "ログパスを読み込み中…",
+    "clearDiagnosticLogsTitle": "診断ログをクリア",
+    "clearDiagnosticLogsDetail": "app.log、main.log（旧版）、ローテーションアーカイブ",
+    "clearDiagnosticLogsConfirm": "診断ログファイルを削除しますか？ログが大きくなりすぎたときに使用してください。XP 履歴 CSV は削除されません。",
+    "dataCacheTitle": "データとキャッシュ",
+    "dataCacheIntro": "価格キャッシュとトラッカーデータはアプリのユーザーデータフォルダに保存されます。<code>config.json</code> はこれらの操作では削除されません。",
+    "folderLabel": "フォルダ:",
+    "loadingCachePaths": "キャッシュパスを読み込み中…",
+    "nothingCached": "まだキャッシュはありません。"
+  },
+  "itemCatalog": {
+    "sectionTitle": "アイテムカタログ",
+    "catalogVersion": "カタログバージョン: {{version}}",
+    "catalogVersionUnknown": "カタログバージョン: 不明",
+    "gameVersionSuffix": " · ゲームバージョン: {{version}}",
+    "outdatedSuffix": " · 期限切れ",
+    "itemsLoaded": "{{source}} からアイテム {{count}} 個を読み込みました。",
+    "sourceBundled": "バンドル"
+  },
+  "cacheAction": {
+    "clear": "クリア",
+    "clearing": "クリア中…"
+  },
+  "clearActions": {
+    "prices": {
+      "label": "Steam マーケット価格をクリア",
+      "detail": "prices.*.json",
+      "confirm": "すべての Steam マーケット価格キャッシュを削除しますか？インベントリ評価は「マーケット」タブで再取得する必要があります。"
+    },
+    "lookup-prices": {
+      "label": "図鑑マーケット価格をクリア",
+      "detail": "lookup_prices.json",
+      "confirm": "図鑑価格スナップショットを削除しますか？次回チェック時に再ダウンロードされます。"
+    },
+    "box-timers": {
+      "label": "ステージボス宝箱トラッカーをリセット",
+      "detail": "box_timers.json",
+      "confirm": "ステージボス宝箱トラッカーのタイマーと有効なルートをデフォルトに戻しますか？アクティブなクールダウンはクリアされます。"
+    },
+    "session": {
+      "label": "セッションスナップショットをクリア",
+      "detail": "session_state.json",
+      "confirm": "保存済みセッションスナップショットをクリアしてライブ統計をリセットしますか？現在のセッション累計と履歴は新しく始まります。"
+    },
+    "all-except-config": {
+      "label": "設定以外のすべてをクリア",
+      "detail": "上記すべて；config.json は保持",
+      "confirm": "config.json 以外のすべてのキャッシュをクリアしますか？カタログ、価格、宝箱タイマー、ライブセッション統計がリセットされます。"
+    }
+  },
+  "messages": {
+    "failedToSave": "設定の保存に失敗しました。",
+    "clearCacheApiNotLoaded": "クリアキャッシュ API が読み込まれていません。アプリを再起動して再試行してください。",
+    "diagnosticsApiNotLoaded": "診断 API が読み込まれていません。アプリを再起動して再試行してください。",
+    "couldNotClearCache": "キャッシュをクリアできませんでした。",
+    "couldNotClearLogs": "診断ログをクリアできませんでした。",
+    "clearedFilesOne": "1 個のファイルをクリアしました。",
+    "clearedFilesOther": "{{count}} 個のファイルをクリアしました。",
+    "nothingToClear": "クリア不要 — これらのファイルはすでに存在しません。",
+    "nothingToClearLogs": "クリア不要 — ログファイルはすでに存在しません。"
+  }
+}

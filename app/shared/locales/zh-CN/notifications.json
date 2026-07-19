@@ -1,0 +1,48 @@
+{
+  "updateAvailableTitle": "有可用更新",
+  "updateAvailableBody": "TBH 助手 v{{version}} 已发布，前往“关于”页面下载。",
+  "inventoryAlmostFullTitle": "物品栏即将满",
+  "inventoryAlmostFullBody": "已使用 {{used}}/{{capacity}} 个格子（{{percent}}%）。",
+  "slots_one": "已使用 {{count}} 个格子",
+  "slots_other": "已使用 {{count}} 个格子",
+  "kinds": {
+    "chestDrop": {
+      "label": "宝箱掉落",
+      "description": "追踪的关卡 Boss 掉落宝箱时触发。"
+    },
+    "chestReady": {
+      "label": "宝箱就绪",
+      "description": "追踪的宝箱冷却结束时触发。"
+    },
+    "heroLevelUp": {
+      "label": "英雄升级",
+      "description": "存档中英雄升级时触发。"
+    },
+    "inventoryAlmostFull": {
+      "label": "物品栏即将满",
+      "description": "已解锁的物品栏格子达到设定的填充阈值时触发。"
+    }
+  },
+  "sounds": {
+    "softChime": "柔和铃声",
+    "doubleTap": "双击声",
+    "woodTick": "木鱼敲击",
+    "whisperPing": "轻语提示",
+    "brightPop": "明亮弹出",
+    "clearBell": "清脆铃音",
+    "softDing": "轻柔叮声",
+    "quickRise": "快速上升",
+    "gameBlip": "游戏短音",
+    "arcadeTone": "街机音",
+    "crystalChime": "水晶铃声",
+    "happyPing": "愉悦提示",
+    "magicSpark": "魔法闪光",
+    "levelTriumph": "升级凯歌",
+    "treasureFanfare": "宝箱号角",
+    "gentleAlert": "轻柔提醒"
+  },
+  "soundFieldLabel": "提示音",
+  "soundNone": "无（静音）",
+  "previewSound": "试听提示音",
+  "previewPlaying": "播放中…"
+}

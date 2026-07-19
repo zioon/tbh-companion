@@ -1,0 +1,49 @@
+{
+  "clear": "지우기",
+  "clearing": "지우는 중…",
+  "save": "저장",
+  "saving": "저장 중…",
+  "cancel": "취소",
+  "ok": "확인",
+  "yes": "예",
+  "no": "아니오",
+  "refresh": "새로고침",
+  "loading": "불러오는 중…",
+  "error": "오류",
+  "retry": "재시도",
+  "toolbar": {
+    "ariaLabel": "오버레이",
+    "miniButtonTitle": "미니 통계 오버레이 열기",
+    "miniButtonLabel": "미니",
+    "boxTrackerButtonTitle": "스테이지 보스 보관함 추적기 열기",
+    "boxTrackerButtonLabel": "보스 보관함",
+    "supportButtonLabel": "지원"
+  },
+  "liveReader": {
+    "scanning": "라이브: 스캔 중",
+    "live": "라이브",
+    "unsupportedTitle": "이 게임 버전에서는 라이브 통계를 사용할 수 없습니다",
+    "unsupported": "라이브: 지원되지 않음",
+    "waitingForGame": "라이브: 게임 시작 대기 중"
+  },
+  "catalog": {
+    "refresh": "카탈로그 새로고침",
+    "refreshing": "새로고침 중…",
+    "refreshFailed": "새로고침 실패: {{error}}",
+    "refreshedWithVersion": "v{{version}}에 대해 {{count}}개 아이템 새로고침됨",
+    "refreshedNoVersion": "{{count}}개 아이템 새로고침됨"
+  },
+  "entityPanel": {
+    "defaultTitle": "세부 정보",
+    "itemFallback": "아이템 #{{id}}",
+    "boxFallback": "보관함 #{{id}}",
+    "stageFallback": "스테이지 #{{id}}"
+  },
+  "sort": {
+    "sortBy": "정렬 기준",
+    "ascending": "오름차순",
+    "descending": "내림차순",
+    "sortAscending": "오름차순 정렬",
+    "sortDescending": "내림차순 정렬"
+  }
+}

@@ -40,10 +40,32 @@ const appDataLog = createLogger("appData");
 import { createMainWindow as buildMainWindow } from "../windows/mainWindow";
 import { createOverlayWindow as buildOverlayWindow } from "../windows/overlayWindow";
 import { createBoxTrackerWindow as buildBoxTrackerWindow } from "../windows/boxTrackerWindow";
-import { isAppQuitting } from "../tray/trayService";
+import { isAppQuitting, rebuildTrayMenu } from "../tray/trayService";
 import { applyWindowTopmost } from "../windows/alwaysOnTop";
+import { changeLanguage, readGameLanguage, t } from "../i18n";
+import { resolveLanguage, type ResolvedLanguage } from "../../../shared/language";
 
 let config: AppConfig;
+
+/**
+ * 包装 normalizeConfigFromRaw，注入运行时派生字段 `resolvedLanguage`。
+ * 仅当 config.language === "game" 时填充（从游戏注册表读取）；其它情况下
+ * 字段为 undefined，渲染进程会自行用 resolveLanguage(cfg.language, navigator.language)
+ * 推断。
+ *
+ * 主进程读注册表是因为渲染进程没有 reg.exe 访问权限；通过现有的 getConfig
+ * IPC 返回值传递，无需新增 IPC 通道。
+ */
+function getConfigWithRuntime(): AppConfig {
+  const base = normalizeConfigFromRaw(config);
+  if (base.language !== "game") return base;
+  const gameLang = readGameLanguage();
+  if (!gameLang) return base;
+  // gameLang 非 null 时 resolveLanguage 不会用到 systemLocale，传空串即可。
+  const resolved: ResolvedLanguage = resolveLanguage(base.language, "", gameLang);
+  return { ...base, resolvedLanguage: resolved };
+}
+
 const sessionState = new SessionStateService();
 const inventory = new InventoryService();
 const chests = new ChestService();
@@ -84,9 +106,10 @@ function focusMainWindow(): void {
 const notifications = new NotificationService(
   () => normalizeConfigFromRaw(config),
   focusMainWindow,
+  t,
 );
 const updates = new UpdateService({
-  getConfig: () => normalizeConfigFromRaw(config),
+  getConfig: () => getConfigWithRuntime(),
   onUpdateAvailable: (version) => notifications.showUpdateAvailable(version),
 });
 
@@ -137,6 +160,7 @@ export function startTracking(): SessionUiSnapshot {
   config = loadConfig();
   inventory.initMarket(config.currency);
   inventory.setAutoScanEnabled(config.marketAutoScanEnabled);
+  inventory.setLowValueThresholdUsd(config.marketLowValueThresholdUsd);
   inventory.loadGameData();
   lookupPrices.start();
   // Restore the persisted opt-in reader state (off by default; only if consented).
@@ -151,10 +175,22 @@ export function startTracking(): SessionUiSnapshot {
   // this, variant remap could return ids only gamedata.json has — the renderer
   // would then show "item not found" for high-rarity drops.
   tracking.setLookupCatalog(lookup.getCatalog());
+  // Inject the lookup catalog into InventoryService too, so the inventory
+  // worker can replace placeholder `ItemName_<id>` names from gamedata.json
+  // with real display names — keeps `marketHashName()`, per-row price refresh,
+  // and string search working for items the EN stringtable didn't resolve
+  // (e.g. Empire 50th Anniversary Coin).
+  inventory.setLookupCatalog(lookup.getCatalog());
   tracking.setInventorySnapshot(inventory.getInventory());
   inventory.setOnInventoryUpdated((snap) => tracking.setInventorySnapshot(snap));
   tracking.setLookupPriceSnapshot(lookupPrices.getSnapshot());
-  lookupPrices.setOnSnapshotUpdated((snap) => tracking.setLookupPriceSnapshot(snap));
+  inventory.setLookupPriceSnapshot(lookupPrices.getSnapshot());
+  // Single subscriber — fan out to both tracking (resolved item prices) and
+  // inventory (low-value pre-filter on auto-refresh).
+  lookupPrices.setOnSnapshotUpdated((snap) => {
+    tracking.setLookupPriceSnapshot(snap);
+    inventory.setLookupPriceSnapshot(snap);
+  });
   // AutoClassifyService wires its callbacks into the trackers via the service
   // setter; the trackers query the service at call time, so toggling enabled/
   // disabled doesn't require re-wiring. Must be created after `tracking.start`
@@ -294,16 +330,21 @@ export function getAppServices() {
       config = { ...config, marketAutoScanEnabled: enabled };
       saveConfig(config);
     },
-    getConfig: () => normalizeConfigFromRaw(config),
+    setMarketLowValueThresholdUsd: (value: number) => {
+      inventory.setLowValueThresholdUsd(value);
+      config = { ...config, marketLowValueThresholdUsd: value };
+      saveConfig(config);
+    },
+    getConfig: () => getConfigWithRuntime(),
     pickSaveFile: async (): Promise<string | null> => {
       const current = expandPath(config.savePath);
       const parent =
         mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
       const options: OpenDialogOptions = {
-        title: "Choose TBH save file",
+        title: t("dialogs:chooseSaveFile"),
         defaultPath: dirname(current),
         properties: ["openFile"],
-        filters: [{ name: "TBH save", extensions: ["es3"] }],
+        filters: [{ name: t("dialogs:saveFileFilter"), extensions: ["es3"] }],
       };
       const result = parent
         ? await dialog.showOpenDialog(parent, options)
@@ -338,6 +379,11 @@ export function getAppServices() {
           setLiveMemoryEnabled: (enabled) => (enabled ? liveMemory.start() : liveMemory.stop()),
           onLiveMemoryToggled: () => tracking.onLiveMemoryToggled(),
           setMarketAutoScanEnabled: (enabled) => inventory.setAutoScanEnabled(enabled),
+          setMarketLowValueThresholdUsd: (value) => inventory.setLowValueThresholdUsd(value),
+          onLanguageChanged: (newLanguage) => {
+            changeLanguage(newLanguage);
+            rebuildTrayMenu(getAppServices());
+          },
         },
         patch,
       ),

@@ -1,0 +1,97 @@
+{
+  "tabTitle": "Inventory",
+  "waiting": "Waiting for the save file... open the game so it writes a save.",
+  "searchPlaceholder": "Search items...",
+  "itemsCount": "{{count}} items",
+  "filters": {
+    "grade": "Grade",
+    "allGrades": "All grades",
+    "itemType": "Item type",
+    "allItemTypes": "All item types",
+    "location": "Location",
+    "allLocations": "All locations",
+    "unequippedOnly": "Unequipped only",
+    "unequippedOnlyTip": "Hides only items where every copy you own is equipped. Items with some copies equipped and some in your inventory/stash still show.",
+    "tradableOnly": "Tradable only"
+  },
+  "location": {
+    "inventory": "Inventory",
+    "stash": "Stash",
+    "trading": "Trading",
+    "equipped": "Equipped",
+    "unknown": "Unknown"
+  },
+  "columns": {
+    "name": "Name",
+    "grade": "Grade",
+    "level": "Level",
+    "type": "Type",
+    "count": "Count",
+    "location": "Location",
+    "inUse": "Equipped",
+    "marketPrice": "Market price",
+    "listValue": "Market total",
+    "instantSell": "Instant sell",
+    "instantTotal": "Instant total",
+    "instantSellAverage": "Instant avg"
+  },
+  "columnPicker": {
+    "ariaLabel": "Visible columns",
+    "edit": "Edit columns",
+    "reset": "Reset to default"
+  },
+  "summary": {
+    "marketValue": "Market value",
+    "instantTotal": "Instant total",
+    "afterFees": "after Steam fees",
+    "feesLabel": "Steam fees",
+    "estimate": "estimate",
+    "listValueTip": "Total list value at Steam market prices (what buyers pay)",
+    "estimateTip": "Estimated wallet proceeds if you listed everything at market prices. Steam listing UI is authoritative.",
+    "instantSellTip": "Sum of instant sell per row: selling into the order book level-by-level, best price first, until your stack is covered or the book runs dry. No listing fees.",
+    "unknownCount": "{{count}} item(s) aren't in this app's item list (shown as Unknown #…). Update the app, or check our Discord for work in progress on those IDs.",
+    "discord": "Discord"
+  },
+  "priceSource": {
+    "median": "Recent sale median on Steam Market",
+    "lowest": "Lowest listing (no recent sales on Steam)",
+    "default": "Steam Market"
+  },
+  "buyOrder": {
+    "noOrdersLabel": "No buy orders",
+    "noOrdersTitle": "No buy orders on Steam Market for this item",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "Buy order not loaded yet",
+    "highestTitle": "Highest buy order — price if you sold to the order book immediately",
+    "averageTitle": "Average price per unit across the order-book levels used to fill this stack."
+  },
+  "marketPrice": {
+    "noListingsLabel": "No active listings",
+    "noListingsTitle": "No active Steam Market listings or recent sales for this item",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "Steam price not loaded yet",
+    "notPricedTitle": "Not priced (non-tradable or below Legendary gear)",
+    "openOnSteam": "Open on Steam Market",
+    "totalIfListed": "total if listed at market price"
+  },
+  "locationCell": {
+    "inv": "Inv {{count}}",
+    "stash": "St {{count}}",
+    "trading": "Tr {{count}}",
+    "equipped": "Eq {{count}}",
+    "unassigned": "?",
+    "unassignedTitle": "Unassigned"
+  },
+  "inUse": {
+    "someEquipped": "{{inUse}} of {{count}} owned are currently equipped; the rest are in your inventory/stash",
+    "allEquipped": "All owned copies are currently equipped"
+  },
+  "instantTotal": {
+    "cappedTitle": "Selling into the order book level-by-level — covers {{covered}} of {{count}} owned; no buy orders deep enough for the rest. No listing fees.",
+    "defaultTitle": "Selling into the order book level-by-level, best price first. No listing fees."
+  },
+  "chaotic": "Chaotic",
+  "emptyMessage": "No items match these filters.",
+  "clearFilters": "Clear filters",
+  "refreshPricesFor": "Refresh Steam prices for {{name}}"
+}

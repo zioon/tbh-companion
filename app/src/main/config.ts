@@ -10,10 +10,12 @@ import {
   sanitizeNotificationVolume,
   type LegacyChestSoundVariant,
 } from "../../shared/notificationCatalog";
+import { APP_LANGUAGES, DEFAULT_LANGUAGE, type AppLanguage } from "../../shared/language";
 import type {
   AppConfig,
   ChestAutoOpenPrefs,
   LiveMemoryPrefs,
+  LootRingSeconds,
   NotificationPrefs,
 } from "../../shared/types";
 import { DEFAULT_PASSWORD } from "../core/es3";
@@ -39,6 +41,13 @@ const DEFAULT_LIVE_MEMORY: LiveMemoryPrefs = {
   consentAccepted: false,
 };
 
+// Lap duration defaults: Common chest = 5 min, Stage-boss chest = 7 min
+// (matches the mini overlay's boss-chest ring lap duration).
+const DEFAULT_LOOT_RING_SECONDS: LootRingSeconds = {
+  common: 5 * 60,
+  stage: 7 * 60,
+};
+
 const DEFAULTS: AppConfig = {
   savePath: DEFAULT_SAVE,
   es3Password: DEFAULT_PASSWORD,
@@ -54,7 +63,16 @@ const DEFAULTS: AppConfig = {
   inventoryAlmostFullThresholdPercent: 90,
   chestAutoOpenEnabled: DEFAULT_CHEST_AUTO_OPEN,
   liveMemory: DEFAULT_LIVE_MEMORY,
+  // On by default so the inventory stays priced without user action — the
+  // pre-toggle behavior. Disabling stops auto refreshes on save parses,
+  // leaving only explicit Refresh / Force / per-item user actions.
+  marketAutoScanEnabled: true,
+  // Skip items at or below 5¢ USD on auto-refresh — they sit at Steam's
+  // $0.03 listing floor and waste rate-limit budget. Set to 0 to disable.
+  marketLowValueThresholdUsd: 0.05,
   lootAutoClassifyEnabled: false,
+  lootRingSeconds: DEFAULT_LOOT_RING_SECONDS,
+  language: DEFAULT_LANGUAGE,
 };
 
 type RawConfig = Partial<AppConfig> & { chestSoundVariant?: LegacyChestSoundVariant };
@@ -75,6 +93,47 @@ function sanitizeLiveMemoryPrefs(raw: Partial<LiveMemoryPrefs> | undefined): Liv
   };
 }
 
+/**
+ * Sanitize loot-ring lap durations: clamp each to a sane range (1s – 1h)
+ * so a malformed config can't produce a non-functional ring (0s would divide
+ * by zero, a huge value would never visibly progress). Falls back to the
+ * matching default when missing or invalid.
+ */
+function sanitizeLootRingSeconds(raw: Partial<LootRingSeconds> | undefined): LootRingSeconds {
+  const clamp = (v: unknown, fallback: number): number => {
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.min(Math.max(Math.round(n), 1), 3600);
+  };
+  return {
+    common: clamp(raw?.common, DEFAULT_LOOT_RING_SECONDS.common),
+    stage: clamp(raw?.stage, DEFAULT_LOOT_RING_SECONDS.stage),
+  };
+}
+
+/**
+ * Coerce the low-value skip threshold (USD) to a finite, non-negative number.
+ * Negative or non-numeric values fall back to the default (0.05). Capped at
+ * 100 USD so a stray typo can't silently skip every item.
+ */
+function sanitizeMarketLowValueThresholdUsd(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULTS.marketLowValueThresholdUsd;
+  return Math.min(n, 100);
+}
+
+/**
+ * Coerce the UI language preference to a supported value. Accepts "auto" or
+ * any entry in APP_LANGUAGES; anything else falls back to the default ("auto").
+ */
+function sanitizeLanguage(raw: unknown): AppLanguage {
+  if (raw === "auto") return "auto";
+  if (typeof raw === "string" && (APP_LANGUAGES as readonly string[]).includes(raw)) {
+    return raw as AppLanguage;
+  }
+  return DEFAULT_LANGUAGE;
+}
+
 function normalizeConfig(raw: RawConfig): AppConfig {
   const {
     chestSoundVariant: _legacy,
@@ -83,7 +142,11 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     inventoryAlmostFullThresholdPercent: _threshold,
     chestAutoOpenEnabled: _autoOpen,
     liveMemory: _liveMemory,
+    marketAutoScanEnabled: _marketAutoScan,
+    marketLowValueThresholdUsd: _marketLowValue,
     lootAutoClassifyEnabled: _ac,
+    lootRingSeconds: _ring,
+    language: _language,
     ...rest
   } = raw;
   const notificationPrefs: NotificationPrefs = migrateNotificationPrefs(raw);
@@ -93,7 +156,13 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   );
   const chestAutoOpenEnabled = sanitizeChestAutoOpenPrefs(raw.chestAutoOpenEnabled);
   const liveMemory = sanitizeLiveMemoryPrefs(raw.liveMemory);
+  const marketAutoScanEnabled = raw.marketAutoScanEnabled !== false;
+  const marketLowValueThresholdUsd = sanitizeMarketLowValueThresholdUsd(
+    raw.marketLowValueThresholdUsd,
+  );
   const lootAutoClassifyEnabled = raw.lootAutoClassifyEnabled === true;
+  const lootRingSeconds = sanitizeLootRingSeconds(raw.lootRingSeconds);
+  const language = sanitizeLanguage(raw.language);
   return {
     ...DEFAULTS,
     ...rest,
@@ -102,7 +171,11 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     inventoryAlmostFullThresholdPercent,
     chestAutoOpenEnabled,
     liveMemory,
+    marketAutoScanEnabled,
+    marketLowValueThresholdUsd,
     lootAutoClassifyEnabled,
+    lootRingSeconds,
+    language,
   };
 }
 

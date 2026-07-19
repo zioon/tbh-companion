@@ -1,0 +1,49 @@
+{
+  "clear": "Clear",
+  "clearing": "Clearing…",
+  "save": "Save",
+  "saving": "Saving…",
+  "cancel": "Cancel",
+  "ok": "OK",
+  "yes": "Yes",
+  "no": "No",
+  "refresh": "Refresh",
+  "loading": "Loading…",
+  "error": "Error",
+  "retry": "Retry",
+  "toolbar": {
+    "ariaLabel": "Overlays",
+    "miniButtonTitle": "Open mini stats overlay",
+    "miniButtonLabel": "Mini",
+    "boxTrackerButtonTitle": "Open Stage boss chest tracker",
+    "boxTrackerButtonLabel": "Boss chests",
+    "supportButtonLabel": "Support"
+  },
+  "liveReader": {
+    "scanning": "Live: scanning",
+    "live": "Live",
+    "unsupportedTitle": "Live stats unavailable for this version",
+    "unsupported": "Live: unsupported",
+    "waitingForGame": "Live: waiting for game"
+  },
+  "catalog": {
+    "refresh": "Refresh catalog",
+    "refreshing": "Refreshing…",
+    "refreshFailed": "Refresh failed: {{error}}",
+    "refreshedWithVersion": "Refreshed {{count}} items for v{{version}}",
+    "refreshedNoVersion": "Refreshed {{count}} items"
+  },
+  "entityPanel": {
+    "defaultTitle": "Details",
+    "itemFallback": "Item #{{id}}",
+    "boxFallback": "Box #{{id}}",
+    "stageFallback": "Stage #{{id}}"
+  },
+  "sort": {
+    "sortBy": "Sort by",
+    "ascending": "Ascending",
+    "descending": "Descending",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "live": "라이브",
+  "inventory": "인벤토리",
+  "chests": "보관함",
+  "loot": "전리품",
+  "pets": "펫",
+  "lookup": "도감",
+  "market": "마켓",
+  "settings": "설정",
+  "about": "정보",
+  "debug": "디버그",
+  "mainTabsAriaLabel": "메인 탭"
+}

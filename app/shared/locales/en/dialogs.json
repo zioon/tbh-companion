@@ -1,0 +1,6 @@
+{
+  "chooseSaveFile": "Choose TBH save file",
+  "saveFileFilter": "TBH save",
+  "fatalErrorTitle": "TBH Companion — startup failed",
+  "fatalErrorBody": "The item catalog could not be loaded. Reinstall or update the app.\n\n{{detail}}"
+}

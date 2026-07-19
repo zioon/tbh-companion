@@ -12,6 +12,8 @@ import { getAppServices, restoreSessionWindows, startTracking, stopTracking } fr
 import { registerIpc } from "./ipc/registerIpc";
 import { createTray, destroyTray, isAppQuitting, setAppQuitting } from "./tray/trayService";
 import { registerAssetProtocolHandler, registerAssetProtocolScheme } from "./assetProtocol";
+import { loadConfig } from "./config";
+import { initMainI18n, t } from "./i18n";
 
 registerAssetProtocolScheme();
 
@@ -42,6 +44,7 @@ if (isPrimaryInstance) {
     try {
       appLog.info(`TBH Companion v${appVersion()} ready`);
       registerAssetProtocolHandler();
+      initMainI18n(loadConfig());
       const sessionUi = startTracking();
       const services = getAppServices();
       registerIpc(services);
@@ -55,10 +58,7 @@ if (isPrimaryInstance) {
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       appLog.error(`Startup failed: ${detail}`);
-      dialog.showErrorBox(
-        "TBH Companion — startup failed",
-        `The item catalog could not be loaded. Reinstall or update the app.\n\n${detail}`,
-      );
+      dialog.showErrorBox(t("dialogs:fatalErrorTitle"), t("dialogs:fatalErrorBody", { detail }));
       app.quit();
     }
   });

@@ -1,0 +1,97 @@
+{
+  "tabTitle": "인벤토리",
+  "waiting": "세이브 파일 대기 중… 게임을 열어 세이브를 기록하세요.",
+  "searchPlaceholder": "아이템 검색…",
+  "itemsCount": "{{count}}개 아이템",
+  "filters": {
+    "grade": "등급",
+    "allGrades": "모든 등급",
+    "itemType": "아이템 유형",
+    "allItemTypes": "모든 아이템 유형",
+    "location": "위치",
+    "allLocations": "모든 위치",
+    "unequippedOnly": "미장착만",
+    "unequippedOnlyTip": "보유한 모든 사본이 장착된 아이템만 숨깁니다. 일부 사본은 장착하고 일부는 인벤토리/창고에 있는 아이템은 여전히 표시됩니다.",
+    "tradableOnly": "거래 가능만"
+  },
+  "location": {
+    "inventory": "인벤토리",
+    "stash": "창고",
+    "trading": "거래 중",
+    "equipped": "장착됨",
+    "unknown": "알 수 없음"
+  },
+  "columns": {
+    "name": "이름",
+    "grade": "등급",
+    "level": "레벨",
+    "type": "유형",
+    "count": "수량",
+    "location": "위치",
+    "inUse": "장착됨",
+    "marketPrice": "마켓 가격",
+    "listValue": "마켓 총액",
+    "instantSell": "즉시 판매",
+    "instantTotal": "즉시 총액",
+    "instantSellAverage": "즉시 평균"
+  },
+  "columnPicker": {
+    "ariaLabel": "표시할 열",
+    "edit": "열 편집",
+    "reset": "기본값으로 초기화"
+  },
+  "summary": {
+    "marketValue": "마켓 가치",
+    "instantTotal": "즉시 총액",
+    "afterFees": "Steam 수수료 제후",
+    "feesLabel": "Steam 수수료",
+    "estimate": "추정",
+    "listValueTip": "Steam 마켓 가격 기준 총 등록 가치(구매자가 지불하는 금액)",
+    "estimateTip": "모든 것을 마켓 가격에 등록할 경우 예상 지갑 수익. Steam 등록 UI가 권위 있습니다.",
+    "instantSellTip": "각 행의 즉시 판매 합계: 주문장을 레벨별로, 가장 좋은 가격부터 순서대로 판매하며, 스택이 채워지거나 주문장이 소진될 때까지 진행됩니다. 등록 수수료 없음.",
+    "unknownCount": "{{count}}개 아이템이 이 앱의 아이템 목록에 없습니다(알 수 없음 #…으로 표시). 앱을 업데이트하거나, 해당 ID의 진행 상황은 Discord에서 확인하세요.",
+    "discord": "Discord"
+  },
+  "priceSource": {
+    "median": "Steam 마켓 최근 거래 중앙값",
+    "lowest": "최저 등록가(Steam에 최근 거래 없음)",
+    "default": "Steam 마켓"
+  },
+  "buyOrder": {
+    "noOrdersLabel": "구매 주문 없음",
+    "noOrdersTitle": "이 아이템에 대한 Steam 마켓 구매 주문이 없습니다",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "구매 주문이 아직 로드되지 않음",
+    "highestTitle": "최고 구매 주문 — 주문장에 즉시 판매할 경우의 가격",
+    "averageTitle": "이 스택을 채우는 데 사용된 주문장 레벨 전체의 단위당 평균 가격."
+  },
+  "marketPrice": {
+    "noListingsLabel": "활성 등록 없음",
+    "noListingsTitle": "이 아이템에 대한 활성 Steam 마켓 등록 또는 최근 거래가 없습니다",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "Steam 가격이 아직 로드되지 않음",
+    "notPricedTitle": "가격 책정 안 됨(거래 불가 또는 전설 미만 장비)",
+    "openOnSteam": "Steam 마켓에서 열기",
+    "totalIfListed": "마켓 가격으로 등록할 경우 총액"
+  },
+  "locationCell": {
+    "inv": "인벤 {{count}}",
+    "stash": "창고 {{count}}",
+    "trading": "거래 {{count}}",
+    "equipped": "장착 {{count}}",
+    "unassigned": "?",
+    "unassignedTitle": "미할당"
+  },
+  "inUse": {
+    "someEquipped": "보유한 {{count}}개 중 {{inUse}}개가 현재 장착됨; 나머지는 인벤토리/창고에 있습니다",
+    "allEquipped": "보유한 모든 사본이 현재 장착됨"
+  },
+  "instantTotal": {
+    "cappedTitle": "주문장에 레벨별로 판매 — 보유한 {{count}}개 중 {{covered}}개 처리; 나머지를 처리할 만큼 깊은 구매 주문이 없음. 등록 수수료 없음.",
+    "defaultTitle": "주문장에 레벨별로, 가장 좋은 가격부터 판매. 등록 수수료 없음."
+  },
+  "chaotic": "혼돈",
+  "emptyMessage": "이 필터와 일치하는 아이템이 없습니다.",
+  "clearFilters": "필터 지우기",
+  "refreshPricesFor": "{{name}}의 Steam 가격 새로고침"
+}

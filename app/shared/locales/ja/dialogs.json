@@ -1,0 +1,6 @@
+{
+  "chooseSaveFile": "TBH セーブファイルを選択",
+  "saveFileFilter": "TBH セーブ",
+  "fatalErrorTitle": "TBH コンパニオン — 起動失敗",
+  "fatalErrorBody": "アイテムカタログを読み込めませんでした。アプリを再インストールまたは更新してください。\n\n{{detail}}"
+}

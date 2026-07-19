@@ -1,0 +1,115 @@
+{
+  "tabTitle": "図鑑",
+  "intro": "取得可能なすべてのアイテム、そのステータス、入手場所を閲覧 — 取引可能アイテムは Steam マーケット価格を表示します。",
+  "loading": "アイテムカタログを読み込み中…",
+  "emptyFiltered": "これらのフィルターに一致するアイテムはありません。",
+  "backToTop": "トップへ戻る",
+  "more": "さらに {{count}} 件",
+  "tierTag": "T{{tier}}",
+  "tierLevelBand": "T{{tier}}（レベル {{min}}–{{max}}）",
+  "coinFallback": "コイン {{id}}",
+  "itemFallback": "アイテム {{id}}",
+  "filters": {
+    "itemType": "アイテムタイプ",
+    "grade": "グレード",
+    "allGrades": "すべてのグレード",
+    "gearType": "装備タイプ",
+    "allGearTypes": "すべての装備タイプ",
+    "modifier": "修飾詞",
+    "allModifiers": "すべての修飾詞",
+    "materialKind": "素材種別",
+    "allMaterialKinds": "すべての素材種別",
+    "level": "レベル",
+    "uniqueOnly": "ユニークのみ",
+    "searchItems": "アイテムを検索…",
+    "itemsCount": "{{count}} 個のアイテム"
+  },
+  "sort": {
+    "name": "名前",
+    "grade": "グレード",
+    "level": "レベル",
+    "type": "タイプ"
+  },
+  "stats": {
+    "base": "基本ステータス",
+    "inherent": "固有ステータス",
+    "unique": "ユニーク効果"
+  },
+  "price": {
+    "noListingTitle": "Steam マーケットにアクティブ出品なし — 開いて最新を確認",
+    "approximateTitle": "Steam マーケット概算価格（米ドルから換算）— 出品ページを開く",
+    "noListedPrice": "出品価格なし"
+  },
+  "entityDetail": {
+    "itemNotFound": "アイテムが見つかりません。",
+    "boxNotFound": "宝箱が見つかりません。",
+    "stageNotFound": "ステージが見つかりません。",
+    "monsters": "モンスター",
+    "boxes": "宝箱"
+  },
+  "whereToFind": "入手場所",
+  "notAcquirable": "ドロップ、クラフト、合成、奉納では入手できません。",
+  "crafting": {
+    "label": "クラフト",
+    "help": "各レシピの下の素材を使ってこのアイテムをクラフトします。各行はティア、レベル帯、スロットタイプに対応します。パーセントはそのクラフトからこのアイテムを得る確率です。",
+    "helpLabel": "クラフトの仕組み"
+  },
+  "drop": {
+    "label": "ドロップ",
+    "help": "このアイテムを含む可能性のあるボス宝箱。パーセントはその宝箱の戦利品テーブルに登場する頻度です。",
+    "helpLabel": "ドロップの仕組み"
+  },
+  "synthesis": {
+    "label": "合成",
+    "help": "キューブで 9 個のアイテムを合成します。各行はレシピティアと結果レベル帯に対応します。パーセントはこのアイテムを得る確率です。アイテムの平均レベルが適用されるレシピに影響します。左側の緑色の縁がすべてのパスの中で最も確率の高いものを示します。",
+    "helpLabel": "合成の仕組み",
+    "tierRange": "ティア {{tier}}（{{range}}）",
+    "tierOnly": "ティア {{tier}}"
+  },
+  "offering": {
+    "sourceLabel": "奉納",
+    "sourceHelp": "以下のコインのいずれかをキューブに投じて、このアイテムやその戦利品テーブル内の他のアイテムを獲得するチャンスを得ます。パーセントはそのコインからこの特定アイテムを得る確率です。",
+    "sourceHelpLabel": "奉納の仕組み",
+    "lootLabel": "奉納戦利品",
+    "lootHelp": "このコインをキューブに投じると戦利品テーブルからランダムに 1 個のアイテムを獲得します — 必ず 1 個得られます。パーセントはその特定アイテムを得る確率です。",
+    "lootHelpLabel": "奉納の仕組み"
+  },
+  "usedIn": {
+    "label": "素材として使用",
+    "help": "この素材を消費するクラフトレシピ。各ブロックは必要素材とそのレシピの戦利品プールから産出される可能性のある装備を示します — このアイテム自体をクラフトするレシピは含みません。",
+    "helpLabel": "素材レシピの仕組み",
+    "possibleOutputs": "{{count}} 件の産出可能性",
+    "searchOutputs": "産出を検索…",
+    "noMatch": "検索に一致するアイテムはありません。"
+  },
+  "box": {
+    "firstDropOnly": "初回クリアのみ",
+    "firstDropOnlySuffix": "· {{label}}",
+    "categoryCommon": "一般宝箱",
+    "categoryStageBoss": "ステージボス宝箱",
+    "categoryActBoss": "章ボス宝箱",
+    "categoryDefault": "宝箱",
+    "stageRanges": "ステージ範囲",
+    "dropSources": "ドロップ元",
+    "whereLabel": "入手場所",
+    "whereHelp": "この宝箱が繰り返し狩りでドロップするステージ。上記の「ドロップ元」は撃破タイプと出現 % 範囲を示します。各行のパーセントは条件を満たす撃破あたりのドロップ確率で、ステージごとに異なります。",
+    "whereHelpLabel": "宝箱ドロップの仕組み",
+    "firstClearLabel": "初回クリア",
+    "firstClearHelp": "そのステージを初めてクリアしたときの一度きり報酬。この宝箱はモンスターやボスの撃破からは入手できません。",
+    "firstClearHelpLabel": "初回クリア宝箱の仕組み",
+    "noLocation": "カタログに既知のドロップ場所はまだありません。",
+    "searchStages": "ステージを検索…",
+    "stagesCount": "{{count}} 件のステージ",
+    "noStagesMatch": "検索に一致するステージはありません。",
+    "lootLabel": "戦利品テーブル",
+    "lootHelp": "この宝箱を開くと戦利品テーブルから必ず 1 個のアイテムを得ます。パーセントはその特定アイテムを得る確率です。",
+    "lootHelpLabel": "宝箱戦利品テーブルの仕組み",
+    "searchLoot": "戦利品を検索…",
+    "itemsCount": "{{count}} 個のアイテム",
+    "noLootMatch": "検索に一致する戦利品はありません。",
+    "noLootMatchFilters": "これらのフィルターに一致する戦利品はありません。",
+    "viaMonsterKill": "モンスター撃破",
+    "viaStageBossKill": "ステージボス撃破",
+    "viaActBossKill": "章ボス撃破"
+  }
+}

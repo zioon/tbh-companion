@@ -1,0 +1,118 @@
+{
+  "tabTitle": "设置",
+  "intro": "选择应用读取存档的位置，以及实时数据与价格的刷新行为。更改会自动保存。",
+  "loading": "加载中…",
+  "loadErrorDefault": "无法加载设置。",
+  "settingsApiNotLoaded": "设置 API 未加载。请完全退出应用后重新启动（如果是 git pull 之后，请同时重启 pnpm dev）。",
+  "language": {
+    "label": "语言",
+    "auto": "跟随系统",
+    "game": "跟随游戏",
+    "restartHint": "其他窗口将在下次重启时应用新语言。"
+  },
+  "saveFile": {
+    "sectionTitle": "存档文件",
+    "currentSaveFile": "当前存档文件",
+    "browse": "浏览…",
+    "opening": "打开中…",
+    "savePathUpdated": "存档路径已更新。",
+    "savePickerNotLoaded": "存档选择器未加载。请重启应用后重试。",
+    "couldNotOpenPicker": "无法打开存档选择器。"
+  },
+  "savePolling": {
+    "sectionTitle": "存档轮询",
+    "pollInterval": "轮询间隔（秒）",
+    "rollingWindow": "滚动窗口（分钟）",
+    "rollingWindowHint": "修改此项会重置当前会话。",
+    "rollingWindowConfirm": "修改滚动窗口会重置当前会话统计与历史记录，是否继续？",
+    "rollingWindowSuccess": "会话统计已为新滚动窗口重置。",
+    "logHistoryCsv": "记录经验值历史到 CSV"
+  },
+  "steamMarket": {
+    "sectionTitle": "Steam 市场",
+    "marketCurrency": "市场价格币种"
+  },
+  "notifications": {
+    "sectionTitle": "通知",
+    "intro": "启用后，提示音将在应用内播放。开启对应选项后，应用更新会显示 Windows 系统通知。",
+    "enable": "启用通知",
+    "enableFirst": "请先在上方启用通知。",
+    "notifyOnUpdate": "应用有可用更新时通知",
+    "soundVolume": "提示音音量",
+    "soundVolumeHint": "对所有提示音生效。Windows 系统通知不受此设置影响。",
+    "inventoryThreshold": "物品栏即将满阈值",
+    "inventoryThresholdHint": "已解锁的物品栏格子达到此填充百分比时通知一次。",
+    "soundsAccordion": "提示音"
+  },
+  "windowTray": {
+    "sectionTitle": "窗口与托盘",
+    "keepOnTop": "所有窗口置顶",
+    "trayHint": "关闭主窗口后，TBH 助手会继续在系统托盘运行。请使用托盘菜单中的 <strong>退出</strong> 完全退出。"
+  },
+  "advanced": {
+    "accordionTitle": "高级 —— 日志与缓存数据",
+    "diagnosticsTitle": "诊断",
+    "diagnosticsIntro": "反馈问题时，可在“设置”中发送诊断日志文件。",
+    "logFileLabel": "日志文件：",
+    "loadingLogPath": "正在加载日志路径…",
+    "clearDiagnosticLogsTitle": "清除诊断日志",
+    "clearDiagnosticLogsDetail": "app.log、main.log（旧版）与轮转归档",
+    "clearDiagnosticLogsConfirm": "确认删除诊断日志文件？当日志过大时使用。经验值历史 CSV 不会被删除。",
+    "dataCacheTitle": "数据与缓存",
+    "dataCacheIntro": "价格缓存与追踪器数据存放在应用用户数据目录。以下操作不会删除 <code>config.json</code>。",
+    "folderLabel": "目录：",
+    "loadingCachePaths": "正在加载缓存路径…",
+    "nothingCached": "暂无缓存。"
+  },
+  "itemCatalog": {
+    "sectionTitle": "物品目录",
+    "catalogVersion": "目录版本：{{version}}",
+    "catalogVersionUnknown": "目录版本：未知",
+    "gameVersionSuffix": " · 游戏版本：{{version}}",
+    "outdatedSuffix": " · 已过期",
+    "itemsLoaded": "已从 {{source}} 加载 {{count}} 个物品。",
+    "sourceBundled": "内置"
+  },
+  "cacheAction": {
+    "clear": "清除",
+    "clearing": "清除中…"
+  },
+  "clearActions": {
+    "prices": {
+      "label": "清除 Steam 市场价格",
+      "detail": "prices.*.json",
+      "confirm": "确认清除所有 Steam 市场价格缓存？物品栏估值需要在“市场”标签页重新获取。"
+    },
+    "lookup-prices": {
+      "label": "清除图鉴市场价格",
+      "detail": "lookup_prices.json",
+      "confirm": "确认清除图鉴价格快照？下次检查时会重新下载。"
+    },
+    "box-timers": {
+      "label": "重置关卡 Boss 宝箱追踪器",
+      "detail": "box_timers.json",
+      "confirm": "确认将关卡 Boss 宝箱追踪器计时与启用路线恢复为默认值？当前冷却会被清除。"
+    },
+    "session": {
+      "label": "清除会话快照",
+      "detail": "session_state.json",
+      "confirm": "确认清除已保存的会话快照并重置实时数据？当前会话累计与历史会重新开始。"
+    },
+    "all-except-config": {
+      "label": "清除除设置外的所有数据",
+      "detail": "以上全部；config.json 保留",
+      "confirm": "确认清除除 config.json 外的所有缓存？目录、价格、宝箱计时器与实时会话统计都会重置。"
+    }
+  },
+  "messages": {
+    "failedToSave": "保存设置失败。",
+    "clearCacheApiNotLoaded": "清除缓存 API 未加载。请重启应用后重试。",
+    "diagnosticsApiNotLoaded": "诊断 API 未加载。请重启应用后重试。",
+    "couldNotClearCache": "无法清除缓存。",
+    "couldNotClearLogs": "无法清除诊断日志。",
+    "clearedFilesOne": "已清除 1 个文件。",
+    "clearedFilesOther": "已清除 {{count}} 个文件。",
+    "nothingToClear": "无需清除 —— 这些文件本就不存在。",
+    "nothingToClearLogs": "无需清除 —— 日志文件本就不存在。"
+  }
+}

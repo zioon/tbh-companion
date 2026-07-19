@@ -1,0 +1,118 @@
+{
+  "tabTitle": "설정",
+  "intro": "앱이 세이브 파일을 읽을 위치와 라이브 통계 및 가격의 동작을 선택하세요. 변경 사항은 자동으로 저장됩니다.",
+  "loading": "불러오는 중…",
+  "loadErrorDefault": "설정을 불러올 수 없습니다.",
+  "settingsApiNotLoaded": "설정 API가 로드되지 않았습니다. 앱을 완전히 종료한 후 다시 시작하세요(git pull 이후에는 pnpm dev도 재시작).",
+  "language": {
+    "label": "언어",
+    "auto": "시스템 따르기",
+    "game": "게임 따르기",
+    "restartHint": "다른 창은 다음 재시작 시 새 언어가 적용됩니다."
+  },
+  "saveFile": {
+    "sectionTitle": "세이브 파일",
+    "currentSaveFile": "현재 세이브 파일",
+    "browse": "찾아보기…",
+    "opening": "여는 중…",
+    "savePathUpdated": "세이브 경로가 업데이트되었습니다.",
+    "savePickerNotLoaded": "세이브 선택기가 로드되지 않았습니다. 앱을 재시작한 후 다시 시도하세요.",
+    "couldNotOpenPicker": "세이브 파일 선택기를 열 수 없습니다."
+  },
+  "savePolling": {
+    "sectionTitle": "세이브 파일 폴링",
+    "pollInterval": "폴링 간격(초)",
+    "rollingWindow": "롤링 윈도우(분)",
+    "rollingWindowHint": "이 값을 변경하면 현재 세션이 초기화됩니다.",
+    "rollingWindowConfirm": "롤링 윈도우를 변경하면 현재 세션 통계와 기록이 초기화됩니다. 계속하시겠습니까?",
+    "rollingWindowSuccess": "새 롤링 윈도우에 맞춰 세션 통계가 초기화되었습니다.",
+    "logHistoryCsv": "XP 기록을 CSV로 저장"
+  },
+  "steamMarket": {
+    "sectionTitle": "Steam 마켓",
+    "marketCurrency": "마켓 통화"
+  },
+  "notifications": {
+    "sectionTitle": "알림",
+    "intro": "아래에서 알림을 켜면 앱 내에서 소리 알림이 재생됩니다. 해당 옵션을 켜면 앱 업데이트 시 Windows 알림이 표시됩니다.",
+    "enable": "알림 활성화",
+    "enableFirst": "먼저 위에서 알림을 활성화하세요.",
+    "notifyOnUpdate": "앱 업데이트가 가능할 때 알림",
+    "soundVolume": "소리 볼륨",
+    "soundVolumeHint": "아래 모든 알림 소리에 적용됩니다. Windows 업데이트 알림은 이 설정의 영향을 받지 않습니다.",
+    "inventoryThreshold": "인벤토리 거의 가득 참 임계값",
+    "inventoryThresholdHint": "잠금 해제된 인벤토리 슬롯이 이 채움 비율에 도달하면 한 번 알림을 보냅니다.",
+    "soundsAccordion": "알림 소리"
+  },
+  "windowTray": {
+    "sectionTitle": "창 및 트레이",
+    "keepOnTop": "모든 창을 맨 위에 유지",
+    "trayHint": "메인 창을 닫아도 TBH Companion는 시스템 트레이에서 계속 실행됩니다. 완전히 종료하려면 트레이 메뉴에서 <strong>종료</strong>를 사용하세요."
+  },
+  "advanced": {
+    "accordionTitle": "고급 — 로그 및 캐시 데이터",
+    "diagnosticsTitle": "진단",
+    "diagnosticsIntro": "문제를 보고할 때 설정에서 진단 로그 파일을 보낼 수 있습니다.",
+    "logFileLabel": "로그 파일:",
+    "loadingLogPath": "로그 경로 불러오는 중…",
+    "clearDiagnosticLogsTitle": "진단 로그 지우기",
+    "clearDiagnosticLogsDetail": "app.log, main.log(구형) 및 순환 아카이브",
+    "clearDiagnosticLogsConfirm": "진단 로그 파일을 삭제하시겠습니까? 로그가 너무 커졌을 때 사용하세요. XP 기록 CSV는 삭제되지 않습니다.",
+    "dataCacheTitle": "데이터 및 캐시",
+    "dataCacheIntro": "캐시된 가격과 추적기 데이터는 앱 사용자 데이터 폴더에 있습니다. 이 작업으로 <code>config.json</code>은 삭제되지 않습니다.",
+    "folderLabel": "폴더:",
+    "loadingCachePaths": "캐시 경로 불러오는 중…",
+    "nothingCached": "캐시된 항목이 없습니다."
+  },
+  "itemCatalog": {
+    "sectionTitle": "아이템 카탈로그",
+    "catalogVersion": "카탈로그 버전: {{version}}",
+    "catalogVersionUnknown": "카탈로그 버전: 알 수 없음",
+    "gameVersionSuffix": " · 게임 버전: {{version}}",
+    "outdatedSuffix": " · 오래됨",
+    "itemsLoaded": "{{source}}에서 {{count}}개 아이템을 불러왔습니다.",
+    "sourceBundled": "번들"
+  },
+  "cacheAction": {
+    "clear": "지우기",
+    "clearing": "지우는 중…"
+  },
+  "clearActions": {
+    "prices": {
+      "label": "Steam 마켓 가격 지우기",
+      "detail": "prices.*.json",
+      "confirm": "캐시된 모든 Steam 마켓 가격을 삭제하시겠습니까? 인벤토리 가치 평가는 마켓 탭에서 다시 불러와야 합니다."
+    },
+    "lookup-prices": {
+      "label": "도감 마켓 가격 지우기",
+      "detail": "lookup_prices.json",
+      "confirm": "캐시된 도감 가격 스냅샷을 삭제하시겠습니까? 다음 확인 시 다시 다운로드됩니다."
+    },
+    "box-timers": {
+      "label": "스테이지 보스 보관함 추적기 초기화",
+      "detail": "box_timers.json",
+      "confirm": "스테이지 보스 보관함 추적기 타이머와 활성화된 루트를 기본값으로 초기화하시겠습니까? 진행 중인 재사용 대기시간이 지워집니다."
+    },
+    "session": {
+      "label": "세션 스냅샷 지우기",
+      "detail": "session_state.json",
+      "confirm": "저장된 세션 스냅샷을 지우고 라이브 통계를 초기화하시겠습니까? 현재 세션 누적치와 기록이 새로 시작됩니다."
+    },
+    "all-except-config": {
+      "label": "설정을 제외한 모든 데이터 지우기",
+      "detail": "위의 모든 캐시; config.json은 유지",
+      "confirm": "config.json을 제외한 모든 캐시된 데이터를 지우시겠습니까? 카탈로그, 가격, 보관함 타이머, 라이브 세션 통계가 초기화됩니다."
+    }
+  },
+  "messages": {
+    "failedToSave": "설정 저장에 실패했습니다.",
+    "clearCacheApiNotLoaded": "캐시 지우기 API가 로드되지 않았습니다. 앱을 재시작한 후 다시 시도하세요.",
+    "diagnosticsApiNotLoaded": "진단 API가 로드되지 않았습니다. 앱을 재시작한 후 다시 시도하세요.",
+    "couldNotClearCache": "캐시를 지울 수 없습니다.",
+    "couldNotClearLogs": "진단 로그를 지울 수 없습니다.",
+    "clearedFilesOne": "1개 파일을 지웠습니다.",
+    "clearedFilesOther": "{{count}}개 파일을 지웠습니다.",
+    "nothingToClear": "지울 항목이 없습니다 — 해당 파일이 이미 없습니다.",
+    "nothingToClearLogs": "지울 항목이 없습니다 — 로그 파일이 이미 없습니다."
+  }
+}

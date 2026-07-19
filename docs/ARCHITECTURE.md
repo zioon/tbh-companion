@@ -141,6 +141,47 @@ When **live memory** is enabled (`config.liveMemory.enabled` + consent), a paral
    + Steam price cache, then broadcasts `ResolvedInventory`.
 3. Price refresh uses gear market hash suffix **A** only (`core/marketName.ts`).
 
+## Internationalization
+
+The renderer, main process, and shared layer all share one i18next instance per
+process via `react-i18next` (renderer) and `i18next` directly (main/preload).
+Locales live under `app/shared/locales/{en,zh-CN,ja,ko}/` as one JSON file per
+namespace (16 namespaces mirror the renderer's tab/feature split, e.g. `live`,
+`market`, `settings`, `common`). The English JSON is the source of truth; the
+other three languages mirror its key shape and fall back to English on missing
+keys via i18next's default fallback chain.
+
+`AppLanguage` (`app/shared/language.ts`) is the persisted config value:
+`"en" | "zh-CN" | "ja" | "ko" | "auto" | "game"`. The runtime
+`ResolvedLanguage` is one of the four concrete locales and is derived by
+`resolveLanguage(language, systemLocale, gameLanguage?)`:
+
+- `"auto"` — follows the OS locale, falling back to English.
+- `"game"` — follows the game's in-app language preference, read from the
+  Windows registry key `HKCU\Software\TesseractStudio\TaskBarHero\tbh_lang_idx_h1851722218`
+  (REG_DWORD, mapped via `GAME_LANG_IDX_TO_RESOLVED`). The registry read is
+  cached for 5 s in main (`readGameLanguage` in `src/main/i18n.ts`) using
+  `node:child_process.execSync` with `reg query` — zero new native deps. When
+  the registry value is missing or maps to an unsupported locale, `"game"`
+  falls back to `"auto"` behavior.
+
+The resolved language is **never persisted to `config.json`**. Instead, the
+main process injects it into the existing `getConfig` IPC return value as the
+runtime-only `AppConfig.resolvedLanguage` field, so the renderer can boot
+i18next with the right locale on first paint without re-reading the registry
+or adding a new IPC channel. The Settings tab's language selector calls
+`savePartial({ language: "game" })` first (so main re-reads the registry and
+updates its i18n instance), then re-fetches `getConfig` to obtain the freshly
+resolved locale before calling `changeRendererLanguage`.
+
+Both processes initialize i18next at startup (`initMainI18n` in main,
+`initRendererI18n` in renderer) and re-run `changeLanguage` on language
+switch. Renderer components read strings via `useTranslation(namespace)` and
+the `t(key)` hook. Module-level catalogs that used to hold English labels
+(e.g. What's New entries, settings option lists) now store `labelKey` /
+`descriptionKey` / `titleKey` / `bulletsKey` strings and resolve them at
+render time so a language switch takes effect without a reload.
+
 ## Tests
 
 Vitest layout mirrors source:

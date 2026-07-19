@@ -4,6 +4,13 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 ## [Unreleased]
 
+### Internationalization
+
+- The companion UI is now translated into **English, Simplified Chinese (简体中文), Japanese (日本語), and Korean (한국어)**. Pick a language explicitly in **Settings**, or use **Auto** (follows your operating system locale).
+- New **Follow game** option syncs the companion's language with the game's in-app language preference — change the language inside TBH and the companion follows on its next config read, no extra IPC.
+- Item names pulled from the bundled game catalogs (Lookup, Inventory, Chests, etc.) honor the selected language so market valuations and drop labels read naturally in every supported locale.
+- All tabs, the mini overlay, tooltips, notifications, and error toasts use the translated strings; missing keys fall back to English.
+
 ## [1.18.0] - 2026-06-30
 
 ### Lookup

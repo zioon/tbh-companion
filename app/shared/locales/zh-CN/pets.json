@@ -1,0 +1,22 @@
+{
+  "tabTitle": "宠物",
+  "waiting": "等待存档数据…",
+  "intro": "已解锁 {{unlocked}} / {{total}} 只同伴。即使未装备宠物，被动加成仍然生效 —— 槽位仅用于外观。",
+  "currentPassiveBonus": "当前被动加成",
+  "noPassiveBonus": "解锁宠物以获得被动加成。",
+  "unlockByFarming": "通过刷怪解锁",
+  "unlockByFarmingSummary": "已解锁 {{unlocked}} / {{total}} · 每只目标怪物需 {{count}} 次击杀",
+  "dlcSummary": "已解锁 {{unlocked}} / {{total}} · 通过支持者包购买",
+  "badgeEquipped": "已装备",
+  "badgeUnlocked": "已解锁",
+  "badgeDlc": "DLC",
+  "badgeInProgress": "进行中",
+  "killsProgress": "{{count}} / {{target}} 次击杀",
+  "killsRemaining": "还需 {{count}} 次击杀",
+  "unlockViaDlc": "通过 {{label}} 解锁",
+  "defaultDlcLabel": "支持者包",
+  "bestStages": "最佳关卡",
+  "whereToFind": "获取途径",
+  "spawnPercent": "刷新 {{value}}%",
+  "killsPerClear": "约 {{value}} 次击杀/通关"
+}

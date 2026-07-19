@@ -1,0 +1,13 @@
+{
+  "live": "ライブ",
+  "inventory": "インベントリ",
+  "chests": "宝箱",
+  "loot": "戦利品",
+  "pets": "ペット",
+  "lookup": "図鑑",
+  "market": "マーケット",
+  "settings": "設定",
+  "about": "バージョン情報",
+  "debug": "デバッグ",
+  "mainTabsAriaLabel": "メインタブ"
+}

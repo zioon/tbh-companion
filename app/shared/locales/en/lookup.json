@@ -1,0 +1,115 @@
+{
+  "tabTitle": "Lookup",
+  "intro": "Browse every obtainable item, its stats, and where to find it — tradable items show their Steam Market price.",
+  "loading": "Loading item catalog…",
+  "emptyFiltered": "No items match these filters.",
+  "backToTop": "Back to top",
+  "more": "+{{count}} more",
+  "tierTag": "T{{tier}}",
+  "tierLevelBand": "T{{tier}} (Lv {{min}}–{{max}})",
+  "coinFallback": "Coin {{id}}",
+  "itemFallback": "Item {{id}}",
+  "filters": {
+    "itemType": "Item type",
+    "grade": "Grade",
+    "allGrades": "All grades",
+    "gearType": "Gear type",
+    "allGearTypes": "All gear types",
+    "modifier": "Modifier",
+    "allModifiers": "All modifiers",
+    "materialKind": "Material kind",
+    "allMaterialKinds": "All material kinds",
+    "level": "Level",
+    "uniqueOnly": "Unique only",
+    "searchItems": "Search items...",
+    "itemsCount": "{{count}} items"
+  },
+  "sort": {
+    "name": "Name",
+    "grade": "Grade",
+    "level": "Level",
+    "type": "Type"
+  },
+  "stats": {
+    "base": "Base stats",
+    "inherent": "Inherent stats",
+    "unique": "Unique effect"
+  },
+  "price": {
+    "noListingTitle": "No active Steam Market listing — open to check the latest",
+    "approximateTitle": "Approximate Steam Market price (converted from USD) — open the listing",
+    "noListedPrice": "No listed price"
+  },
+  "entityDetail": {
+    "itemNotFound": "Item not found.",
+    "boxNotFound": "Box not found.",
+    "stageNotFound": "Stage not found.",
+    "monsters": "Monsters",
+    "boxes": "Boxes"
+  },
+  "whereToFind": "Where to find",
+  "notAcquirable": "Not obtained through drops, crafting, synthesis, or offerings.",
+  "crafting": {
+    "label": "Crafting",
+    "help": "Craft this item using the materials under each recipe. Each line is a tier, level band, and slot type; the % is your chance to get this item from that craft.",
+    "helpLabel": "How crafting works"
+  },
+  "drop": {
+    "label": "Drop",
+    "help": "Boss chests that can contain this item. The % is how often it appears in that box's loot table.",
+    "helpLabel": "How drops work"
+  },
+  "synthesis": {
+    "label": "Synthesis",
+    "help": "Combine 9 items at the Cube. Each row is a recipe tier and result level band; the % is your chance to roll this item. Item average level affects which recipes apply. The green left edge marks the best odds among all paths.",
+    "helpLabel": "How synthesis works",
+    "tierRange": "Tier {{tier}} ({{range}})",
+    "tierOnly": "Tier {{tier}}"
+  },
+  "offering": {
+    "sourceLabel": "Offering",
+    "sourceHelp": "Toss one of the coins below into the Cube for a chance at this item, among everything else in its loot table. The % is your chance of landing this specific item from that coin.",
+    "sourceHelpLabel": "How offerings work",
+    "lootLabel": "Offering Loot",
+    "lootHelp": "Toss this coin into the Cube to roll one item from its loot table — you'll get exactly one. The % is your chance of getting that specific item.",
+    "lootHelpLabel": "How offerings work"
+  },
+  "usedIn": {
+    "label": "Used as ingredient",
+    "help": "Recipes that consume this material as an ingredient. Each block lists what you need and the possible gear from that recipe's loot pool — not recipes that craft this item.",
+    "helpLabel": "How ingredient recipes work",
+    "possibleOutputs": "{{count}} possible outputs",
+    "searchOutputs": "Search outputs...",
+    "noMatch": "No items match your search."
+  },
+  "box": {
+    "firstDropOnly": "First clear only",
+    "firstDropOnlySuffix": "· {{label}}",
+    "categoryCommon": "Common chest",
+    "categoryStageBoss": "Stage boss chest",
+    "categoryActBoss": "Act boss chest",
+    "categoryDefault": "Chest",
+    "stageRanges": "Stage ranges",
+    "dropSources": "Drop sources",
+    "whereLabel": "Where to find",
+    "whereHelp": "Stages where this chest can drop on repeat farming. Drop sources above show kill type and spawn % range. % on each row is per qualifying kill and can differ by stage.",
+    "whereHelpLabel": "How chest drops work",
+    "firstClearLabel": "First clear",
+    "firstClearHelp": "One-time reward the first time you clear that stage. This chest cannot be farmed from monster or boss kills.",
+    "firstClearHelpLabel": "How first-clear chests work",
+    "noLocation": "No known drop locations in the catalog yet.",
+    "searchStages": "Search stages...",
+    "stagesCount": "{{count}} stages",
+    "noStagesMatch": "No stages match your search.",
+    "lootLabel": "Loot table",
+    "lootHelp": "Opening this chest yields exactly one item from its loot table. The % is your chance of getting that specific item.",
+    "lootHelpLabel": "How chest loot works",
+    "searchLoot": "Search loot...",
+    "itemsCount": "{{count}} items",
+    "noLootMatch": "No loot matches your search.",
+    "noLootMatchFilters": "No loot matches these filters.",
+    "viaMonsterKill": "Monster kill",
+    "viaStageBossKill": "Stage boss kill",
+    "viaActBossKill": "Act boss kill"
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "tabTitle": "インベントリ",
+  "waiting": "セーブファイルを待機中…ゲームを開いてセーブを書き込んでください。",
+  "searchPlaceholder": "アイテムを検索…",
+  "itemsCount": "{{count}} 個のアイテム",
+  "filters": {
+    "grade": "グレード",
+    "allGrades": "すべてのグレード",
+    "itemType": "アイテムタイプ",
+    "allItemTypes": "すべてのタイプ",
+    "location": "場所",
+    "allLocations": "すべての場所",
+    "unequippedOnly": "装備解除のみ",
+    "unequippedOnlyTip": "あなたが所有するすべてのコピーが装備済みのアイテムのみ非表示にします。一部が装備、一部がインベントリ/倉庫にあるアイテムは表示されます。",
+    "tradableOnly": "取引可能のみ"
+  },
+  "location": {
+    "inventory": "インベントリ",
+    "stash": "倉庫",
+    "trading": "取引中",
+    "equipped": "装備済み",
+    "unknown": "不明"
+  },
+  "columns": {
+    "name": "名前",
+    "grade": "グレード",
+    "level": "レベル",
+    "type": "タイプ",
+    "count": "数",
+    "location": "場所",
+    "inUse": "装備済み",
+    "marketPrice": "マーケット価格",
+    "listValue": "マーケット合計",
+    "instantSell": "即時売却",
+    "instantTotal": "即時合計",
+    "instantSellAverage": "即時平均"
+  },
+  "columnPicker": {
+    "ariaLabel": "表示列",
+    "edit": "列を編集",
+    "reset": "デフォルトに戻す"
+  },
+  "summary": {
+    "marketValue": "マーケット価値",
+    "instantTotal": "即時合計",
+    "afterFees": "Steam 手数料引き後",
+    "feesLabel": "Steam 手数料",
+    "estimate": "推定",
+    "listValueTip": "Steam マーケット価格での出品合計額（買い手支払額）",
+    "estimateTip": "すべてをマーケット価格で出品した場合の推定ウォレット受け取り額。Steam 出品 UI が優先されます。",
+    "instantSellTip": "各行の即時売却の合計：注文簿を段階的に販売し、最良価格から優先して、あなたのスタックがカバーされるか注文簿が尽きるまで。出品手数料なし。",
+    "unknownCount": "{{count}} 個のアイテムがこのアプリのアイテムリストにありません（不明 #… と表示）。アプリを更新するか、進捗については Discord を確認してください。",
+    "discord": "Discord"
+  },
+  "priceSource": {
+    "median": "Steam マーケット直近売買中央値",
+    "lowest": "最低出品（Steam で直近売買なし）",
+    "default": "Steam マーケット"
+  },
+  "buyOrder": {
+    "noOrdersLabel": "買い注文なし",
+    "noOrdersTitle": "このアイテムは Steam マーケットに買い注文がありません",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "買い注文はまだ読み込まれていません",
+    "highestTitle": "最高買い注文価格 — すぐに注文簿に売る場合の価格",
+    "averageTitle": "このスタックを埋めるのに使用された注文簿レベルあたりの単価平均。"
+  },
+  "marketPrice": {
+    "noListingsLabel": "アクティブ出品なし",
+    "noListingsTitle": "このアイテムには Steam マーケットにアクティブ出品も直近売買もありません",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "Steam 価格はまだ読み込まれていません",
+    "notPricedTitle": "価格設定なし（取引不可、または伝説未満の装備）",
+    "openOnSteam": "Steam マーケットで開く",
+    "totalIfListed": "マーケット価格で出品した場合の合計"
+  },
+  "locationCell": {
+    "inv": "イ {{count}}",
+    "stash": "倉 {{count}}",
+    "trading": "交 {{count}}",
+    "equipped": "装 {{count}}",
+    "unassigned": "?",
+    "unassignedTitle": "未割り当て"
+  },
+  "inUse": {
+    "someEquipped": "所有 {{count}} 件中 {{inUse}} 件が装備済み。残りはインベントリ/倉庫にあります",
+    "allEquipped": "すべての所有コピーが装備済み"
+  },
+  "instantTotal": {
+    "cappedTitle": "注文簿を段階的に販売 — {{count}} 件中 {{covered}} 件をカバー；残りは深さ不足。出品手数料なし。",
+    "defaultTitle": "注文簿を段階的に販売、最良価格から優先。出品手数料なし。"
+  },
+  "chaotic": "混沌",
+  "emptyMessage": "これらのフィルターに一致するアイテムはありません。",
+  "clearFilters": "フィルターをクリア",
+  "refreshPricesFor": "{{name}} の Steam 価格を更新"
+}

@@ -1,0 +1,97 @@
+{
+  "tabTitle": "物品栏",
+  "waiting": "等待存档文件…请打开游戏让其写入存档。",
+  "searchPlaceholder": "搜索物品…",
+  "itemsCount": "{{count}} 个物品",
+  "filters": {
+    "grade": "品质",
+    "allGrades": "全部品质",
+    "itemType": "物品类型",
+    "allItemTypes": "全部类型",
+    "location": "位置",
+    "allLocations": "全部位置",
+    "unequippedOnly": "仅未装备",
+    "unequippedOnlyTip": "仅隐藏你拥有的所有副本都已装备的物品。部分装备、部分在物品栏/仓库的物品仍会显示。",
+    "tradableOnly": "仅可交易"
+  },
+  "location": {
+    "inventory": "物品栏",
+    "stash": "仓库",
+    "trading": "交易中",
+    "equipped": "已装备",
+    "unknown": "未知"
+  },
+  "columns": {
+    "name": "名称",
+    "grade": "品质",
+    "level": "等级",
+    "type": "类型",
+    "count": "数量",
+    "location": "位置",
+    "inUse": "已装备",
+    "marketPrice": "市场价格",
+    "listValue": "市场总价",
+    "instantSell": "立即出售",
+    "instantTotal": "立即总价",
+    "instantSellAverage": "立即均价"
+  },
+  "columnPicker": {
+    "ariaLabel": "可见列",
+    "edit": "编辑列",
+    "reset": "恢复默认"
+  },
+  "summary": {
+    "marketValue": "市场价值",
+    "instantTotal": "立即总价",
+    "afterFees": "扣除 Steam 手续费后",
+    "feesLabel": "Steam 手续费",
+    "estimate": "估算",
+    "listValueTip": "按 Steam 市场价格计算的总挂单价（买家支付金额）",
+    "estimateTip": "若按市场价全部挂单，预计到账钱包金额。Steam 挂单界面为准。",
+    "instantSellTip": "每行立即出售之和：按订单簿层级逐级出售，最优价格优先，直到你的堆栈被覆盖或订单簿耗尽。无挂单手续费。",
+    "unknownCount": "有 {{count}} 个物品不在本应用的物品列表中（显示为“未知 #…”）。请更新应用，或在 Discord 关注这些 ID 的进展。",
+    "discord": "Discord"
+  },
+  "priceSource": {
+    "median": "Steam 市场近期成交中位数",
+    "lowest": "最低挂价（Steam 上无近期成交）",
+    "default": "Steam 市场"
+  },
+  "buyOrder": {
+    "noOrdersLabel": "无求购单",
+    "noOrdersTitle": "Steam 市场上此物品暂无求购单",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "求购单尚未加载",
+    "highestTitle": "最高求购价 —— 立即卖给订单簿的价格",
+    "averageTitle": "覆盖此堆栈所用订单簿层级的每单位均价。"
+  },
+  "marketPrice": {
+    "noListingsLabel": "无活跃挂单",
+    "noListingsTitle": "Steam 市场上此物品暂无活跃挂单或近期成交",
+    "notLoadedLabel": "—",
+    "notLoadedTitle": "Steam 价格尚未加载",
+    "notPricedTitle": "未定价（不可交易或低于传说品质装备）",
+    "openOnSteam": "在 Steam 市场打开",
+    "totalIfListed": "按市场价挂单的总价"
+  },
+  "locationCell": {
+    "inv": "物 {{count}}",
+    "stash": "仓 {{count}}",
+    "trading": "交 {{count}}",
+    "equipped": "装 {{count}}",
+    "unassigned": "?",
+    "unassignedTitle": "未分配"
+  },
+  "inUse": {
+    "someEquipped": "拥有的 {{count}} 件中有 {{inUse}} 件已装备；其余在物品栏/仓库",
+    "allEquipped": "拥有的所有副本均已装备"
+  },
+  "instantTotal": {
+    "cappedTitle": "按订单簿层级逐级出售 —— 覆盖 {{count}} 件中的 {{covered}} 件；深度不足以覆盖剩余部分。无挂单手续费。",
+    "defaultTitle": "按订单簿层级逐级出售，最优价格优先。无挂单手续费。"
+  },
+  "chaotic": "混沌",
+  "emptyMessage": "没有物品匹配这些筛选条件。",
+  "clearFilters": "清除筛选",
+  "refreshPricesFor": "刷新 {{name}} 的 Steam 价格"
+}

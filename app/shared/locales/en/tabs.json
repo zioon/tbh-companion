@@ -1,0 +1,13 @@
+{
+  "live": "Live",
+  "inventory": "Inventory",
+  "chests": "Chests",
+  "loot": "Loot",
+  "pets": "Pets",
+  "lookup": "Lookup",
+  "market": "Market",
+  "settings": "Settings",
+  "about": "About",
+  "debug": "Debug",
+  "mainTabsAriaLabel": "Main tabs"
+}
