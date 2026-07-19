@@ -4,6 +4,8 @@ import {
   loadOfferings,
   loadSynthesisModel,
 } from "../../core/lookup/catalog";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
+import { gameItemName } from "../../core/gamedata";
 import type {
   LookupItem,
   LookupSources,
@@ -12,13 +14,29 @@ import type {
 } from "../../../shared/types";
 
 export class LookupService {
-  private readonly items: LookupItem[] = loadLookupItems();
+  private readonly sourceItems: LookupItem[] = loadLookupItems();
   private readonly sources: LookupSources = loadLookupSources();
   private readonly synthesisModel: SynthesisModel = loadSynthesisModel();
   private readonly offerings: OfferingsModel = loadOfferings();
+  /**
+   * LocaleCatalog for item display name localization. Defaults to
+   * {@link emptyLocaleCatalog} (no localization — returns source English
+   * names); swapped via {@link setLocaleCatalog} when the user changes
+   * language. When non-empty, {@link getCatalog} returns items with
+   * localized `name` via {@link gameItemName}.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
+  /** Cached localized items; invalidated on {@link setLocaleCatalog}. */
+  private localizedItemsCache: LookupItem[] | null = null;
 
   getCatalog(): LookupItem[] {
-    return this.items;
+    if (this.localizedItemsCache == null) {
+      this.localizedItemsCache = this.sourceItems.map((item) => {
+        const localizedName = gameItemName(item, this.localeCatalog);
+        return localizedName !== item.name ? { ...item, name: localizedName } : item;
+      });
+    }
+    return this.localizedItemsCache;
   }
 
   getSources(): LookupSources {
@@ -31,5 +49,15 @@ export class LookupService {
 
   getOfferings(): OfferingsModel {
     return this.offerings;
+  }
+
+  /**
+   * Swap the LocaleCatalog used for item display name localization. Called
+   * by appState when the user changes language. Invalidates the localized
+   * items cache so the next {@link getCatalog} call re-localizes.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
+    this.localizedItemsCache = null;
   }
 }

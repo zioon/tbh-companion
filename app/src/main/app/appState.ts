@@ -228,6 +228,7 @@ function reloadLocaleCatalog(): void {
   boxTimers.setLocaleCatalog(catalog);
   stageRuns.setLocaleCatalog(catalog);
   liveMemory.setLocaleCatalog(catalog);
+  lookup.setLocaleCatalog(catalog);
 }
 
 export function startTracking(): SessionUiSnapshot {
