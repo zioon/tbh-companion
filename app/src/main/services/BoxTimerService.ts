@@ -10,6 +10,7 @@ import {
   type StageBoxTrackerRoute,
 } from "../../core/stageBoxTracker";
 import { stageName } from "../../core/stages";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 import { compareBoxTimerRows, normalizeBoxTrackerSortOrder } from "../../core/boxTrackerSort";
 import type {
   BoxTimerCatalogEntry,
@@ -77,6 +78,14 @@ export class BoxTimerService {
   private subscribers = 0;
   private currentStageKey = 0;
   /**
+   * LocaleCatalog used for stage name localization in buildState /
+   * resolveFarmStage. Set once at construction (defaults to
+   * emptyLocaleCatalog) and swapped via {@link setLocaleCatalog} when the
+   * user changes language. Kept as a field (not threaded through every call)
+   * so buildState stays parameterless.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
+  /**
    * Set by `buildRow` when a timer expired during the current `buildState`
    * pass. `buildState` flushes it once at the end so N expirations in the same
    * 1Hz tick produce a single `writeFileSync` instead of N.
@@ -93,7 +102,8 @@ export class BoxTimerService {
    */
   private catalogCache: BoxTimerCatalogEntry[] | null = null;
 
-  constructor() {
+  constructor(initialCatalog: LocaleCatalog = emptyLocaleCatalog()) {
+    this.localeCatalog = initialCatalog;
     this.routeBoxIds = [...this.routeById.keys()].sort(
       (a, b) => (this.boxById.get(a)?.level ?? 0) - (this.boxById.get(b)?.level ?? 0) || a - b,
     );
@@ -204,6 +214,15 @@ export class BoxTimerService {
   setSortOrder(sortOrder: BoxTrackerSortOrder): BoxTimerState {
     this.sortOrder = normalizeBoxTrackerSortOrder(sortOrder);
     return this.commitState();
+  }
+
+  /**
+   * Swap the LocaleCatalog used for stage name localization. Called by
+   * appState when the user changes language. Callers should re-emit
+   * state via buildState() afterwards.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
   }
 
   setCooldownSeconds(boxId: number, cooldownSeconds: number): BoxTimerState {
@@ -338,13 +357,13 @@ export class BoxTimerService {
   } {
     const route = this.routeById.get(boxId);
     const defaultKey = route?.idealStageKey ?? 0;
-    const defaultLabel = defaultKey > 0 ? stageName(defaultKey) : "—";
+    const defaultLabel = defaultKey > 0 ? stageName(defaultKey, this.localeCatalog) : "—";
     const override = this.idealStageKeyByBoxId.get(boxId);
     const key = override ?? defaultKey;
     const options = this.buildFarmStageOptions(route);
     return {
       key,
-      label: key > 0 ? stageName(key) : "—",
+      label: key > 0 ? stageName(key, this.localeCatalog) : "—",
       defaultKey,
       defaultLabel,
       isCustom: override != null,
@@ -359,7 +378,10 @@ export class BoxTimerService {
     const wikiKey = route.idealStageKey;
     return route.dropStageKeys.map((stageKey) => ({
       stageKey,
-      label: stageKey === wikiKey ? `${stageName(stageKey)} (recommended)` : stageName(stageKey),
+      label:
+        stageKey === wikiKey
+          ? `${stageName(stageKey, this.localeCatalog)} (recommended)`
+          : stageName(stageKey, this.localeCatalog),
     }));
   }
 
@@ -470,6 +492,7 @@ export class BoxTimerService {
       cooldownCount,
       sortOrder: this.sortOrder,
       currentStageKey: this.currentStageKey,
+      currentStageLabel: stageName(this.currentStageKey, this.localeCatalog),
       defaultCooldownSeconds: this.catalogFile.defaultCooldownSeconds ?? 720,
     };
   }

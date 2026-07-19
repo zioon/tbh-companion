@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { LiveMemorySnapshot, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
-import { emptyLocaleCatalog, type LocaleCatalog } from "../../src/core/localeCatalog";
+import type { LocaleCatalog } from "../../src/core/localeCatalog";
 
 vi.mock("../../src/main/saveWatcher", () => ({
   SaveWatcher: class {

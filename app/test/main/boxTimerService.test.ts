@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { LocaleCatalog } from "../../src/core/localeCatalog";
 
 vi.mock("electron", () => ({
   app: {
@@ -289,5 +290,65 @@ describe("BoxTimerService", () => {
     const svc2 = await loadService();
     expect(svc2.getState().sortOrder).toBe("ready-first");
     expect(svc2.getState().rows[0]?.status).toBe("ready");
+  });
+});
+
+describe("BoxTimerService with LocaleCatalog", () => {
+  let catalogDir = "";
+
+  beforeEach(() => {
+    catalogDir = mkdtempSync(join(tmpdir(), "tbh-box-timers-cat-"));
+    userDataDir = catalogDir;
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    rmSync(catalogDir, { recursive: true, force: true });
+  });
+
+  async function loadService(catalog?: LocaleCatalog) {
+    const { BoxTimerService } = await import("../../src/main/services/BoxTimerService");
+    return new BoxTimerService(catalog);
+  }
+
+  // stageKey 1101 -> Normal 1-1; catalog key "1101" (1 + act + stage w/ leading zero)
+  const zhCatalog: LocaleCatalog = {
+    items: {},
+    stages: { "1101": "牧场" },
+    heroes: {},
+    difficulties: {},
+  };
+
+  it("defaults to emptyLocaleCatalog when no catalog is provided", async () => {
+    const svc = await loadService();
+    svc.setCurrentStageKey(1101);
+    const state = svc.getState();
+    expect(typeof state.currentStageLabel).toBe("string");
+    // emptyLocaleCatalog has no stages entry, so stageName falls back to
+    // English "<difficulty> <act>-<stage>" = "Normal 1-1".
+    expect(state.currentStageLabel).toBe("Normal 1-1");
+  });
+
+  it("uses catalog to localize currentStageLabel in buildState", async () => {
+    const svc = await loadService(zhCatalog);
+    svc.setCurrentStageKey(1101);
+    const state = svc.getState();
+    expect(state.currentStageLabel).toBe("牧场");
+  });
+
+  it("setLocaleCatalog swaps the catalog used by buildState", async () => {
+    const svc = await loadService();
+    svc.setCurrentStageKey(1101);
+    // Before swap: English fallback (emptyLocaleCatalog has no stages entry).
+    expect(svc.getState().currentStageLabel).toBe("Normal 1-1");
+    // Swap to zh-CN catalog.
+    svc.setLocaleCatalog(zhCatalog);
+    // After swap: localized stage name without needing a new stage key.
+    expect(svc.getState().currentStageLabel).toBe("牧场");
+  });
+
+  it("has setLocaleCatalog method", async () => {
+    const svc = await loadService();
+    expect(typeof svc.setLocaleCatalog).toBe("function");
   });
 });
