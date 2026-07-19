@@ -5,8 +5,9 @@ import { flattenOwnedHashes } from "../../core/inventory/ownedPriceTargets";
 import { getTbhMarketFeeRates } from "../../core/steamMarketFeeBundled";
 import { isPlaceholderItemName } from "../../core/marketName";
 import { lookupItemIndex } from "../../core/lookup/catalog";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
+import { gameItemName, type GameItem } from "../../core/gamedata";
 import type { OwnedPriceTarget } from "../../core/inventory/ownedPriceTargets";
-import type { GameItem } from "../../core/gamedata";
 import type {
   InventorySnapshot,
   ResolvedInventory,
@@ -89,6 +90,14 @@ export class InventoryService {
   private lookupCatalog: Map<number, LookupItem> = new Map();
   /** Last array reference passed to `setLookupCatalog` — used to short-circuit no-op calls. */
   private lookupCatalogSource: LookupItem[] | null = null;
+  /**
+   * LocaleCatalog used for item display name localization in
+   * {@link getMergedGameItem}. Set once at construction (defaults to
+   * {@link emptyLocaleCatalog}) and swapped via {@link setLocaleCatalog}
+   * when the user changes language. Kept as a field (not threaded through
+   * every call) so {@link getMergedGameItem} stays parameterless.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
   private onAlmostFull?: (payload: { used: number; capacity: number }) => void;
   private getAlmostFullThresholdPercent: () => number = () => 90;
   private wasAboveAlmostFullThreshold = false;
@@ -101,6 +110,16 @@ export class InventoryService {
    * the service's lifetime.
    */
   private readonly worker = new InventoryWorker(getTbhMarketFeeRates());
+
+  /**
+   * @param initialCatalog LocaleCatalog for item display name localization.
+   *   Defaults to {@link emptyLocaleCatalog} (no localization — `ItemName_<id>`
+   *   placeholders fall through to {@link lookupCatalog}'s English name). Swap
+   *   at runtime via {@link setLocaleCatalog} when the user changes language.
+   */
+  constructor(initialCatalog: LocaleCatalog = emptyLocaleCatalog()) {
+    this.localeCatalog = initialCatalog;
+  }
 
   initMarket(currency: string): void {
     this.market = new SteamMarketProvider(currency);
@@ -204,6 +223,16 @@ export class InventoryService {
     this.lookupCatalog = lookupItemIndex(items);
     this.refreshWorkerState();
     this.resolveAndPushInventory();
+  }
+
+  /**
+   * Swap the LocaleCatalog used for item display name localization. Called by
+   * appState when the user changes language. Does NOT re-broadcast — callers
+   * should re-emit inventory afterwards (e.g. via `resolveAndPushInventory`
+   * once a save snapshot is available) so the new names propagate to rows.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
   }
 
   /**
@@ -320,10 +349,25 @@ export class InventoryService {
    * {@link buildMergedGameDataLookup} for the worker payload, so per-row
    * price refresh targets resolve the same `market_hash_name` the worker
    * resolved for the table row.
+   *
+   * Localization: when a {@link localeCatalog} is set, `ItemName_<id>`
+   * placeholders are first resolved to the user's language via
+   * {@link gameItemName}. If the catalog lacks the entry, the placeholder
+   * falls through to the lookup catalog's English name (same as the
+   * pre-locale-catalog behavior).
    */
   private getMergedGameItem(itemKey: number): GameItem | undefined {
     const item = this.gameData.get(itemKey);
     if (!item) return undefined;
+    // Localize first: `gameItemName` resolves `ItemName_<id>` to the user's
+    // language when the catalog has an entry, and returns `item.name`
+    // unchanged otherwise (empty catalog, missing id, or non-placeholder).
+    const localizedName = gameItemName(item, this.localeCatalog);
+    if (localizedName !== item.name) {
+      return { ...item, name: localizedName };
+    }
+    // Fall back to the lookup catalog's English name for placeholders the
+    // locale catalog couldn't resolve.
     if (!isPlaceholderItemName(item.name)) return item;
     const lookupItem = this.lookupCatalog.get(item.id);
     if (!lookupItem?.name) return item;
