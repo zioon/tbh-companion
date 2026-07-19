@@ -27,6 +27,31 @@ export const DEFAULT_LANGUAGE: AppLanguage = "auto";
 export type ResolvedLanguage = (typeof APP_LANGUAGES)[number];
 
 /**
+ * Native display name for each language, used in the Settings dropdown so
+ * speakers can recognize their language without parsing BCP-47 codes.
+ * Names are written in the language itself (endonym), matching common
+ * practice for language pickers in operating systems and games.
+ */
+export const LANGUAGE_DISPLAY_NAMES: Readonly<Record<ResolvedLanguage, string>> = {
+  en: "English",
+  "zh-CN": "简体中文",
+  "zh-Hant": "繁體中文",
+  ja: "日本語",
+  ko: "한국어",
+  "fr-FR": "Français",
+  "de-DE": "Deutsch",
+  "es-ES": "Español",
+  "pt-BR": "Português",
+  "ru-RU": "Русский",
+  "pl-PL": "Polski",
+  "tr-TR": "Türkçe",
+  "uk-UA": "Українська",
+  "th-TH": "ไทย",
+  "vi-VN": "Tiếng Việt",
+  "id-ID": "Bahasa Indonesia",
+};
+
+/**
  * 游戏 `tbh_lang_idx` 注册表值 → BCP-47 区码。从 `localization-locales`
  * bundle 中解析出的 16 个 Locale MonoBehaviour 的 `m_SortOrder` 字段
  * （int32）。

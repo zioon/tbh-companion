@@ -5,7 +5,7 @@ import type {
   NotificationKindId,
   NotificationKindPreference,
 } from "../../../shared/notificationCatalog";
-import { APP_LANGUAGES, type AppLanguage } from "../../../shared/language";
+import { APP_LANGUAGES, LANGUAGE_DISPLAY_NAMES, type AppLanguage } from "../../../shared/language";
 import type { AppConfig, AppDataClearTarget, AppDataPaths } from "../../../shared/types";
 import { reportIpcError } from "../lib/reportError";
 import { cn } from "../lib/cn";
@@ -363,7 +363,10 @@ export function Settings() {
               options={[
                 { value: "auto", label: tSettings("language.auto") },
                 { value: "game", label: tSettings("language.game") },
-                ...APP_LANGUAGES.map((lang) => ({ value: lang, label: lang })),
+                ...APP_LANGUAGES.map((lang) => ({
+                  value: lang,
+                  label: LANGUAGE_DISPLAY_NAMES[lang],
+                })),
               ]}
             />
           </Field>
