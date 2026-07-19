@@ -5,7 +5,6 @@ import { useInventory } from "../lib/useInventory";
 import { useChests } from "../lib/useChests";
 import { useStageRuns } from "../lib/useStageRuns";
 import { useLiveMemoryScalars } from "../lib/useLiveMemory";
-import { blendStage } from "../../core/liveMemory/blend";
 import {
   fmtCompact,
   fmtDuration,
@@ -17,7 +16,6 @@ import {
 } from "../lib/format";
 import { predictFillTime, type ChestFillSource } from "../../core/inventory/predictFillTime";
 import { reportIpcError } from "../lib/reportError";
-import { stageName } from "../../core/stages";
 import { Button } from "../design-system/primitives/Button/Button";
 import { DataListRow } from "../design-system/primitives/DataList/DataList";
 import { Checkbox } from "../design-system/primitives/Checkbox/Checkbox";
@@ -103,26 +101,6 @@ export function Live() {
   // All useMemos below null-check `stats` internally so they stay safe when
   // the save hasn't been read yet. The early return after them only affects
   // what gets rendered, not which hooks run.
-
-  // Extract stable primitive deps from stats so useMemo doesn't recompute on
-  // every 5Hz broadcast when only the rate/totals changed but stage didn't.
-  const statsStageKey = stats?.stageKey ?? 0;
-  const statsStageWave = stats?.stageWave ?? 0;
-
-  const stage = useMemo(
-    () =>
-      stats
-        ? blendStage(liveScalars, { stageKey: statsStageKey, stageWave: statsStageWave })
-        : null,
-    [
-      liveScalars,
-      liveScalars.stageKey,
-      liveScalars.stageWave,
-      stats,
-      statsStageKey,
-      statsStageWave,
-    ],
-  );
 
   const commonPerHourDep = stats?.chestDrops?.commonPerHour;
   const rarePerHourDep = stats?.chestDrops?.rarePerHour;
@@ -419,7 +397,7 @@ export function Live() {
               <span>
                 {t("map")}{" "}
                 <b className="font-semibold text-fg">
-                  {stageName(stage?.stageKey ?? stats.stageKey)}
+                  {stats.stageName}
                 </b>
               </span>
               {!liveActive ? (
@@ -549,7 +527,7 @@ export function Live() {
                       className: "tabular-nums",
                     },
                     {
-                      content: stageName(e.stageKey),
+                      content: String(e.stageKey),
                       align: "right",
                       className: "min-w-0 truncate text-muted",
                     },

@@ -5,7 +5,6 @@ import { useInventory } from "./lib/useInventory";
 import { usePriceProgress, usePriceStatus } from "./lib/usePrices";
 import { fmtCompact, fmtShortDuration } from "./lib/format";
 import { formatMoney } from "../core/steamPrice";
-import { stageName } from "../core/stages";
 import { Button } from "./design-system/primitives/Button/Button";
 import { OverlayFrame } from "./components/ui/OverlayFrame";
 
@@ -200,7 +199,7 @@ export function Overlay() {
               </span>
             )}
             <span>
-              {stageName(stats.stageKey)}
+              {stats.stageName}
               {stats.stageWaveTotal > 0 && (
                 <span className="ml-0.5 opacity-70">
                   ({stats.stageWave}/{stats.stageWaveTotal})

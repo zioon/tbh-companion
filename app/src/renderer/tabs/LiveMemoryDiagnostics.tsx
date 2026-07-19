@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { useLiveMemory } from "../lib/useLiveMemory";
 import { useStats } from "../lib/useStats";
 import { liveReaderState } from "../../core/liveMemory/status";
-import { heroName } from "../../core/heroes";
 import { fmtCompact } from "../lib/format";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
@@ -124,7 +123,7 @@ export function LiveMemoryDiagnostics() {
                 <Row
                   key={h.heroKey}
                   label={t("diagnostics.heroWithLevel", {
-                    name: heroName(String(h.heroKey)),
+                    name: h.name ?? String(h.heroKey),
                     level: h.level,
                   })}
                   value={fmtCompact(h.exp)}

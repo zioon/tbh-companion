@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { StageRunStats } from "../../../../shared/types";
 import { fmtClock, fmtCompact, fmtShortDuration } from "../../lib/format";
-import { stageName } from "../../../core/stages";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { ItemLink } from "../ItemLink";
 import { LiveHistoryPanel, LiveHistoryRow, TIME_COLUMN_WIDTH } from "./LiveHistoryPanel";
@@ -47,7 +46,7 @@ export function StageRunPanel({ stageRuns }: { stageRuns: StageRunStats }) {
               content: (
                 <ItemLink
                   node={{ type: "stage", id: entry.stageKey }}
-                  name={stageName(entry.stageKey)}
+                  name={entry.stageName ?? String(entry.stageKey)}
                   onNavigate={open}
                 />
               ),

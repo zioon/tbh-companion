@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
 import { useBoxTimers, fmtTimer } from "./lib/useBoxTimers";
-import { stageName } from "../core/stages";
 import type { BoxTimerRow } from "../../shared/types";
 import {
   boxTrackerRowsBySection,
@@ -93,7 +92,7 @@ export function BoxTracker() {
     );
   }
 
-  const currentLabel = stageName(state.currentStageKey);
+  const currentLabel = state.currentStageLabel;
   const sections = boxTrackerSectionOrder(state.sortOrder);
 
   const sectionContent = {
