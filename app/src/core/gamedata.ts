@@ -2,6 +2,8 @@
 //
 // Bundled in data/gamedata.json (updated via tbh-data release workflow).
 
+import type { LocaleCatalog } from "./localeCatalog";
+
 export interface GameItem {
   id: number; // == save itemSaveDatas[].ItemKey
   name: string;
@@ -76,4 +78,22 @@ export function normalizeGameItem(raw: Record<string, unknown>): GameItem | null
           : null,
     marketTradable: Boolean(raw.marketTradable ?? raw.is_market_tradable),
   };
+}
+
+/**
+ * Resolve a GameItem's display name. If `item.name` starts with `ItemName_`,
+ * extract the id suffix and look it up in `catalog.items`. Falls back to
+ * `item.name` (which is either the raw `ItemName_<id>` key or a hardcoded
+ * English name).
+ *
+ * Pass `catalog = null` to skip localization (returns `item.name` as-is).
+ */
+export function gameItemName(item: GameItem, catalog: LocaleCatalog | null = null): string {
+  const name = item.name;
+  if (catalog && name.startsWith("ItemName_")) {
+    const id = name.slice("ItemName_".length);
+    const localized = catalog.items[id];
+    if (localized) return localized;
+  }
+  return name;
 }

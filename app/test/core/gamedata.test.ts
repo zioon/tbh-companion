@@ -4,8 +4,10 @@ import {
   isMarketPipelineSaveItemKey,
   indexById,
   normalizeGameItem,
+  gameItemName,
   type GameItem,
 } from "../../src/core/gamedata";
+import type { LocaleCatalog } from "../../src/core/localeCatalog";
 
 describe("gamedata", () => {
   it("normalizes catalog rows from JSON", () => {
@@ -61,5 +63,70 @@ describe("gamedata", () => {
 
   it("returns null for invalid catalog rows", () => {
     expect(normalizeGameItem({ name: "no id" })).toBeNull();
+  });
+});
+
+describe("gameItemName with LocaleCatalog", () => {
+  const baseItem: GameItem = {
+    id: 530017,
+    name: "ItemName_530017",
+    grade: "COMMON",
+    type: "MATERIAL",
+    level: null,
+    marketTradable: true,
+  };
+
+  it("returns localized name when item.name is 'ItemName_<id>' and catalog has the id", () => {
+    const catalog: LocaleCatalog = {
+      items: { "530017": "Goblin Hide" },
+      stages: {},
+      heroes: {},
+      difficulties: {},
+    };
+    expect(gameItemName({ ...baseItem }, catalog)).toBe("Goblin Hide");
+  });
+
+  it("falls back to item.name when item.name is 'ItemName_<id>' but catalog is null", () => {
+    expect(gameItemName({ ...baseItem }, null)).toBe("ItemName_530017");
+  });
+
+  it("falls back to item.name when item.name is 'ItemName_<id>' but catalog does not have the id", () => {
+    const catalog: LocaleCatalog = {
+      items: {},
+      stages: {},
+      heroes: {},
+      difficulties: {},
+    };
+    expect(gameItemName({ ...baseItem }, catalog)).toBe("ItemName_530017");
+  });
+
+  it("returns item.name directly when it is a hardcoded English name (not 'ItemName_*')", () => {
+    const item: GameItem = {
+      id: 110001,
+      name: "Long Sword",
+      grade: "COMMON",
+      type: "GEAR",
+      level: 1,
+      marketTradable: false,
+    };
+    const catalog: LocaleCatalog = {
+      items: { "999": "Should not be used" },
+      stages: {},
+      heroes: {},
+      difficulties: {},
+    };
+    expect(gameItemName(item, catalog)).toBe("Long Sword");
+  });
+
+  it("returns item.name when catalog is null and name is not 'ItemName_*'", () => {
+    const item: GameItem = {
+      id: 110002,
+      name: "Iron Helmet",
+      grade: "COMMON",
+      type: "GEAR",
+      level: 1,
+      marketTradable: false,
+    };
+    expect(gameItemName(item, null)).toBe("Iron Helmet");
   });
 });
