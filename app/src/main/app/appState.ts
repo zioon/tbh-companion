@@ -297,6 +297,13 @@ export function startTracking(): SessionUiSnapshot {
   // building Stats / BoxTimerState / StageRunStats / ResolvedInventory /
   // LiveMemorySnapshot.heroes.
   reloadLocaleCatalog();
+  // Re-push inventory after locale catalog is set so the renderer receives
+  // localized item names immediately. (Inventory was already resolved in
+  // loadGameData() above — before the catalog was available — so the first
+  // broadcast carries English/placeholder names without this nudge.)
+  // TrackingService pushes on its own 1-second cadence and will pick up the
+  // new catalog on the next tick; no explicit pushStats needed here.
+  inventory.resolveAndPushInventory();
 
   // Auto-trigger catalog refresh if locale data is missing or stale. This
   // ensures the 12 languages without offline locale_strings_<lang>.json get
@@ -313,7 +320,7 @@ export function startTracking(): SessionUiSnapshot {
     if (!result.ok) return;
     reloadLocaleCatalog();
     // Re-emit snapshots so the renderer picks up the new translations.
-    // tracking pushes on its own cadence; the others need a nudge.
+    tracking.pushStats();
     boxTimers.push();
     stageRuns.push();
     inventory.resolveAndPushInventory();
@@ -588,7 +595,23 @@ export function getAppServices() {
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),
     getCatalogStatus: () => catalogRefresh.getStatus(),
-    refreshCatalog: () => catalogRefresh.refresh(),
+    refreshCatalog: async () => {
+      const result = await catalogRefresh.refresh();
+      if (result.ok) {
+        // Reload the LocaleCatalog so the 12 languages without offline
+        // locale_strings_<lang>.json pick up game-bundle translations
+        // (ItemName_*, StageName_*, etc.) from the freshly-extracted
+        // locale data. Without this, manual catalog refresh would write
+        // locale.json but never apply it to the running services.
+        reloadLocaleCatalog();
+        // Re-emit snapshots with the updated catalog.
+        tracking.pushStats();
+        boxTimers.push();
+        stageRuns.push();
+        inventory.resolveAndPushInventory();
+      }
+      return result;
+    },
     getLocaleData: () => catalogRefresh.getLocaleData(),
     resetLootBox: (boxKey: string) => tracking.resetLootBox(boxKey),
     resetLootAll: () => tracking.resetLootAll(),
