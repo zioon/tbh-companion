@@ -8,6 +8,7 @@ import type {
   BoxTimerState,
   CatalogRefreshResult,
   CatalogStatus,
+  GameLocaleData,
   ChestState,
   ClassifyPromptPayload,
   ClassifyPromptResolvePayload,
@@ -265,6 +266,9 @@ const api: TbhApi = {
   },
   refreshCatalog(): Promise<CatalogRefreshResult> {
     return ipcRenderer.invoke(IPC.CATALOG_REFRESH);
+  },
+  getLocaleData(): Promise<GameLocaleData | null> {
+    return ipcRenderer.invoke(IPC.GET_LOCALE_DATA);
   },
   onCatalogStatus(cb: (status: CatalogStatus) => void): () => void {
     const listener = (_e: unknown, status: CatalogStatus): void => cb(status);

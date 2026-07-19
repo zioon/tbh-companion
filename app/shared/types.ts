@@ -1463,6 +1463,7 @@ export interface TbhApi {
   // Catalog refresh
   getCatalogStatus(): Promise<CatalogStatus | null>;
   refreshCatalog(): Promise<CatalogRefreshResult>;
+  getLocaleData(): Promise<GameLocaleData | null>;
   onCatalogStatus(cb: (status: CatalogStatus) => void): () => void;
 }
 
@@ -1482,4 +1483,19 @@ export interface CatalogRefreshResult {
   itemCount: number;
   resolvedNames: number;
   error?: string;
+}
+
+/**
+ * Game locale data extracted from the game's localization bundles.
+ * A flat key-value map per language, covering Grade_*, GearType_*,
+ * StatName_*, HeroName_*, StashItemFilterType_*, etc.
+ * Null when the game bundles haven't been read yet.
+ */
+export interface GameLocaleData {
+  /** Game version at extraction time (same as CatalogStatus.gameVersion). */
+  version: string | null;
+  en: Record<string, string>;
+  "zh-CN": Record<string, string>;
+  ja: Record<string, string>;
+  ko: Record<string, string>;
 }

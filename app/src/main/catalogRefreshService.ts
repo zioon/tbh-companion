@@ -1,14 +1,18 @@
 // Orchestrates catalog refresh: locate game install → read 3 asset files →
 // extract catalog via core/unityAssets → write userData/gamedata.json →
-// reload GameDataProvider. Reports status via getStatus() and broadcasts.
+// reload GameDataProvider. Also reads all 4 locale bundles, extracts locale
+// data, and writes userData/locale.json for the renderer to consume.
+// Reports status via getStatus() and broadcasts.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { extractCatalog } from "../core/unityAssets/catalogExtractor";
+import { extractLocales } from "../core/unityAssets/localeExtractor";
 import type { GameDataProvider } from "./gameDataProvider";
 import type { LiveMemoryService } from "./services/LiveMemoryService";
 import { IPC } from "../../shared/ipc";
 import type { CatalogRefreshResult, CatalogStatus } from "../../shared/types";
+import type { GameLocaleData } from "../../shared/types";
 import { createLogger } from "./log";
 import { resolveUserDataDir } from "./services/appData";
 
@@ -17,6 +21,7 @@ type BroadcastFn = (channel: string, payload: unknown) => void;
 const log = createLogger("catalogRefresh");
 
 const GAMEDATA_FILE = "gamedata.json";
+const LOCALE_FILE = "locale.json";
 
 // Default install path (Steam). Overridable by env for non-standard installs.
 const DEFAULT_GAME_INSTALL = "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data";
@@ -29,22 +34,35 @@ function resolveGameInstallDir(): string | null {
   return null;
 }
 
-function resolveAssetPaths(installDir: string): {
+interface AssetPaths {
   sharedassets0: string;
   sharedBundle: string;
   enBundle: string;
-} {
+  zhCNBundle: string;
+  jaBundle: string;
+  koBundle: string;
+}
+
+function resolveAssetPaths(installDir: string): AssetPaths {
   const aa = join(installDir, "StreamingAssets", "aa", "StandaloneWindows64");
   return {
     sharedassets0: join(installDir, "sharedassets0.assets"),
     sharedBundle: join(aa, "localization-assets-shared_assets_all.bundle"),
     enBundle: join(aa, "localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle"),
+    zhCNBundle: join(
+      aa,
+      "localization-string-tables-chinese(simplified)(zh-hans)_assets_all.bundle",
+    ),
+    jaBundle: join(aa, "localization-string-tables-japanese(japan)(ja-jp)_assets_all.bundle"),
+    koBundle: join(aa, "localization-string-tables-korean(southkorea)(ko-kr)_assets_all.bundle"),
   };
 }
 
 export class CatalogRefreshService {
   private lastRefreshMs: number | null = null;
   private lastError: string | null = null;
+  /** Cached locale data — written by refresh(), read by getLocaleData(). */
+  private cachedLocale: GameLocaleData | null = null;
 
   constructor(
     private readonly gameData: GameDataProvider,
@@ -69,6 +87,11 @@ export class CatalogRefreshService {
     };
   }
 
+  /** Return the cached locale data (null if not yet refreshed). */
+  getLocaleData(): GameLocaleData | null {
+    return this.cachedLocale;
+  }
+
   /** Trigger a refresh. Returns the result; also broadcasts status. */
   async refresh(): Promise<CatalogRefreshResult> {
     try {
@@ -79,9 +102,11 @@ export class CatalogRefreshService {
         );
       }
       const paths = resolveAssetPaths(installDir);
-      for (const [key, path] of Object.entries(paths)) {
-        if (!existsSync(path)) {
-          throw new Error(`required asset file missing: ${key} (${path})`);
+      // Only the three core assets are required for catalog refresh.
+      const coreKeys: (keyof AssetPaths)[] = ["sharedassets0", "sharedBundle", "enBundle"];
+      for (const key of coreKeys) {
+        if (!existsSync(paths[key])) {
+          throw new Error(`required asset file missing: ${key} (${paths[key]})`);
         }
       }
       log.info(`refreshing catalog from ${installDir}`);
@@ -92,20 +117,48 @@ export class CatalogRefreshService {
       const extracted = extractCatalog({ sharedassets0, sharedBundle, enBundle });
       const gameVersion = this.liveMemory.getStatus()?.gameVersion ?? extracted.gameVersion;
 
-      // Write to userData.
+      // Write gamedata.json.
       mkdirSync(this.userDataDir, { recursive: true });
-      const outPath = join(this.userDataDir, GAMEDATA_FILE);
-      const payload = {
-        gameVersion,
-        items: extracted.items,
-      };
-      writeFileSync(outPath, JSON.stringify(payload), "utf-8");
+      const gamedataPath = join(this.userDataDir, GAMEDATA_FILE);
+      writeFileSync(gamedataPath, JSON.stringify({ gameVersion, items: extracted.items }), "utf-8");
       log.info(
-        `wrote ${outPath}: ${extracted.items.length} items (resolved ${extracted.stats.resolvedNames} names)`,
+        `wrote ${gamedataPath}: ${extracted.items.length} items (resolved ${extracted.stats.resolvedNames} names)`,
       );
 
       // Reload GameDataProvider.
       this.gameData.reload(this.userDataDir);
+
+      // --- Locale extraction (best-effort: non-fatal) ---
+      const localeKeys: (keyof AssetPaths)[] = ["zhCNBundle", "jaBundle", "koBundle"];
+      for (const key of localeKeys) {
+        if (!existsSync(paths[key])) {
+          log.warn(`locale bundle missing (${key}), skipping locale extraction`);
+        }
+      }
+      const localeInput = {
+        sharedBundle,
+        enBundle,
+        zhCNBundle: existsSync(paths.zhCNBundle) ? readFileSync(paths.zhCNBundle) : Buffer.alloc(0),
+        jaBundle: existsSync(paths.jaBundle) ? readFileSync(paths.jaBundle) : Buffer.alloc(0),
+        koBundle: existsSync(paths.koBundle) ? readFileSync(paths.koBundle) : Buffer.alloc(0),
+      };
+      const localeData = extractLocales(localeInput);
+      if (localeData) {
+        // Include gameVersion so the renderer can detect staleness.
+        const localePayload: GameLocaleData = {
+          version: gameVersion,
+          en: localeData.en,
+          "zh-CN": localeData["zh-CN"],
+          ja: localeData.ja,
+          ko: localeData.ko,
+        };
+        const localePath = join(this.userDataDir, LOCALE_FILE);
+        writeFileSync(localePath, JSON.stringify(localePayload), "utf-8");
+        this.cachedLocale = localePayload;
+        log.info(`wrote ${localePath}: ${Object.keys(localeData.en).length} keys`);
+      } else {
+        log.warn("locale extraction returned no data (game bundles may be unavailable)");
+      }
 
       this.lastRefreshMs = Date.now();
       this.lastError = null;

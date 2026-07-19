@@ -565,6 +565,7 @@ export function getAppServices() {
     getStageRuns: () => stageRuns.getStats(),
     getCatalogStatus: () => catalogRefresh.getStatus(),
     refreshCatalog: () => catalogRefresh.refresh(),
+    getLocaleData: () => catalogRefresh.getLocaleData(),
     resetLootBox: (boxKey: string) => tracking.resetLootBox(boxKey),
     resetLootAll: () => tracking.resetLootAll(),
     reclassifyLootItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) =>
