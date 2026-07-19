@@ -89,8 +89,15 @@ export function normalizeGameItem(raw: Record<string, unknown>): GameItem | null
  * English name, or an English name resolved from the EN stringtable).
  *
  * Pass `catalog = null` to skip localization (returns `item.name` as-is).
+ *
+ * Accepts any object with `{ id, name }` so it works with both `GameItem`
+ * (gamedata.json rows) and `LookupItem` (lookup_items.json rows) without
+ * forcing callers to coerce.
  */
-export function gameItemName(item: GameItem, catalog: LocaleCatalog | null = null): string {
+export function gameItemName(
+  item: { id: number; name: string },
+  catalog: LocaleCatalog | null = null,
+): string {
   if (catalog) {
     const localized = catalog.items[String(item.id)];
     if (localized) return localized;

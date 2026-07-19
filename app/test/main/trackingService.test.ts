@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { LiveMemorySnapshot, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 import type { LocaleCatalog } from "../../src/core/localeCatalog";
+import type { GameItem } from "../../src/core/gamedata";
 
 vi.mock("../../src/main/saveWatcher", () => ({
   SaveWatcher: class {
@@ -789,5 +790,70 @@ describe("TrackingService with LocaleCatalog", () => {
   it("has setLocaleCatalog method", () => {
     const svc = new TrackingService(vi.fn());
     expect(typeof svc.setLocaleCatalog).toBe("function");
+  });
+
+  it("localizes box-open history/breakdown names when setLocaleCatalog is called", () => {
+    // gamedata has the English name; catalog provides the zh-CN translation
+    // keyed by String(item.id). The Loot tab reads boxOpenStats.history[i].itemName
+    // and breakdown[i].name — both must reflect the current LocaleCatalog.
+    const gameDataLookup = new Map<number, GameItem>([
+      [
+        530017,
+        {
+          id: 530017,
+          name: "Goblin Hide",
+          grade: "COMMON",
+          type: "MATERIAL",
+          level: null,
+          marketTradable: true,
+        },
+      ],
+    ]);
+    const zhItemsCatalog: LocaleCatalog = {
+      items: { "530017": "哥布林兽皮" },
+      stages: {},
+      heroes: {},
+      difficulties: {},
+    };
+
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+    svc.setGameDataLookup(gameDataLookup);
+
+    // Emit a box-open drop. Without a catalog, name should be English.
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: [{ itemKey: 530017, boxType: 0, level: 5, gradeType: 0 }],
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    // Before catalog swap: English name.
+    let stats = svc.getStats().boxOpens;
+    expect(stats[0].breakdown[0].name).toBe("Goblin Hide");
+    expect(stats[0].history[0].itemName).toBe("Goblin Hide");
+
+    // Swap to zh-CN catalog — runReResolveNames should re-localize the
+    // existing history/breakdown without needing a new drop.
+    svc.setLocaleCatalog(zhItemsCatalog);
+    stats = svc.getStats().boxOpens;
+    expect(stats[0].breakdown[0].name).toBe("哥布林兽皮");
+    expect(stats[0].history[0].itemName).toBe("哥布林兽皮");
+    svc.stop();
   });
 });

@@ -7,7 +7,7 @@ import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog
 import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
-import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
+import { catalogItemKeyFromSave, gameItemName, type GameItem } from "../../core/gamedata";
 import { GRADE_ORDER } from "../../core/grades";
 import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
@@ -387,7 +387,10 @@ export class TrackingService {
       // `#1703973696` forever.
       if (catalogId < 110_001 || catalogId > 939_999) {
         if (this.gameDataLookup?.has(catalogId)) {
-          return { itemKey: catalogId, name: this.gameDataLookup.get(catalogId)!.name };
+          return {
+            itemKey: catalogId,
+            name: gameItemName(this.gameDataLookup.get(catalogId)!, this.localeCatalog),
+          };
         }
         return null;
       }
@@ -403,7 +406,7 @@ export class TrackingService {
         // the id with a `#id` placeholder name so the entry isn't lost.
         return { itemKey: variantId, name: `#${variantId}` };
       }
-      return { itemKey: variantId, name: item.name };
+      return { itemKey: variantId, name: gameItemName(item, this.localeCatalog) };
     });
   }
 
@@ -437,12 +440,16 @@ export class TrackingService {
   }
 
   /**
-   * Swap the LocaleCatalog used for hero/stage name localization. Called by
-   * appState when the user changes language. Does NOT re-broadcast — callers
-   * should invoke getStats() afterwards to emit a fresh payload.
+   * Swap the LocaleCatalog used for hero/stage/item name localization.
+   * Called by appState at startup and when the user changes language. Also
+   * re-resolves every recorded box-open entry so the history / breakdown
+   * names pick up the new language (otherwise the Loot tab would keep
+   * showing the old language until new drops arrive). Does NOT re-broadcast
+   * — callers should invoke getStats() afterwards to emit a fresh payload.
    */
   setLocaleCatalog(catalog: LocaleCatalog): void {
     this.localeCatalog = catalog;
+    this.runReResolveNames();
   }
 
   getBoxOpenTracker(): BoxOpenTracker {
@@ -533,7 +540,8 @@ export class TrackingService {
       variantId !== catalogId
         ? (this.lookupItems?.get(variantId) ?? this.gameDataLookup?.get(variantId))
         : baseItem;
-    const name = (variantItem ?? baseItem)?.name ?? `#${entry.itemKey}`;
+    const item = variantItem ?? baseItem;
+    const name = item ? gameItemName(item, this.localeCatalog) : `#${entry.itemKey}`;
     return { boxKey, itemKey: variantId, name, grade };
   }
 
