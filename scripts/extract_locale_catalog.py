@@ -14,7 +14,7 @@ Each file has the shape:
   {
     "source": "game v1.00.28 localization bundles",
     "fetchedUtc": "2026-07-19T...",
-    "items": { "<itemKey>": "<localized name>", ... },        # 511 entries
+    "items": { "<itemKey>": "<localized name>", ... },        # ~5885 entries
     "stages": { "<act><stage>": "<localized name>", ... },    # 30 entries (4-digit key)
     "heroes": { "<heroKey>": "<localized name>", ... },       # 6 entries
     "difficulties": { "NORMAL": "Normal", ... }               # 4 entries
@@ -29,6 +29,13 @@ Pipeline:
        Build m_Id → m_Localized map.
   3. Join: m_Key → m_Localized via shared m_Id.
   4. Partition by key prefix (ItemName_ / StageName_ / HeroName_ / Difficulty_).
+  5. Expand items by ItemKey: read ItemInfoData CSV from sharedassets0.assets,
+     build ItemKey → NameKey ID map, then for each ItemKey look up the
+     NameKey's localized value. Multiple ItemKeys can share one NameKey
+     (equipment rarity variants — e.g. ItemKey 300001/301011/301012 all
+     use NameKey ItemName_300001). The expanded items dict uses ItemKey
+     as the key so the companion app can look up by `String(item.id)`
+     directly (matching gameItemName's contract).
 
 Usage:
   python scripts/extract_locale_catalog.py [game_data_dir] [output_dir]
@@ -40,8 +47,12 @@ Defaults:
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
+import re
+import struct
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,12 +68,17 @@ LOCALE_BUNDLES = {
 }
 
 SHARED_BUNDLE = "localization-assets-shared_assets_all.bundle"
+# sharedassets0.assets lives one level above the StreamingAssets/aa dir.
+SHAREDASSETS_NAME = "sharedassets0.assets"
 
 # Key prefixes in SharedTableData.m_Entries[i].m_Key.
 PREFIX_ITEM = "ItemName_"
 PREFIX_STAGE = "StageName_"
 PREFIX_HERO = "HeroName_"
 PREFIX_DIFF = "Difficulty_"
+
+ITEMKEY_RE = re.compile(r"^\d+$")
+ITEM_NAME_KEY_RE = re.compile(r"^ItemName_(\d+)$")
 
 
 def build_id_to_key(shared_bundle_path: str) -> dict[int, str]:
@@ -104,9 +120,16 @@ def build_id_to_value(locale_bundle_path: str) -> dict[int, str]:
     return result
 
 
-def partition_keys(id_to_key: dict[int, str], id_to_value: dict[int, str]) -> dict:
-    """Join via m_Id, partition by key prefix."""
-    items: dict[str, str] = {}
+def partition_keys(
+    id_to_key: dict[int, str],
+    id_to_value: dict[int, str],
+) -> dict:
+    """Join via m_Id, partition by key prefix.
+
+    Returns dict with raw NameKey-ID-keyed items (not yet expanded by ItemKey).
+    The caller will expand items via CSV ItemKey → NameKey ID map.
+    """
+    items_by_namekeyid: dict[str, str] = {}
     stages: dict[str, str] = {}
     heroes: dict[str, str] = {}
     difficulties: dict[str, str] = {}
@@ -115,7 +138,7 @@ def partition_keys(id_to_key: dict[int, str], id_to_value: dict[int, str]) -> di
         if value is None:
             continue
         if key.startswith(PREFIX_ITEM):
-            items[key[len(PREFIX_ITEM):]] = value
+            items_by_namekeyid[key[len(PREFIX_ITEM):]] = value
         elif key.startswith(PREFIX_STAGE):
             stages[key[len(PREFIX_STAGE):]] = value
         elif key.startswith(PREFIX_HERO):
@@ -123,11 +146,124 @@ def partition_keys(id_to_key: dict[int, str], id_to_value: dict[int, str]) -> di
         elif key.startswith(PREFIX_DIFF):
             difficulties[key[len(PREFIX_DIFF):]] = value
     return {
-        "items": items,
+        "items_by_namekeyid": items_by_namekeyid,
         "stages": stages,
         "heroes": heroes,
         "difficulties": difficulties,
     }
+
+
+def parse_textasset_raw(raw: bytes) -> tuple[str | None, str | None]:
+    """Parse a TextAsset's raw serialization bytes (IL2CPP, no type tree).
+
+    Layout: [4B name_len][name bytes][pad to 4][4B script_len][script bytes][pad to 4]
+    Returns (name, script_text) — both None on parse failure.
+    """
+    if len(raw) < 8:
+        return None, None
+    name_len = struct.unpack_from("<I", raw, 0)[0]
+    if name_len > 256 or 4 + name_len > len(raw):
+        return None, None
+    try:
+        name = raw[4:4 + name_len].decode("utf-8")
+    except UnicodeDecodeError:
+        return None, None
+    off = 4 + name_len
+    while off % 4 != 0:
+        off += 1
+    if off + 4 > len(raw):
+        return name, None
+    script_len = struct.unpack_from("<I", raw, off)[0]
+    if script_len > 50_000_000 or off + 4 + script_len > len(raw):
+        return name, None
+    try:
+        script = raw[off + 4:off + 4 + script_len].decode("utf-8")
+    except UnicodeDecodeError:
+        return name, None
+    return name, script
+
+
+def load_csv_text(game_data_dir: str) -> str:
+    """Extract ItemInfoData CSV text from sharedassets0.assets.
+
+    Uses raw byte parsing — UnityPy's obj.read() doesn't always populate
+    m_Text / m_Script for IL2CPP TextAssets without a type tree.
+    """
+    # sharedassets0.assets is at <game_data_dir>/../sharedassets0.assets
+    # (game_data_dir ends in .../StreamingAssets/aa/StandaloneWindows64)
+    aa_dir = Path(game_data_dir)
+    streaming_assets_dir = aa_dir.parent.parent  # .../StreamingAssets
+    data_dir = streaming_assets_dir.parent  # .../TaskbarHero_Data
+    sharedassets_path = data_dir / SHAREDASSETS_NAME
+    env = UnityPy.load(str(sharedassets_path))
+    for obj in env.objects:
+        if obj.type.name != "TextAsset":
+            continue
+        try:
+            raw = obj.get_raw_data()
+        except Exception:
+            continue
+        name, script = parse_textasset_raw(raw)
+        if name == "ItemInfoData" and script:
+            print(f"  Found ItemInfoData via raw parse: {len(script)} chars")
+            return script
+    raise RuntimeError("ItemInfoData TextAsset not found in sharedassets0.assets")
+
+
+def build_itemkey_to_namekeyid(csv_text: str) -> dict[int, str]:
+    """Parse ItemInfoData CSV, return ItemKey → NameKey ID (as string).
+
+    Only rows whose NameKey is `ItemName_<id>` are included. Rows with
+    literal names (e.g. 'Normal Monster Box 1') are skipped — they have
+    no localization key and will be handled by the renderer fallback.
+    """
+    # utf-8-sig strips the BOM that makes the first column '\ufeffItemKey'.
+    reader = csv.DictReader(io.StringIO(csv_text, newline=""))
+    result: dict[int, str] = {}
+    for row in reader:
+        ik_str = (
+            row.get("ItemKey")
+            or row.get("\ufeffItemKey")
+            or row.get("itemKey")
+            or ""
+        ).strip()
+        if not ITEMKEY_RE.match(ik_str):
+            continue
+        item_key = int(ik_str)
+        name_key = (row.get("NameKey") or "").strip()
+        m = ITEM_NAME_KEY_RE.match(name_key)
+        if not m:
+            continue
+        result[item_key] = m.group(1)
+    return result
+
+
+def expand_items_by_itemkey(
+    items_by_namekeyid: dict[str, str],
+    itemkey_to_namekeyid: dict[int, str],
+) -> dict[str, str]:
+    """Build ItemKey → localized name dict by joining CSV ItemKey → NameKey ID
+    with the localization bundle's NameKey ID → localized value.
+
+    Multiple ItemKeys sharing one NameKey ID all get the same localized value
+    (equipment rarity variants share the base item's name).
+
+    Also includes the raw NameKey ID as a key (fallback for NameKey-only
+    entries that don't appear in the CSV — e.g. base ids like 620017 that
+    the game's BoxOpenLog may emit directly).
+    """
+    items: dict[str, str] = {}
+    # First pass: ItemKey → localized value via CSV join.
+    for item_key, namekey_id in itemkey_to_namekeyid.items():
+        value = items_by_namekeyid.get(namekey_id)
+        if value is not None:
+            items[str(item_key)] = value
+    # Second pass: include NameKey IDs that have translations but aren't in
+    # the CSV (base ids emitted by BoxOpenLog). These keep their NameKey ID
+    # as the dict key so gameItemName(item with id == namekey_id) still hits.
+    for namekey_id, value in items_by_namekeyid.items():
+        items.setdefault(namekey_id, value)
+    return items
 
 
 def main() -> int:
@@ -145,6 +281,14 @@ def main() -> int:
     id_to_key = build_id_to_key(shared_path)
     print(f"  {len(id_to_key)} shared entries")
 
+    print("Loading ItemInfoData CSV for ItemKey → NameKey ID map...")
+    csv_text = load_csv_text(game_dir)
+    itemkey_to_namekeyid = build_itemkey_to_namekeyid(csv_text)
+    print(
+        f"  {len(itemkey_to_namekeyid)} CSV rows with ItemName_ NameKey "
+        f"({len(set(itemkey_to_namekeyid.values()))} unique NameKey IDs)"
+    )
+
     fetched_utc = datetime.now(timezone.utc).isoformat(timespec="seconds")
     output_files: dict[str, str] = {}
 
@@ -154,8 +298,11 @@ def main() -> int:
         id_to_value = build_id_to_value(bundle_path)
         print(f"  {len(id_to_value)} localized entries")
         partitioned = partition_keys(id_to_key, id_to_value)
+        items_by_namekeyid = partitioned["items_by_namekeyid"]
+        items = expand_items_by_itemkey(items_by_namekeyid, itemkey_to_namekeyid)
         print(
-            f"  items={len(partitioned['items'])} "
+            f"  items_by_namekeyid={len(items_by_namekeyid)} "
+            f"items_by_itemkey={len(items)} "
             f"stages={len(partitioned['stages'])} "
             f"heroes={len(partitioned['heroes'])} "
             f"difficulties={len(partitioned['difficulties'])}"
@@ -163,7 +310,10 @@ def main() -> int:
         payload = {
             "source": "game v1.00.28 localization bundles",
             "fetchedUtc": fetched_utc,
-            **partitioned,
+            "items": items,
+            "stages": partitioned["stages"],
+            "heroes": partitioned["heroes"],
+            "difficulties": partitioned["difficulties"],
         }
         out_path = out_dir / f"locale_strings_{lang_code}.json"
         with open(out_path, "w", encoding="utf-8") as f:
