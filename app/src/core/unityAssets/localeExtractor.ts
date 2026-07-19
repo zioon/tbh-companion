@@ -42,15 +42,19 @@ export type ExtractedLocales = Record<string, Record<string, string>>;
  */
 function scanLocaleEntries(bundleBuffer: Buffer): { hash: number; str: string }[] {
   if (bundleBuffer.length === 0) return [];
-  const bundle = parseBundle(bundleBuffer);
-  const sf = parseSerializedFile(bundle.data);
-  const monos = sf.objects
-    .filter((o) => o.classID === TYPE_MONOBEHAVIOUR)
-    .map((o) => ({ info: o, raw: sf.getObjectRaw(o, bundle.data) }))
-    .sort((a, b) => a.raw.length - b.raw.length);
-  const smallest = monos[0];
-  if (!smallest) return [];
-  return scanMarkerEntries(smallest.raw).map((e) => ({ hash: e.hash, str: e.str }));
+  try {
+    const bundle = parseBundle(bundleBuffer);
+    const sf = parseSerializedFile(bundle.data);
+    const monos = sf.objects
+      .filter((o) => o.classID === TYPE_MONOBEHAVIOUR)
+      .map((o) => ({ info: o, raw: sf.getObjectRaw(o, bundle.data) }))
+      .sort((a, b) => a.raw.length - b.raw.length);
+    const smallest = monos[0];
+    if (!smallest) return [];
+    return scanMarkerEntries(smallest.raw).map((e) => ({ hash: e.hash, str: e.str }));
+  } catch {
+    return [];
+  }
 }
 
 /**

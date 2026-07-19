@@ -243,14 +243,26 @@ export class CatalogRefreshService {
         const localePath = join(this.userDataDir, LOCALE_FILE);
         writeFileSync(localePath, JSON.stringify(localePayload), "utf-8");
         this.cachedLocale = localePayload;
-        const counts = Object.entries(localeData).map(
-          ([k, v]) => `${k}=${Object.keys(v).length}`,
-        );
-        log.info(
-          `wrote ${localePath}: ${Object.keys(localeData).length} languages (${counts.join(", ")})`,
-        );
+        // Log per-language entry counts for diagnostics.
+        const parts: string[] = [];
+        for (const lang of Object.keys(localeData).sort()) {
+          const n = Object.keys(localeData[lang]).length;
+          parts.push(n > 0 ? `${lang}=${n}` : `${lang}=EMPTY`);
+        }
+        log.info(`wrote ${localePath}: ${parts.join(", ")}`);
       } else {
-        log.warn("locale extraction returned no data (game bundles may be unavailable)");
+        // extractLocales returned null — shared bundle had no entries.
+        // Run per-locale diagnostics to find which bundles fail to parse.
+        log.warn("locale extraction returned no data (shared may be missing entries); diagnosing per-locale...");
+        for (const [code, buf] of Object.entries(localeBuffers)) {
+          try {
+            const perLang = extractLocales({ sharedBundle, locales: { [code]: buf } });
+            const entryCount = perLang ? Object.keys(perLang[code] ?? {}).length : 0;
+            log.warn(`  ${code}: ${entryCount > 0 ? `${entryCount} entries` : "empty/null"}`);
+          } catch (err) {
+            log.warn(`  ${code}: PARSE ERROR — ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
       }
 
       this.lastRefreshMs = Date.now();
