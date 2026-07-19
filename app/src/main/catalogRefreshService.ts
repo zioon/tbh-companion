@@ -1,10 +1,11 @@
-// Orchestrates catalog refresh: locate game install → read 3 asset files →
+// Orchestrates catalog refresh: locate game install → read asset files →
 // extract catalog via core/unityAssets → write userData/gamedata.json →
-// reload GameDataProvider. Also reads all 4 locale bundles, extracts locale
-// data, and writes userData/locale.json for the renderer to consume.
+// reload GameDataProvider. Also discovers and reads ALL available locale
+// bundles (4 or 16, depending on game version), extracts locale data, and
+// writes userData/locale.json for the renderer to consume.
 // Reports status via getStatus() and broadcasts.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { extractCatalog } from "../core/unityAssets/catalogExtractor";
 import { extractLocales } from "../core/unityAssets/localeExtractor";
@@ -22,6 +23,9 @@ const log = createLogger("catalogRefresh");
 
 const GAMEDATA_FILE = "gamedata.json";
 const LOCALE_FILE = "locale.json";
+const LOCALE_BUNDLE_PREFIX = "localization-string-tables-";
+const EN_BUNDLE_FILENAME =
+  "localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle";
 
 // Default install path (Steam). Overridable by env for non-standard installs.
 const DEFAULT_GAME_INSTALL = "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data";
@@ -38,23 +42,79 @@ interface AssetPaths {
   sharedassets0: string;
   sharedBundle: string;
   enBundle: string;
-  zhCNBundle: string;
-  jaBundle: string;
-  koBundle: string;
+  /** Discovered locale bundles keyed by BCP-47 app code (e.g. "zh-CN", "ja", "fr-FR"). Excludes "en". */
+  localeBundles: Record<string, string>;
+}
+
+/**
+ * Map a lowercased BCP-47 code from a bundle filename (e.g. "en-us", "zh-hans")
+ * to the app's ResolvedLanguage code (e.g. "en", "zh-CN", "zh-Hant").
+ *
+ * - en-us → en (app uses bare "en")
+ * - ja-jp → ja, ko-kr → ko (bare language code)
+ * - zh-hans → zh-CN, zh-hant → zh-Hant
+ * - Other codes: title-case the region subtag (de-de → de-DE, pt-br → pt-BR, ...)
+ */
+function normalizeLocaleCode(raw: string): string | null {
+  const lower = raw.toLowerCase();
+  const SPECIAL: Record<string, string> = {
+    "en-us": "en",
+    "ja-jp": "ja",
+    "ko-kr": "ko",
+    "zh-hans": "zh-CN",
+    "zh-hant": "zh-Hant",
+  };
+  if (SPECIAL[lower]) return SPECIAL[lower];
+  const [lang, region] = lower.split("-");
+  if (!lang || !region) return null;
+  return `${lang}-${region.toUpperCase()}`;
+}
+
+/**
+ * Parse a locale bundle filename and return the normalized app language code,
+ * or null if the filename doesn't match the expected pattern.
+ *
+ * Expected pattern:
+ *   localization-string-tables-<language>(<region>)(<code>)_assets_all.bundle
+ *   localization-string-tables-<language>(<region>)(<code>)_assets_all_<hash>.bundle
+ *
+ * Examples:
+ *   localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle → "en"
+ *   localization-string-tables-chinese(simplified)(zh-hans)_assets_all.bundle → "zh-CN"
+ *   localization-string-tables-vietnamese(vietnam)(vi-vn)_assets_all_abc123.bundle → "vi-VN"
+ */
+export function parseLocaleBundleFilename(filename: string): string | null {
+  if (!filename.startsWith(LOCALE_BUNDLE_PREFIX)) return null;
+  // Find the parenthetical group containing a BCP-47 code (lowercased, hyphenated).
+  // The code is the LAST parenthetical group with a hyphen — earlier groups like
+  // `(unitedstates)` or `(simplified)` won't match.
+  const matches = filename.match(/\(([a-z]{2,3}-[a-z]{2,8})\)/i);
+  if (!matches) return null;
+  return normalizeLocaleCode(matches[1]);
 }
 
 function resolveAssetPaths(installDir: string): AssetPaths {
   const aa = join(installDir, "StreamingAssets", "aa", "StandaloneWindows64");
+  const enBundle = join(aa, EN_BUNDLE_FILENAME);
+  // Discover all available locale bundles dynamically (handles 4 or 16 languages,
+  // plus any future additions, without code changes). The English bundle is
+  // excluded from this map because it's already required as `enBundle` for
+  // catalog extraction (and re-added to the locale buffer during refresh()).
+  const localeBundles: Record<string, string> = {};
+  if (existsSync(aa)) {
+    for (const file of readdirSync(aa)) {
+      if (!file.startsWith(LOCALE_BUNDLE_PREFIX)) continue;
+      if (file === EN_BUNDLE_FILENAME) continue;
+      const code = parseLocaleBundleFilename(file);
+      if (!code) continue;
+      localeBundles[code] = join(aa, file);
+    }
+  }
   return {
     sharedassets0: join(installDir, "sharedassets0.assets"),
     sharedBundle: join(aa, "localization-assets-shared_assets_all.bundle"),
-    enBundle: join(aa, "localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle"),
-    zhCNBundle: join(
-      aa,
-      "localization-string-tables-chinese(simplified)(zh-hans)_assets_all.bundle",
-    ),
-    jaBundle: join(aa, "localization-string-tables-japanese(japan)(ja-jp)_assets_all.bundle"),
-    koBundle: join(aa, "localization-string-tables-korean(southkorea)(ko-kr)_assets_all.bundle"),
+    enBundle,
+    localeBundles,
   };
 }
 
@@ -103,7 +163,8 @@ export class CatalogRefreshService {
       }
       const paths = resolveAssetPaths(installDir);
       // Only the three core assets are required for catalog refresh.
-      const coreKeys: (keyof AssetPaths)[] = ["sharedassets0", "sharedBundle", "enBundle"];
+      // (localeBundles is discovered dynamically and may be empty/partial.)
+      const coreKeys = ["sharedassets0", "sharedBundle", "enBundle"] as const;
       for (const key of coreKeys) {
         if (!existsSync(paths[key])) {
           throw new Error(`required asset file missing: ${key} (${paths[key]})`);
@@ -129,33 +190,36 @@ export class CatalogRefreshService {
       this.gameData.reload(this.userDataDir);
 
       // --- Locale extraction (best-effort: non-fatal) ---
-      const localeKeys: (keyof AssetPaths)[] = ["zhCNBundle", "jaBundle", "koBundle"];
-      for (const key of localeKeys) {
-        if (!existsSync(paths[key])) {
-          log.warn(`locale bundle missing (${key}), skipping locale extraction`);
+      // Always include `en` (from the required enBundle) plus every dynamically
+      // discovered locale bundle. Missing files yield empty maps, not errors.
+      const localeBuffers: Record<string, Buffer> = { en: enBundle };
+      const missing: string[] = [];
+      for (const [code, file] of Object.entries(paths.localeBundles)) {
+        if (!existsSync(file)) {
+          missing.push(code);
+          continue;
         }
+        localeBuffers[code] = readFileSync(file);
       }
-      const localeInput = {
-        sharedBundle,
-        enBundle,
-        zhCNBundle: existsSync(paths.zhCNBundle) ? readFileSync(paths.zhCNBundle) : Buffer.alloc(0),
-        jaBundle: existsSync(paths.jaBundle) ? readFileSync(paths.jaBundle) : Buffer.alloc(0),
-        koBundle: existsSync(paths.koBundle) ? readFileSync(paths.koBundle) : Buffer.alloc(0),
-      };
-      const localeData = extractLocales(localeInput);
+      if (missing.length > 0) {
+        log.warn(`locale bundles missing for languages: ${missing.join(", ")}`);
+      }
+      const localeData = extractLocales({ sharedBundle, locales: localeBuffers });
       if (localeData) {
         // Include gameVersion so the renderer can detect staleness.
         const localePayload: GameLocaleData = {
           version: gameVersion,
-          en: localeData.en,
-          "zh-CN": localeData["zh-CN"],
-          ja: localeData.ja,
-          ko: localeData.ko,
+          locales: localeData,
         };
         const localePath = join(this.userDataDir, LOCALE_FILE);
         writeFileSync(localePath, JSON.stringify(localePayload), "utf-8");
         this.cachedLocale = localePayload;
-        log.info(`wrote ${localePath}: ${Object.keys(localeData.en).length} keys`);
+        const counts = Object.entries(localeData).map(
+          ([k, v]) => `${k}=${Object.keys(v).length}`,
+        );
+        log.info(
+          `wrote ${localePath}: ${Object.keys(localeData).length} languages (${counts.join(", ")})`,
+        );
       } else {
         log.warn("locale extraction returned no data (game bundles may be unavailable)");
       }

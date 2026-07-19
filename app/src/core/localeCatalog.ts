@@ -1,6 +1,8 @@
 // Locale catalog for stage / hero / item / difficulty names.
 //
-// Bundled in data/locale_strings_<lang>.json (4 files: en, zh-CN, ja, ko).
+// Bundled in data/locale_strings_<lang>.json. Four languages (en, zh-CN, ja,
+// ko) have dedicated catalog files; the remaining 12 game-supported languages
+// fall back to the English catalog until dedicated translations are produced.
 // Loaded once per process via `loadLocaleCatalog(lang)`, then injected into
 // services via constructor. Language switch triggers a re-load + service
 // `setLocaleCatalog(newCatalog)` call.
@@ -31,12 +33,40 @@ interface LocaleStringsFile {
   difficulties: Record<string, string>;
 }
 
+/**
+ * Per-language bundled catalog filename. The 12 languages without dedicated
+ * translations reuse the English file as a placeholder (UI strings and item
+ * names will appear in English until native translations are contributed).
+ * Game-extracted labels (grades/types/stats) are still loaded per-language
+ * at runtime via `tryMergeGameLocale` — only the bundled catalog falls back.
+ */
 const LANG_TO_FILENAME: Record<ResolvedLanguage, string> = {
   en: "locale_strings_en.json",
   "zh-CN": "locale_strings_zh-CN.json",
   ja: "locale_strings_ja.json",
   ko: "locale_strings_ko.json",
+  // English fallback for the 12 newly-added game languages:
+  "zh-Hant": "locale_strings_en.json",
+  "fr-FR": "locale_strings_en.json",
+  "de-DE": "locale_strings_en.json",
+  "id-ID": "locale_strings_en.json",
+  "pl-PL": "locale_strings_en.json",
+  "pt-BR": "locale_strings_en.json",
+  "ru-RU": "locale_strings_en.json",
+  "es-ES": "locale_strings_en.json",
+  "th-TH": "locale_strings_en.json",
+  "tr-TR": "locale_strings_en.json",
+  "uk-UA": "locale_strings_en.json",
+  "vi-VN": "locale_strings_en.json",
 };
+
+/**
+ * Test/export helper: return the bundled catalog filename for a language.
+ * Exposed so tests can verify fallback mapping without reading files.
+ */
+export function getLocaleCatalogFilename(lang: ResolvedLanguage): string {
+  return LANG_TO_FILENAME[lang];
+}
 
 const cache = new Map<ResolvedLanguage, LocaleCatalog>();
 

@@ -24,8 +24,11 @@ async function tryMergeGameLocale(): Promise<void> {
     const localeData = await window.tbh.getLocaleData();
     if (!localeData) return;
 
-    for (const lang of ["en", "zh-CN", "ja", "ko"] as const) {
-      const game = localeData[lang];
+    // Iterate every language present in the game-extracted locale data
+    // (4 or 16, depending on game version). For languages not yet loaded
+    // into i18next, addResourceBundle still stores them for later use.
+    for (const lang of Object.keys(localeData.locales)) {
+      const game = localeData.locales[lang];
       if (!game || Object.keys(game).length === 0) continue;
       const labels = flatGameKeysToLabels(game);
       if (labels) {

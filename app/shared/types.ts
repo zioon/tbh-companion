@@ -258,6 +258,18 @@ export interface AutoClassifyStatePayload {
    * detailed queue list; `byCategory` remains for the compact summary.
    */
   items: ReadonlyArray<AutoClassifyQueueItem>;
+  /**
+   * Real-time per-category chest slot counts. Initialized from save data on
+   * every save parse (recalibration), then adjusted between saves by chest
+   * drops (+1), chest opens via unclassified burst (-1), and chest auto-open
+   * timer elapse (-1). Null before the first save parse completes.
+   *
+   * The renderer uses this for the "current/capacity" display — it gives
+   * second-level responsiveness even on game versions where live memory
+   * reading of `PlayerSaveData.BoxData` is unavailable (e.g. v1.00.28).
+   * `capacity` always comes from the save path (`ChestState`).
+   */
+  liveSlots: { common: number; rare: number; act: number } | null;
 }
 
 /** One queued chest drop in {@link AutoClassifyStatePayload.items}. */
@@ -1487,15 +1499,16 @@ export interface CatalogRefreshResult {
 
 /**
  * Game locale data extracted from the game's localization bundles.
- * A flat key-value map per language, covering Grade_*, GearType_*,
- * StatName_*, HeroName_*, StashItemFilterType_*, etc.
- * Null when the game bundles haven't been read yet.
+ *
+ * `locales` is a dynamic map: keys are BCP-47 language codes (e.g. "en",
+ * "zh-CN", "zh-Hant", "fr-FR", ...), values are flat key→value translation
+ * maps (e.g. `{ "Grade_COMMON": "Common", ... }`).
+ *
+ * Only languages successfully extracted and non-empty are included; missing
+ * languages are handled by the renderer via i18next fallback.
  */
 export interface GameLocaleData {
   /** Game version at extraction time (same as CatalogStatus.gameVersion). */
   version: string | null;
-  en: Record<string, string>;
-  "zh-CN": Record<string, string>;
-  ja: Record<string, string>;
-  ko: Record<string, string>;
+  locales: Record<string, Record<string, string>>;
 }
