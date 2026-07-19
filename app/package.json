@@ -28,6 +28,7 @@
     "minify-and-copy-data": "node scripts/minify-and-copy-data.mjs",
     "build:lookup-prices": "tsx scripts/build-lookup-prices.ts",
     "pack": "pnpm minify-and-copy-data && electron-vite build && electron-builder --dir",
+    "sync-locale": "node ../scripts/sync-locale.mjs",
     "dist": "pnpm minify-and-copy-data && electron-vite build && electron-builder"
   },
   "build": {
