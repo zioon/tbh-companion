@@ -3,14 +3,7 @@
 
 import type { MemoryReader } from "../../src/core/liveMemory/memory";
 
-/**
- * A sparse fake memory keyed by exact address. Unlike a real MemoryReader,
- * writes only populate specific slots, but reads return zero-filled buffers
- * for any range that overlaps at least one written slot. This enables
- * heap-scanning tests where the scanner walks large regions looking for
- * specific pointer values, while still returning null for truly unwritten
- * addresses (required by other tests).
- */
+/** A sparse fake memory keyed by exact address; each seeded slot holds its own buffer. */
 export class FakeMemory implements MemoryReader {
   private readonly words = new Map<string, Buffer>();
 
@@ -48,27 +41,8 @@ export class FakeMemory implements MemoryReader {
   }
 
   readBytes(addr: bigint, size: number): Buffer | null {
-    // Check if any written slot falls within the requested range.
-    // If nothing was written in this range, return null (unreachable address).
-    let hasAnyWrittenSlot = false;
-    for (const key of this.words.keys()) {
-      const writtenAddr = BigInt(key);
-      if (writtenAddr >= addr && writtenAddr < addr + BigInt(size)) {
-        hasAnyWrittenSlot = true;
-        break;
-      }
-    }
-    if (!hasAnyWrittenSlot) return null;
-
-    // Build a zero-filled buffer and copy any written data into it.
-    const result = Buffer.alloc(size, 0);
-    for (const [key, data] of this.words) {
-      const writtenAddr = BigInt(key);
-      if (writtenAddr < addr || writtenAddr >= addr + BigInt(size)) continue;
-      const offset = Number(writtenAddr - addr);
-      const copySize = Math.min(data.length, size - offset);
-      data.copy(result, offset, 0, copySize);
-    }
-    return result;
+    const b = this.words.get(addr.toString());
+    if (!b || b.length < size) return null;
+    return b.subarray(0, size);
   }
 }

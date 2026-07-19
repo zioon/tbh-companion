@@ -31,7 +31,14 @@ function withAllEnrichment(o: LiveOffsets): LiveOffsets {
     runtime: {
       ...withLM.runtime,
       log: { ...withLM.runtime.log, getItemWithBoxOpenTypeKey: 42 },
-      boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
+      boxOpenLog: {
+        itemStringKey: 0x18,
+        itemGradeType: 0x1c,
+        gradeSO: 0,
+        gradeSOGrade: 0,
+        boxType: 0,
+        level: 0,
+      },
     },
   };
 }
@@ -67,7 +74,14 @@ describe("missingOffsetFields", () => {
         ...BASE.runtime,
         log: { ...BASE.runtime.log, stageClearTypeKey: 0 },
         stageClearLog: { clearTimeSec: 0 },
-        boxOpenLog: { itemStringKey: 0, itemGradeType: 0, boxType: 0, level: 0 },
+        boxOpenLog: {
+          itemStringKey: 0,
+          itemGradeType: 0,
+          gradeSO: 0,
+          gradeSOGrade: 0,
+          boxType: 0,
+          level: 0,
+        },
       },
     };
     expect(missingOffsetFields(stripped, "full").sort()).toEqual(
@@ -83,17 +97,19 @@ describe("missingOffsetFields", () => {
         "runtime.log.getItemWithBoxOpenTypeKey",
         "runtime.log.stageClearTypeKey",
         "runtime.stageClearLog.clearTimeSec",
-        "typeInfoRva.commonSaveData",
         "typeInfoRva.logManager",
         "typeInfoRva.monsterSpawnManager",
       ].sort(),
     );
   });
 
-  it("treats commonSaveData as enrichment, not critical (pets/inventory anchor only)", () => {
+  it("treats commonSaveData as non-blocking (not derivable on v1.00.23/28, degrades gracefully)", () => {
     const noCsd = { ...BASE, typeInfoRva: { ...BASE.typeInfoRva, commonSaveData: 0n } };
     expect(missingOffsetFields(noCsd, "critical")).toEqual([]);
-    expect(missingOffsetFields(noCsd, "full")).toContain("typeInfoRva.commonSaveData");
+    // commonSaveData is intentionally excluded from ENRICHMENT_FIELDS — see
+    // offsetCompleteness.ts comment. A zero commonSaveData must NOT keep the
+    // table incomplete (otherwise the 30s fallback heal timer re-runs forever).
+    expect(missingOffsetFields(noCsd, "full")).not.toContain("typeInfoRva.commonSaveData");
   });
 });
 

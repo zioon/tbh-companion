@@ -120,32 +120,6 @@ function gaScanRegions(proc: WinProcess, ga: { base: bigint; size: number }): Sc
 }
 
 /**
- * Collect all Il2CppClass* pointers reachable from GameAssembly.dll readable
- * regions, plus a className lookup backed by the same ScanContext (so callers
- * can resolve class names for signature matching without re-scanning). The
- * box-queue scanner uses this to find the obfuscated
- * `Dictionary<EBoxType, List<BoxData>>` class by name + structure.
- *
- * Returns empty arrays / null lookup when no readable GA regions are found.
- */
-export function collectClassPointers(
-  proc: WinProcess,
-  ga: { base: bigint; size: number },
-): { classPtrs: bigint[]; classNameLookup: (classPtr: bigint) => string | null } {
-  const regions = gaScanRegions(proc, ga);
-  if (regions.length === 0) {
-    return { classPtrs: [], classNameLookup: () => null };
-  }
-  const ctx = new ScanContext(proc);
-  const { entries } = collectClassEntries(ctx, ga.base, regions);
-  return {
-    classPtrs: entries.map((e) => e.classPtr),
-    // ScanContext.className caches per classPtr, so repeated calls are cheap.
-    classNameLookup: (classPtr: bigint) => ctx.className(classPtr),
-  };
-}
-
-/**
  * Build a name → Il2CppClass* index by scanning GameAssembly.dll readable
  * regions. This is the same GA-only scan that {@link extractOffsets} runs
  * internally; exposed separately so callers that load a complete bundled/cache

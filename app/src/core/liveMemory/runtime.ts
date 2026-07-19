@@ -382,18 +382,15 @@ function readParty(reader: MemoryReader, smPtr: bigint, o: LiveOffsets): ReadHer
     );
 
     // Decode exp: ObscuredDouble (8-byte) for v1.00.27+, ObscuredFloat (4-byte) for older versions
-    let exp: number | null = null;
-    if (expIsDouble) {
-      exp = decodeObscuredDouble(
-        readU64(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
-        readU64(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
-      );
-    } else {
-      exp = decodeObscuredFloat(
-        readU32(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
-        readU32(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
-      );
-    }
+    const exp = expIsDouble
+      ? decodeObscuredDouble(
+          readU64(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
+          readU64(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
+        )
+      : decodeObscuredFloat(
+          readU32(reader, runtimePtr + BigInt(o.heroRuntime.expHidden)),
+          readU32(reader, runtimePtr + BigInt(o.heroRuntime.expKey)),
+        );
 
     heroes.push({
       heroKey,

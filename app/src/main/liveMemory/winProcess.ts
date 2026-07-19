@@ -404,6 +404,39 @@ export function scanBytes(proc: WinProcess, pattern: Buffer, maxMatches = 200): 
   return results;
 }
 
+/**
+ * Scan a specific memory range (base..base+size) for a byte pattern. Used to
+ * restrict expensive pattern scans to a single module's address range (e.g.
+ * GameAssembly.dll) instead of the whole address space.
+ */
+export function scanBytesInRange(
+  proc: WinProcess,
+  pattern: Buffer,
+  base: bigint,
+  size: number,
+  maxMatches = 200,
+): bigint[] {
+  const results: bigint[] = [];
+  const CHUNK = 1 << 22; // 4 MiB per read — large regions scan faster with bigger chunks
+  let offset = 0n;
+  while (offset < BigInt(size) && results.length < maxMatches) {
+    const remaining = size - Number(offset);
+    const chunkSize = Math.min(CHUNK, remaining);
+    const buf = proc.readBytes(base + offset, chunkSize);
+    if (!buf) {
+      offset += BigInt(chunkSize);
+      continue;
+    }
+    let pos = -1;
+    while ((pos = buf.indexOf(pattern, pos + 1)) !== -1) {
+      results.push(base + offset + BigInt(pos));
+      if (results.length >= maxMatches) break;
+    }
+    offset += BigInt(chunkSize);
+  }
+  return results;
+}
+
 /** Scan readable memory for 8-aligned pointers to a target address. */
 export function scanPointers(proc: WinProcess, target: bigint, maxMatches = 4000): bigint[] {
   const needle = Buffer.alloc(8);
@@ -413,41 +446,84 @@ export function scanPointers(proc: WinProcess, target: bigint, maxMatches = 4000
   return raw.filter((addr) => (addr & 7n) === 0n);
 }
 
-/** Resolve an Il2Cpp class by its real name string (meter's 3-pass approach).
- *  Returns the Il2CppClass* pointer or null if not found. */
-export function resolveClassByName(proc: WinProcess, className: string): bigint | null {
+/**
+ * Resolve an Il2Cpp class by its real name string.
+ * Returns the Il2CppClass* pointer or null if not found.
+ *
+ * Two-pass approach (derived from meter's 3-pass):
+ *   1. Find the `"ClassName\0"` string constant in memory. IL2CPP stores
+ *      these in the global-metadata mapping (typically PAGE_READONLY), not in
+ *      GameAssembly.dll's .rdata — so a GA-restricted scan usually misses and
+ *      we fall back to a whole-address-space scan.
+ *   2. Find 8-aligned pointers to any name-string address. The pointer lives
+ *      in the `Il2CppClass.name` field at +0x10, so `pointerLocation - 0x10`
+ *      is a candidate `Il2CppClass*`. Verify by reading the name pointer back
+ *      and checking the `element_class`/`cast_class` round-trip.
+ *
+ * Performance: Pass 2 does a SINGLE whole-address-space traversal (4 MiB
+ * chunks) that checks every 8-aligned slot against ALL name addresses at once
+ * via a Set lookup. This replaces the previous N-queries approach (one
+ * `scanPointers` call per name address) which took 60–80s when the name had
+ * several copies in memory.
+ */
+export function resolveClassByName(
+  proc: WinProcess,
+  className: string,
+  ga?: { base: bigint; size: number },
+): bigint | null {
   const IL2CPP_CLASS_NAME_OFFSET = 0x10n;
 
-  // Pass 1: find the name string in memory
+  // Pass 1: find the name string in memory.
   const nameBuffer = Buffer.from(className + "\0", "utf-8");
-  const nameAddrs = scanBytes(proc, nameBuffer, 100);
+  let nameAddrs: bigint[] = [];
+  if (ga) {
+    nameAddrs = scanBytesInRange(proc, nameBuffer, ga.base, ga.size, 100);
+  }
+  if (nameAddrs.length === 0) {
+    nameAddrs = scanBytes(proc, nameBuffer, 100);
+  }
   if (nameAddrs.length === 0) return null;
 
-  // Pass 2: find 8-aligned pointers to any name string address
-  const seen = new Set<string>();
-  for (const nameAddr of nameAddrs) {
-    if (seen.has(nameAddr.toString())) continue;
-    seen.add(nameAddr.toString());
-    const ptrHits = scanPointers(proc, nameAddr, 4000);
-    for (const ploc of ptrHits) {
-      // ploc - NAME_OFFSET = potential Il2CppClass*
-      const K = ploc - IL2CPP_CLASS_NAME_OFFSET;
-      if (K <= 0x10000n) continue;
+  // Deduplicate name addresses and build a Set for O(1) slot-value checks.
+  const nameAddrSet = new Set<bigint>();
+  for (const a of nameAddrs) nameAddrSet.add(a);
+  if (nameAddrSet.size === 0) return null;
 
-      // Verify: read the name string back and check it matches
-      // Il2CppClass.name is a const char* at +0x10 — the value is nameAddr
-      const namePtr = proc.readBytes(K + IL2CPP_CLASS_NAME_OFFSET, 8);
-      if (!namePtr) continue;
-      if (namePtr.readBigUInt64LE() !== nameAddr) continue;
+  // Pass 2: single-pass scan of all readable regions for 8-aligned pointers
+  // whose value is in nameAddrSet. One traversal covers every name address —
+  // no per-address re-scanning.
+  const CHUNK = 1 << 22; // 4 MiB
+  for (const region of proc.readableRegions()) {
+    let off = 0n;
+    while (off < BigInt(region.size)) {
+      const remaining = Number(BigInt(region.size) - off);
+      const chunkSize = Math.min(CHUNK, remaining);
+      const buf = proc.readBytes(region.baseAddress + off, chunkSize);
+      if (!buf) {
+        off += BigInt(chunkSize);
+        continue;
+      }
+      // Check every 8-aligned slot in the chunk.
+      for (let i = 0; i + 8 <= buf.length; i += 8) {
+        const v = buf.readBigUInt64LE(i);
+        if (!nameAddrSet.has(v)) continue;
+        // `v` is a name-string address; the slot at `buf[i..i+8]` holds it.
+        // The slot is at `Il2CppClass + 0x10`, so the class pointer is
+        // `slotAddress - 0x10`.
+        const slotAddr = region.baseAddress + off + BigInt(i);
+        const K = slotAddr - IL2CPP_CLASS_NAME_OFFSET;
+        if (K <= 0x10000n) continue;
 
-      // Verify element_class or cast_class round-trip (same as meter)
-      const elemClass = proc.readBytes(K + 0x40n, 8);
-      if (elemClass) {
-        const elemVal = elemClass.readBigUInt64LE();
-        if (elemVal === K || proc.readBytes(K + 0x48n, 8)?.readBigUInt64LE() === K) {
-          return K;
+        // Verify element_class or cast_class round-trip (same as meter).
+        const elemClass = proc.readBytes(K + 0x40n, 8);
+        if (elemClass) {
+          const elemVal = elemClass.readBigUInt64LE();
+          if (elemVal === K || proc.readBytes(K + 0x48n, 8)?.readBigUInt64LE() === K) {
+            return K;
+          }
         }
       }
+      off += BigInt(chunkSize);
     }
   }
   return null;

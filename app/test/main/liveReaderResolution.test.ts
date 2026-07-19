@@ -24,7 +24,14 @@ const COMPLETE: LiveOffsets = {
     ...INCOMPLETE.runtime,
     log: { ...INCOMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 42 },
     monster: { ...INCOMPLETE.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
-    boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
+    boxOpenLog: {
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+      boxType: 0,
+      level: 0,
+    },
   },
 };
 // What the extractor "derives": only the missing enrichment RVA.
@@ -39,7 +46,14 @@ const DERIVED: LiveOffsets = {
     ...INCOMPLETE.runtime,
     log: { ...INCOMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 42 },
     monster: { ...INCOMPLETE.runtime.monster, monsterList: 0x20, deadMonsterList: 0x30 },
-    boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, boxType: 0, level: 0 },
+    boxOpenLog: {
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+      boxType: 0,
+      level: 0,
+    },
   },
 };
 
@@ -47,9 +61,12 @@ const stubs = vi.hoisted(() => ({
   cached: null as LiveOffsets | null,
   extracted: null as LiveOffsets | null,
   mayAttempt: true,
+  mayAttemptEnrichment: true,
   saved: null as LiveOffsets | null,
   extractCalls: 0,
   recordCalls: 0,
+  enrichmentRecordCalls: 0,
+  enrichmentResetCalls: 0,
 }));
 
 vi.mock("../../src/main/liveMemory/offsetCache", () => ({
@@ -63,8 +80,12 @@ vi.mock("../../src/main/liveMemory/offsetCache", () => ({
 vi.mock("../../src/main/liveMemory/offsetExtractor", () => ({
   extractOffsets: () => {
     stubs.extractCalls += 1;
-    return stubs.extracted;
+    // extractOffsets now returns { offsets, classIndex }; wrap the stubbed
+    // LiveOffsets so the reader's merge/persist path keeps working. The class
+    // index is empty for tests — the name-scan fast path isn't exercised here.
+    return stubs.extracted ? { offsets: stubs.extracted, classIndex: new Map() } : null;
   },
+  buildClassNameIndex: () => new Map(),
 }));
 
 vi.mock("../../src/main/liveMemory/offsetHealing", () => ({
@@ -74,6 +95,15 @@ vi.mock("../../src/main/liveMemory/offsetHealing", () => ({
   },
   extractionAttempts: () => (stubs.mayAttempt ? 0 : 3),
   MAX_EXTRACTION_ATTEMPTS: 3,
+  mayAttemptEnrichment: () => stubs.mayAttemptEnrichment,
+  recordEnrichmentAttempt: () => {
+    stubs.enrichmentRecordCalls += 1;
+  },
+  enrichmentAttempts: () => (stubs.mayAttemptEnrichment ? 0 : 3),
+  MAX_ENRICHMENT_ATTEMPTS: 3,
+  resetEnrichmentAttempts: () => {
+    stubs.enrichmentResetCalls += 1;
+  },
 }));
 
 vi.mock("node:fs", () => ({
@@ -123,9 +153,12 @@ beforeEach(() => {
   stubs.cached = null;
   stubs.extracted = null;
   stubs.mayAttempt = true;
+  stubs.mayAttemptEnrichment = true;
   stubs.saved = null;
   stubs.extractCalls = 0;
   stubs.recordCalls = 0;
+  stubs.enrichmentRecordCalls = 0;
+  stubs.enrichmentResetCalls = 0;
 });
 
 describe("LiveMemoryReader self-healing resolution", () => {
@@ -146,13 +179,15 @@ describe("LiveMemoryReader self-healing resolution", () => {
     expect(reader.supported).toBe(true);
   });
 
-  it("does not record an attempt when supported (enrichment bypass)", async () => {
+  it("records an enrichment attempt (not a critical one) when supported", async () => {
     stubs.cached = INCOMPLETE;
     stubs.extracted = DERIVED;
     await attachFresh();
     // INCOMPLETE is supported (critical offsets present), so extraction runs
-    // with budget bypassed — no attempt is recorded.
+    // via the enrichment budget path — enrichment attempt recorded, critical
+    // attempt counter untouched.
     expect(stubs.recordCalls).toBe(0);
+    expect(stubs.enrichmentRecordCalls).toBe(1);
   });
 
   it("records an attempt when not supported (no cached base)", async () => {
@@ -173,13 +208,16 @@ describe("LiveMemoryReader self-healing resolution", () => {
     expect(stubs.saved?.runtime.heroList).toBe(INCOMPLETE.runtime.heroList);
   });
 
-  it("still runs extraction when supported but budget exhausted (enrichment bypass)", async () => {
+  it("skips extraction when enrichment budget exhausted (supported)", async () => {
     stubs.cached = INCOMPLETE;
-    stubs.mayAttempt = false;
+    stubs.mayAttemptEnrichment = false;
     stubs.extracted = DERIVED;
     const reader = await attachFresh();
-    expect(stubs.extractCalls).toBe(1); // runs despite budget
-    expect(stubs.recordCalls).toBe(0); // not counted
+    // Supported but enrichment budget exhausted → extractor skipped, no
+    // attempt recorded. Critical budget is independent and also untouched.
+    expect(stubs.extractCalls).toBe(0);
+    expect(stubs.enrichmentRecordCalls).toBe(0);
+    expect(stubs.recordCalls).toBe(0);
     expect(reader.supported).toBe(true);
   });
 

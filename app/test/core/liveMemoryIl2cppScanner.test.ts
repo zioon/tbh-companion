@@ -429,7 +429,7 @@ describe("findLogManager", () => {
       logByType: 0x28,
       getBoxTypeKey: 3,
       boxOpenTypeKey: 0,
-      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0, gradeSO: 0, gradeSOGrade: 0 },
     });
   });
 
@@ -445,7 +445,7 @@ describe("findLogManager", () => {
       logByType: 0x20,
       getBoxTypeKey: 3,
       boxOpenTypeKey: 0,
-      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0, gradeSO: 0, gradeSOGrade: 0 },
     });
   });
 
@@ -461,7 +461,7 @@ describe("findLogManager", () => {
       logByType: 0x28,
       getBoxTypeKey: 7,
       boxOpenTypeKey: 0,
-      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0, gradeSO: 0, gradeSOGrade: 0 },
     });
   });
 
@@ -476,7 +476,7 @@ describe("findLogManager", () => {
       logByType: 0x28,
       getBoxTypeKey: 3,
       boxOpenTypeKey: 0,
-      boxOpenLog: { itemStringKey: 0, itemGradeType: 0 },
+      boxOpenLog: { itemStringKey: 0, itemGradeType: 0, gradeSO: 0, gradeSOGrade: 0 },
     });
   });
 
@@ -518,7 +518,7 @@ describe("findLogManager", () => {
       logByType: 0x28,
       getBoxTypeKey: 3,
       boxOpenTypeKey: 5,
-      boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c },
+      boxOpenLog: { itemStringKey: 0x18, itemGradeType: 0x1c, gradeSO: 0, gradeSOGrade: 0 },
     });
   });
 
@@ -540,7 +540,7 @@ describe("findLogManager", () => {
       logByType: 0x28,
       getBoxTypeKey: 3,
       boxOpenTypeKey: 4,
-      boxOpenLog: { itemStringKey: 0x20, itemGradeType: 0x24 },
+      boxOpenLog: { itemStringKey: 0x20, itemGradeType: 0x24, gradeSO: 0, gradeSOGrade: 0 },
     });
   });
 
@@ -557,7 +557,12 @@ describe("findLogManager", () => {
     const result = findLogManager(new ScanContext(m), [e, boEntry]);
     expect(result?.boxOpenTypeKey).toBe(0);
     // Fields are still resolved from the class metadata
-    expect(result?.boxOpenLog).toEqual({ itemStringKey: 0x18, itemGradeType: 0x1c });
+    expect(result?.boxOpenLog).toEqual({
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+    });
   });
 
   it("resolves boxOpenLog fields from the live instance even when BoxOpenLog is absent from the index", () => {
@@ -585,7 +590,12 @@ describe("findLogManager", () => {
     const result = findLogManager(new ScanContext(m), [e]);
     expect(result).not.toBeNull();
     expect(result!.boxOpenTypeKey).toBe(5);
-    expect(result!.boxOpenLog).toEqual({ itemStringKey: 0x18, itemGradeType: 0x1c });
+    expect(result!.boxOpenLog).toEqual({
+      itemStringKey: 0x18,
+      itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+    });
   });
 });
 
@@ -603,6 +613,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
       itemStringKey: 0x18,
       itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -614,6 +626,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
       itemStringKey: 0,
       itemGradeType: 0,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -623,6 +637,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
       itemStringKey: 0,
       itemGradeType: 0,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -637,6 +653,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e])).toEqual({
       itemStringKey: 0x20,
       itemGradeType: 0x24,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -659,6 +677,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [unrelated], boInstance)).toEqual({
       itemStringKey: 0x18,
       itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -678,6 +698,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [], boInstance)).toEqual({
       itemStringKey: 0x20,
       itemGradeType: 0x24,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -693,6 +715,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e], null)).toEqual({
       itemStringKey: 0x18,
       itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 
@@ -711,6 +735,8 @@ describe("findBoxOpenLogFields", () => {
     expect(findBoxOpenLogFields(new ScanContext(m), [e], boInstance)).toEqual({
       itemStringKey: 0x18,
       itemGradeType: 0x1c,
+      gradeSO: 0,
+      gradeSOGrade: 0,
     });
   });
 });

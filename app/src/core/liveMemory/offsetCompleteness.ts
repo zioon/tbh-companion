@@ -27,12 +27,18 @@ const CRITICAL_FIELDS: readonly FieldCheck[] = [
  * Enrichment fields — live chest drops, pets, inventory. A zero here disables
  * that one feature (the reader still works), but we still want them all mapped,
  * so their absence triggers the extractor. None are legitimately zero.
- * `commonSaveData` lives here (not critical): it only anchors the pets and
- * inventory save-snapshot walks, and no static root for it was reachable on
- * v1.00.23 — core stats must not be held hostage to it.
+ *
+ * `typeInfoRva.commonSaveData` is intentionally excluded: it has no static root
+ * reachable on v1.00.23/28 (per offsets.ts comment "not derivable by structural
+ * anchor"), so the extractor can never fill it. Listing it here would keep
+ * `enrichmentComplete` permanently false and cause the 30s fallback heal timer
+ * (worker.ts `HEAL_ENRICHMENT_FALLBACK_MS`) to re-run the extractor every 30s
+ * forever — each run ~6s of CPU for zero benefit. pets/inventory gracefully
+ * degrade to the save-snapshot path when commonSaveData=0; the per-version base
+ * offsets for petSaveDatas/itemSaveDatas/petSaveData.* /inventoryItem.* are
+ * still checked here so we notice if those struct offsets go missing.
  */
 const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
-  { path: "typeInfoRva.commonSaveData", get: (o) => o.typeInfoRva.commonSaveData },
   { path: "typeInfoRva.logManager", get: (o) => o.typeInfoRva.logManager },
   { path: "typeInfoRva.monsterSpawnManager", get: (o) => o.typeInfoRva.monsterSpawnManager },
   { path: "player.petSaveDatas", get: (o) => o.player.petSaveDatas },
@@ -42,14 +48,28 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   { path: "inventoryItem.itemKey", get: (o) => o.inventoryItem.itemKey },
   { path: "inventoryItem.isChaotic", get: (o) => o.inventoryItem.isChaotic },
   { path: "runtime.log.stageClearTypeKey", get: (o) => o.runtime.log.stageClearTypeKey },
-  { path: "runtime.log.getItemWithBoxOpenTypeKey", get: (o) => o.runtime.log.getItemWithBoxOpenTypeKey },
+  {
+    path: "runtime.log.getItemWithBoxOpenTypeKey",
+    get: (o) => o.runtime.log.getItemWithBoxOpenTypeKey,
+  },
   { path: "runtime.stageClearLog.clearTimeSec", get: (o) => o.runtime.stageClearLog.clearTimeSec },
   // BoxOpenLog struct fields — class-metadata-derived (real ES3 field names).
   // boxType/level are intentionally excluded: obfuscated field names mean the
   // extractor can never derive them, so listing them would perpetually mark the
   // table incomplete and trigger fruitless re-extraction.
-  { path: "runtime.boxOpenLog.itemStringKey", get: (o) => o.runtime.boxOpenLog?.itemStringKey ?? 0 },
-  { path: "runtime.boxOpenLog.itemGradeType", get: (o) => o.runtime.boxOpenLog?.itemGradeType ?? 0 },
+  // gradeSO/gradeSOGrade are also excluded: they are v1.00.28-specific (grade
+  // moved to a GradeSO ScriptableObject reference). Pre-1.00.28 versions never
+  // populate them, so listing them would perpetually block those versions. The
+  // runtime reader falls back to itemGradeType then to the catalog grade when
+  // gradeSO is 0, so completeness is driven by itemStringKey/itemGradeType.
+  {
+    path: "runtime.boxOpenLog.itemStringKey",
+    get: (o) => o.runtime.boxOpenLog?.itemStringKey ?? 0,
+  },
+  {
+    path: "runtime.boxOpenLog.itemGradeType",
+    get: (o) => o.runtime.boxOpenLog?.itemGradeType ?? 0,
+  },
 ];
 
 const ALL_FIELDS: readonly FieldCheck[] = [...CRITICAL_FIELDS, ...ENRICHMENT_FIELDS];
@@ -155,6 +175,11 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
         itemGradeType: pickN(
           base.runtime.boxOpenLog?.itemGradeType ?? 0,
           derived.runtime.boxOpenLog.itemGradeType,
+        ),
+        gradeSO: pickN(base.runtime.boxOpenLog?.gradeSO ?? 0, derived.runtime.boxOpenLog.gradeSO),
+        gradeSOGrade: pickN(
+          base.runtime.boxOpenLog?.gradeSOGrade ?? 0,
+          derived.runtime.boxOpenLog.gradeSOGrade,
         ),
       },
       stageClearLog: {

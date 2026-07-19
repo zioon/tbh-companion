@@ -33,3 +33,26 @@ export function decodeObscuredLong(buf: Buffer | Uint8Array, off = 0): number | 
   }
   return null;
 }
+
+/**
+ * ACTk ObscuredInt decode — 8-byte struct: int32 hiddenValue + int32 currentCryptoKey.
+ *
+ * Used by BoxOpenLog fields on v1.00.28+ where the obfuscator renamed the fields
+ * (e.g. `itemStringKey` → `bfne`) AND changed their type from plain int32 to
+ * ObscuredInt. Decrypt formula is the same as ObscuredLong:
+ * `(hidden - crypto) ^ crypto`, but with 32-bit operands.
+ *
+ * Returns the decoded int32 value, or null when the buffer is too short.
+ * Returns 0 when both hidden and cryptoKey are 0 (uninitialized / value is 0).
+ */
+export function decodeObscuredInt(buf: Buffer | Uint8Array, off = 0): number | null {
+  if (buf.length < off + 8) return null;
+  const view = buf instanceof Buffer ? buf : Buffer.from(buf);
+  const hidden = BigInt(view.readInt32LE(off));
+  const cryptoKey = BigInt(view.readInt32LE(off + 4));
+  if (hidden === 0n && cryptoKey === 0n) return 0;
+  const decrypted = actkDecryptLong(hidden, cryptoKey);
+  // ObscuredInt decrypts to a 32-bit range; reject anything outside int32.
+  if (decrypted < -2147483648n || decrypted > 2147483647n) return null;
+  return Number(decrypted);
+}

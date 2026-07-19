@@ -58,14 +58,7 @@ import {
 } from "../../core/liveMemory/runtime";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
-import type { BoxQueueSnapshot, LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
-import {
-  makeBoxQueuePinState,
-  scanBoxQueue,
-  type BoxQueuePinState,
-} from "../../core/liveMemory/boxQueueScanner";
-import { BoxQueueState, type BoxQueueConsumption } from "../../core/liveMemory/boxQueueState";
-import { collectClassPointers } from "./offsetExtractor";
+import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
@@ -125,31 +118,6 @@ export class LiveMemoryReader {
   private stageClearPin: StageClearPinState = makeStageClearPinState();
   private boxOpenPin: BoxOpenPinState = makeBoxOpenPinState();
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
-  /**
-   * Box-queue ("stargaze") scanner pin: caches the resolved box-queue class
-   * pointer, dict field offset, BoxData field offsets, and the live singleton
-   * instance pointer across ticks. Reset on detach.
-   */
-  private boxQueuePin: BoxQueuePinState = makeBoxQueuePinState();
-  /**
-   * Box-queue state machine: advances the predicted drop queue across ticks,
-   * deduplicates identical reads, and consumes the head when the player opens
-   * chests (derived from this tick's own `boxOpens` array — no IPC round-trip
-   * needed since the reader already produces that field). Reset on detach.
-   */
-  private boxQueueState = new BoxQueueState();
-  /** Cached list of all Il2CppClass* pointers in GameAssembly.dll (built once). */
-  private allClassPointers: bigint[] | null = null;
-  /**
-   * Cached class-name lookup (Il2CppClass* → name) from the same ScanContext
-   * that produced {@link allClassPointers}. Used by the box-queue scanner for
-   * obfuscation-immune name matching.
-   */
-  private classNameLookup: ((classPtr: bigint) => string | null) | null = null;
-  /** True once a GA class scan has been attempted this attach session. */
-  private classPointersScanAttempted = false;
-  /** Last boxQueue status emitted to the log — used to suppress duplicate logs. */
-  private lastBoxQueueStatus: string | null = null;
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
@@ -502,31 +470,6 @@ export class LiveMemoryReader {
     );
   }
 
-  /**
-   * Ensure {@link allClassPointers} is populated. The box-queue scanner needs
-   * every Il2CppClass* in the GameAssembly image so it can iterate them and
-   * match by field-type signature (`Dictionary<EBoxType, List<BoxData>>`) —
-   * the box-queue class name is obfuscated per build, so a name index isn't
-   * enough. Built once per attach session; reused across ticks. Returns an
-   * empty array when the GA scan fails.
-   */
-  private ensureAllClassPointers(): bigint[] {
-    if (this.allClassPointers != null) return this.allClassPointers;
-    if (this.classPointersScanAttempted) return [];
-    this.classPointersScanAttempted = true;
-    const p = this.proc;
-    const ga = this.ga;
-    if (!p || !ga || !p.isAlive()) return [];
-    const t0 = Date.now();
-    const { classPtrs, classNameLookup } = collectClassPointers(p, ga);
-    this.allClassPointers = classPtrs;
-    this.classNameLookup = classNameLookup;
-    this.log(
-      `allClassPointers: collected ${this.allClassPointers.length} classes from GA scan (${Date.now() - t0} ms)`,
-    );
-    return this.allClassPointers;
-  }
-
   detach(): void {
     this.proc?.close();
     this.proc = null;
@@ -545,12 +488,6 @@ export class LiveMemoryReader {
     this.stageClearPin = makeStageClearPinState();
     this.boxOpenPin = makeBoxOpenPinState();
     this.monsterPin = makeMonsterSpawnPinState();
-    this.boxQueuePin = makeBoxQueuePinState();
-    this.boxQueueState.reset();
-    this.allClassPointers = null;
-    this.classNameLookup = null;
-    this.classPointersScanAttempted = false;
-    this.lastBoxQueueStatus = null;
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
     this.cachedInventory = null;
@@ -695,93 +632,6 @@ export class LiveMemoryReader {
       }
     }
 
-    // Box-queue ("stargaze") prediction: scan the runtime
-    // `Dictionary<EBoxType, List<BoxData>>` singleton and decode the
-    // not-yet-consumed per-category drop queue. Runs every tick on the
-    // cached class pointer + instance; falls back to a heap scan when the
-    // instance pin is stale (capped at one scan per attach session to
-    // avoid hammering the heap). The class-pointer list is built lazily
-    // from the GA image scan we already run for the named class index.
-    //
-    // Consumption events are derived from this tick's own `boxOpens` array
-    // — each BoxOpenEntry corresponds to one chest the player opened, and
-    // the prediction's per-category head is consumed to match. This keeps
-    // the prediction in sync without a separate IPC round-trip from the
-    // TrackingService (which runs in the main process; the reader runs in
-    // a utilityProcess worker).
-    let boxQueueSnapshot: BoxQueueSnapshot | null = null;
-    let boxQueueStatus: string | undefined;
-    if (this.supported) {
-      try {
-        const classPtrs = this.ensureAllClassPointers();
-        const heapRegions = [...p.readableRegions(5000)]
-          // Only scan RW committed regions (the singleton lives on the GC
-          // heap; scanning RX/executable regions wastes time and can crash
-          // some koffi builds on read-protected pages).
-          .filter((r) => r.protect === 0x04 /* PAGE_READWRITE */)
-          .map((r) => ({ base: r.baseAddress, size: r.size }));
-        const scan = scanBoxQueue(
-          p,
-          classPtrs,
-          heapRegions,
-          this.boxQueuePin,
-          this.classNameLookup ?? undefined,
-        );
-        // Log state transitions only (suppress duplicate `instance_lost` spam
-        // while the 30s rescan cooldown runs).
-        const wasResolved = this.boxQueuePin.classPtr != null;
-        const statusKey = `${scan.status}:${this.boxQueuePin.classPtr != null}:${this.boxQueuePin.instancePtr != null}`;
-        if (statusKey !== this.lastBoxQueueStatus) {
-          this.lastBoxQueueStatus = statusKey;
-          if (scan.status !== "ok") {
-            this.log(
-              `boxQueue: status=${scan.status} classPtrs=${classPtrs.length} regions=${heapRegions.length}`,
-            );
-          } else if (this.boxQueuePin.classPtr != null && !wasResolved) {
-            this.log(
-              `boxQueue: resolved class=0x${this.boxQueuePin.classPtr.toString(16)} dictOff=0x${this.boxQueuePin.dictFieldOffset.toString(16)} instance=0x${this.boxQueuePin.instancePtr?.toString(16) ?? "null"}`,
-            );
-          } else {
-            this.log(`boxQueue: ok (recovered)`);
-          }
-        }
-        // Derive per-category consumption from this tick's BoxOpenEntry
-        // batch. boxType 0 = common, 1 = rare, 2 = act; entries with no
-        // boxType (offset not derived) can't be attributed to a bucket and
-        // are skipped — the queue self-corrects on the next tick when the
-        // game consumes its own entries.
-        const counts: Record<"common" | "rare" | "act", number> = {
-          common: 0,
-          rare: 0,
-          act: 0,
-        };
-        if (boxOpenResult.opens) {
-          for (const op of boxOpenResult.opens) {
-            if (op.boxType === 0) counts.common += 1;
-            else if (op.boxType === 1) counts.rare += 1;
-            else if (op.boxType === 2) counts.act += 1;
-          }
-        }
-        const consumption: BoxQueueConsumption[] = [];
-        for (const cat of ["common", "rare", "act"] as const) {
-          if (counts[cat] > 0) consumption.push({ category: cat, count: counts[cat] });
-        }
-        boxQueueSnapshot = this.boxQueueState.advance(
-          scan.queue,
-          scan.status,
-          consumption,
-          Date.now(),
-        );
-        if (scan.status !== "ok") {
-          boxQueueStatus = `box queue: ${scan.status}`;
-        }
-      } catch (e) {
-        // Never let the box-queue scan take down the tick — the rest of the
-        // snapshot is still valid and useful.
-        boxQueueStatus = `box queue error: ${String(e)}`;
-      }
-    }
-
     return {
       connected: true,
       stageKey: stage.stageKey,
@@ -804,8 +654,6 @@ export class LiveMemoryReader {
       inventoryItemsStatus: this.cachedInventory?.status || undefined,
       petData: this.cachedPets?.pets ?? null,
       petDataStatus: this.cachedPets?.status || undefined,
-      boxQueue: boxQueueSnapshot,
-      boxQueueStatus,
       monsterHp,
       deadMonsterCount,
       source: `memory v${o.gameVersion}`,

@@ -3,10 +3,15 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   attemptMarkerPath,
+  enrichmentAttemptMarkerPath,
+  enrichmentAttempts,
   extractionAttempts,
+  mayAttemptEnrichment,
   mayAttemptExtraction,
-  recordExtractionAttempt,
   MAX_EXTRACTION_ATTEMPTS,
+  recordEnrichmentAttempt,
+  recordExtractionAttempt,
+  resetEnrichmentAttempts,
 } from "../../src/main/liveMemory/offsetHealing";
 
 const DIR = join(process.env["TEMP"] ?? "/tmp", `tbh-offset-healing-${process.pid}`);
@@ -72,5 +77,81 @@ describe("mayAttemptExtraction", () => {
     for (let i = 0; i < MAX_EXTRACTION_ATTEMPTS; i++) recordExtractionAttempt(DIR, VERSION, BUILD);
     expect(mayAttemptExtraction(DIR, VERSION, BUILD)).toBe(false);
     expect(mayAttemptExtraction(DIR, VERSION, "next-build")).toBe(true);
+  });
+});
+
+describe("enrichmentAttempts", () => {
+  it("returns 0 when no marker exists", () => {
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(0);
+  });
+
+  it("counts recorded attempts for the same build", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(2);
+  });
+
+  it("resets to 0 for a different app build", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, VERSION, "9.9.9")).toBe(0);
+  });
+
+  it("resets to 0 when the extractor revision bumps", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(2);
+    writeFileSync(
+      enrichmentAttemptMarkerPath(DIR, VERSION),
+      JSON.stringify({ appBuild: BUILD, attempts: 3, extractorRevision: 0 }),
+      "utf-8",
+    );
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(0);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(true);
+  });
+
+  it("is keyed per game version", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, "2.00.00", BUILD)).toBe(0);
+  });
+});
+
+describe("mayAttemptEnrichment", () => {
+  it("allows attempts until the cap is reached, then stops", () => {
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(true);
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(false);
+  });
+
+  it("re-opens the budget when the app build changes", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(false);
+    expect(mayAttemptEnrichment(DIR, VERSION, "next-build")).toBe(true);
+  });
+});
+
+describe("resetEnrichmentAttempts", () => {
+  it("clears the budget so enrichment may run again", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(false);
+    resetEnrichmentAttempts(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(0);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(true);
+  });
+});
+
+describe("enrichment vs critical budget isolation", () => {
+  it("exhausting enrichment does not affect the critical budget", () => {
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(false);
+    expect(mayAttemptExtraction(DIR, VERSION, BUILD)).toBe(true);
+    expect(extractionAttempts(DIR, VERSION, BUILD)).toBe(0);
+  });
+
+  it("exhausting critical does not affect the enrichment budget", () => {
+    for (let i = 0; i < MAX_EXTRACTION_ATTEMPTS; i++) recordExtractionAttempt(DIR, VERSION, BUILD);
+    expect(mayAttemptExtraction(DIR, VERSION, BUILD)).toBe(false);
+    expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(true);
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(0);
   });
 });

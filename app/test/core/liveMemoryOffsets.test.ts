@@ -100,10 +100,10 @@ describe("plausibility guards", () => {
     expect(plausibleGold(null)).toBe(false);
   });
 
-  it("plausibleWave accepts a positive wave under 1000", () => {
+  it("plausibleWave accepts 0 (challenge-fail reset) and positive waves under 1000", () => {
+    expect(plausibleWave(0)).toBe(true); // pre-wave / challenge-failure reset
     expect(plausibleWave(1)).toBe(true);
     expect(plausibleWave(999)).toBe(true);
-    expect(plausibleWave(0)).toBe(false);
     expect(plausibleWave(1000)).toBe(false);
     expect(plausibleWave(null)).toBe(false);
   });

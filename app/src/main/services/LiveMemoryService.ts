@@ -103,10 +103,20 @@ export class LiveMemoryService {
     });
 
     // Capture stderr so worker crashes are diagnosable instead of silent exit(1).
+    // Cap at 64 KB to prevent unbounded growth if the worker spams stderr for
+    // hours without crashing — keep only the most recent output.
+    const STDERR_MAX_BYTES = 64 * 1024;
     const stderrChunks: string[] = [];
+    let stderrBytes = 0;
     this.child.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       stderrChunks.push(text);
+      stderrBytes += text.length;
+      // Evict oldest chunks until we're back under the cap.
+      while (stderrBytes > STDERR_MAX_BYTES && stderrChunks.length > 1) {
+        const removed = stderrChunks.shift()!;
+        stderrBytes -= removed.length;
+      }
       log.warn(`[worker stderr] ${text.trimEnd()}`);
     });
 

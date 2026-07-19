@@ -8,7 +8,8 @@
 // only serialization-stable names ("StageCache", "StageInfoData", "GetBoxLog",
 // "HeroList", "PetSaveData", …) are trusted as identifiers.
 
-import { readI32, readI64, readPtr, type MemoryReader } from "./memory";
+import { readI32, readI64, readIl2CppString, readPtr, type MemoryReader } from "./memory";
+import { decodeObscuredInt } from "./obscured";
 import { plausibleGold } from "./offsets";
 
 // ── IL2CPP metadata layout (x64, stable across recent Unity versions) ────────
@@ -172,6 +173,7 @@ export class ScanContext {
   private readonly names = new Map<bigint, string | null>();
   private readonly fields = new Map<bigint, Map<string, number> | null>();
   private readonly statics = new Map<bigint, ReadonlyArray<{ soff: number; value: bigint }>>();
+  private readonly probedClasses = new Set<bigint>();
 
   constructor(readonly reader: MemoryReader) {}
 
@@ -207,6 +209,123 @@ export class ScanContext {
     if (klass == null || !isPlausibleHeapPtr(klass)) return null;
     if (this.className(klass) == null) return null;
     return this.classFields(klass);
+  }
+
+  /**
+   * Diagnostic dump: when `instanceClassFields` returned a non-empty Map but
+   * the expected field names are missing, dump the Map contents + raw
+   * field-info bytes so we can see what names were actually read and whether
+   * the field-info struct layout (name at +0x0, offset at +0x18) still holds.
+   * Returns a diagnostic string for the caller to log, or null when already
+   * dumped for this class.
+   */
+  dumpClassFields(objPtr: bigint, fields: Map<string, number>): string | null {
+    const klass = readPtr(this.reader, objPtr);
+    if (klass == null || !isPlausibleHeapPtr(klass)) return null;
+    if (this.probedClasses.has(klass)) return null;
+    this.probedClasses.add(klass);
+    const name = this.className(klass);
+    // Dump the field names + offsets we successfully read.
+    const fieldList: string[] = [];
+    for (const [fname, foff] of fields) {
+      fieldList.push(`${fname}=0x${foff.toString(16)}`);
+    }
+    let msg = `[scanner] classFields dump: klass=0x${klass.toString(16)} name="${name ?? "null"}" fields(${fields.size})=[${fieldList.join(", ")}]`;
+    // Also dump raw field-info bytes (first 3 entries × 0x20 bytes) so the
+    // struct layout can be inferred if the names look wrong.
+    const fieldsPtr = readPtr(this.reader, klass + IL2CPP_CLASS_FIELDS_OFFSET);
+    if (fieldsPtr == null) {
+      const fieldsPtrAlt = readPtr(this.reader, klass + IL2CPP_CLASS_FIELDS_ALT_OFFSET);
+      if (fieldsPtrAlt != null && isPlausibleHeapPtr(fieldsPtrAlt)) {
+        const sample = this.reader.readBytes(fieldsPtrAlt, 0x60);
+        if (sample && sample.length === 0x60) {
+          const hex: string[] = [];
+          for (let i = 0; i < sample.length; i += 8) {
+            const lo = sample.readUInt32LE(i);
+            const hi = sample.readUInt32LE(i + 4);
+            hex.push(
+              `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
+            );
+          }
+          msg += ` | raw@+0x88=0x${fieldsPtrAlt.toString(16)}: ${hex.join(" ")}`;
+        }
+      }
+    } else if (isPlausibleHeapPtr(fieldsPtr)) {
+      const sample = this.reader.readBytes(fieldsPtr, 0x60);
+      if (sample && sample.length === 0x60) {
+        const hex: string[] = [];
+        for (let i = 0; i < sample.length; i += 8) {
+          const lo = sample.readUInt32LE(i);
+          const hi = sample.readUInt32LE(i + 4);
+          hex.push(
+            `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
+          );
+        }
+        msg += ` | raw@+0x80=0x${fieldsPtr.toString(16)}: ${hex.join(" ")}`;
+      }
+    }
+    // Dump the live instance bytes (0x60 bytes from objPtr) so we can see the
+    // actual field values + surrounding bytes. Helps disambiguate ObscuredInt
+    // (8 bytes) vs int64 (8 bytes) vs int32 (4 bytes) layouts.
+    const instBuf = this.reader.readBytes(objPtr, 0x60);
+    if (instBuf && instBuf.length === 0x60) {
+      const hex: string[] = [];
+      for (let i = 0; i < instBuf.length; i += 8) {
+        const lo = instBuf.readUInt32LE(i);
+        const hi = instBuf.readUInt32LE(i + 4);
+        hex.push(
+          `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
+        );
+      }
+      msg += ` | inst@0x${objPtr.toString(16)}: ${hex.join(" ")}`;
+    }
+    return msg;
+  }
+
+  /**
+   * Diagnostic probe: when `instanceClassFields` returns null despite the class
+   * name being readable, dump the raw pointer values at several candidate
+   * Il2CppClass.fields offsets. Returns a diagnostic string for the caller to
+   * log (core layer has no logger). Returns null when the probe is suppressed
+   * (already probed this class, or klass unreadable).
+   */
+  probeClassFieldsLayout(objPtr: bigint): string | null {
+    const klass = readPtr(this.reader, objPtr);
+    if (klass == null || !isPlausibleHeapPtr(klass)) return null;
+    if (this.probedClasses.has(klass)) return null;
+    this.probedClasses.add(klass);
+    const name = this.className(klass);
+    const candidates = [0x68n, 0x70n, 0x78n, 0x80n, 0x88n, 0x90n, 0x98n, 0xa0n, 0xa8n, 0xb0n];
+    const parts: string[] = [];
+    let firstPlausibleFieldsPtr: bigint | null = null;
+    let firstPlausibleOffset: bigint | null = null;
+    for (const off of candidates) {
+      const p = readPtr(this.reader, klass + off);
+      const pStr = p == null ? "null" : isPlausibleHeapPtr(p) ? `0x${p.toString(16)}` : "impl";
+      parts.push(`+0x${off.toString(16)}=${pStr}`);
+      if (firstPlausibleFieldsPtr == null && p != null && isPlausibleHeapPtr(p)) {
+        firstPlausibleFieldsPtr = p;
+        firstPlausibleOffset = off;
+      }
+    }
+    let msg = `[scanner] classFields probe: klass=0x${klass.toString(16)} name="${name ?? "null"}" ${parts.join(" ")}`;
+    // Dump 0x40 bytes of the first plausible field-info pointer so the layout
+    // (entry size, name pointer offset, field offset) can be inferred offline.
+    if (firstPlausibleFieldsPtr != null && firstPlausibleOffset != null) {
+      const sample = this.reader.readBytes(firstPlausibleFieldsPtr, 0x40);
+      if (sample && sample.length === 0x40) {
+        const hex: string[] = [];
+        for (let i = 0; i < sample.length; i += 8) {
+          const lo = sample.readUInt32LE(i);
+          const hi = sample.readUInt32LE(i + 4);
+          hex.push(
+            `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
+          );
+        }
+        msg += ` | field-info@+0x${firstPlausibleOffset.toString(16)}=0x${firstPlausibleFieldsPtr.toString(16)}: ${hex.join(" ")}`;
+      }
+    }
+    return msg;
   }
 
   /** static_fields block pointer (tries the known Il2CppClass layout offsets). */
@@ -459,10 +578,18 @@ function validateGetBoxList(ctx: ScanContext, listPtr: bigint): boolean {
 }
 
 /** Validate a List<BoxOpenLog> candidate: non-empty + sampled entries are real
- *  BoxOpenLog instances. Class name is the only serialization-stable identifier
- *  available (the item-key/grade field offsets are resolved separately from the
- *  class metadata), so name matching is the sole gate. The non-empty requirement
- *  mirrors validateGetBoxList — keeps compiler-generated buckets from matching.
+ *  BoxOpenLog instances. Class name is the primary gate (serialization-stable
+ *  identifier; the item-key/grade field offsets are resolved separately from the
+ *  class metadata). The non-empty requirement mirrors validateGetBoxList —
+ *  keeps compiler-generated buckets from matching.
+ *
+ *  Fallback when class-name validation fails: if the entry's IL2CPP class
+ *  metadata exposes a field literally named `itemStringKey` or `itemGradeType`,
+ *  accept it anyway. This covers per-build obfuscation that renames the class
+ *  beyond what `classNameMatches` tolerates (seen live on v1.00.28) — the field
+ *  names are ES3 serialization names and stay stable even when the class name
+ *  is fully randomized, so their presence is a stronger signal than the class
+ *  name itself.
  *
  *  Returns the first entry pointer on success so the caller can read field
  *  offsets directly from the live object's IL2CPP class metadata (robust against
@@ -477,7 +604,24 @@ function validateBoxOpenList(ctx: ScanContext, listPtr: bigint): bigint | null {
   for (let i = 0; i < Math.min(count, LOG_VALIDATE_ENTRIES); i++) {
     const e = readPtr(ctx.reader, first + BigInt(i * 8));
     if (e == null || !isPlausibleHeapPtr(e)) return null;
-    if (!isBoxOpenLogClassName(ctx.instanceClassName(e))) return null;
+    if (!isBoxOpenLogClassName(ctx.instanceClassName(e))) {
+      // Class-name gate failed. Try the field-name fallback: read this entry's
+      // IL2CPP class fields and accept if `itemStringKey` or `itemGradeType` is
+      // present. Only the first entry is probed — if it's a BoxOpenLog, the
+      // rest of the list is too (homogeneous List<T>).
+      if (i === 0) {
+        const fields = ctx.instanceClassFields(e);
+        if (fields == null || (!fields.has("itemStringKey") && !fields.has("itemGradeType"))) {
+          return null;
+        }
+        firstEntryPtr = e;
+        continue;
+      }
+      // Subsequent entries: trust the first entry's verdict (homogeneous list).
+      // Only the pointer plausibility check above applies.
+      if (firstEntryPtr == null) firstEntryPtr = e;
+      continue;
+    }
     if (i === 0) firstEntryPtr = e;
   }
   return firstEntryPtr;
@@ -544,7 +688,8 @@ function findBoxOpenLogDictKey(
   const entriesArr = readPtr(ctx.reader, dictPtr + BigInt(STRUCT_DICT.entries));
   if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) return { key: 0, firstEntryPtr: null };
   const count = readI32(ctx.reader, dictPtr + BigInt(STRUCT_DICT.count));
-  if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) return { key: 0, firstEntryPtr: null };
+  if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES)
+    return { key: 0, firstEntryPtr: null };
   const first = entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst);
   for (let i = 0; i < count; i++) {
     const eBase = first + BigInt(i * STRUCT_DICT.entrySize);
@@ -587,7 +732,13 @@ export function findBoxOpenLogFields(
   ctx: ScanContext,
   entries: readonly ClassEntry[],
   instancePtr: bigint | null = null,
-): { itemStringKey: number; itemGradeType: number } {
+): {
+  itemStringKey: number;
+  itemGradeType: number;
+  gradeSO: number;
+  gradeSOGrade: number;
+  diagnostics?: string;
+} {
   // 1. Live instance class metadata (preferred — robust against missing index
   //    entries and namespace-prefixed class names).
   if (instancePtr != null) {
@@ -595,9 +746,12 @@ export function findBoxOpenLogFields(
     if (fields != null) {
       const isk = fields.get("itemStringKey");
       const igt = fields.get("itemGradeType");
-      // Both fields resolved from the live class — done.
+      // Both fields resolved from the live class — done. Also try to resolve
+      // the v1.00.28 GradeSO path (named `gradeSO` field + GradeSO.eGRADE)
+      // in case this version supports it; zeros when not found.
       if (isk != null && isk > 0 && igt != null && igt > 0) {
-        return { itemStringKey: isk, itemGradeType: igt };
+        const { gradeSO, gradeSOGrade } = resolveGradeSOOffsets(ctx, instancePtr, fields);
+        return { itemStringKey: isk, itemGradeType: igt, gradeSO, gradeSOGrade };
       }
       // Partial resolution: keep what we have, fall through to named search to
       // fill the gap (a different BoxOpenLog class entry in the index may have
@@ -606,9 +760,69 @@ export function findBoxOpenLogFields(
         itemStringKey: namedClassField(ctx, entries, "BoxOpenLog", "itemStringKey"),
         itemGradeType: namedClassField(ctx, entries, "BoxOpenLog", "itemGradeType"),
       };
-      return {
+      const result = {
         itemStringKey: isk != null && isk > 0 ? isk : fallback.itemStringKey,
         itemGradeType: igt != null && igt > 0 ? igt : fallback.itemGradeType,
+        gradeSO: 0,
+        gradeSOGrade: 0,
+      };
+      // Both fields missing from the live class — field names are likely
+      // obfuscated (seen live on v1.00.28: `bfne`/`bfnf`/`bfng` instead of
+      // `itemStringKey`/`itemGradeType`). Try to identify the right offsets by
+      // reading each candidate field from the live BoxOpenLog instance and
+      // validating the value as a plausible catalog item key / grade.
+      if (result.itemStringKey === 0 && result.itemGradeType === 0) {
+        const identified = identifyBoxOpenLogFieldsByValue(ctx, instancePtr, fields);
+        if (identified != null) {
+          if (identified.itemStringKey !== 0 && identified.itemGradeType !== 0) {
+            // Successfully identified by value — override named-search result.
+            // Also resolve GradeSO from the identified GradeSO* pointer field
+            // (v1.00.28: the field that's neither itemKey nor grade is the
+            // GradeSO* reference; identifyBoxOpenLogFieldsByValue dumps its
+            // klass in diagnostics, and resolveGradeSOFromInstance can walk it).
+            const { gradeSO, gradeSOGrade } = resolveGradeSOOffsets(ctx, instancePtr, fields);
+            return {
+              itemStringKey: identified.itemStringKey,
+              itemGradeType: identified.itemGradeType,
+              gradeSO,
+              gradeSOGrade,
+              diagnostics: identified.diagnostics,
+            };
+          }
+          // Identification returned diagnostics (e.g. observed values outside
+          // expected ranges). Forward the diagnostics to the caller's log.
+          if (identified.diagnostics) {
+            const dump = ctx.dumpClassFields(instancePtr, fields);
+            return {
+              itemStringKey: 0,
+              itemGradeType: 0,
+              gradeSO: 0,
+              gradeSOGrade: 0,
+              diagnostics: `${identified.diagnostics}${dump != null ? ` | ${dump}` : ""}`,
+            };
+          }
+        }
+        // Value-based identification returned null (not enough candidate offsets).
+        // Fall back to dump for offline analysis.
+        const dump = ctx.dumpClassFields(instancePtr, fields);
+        if (dump != null) {
+          return { ...result, diagnostics: dump };
+        }
+      }
+      return result;
+    }
+    // instanceClassFields returned null despite instanceClassName succeeding.
+    // Likely cause: the Il2CppClass.fields offset (0x80 / 0x88 fallback) doesn't
+    // match this runtime build, or the field-info struct layout changed. Probe
+    // additional offsets so the extractor log can pinpoint the new layout.
+    const probe = ctx.probeClassFieldsLayout(instancePtr);
+    if (probe != null) {
+      return {
+        itemStringKey: 0,
+        itemGradeType: 0,
+        gradeSO: 0,
+        gradeSOGrade: 0,
+        diagnostics: probe,
       };
     }
   }
@@ -616,7 +830,232 @@ export function findBoxOpenLogFields(
   return {
     itemStringKey: namedClassField(ctx, entries, "BoxOpenLog", "itemStringKey"),
     itemGradeType: namedClassField(ctx, entries, "BoxOpenLog", "itemGradeType"),
+    gradeSO: 0,
+    gradeSOGrade: 0,
   };
+}
+
+/**
+ * Resolve the v1.00.28 GradeSO grade path: find a BoxOpenLog field that points
+ * at a GradeSO instance, then read GradeSO's `eGRADE` field offset from its
+ * class metadata. Returns zeros when the version doesn't use GradeSO (pre-1.00.28)
+ * or when the GradeSO class/eGRADE field can't be resolved.
+ *
+ * Strategy: walk each candidate field offset, read the pointer, check if the
+ * pointer's klass name is "GradeSO". If so, read GradeSO's class fields and
+ * look up `eGRADE`. This is O(n_fields) per BoxOpenLog instance and cheap.
+ */
+function resolveGradeSOOffsets(
+  ctx: ScanContext,
+  instancePtr: bigint,
+  fields: Map<string, number>,
+): { gradeSO: number; gradeSOGrade: number } {
+  for (const [, off] of fields) {
+    if (off <= 0) continue;
+    const ptrVal = readPtr(ctx.reader, instancePtr + BigInt(off));
+    if (ptrVal == null || !isPlausibleHeapPtr(ptrVal)) continue;
+    const klass = readPtr(ctx.reader, ptrVal);
+    if (klass == null || !isPlausibleHeapPtr(klass)) continue;
+    const klassName = ctx.className(klass);
+    if (klassName == null || !classNameMatches(klassName, "GradeSO")) continue;
+    // Found the GradeSO* field. Read GradeSO's class fields to find eGRADE.
+    const soFields = ctx.classFields(klass);
+    if (soFields == null) return { gradeSO: off, gradeSOGrade: 0 };
+    const eGrade = soFields.get("eGRADE");
+    return {
+      gradeSO: off,
+      gradeSOGrade: eGrade != null && eGrade > 0 ? eGrade : 0,
+    };
+  }
+  return { gradeSO: 0, gradeSOGrade: 0 };
+}
+
+/**
+ * Identify `itemStringKey` and `itemGradeType` field offsets by reading each
+ * candidate field from a live BoxOpenLog instance and validating the value.
+ *
+ * Used when IL2CPP field names are obfuscated (e.g. v1.00.28 renames
+ * `itemStringKey` → `bfne`). The heuristic:
+ *  - `itemStringKey` is the field whose value looks like a save itemKey:
+ *    a positive int32, either a catalog id (< 1_000_000, in catalog range) or
+ *    a save-encoded itemKey (>= 1_000_000, divides by 1000 to a catalog id).
+ *  - `itemGradeType` is the field whose value is a small non-negative int
+ *    (0..16 — item grades are a small enum).
+ *
+ * Reads multiple sample entries to avoid false positives from coincidental
+ * values. Returns null when no consistent assignment is found.
+ */
+function identifyBoxOpenLogFieldsByValue(
+  ctx: ScanContext,
+  instancePtr: bigint,
+  fields: Map<string, number>,
+): { itemStringKey: number; itemGradeType: number; diagnostics?: string } | null {
+  // Collect all int32 field offsets declared on the class.
+  const offsets = Array.from(fields.values())
+    .filter((o) => o > 0)
+    .sort((a, b) => a - b);
+  if (offsets.length < 2) return null;
+
+  // Sample up to 3 entries from the list (we only have the first instance
+  // pointer; for multi-entry validation we'd need the list head, which isn't
+  // passed here. Rely on the single instance + value-range heuristics.)
+  const samples = [instancePtr];
+
+  let bestItemKeyOffset = 0;
+  let bestGradeOffset = 0;
+
+  // Track all values for diagnostic output when identification fails.
+  const samples0: string[] = [];
+
+  for (const off of offsets) {
+    let itemKeyHits = 0;
+    let gradeHits = 0;
+    for (const ptr of samples) {
+      // Try plain int32 first (v1.00.21/23/27 use unobfuscated int fields).
+      let v = readI32(ctx.reader, ptr + BigInt(off));
+      let decodeMode = "i32";
+      let isString = false;
+      const diagParts: string[] = [];
+      // If int32 read is implausible (negative), the field may be:
+      //   - a pointer (v1.00.28 BoxOpenLog.itemStringKey is a System.String
+      //     pointer, not an int)
+      //   - an ACTk ObscuredInt struct (hiddenValue + currentCryptoKey)
+      // Try pointer → IL2CPP String → number first, then ObscuredInt.
+      if (v == null || v < 0) {
+        const ptrVal = readPtr(ctx.reader, ptr + BigInt(off));
+        if (ptrVal == null) {
+          diagParts.push("ptr=null");
+        } else if (!isPlausibleHeapPtr(ptrVal)) {
+          diagParts.push(`ptr=0x${ptrVal.toString(16)}[impl]`);
+        } else {
+          // Read the klass at the pointer target so we can see WHAT the
+          // pointer points at (System.String vs some other managed object).
+          // Without this, a non-String pointer silently falls through to the
+          // ObscuredInt path and produces a garbage int32 that masks the real
+          // layout (root cause of the v1.00.28 "[obsc]" misdiagnosis).
+          const klass = readPtr(ctx.reader, ptrVal);
+          const klassName =
+            klass != null && isPlausibleHeapPtr(klass) ? ctx.className(klass) : null;
+          diagParts.push(`ptr=0x${ptrVal.toString(16)}[klass=${klassName ?? "null"}]`);
+          // v1.00.28: grade moved from a plain int field to a GradeSO
+          // ScriptableObject reference. Dump GradeSO's class fields + instance
+          // bytes so we can find the grade enum/int offset inside it.
+          if (klassName != null && classNameMatches(klassName, "GradeSO")) {
+            const gradeFields = ctx.classFields(klass!);
+            if (gradeFields != null && gradeFields.size > 0) {
+              const fl: string[] = [];
+              for (const [fn, fo] of gradeFields) {
+                fl.push(`${fn}=0x${fo.toString(16)}`);
+              }
+              diagParts.push(`gradeSO.fields=[${fl.join(",")}]`);
+              // Dump first 0x40 bytes of the GradeSO instance to see field values.
+              const soBuf = ctx.reader.readBytes(ptrVal, 0x40);
+              if (soBuf != null && soBuf.length === 0x40) {
+                const hex: string[] = [];
+                for (let i = 0; i < soBuf.length; i += 8) {
+                  const lo = soBuf.readUInt32LE(i);
+                  const hi = soBuf.readUInt32LE(i + 4);
+                  hex.push(
+                    `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
+                  );
+                }
+                diagParts.push(`gradeSO.inst=[${hex.join(" ")}]`);
+              }
+            } else {
+              diagParts.push("gradeSO.fields=null");
+            }
+          }
+          if (klassName != null && classNameMatches(klassName, "String")) {
+            const s = readIl2CppString(ctx.reader, ptrVal);
+            if (s == null) {
+              const len = readI32(ctx.reader, ptrVal + 0x10n);
+              diagParts.push(`str=null[len=${len ?? "null"}]`);
+            } else {
+              diagParts.push(`str="${s.length > 32 ? s.slice(0, 32) + "…" : s}"`);
+              // v1.00.28 itemStringKey is a localization key like "ItemName_530017",
+              // not a pure-numeric string. Accept either pure digits OR extract
+              // the trailing digit run as the catalog itemKey.
+              const direct = /^[0-9]+$/.test(s) ? s : (s.match(/(\d+)$/) ?? [])[1];
+              if (direct != null) {
+                const parsed = Number.parseInt(direct, 10);
+                if (Number.isSafeInteger(parsed) && parsed > 0) {
+                  v = parsed;
+                  decodeMode = "str";
+                  isString = true;
+                }
+              }
+            }
+          }
+        }
+        // Still no luck — try ObscuredInt decode (8-byte struct).
+        // NOTE: this path returns non-null for almost any non-zero 8 bytes, so
+        // the resulting int32 is often garbage when the field is actually a
+        // pointer. The diagParts above let us distinguish "real ObscuredInt"
+        // from "pointer misread as ObscuredInt" in the log.
+        if (v == null || v < 0) {
+          const buf = ctx.reader.readBytes(ptr + BigInt(off), 8);
+          if (buf != null && buf.length >= 8) {
+            const decoded = decodeObscuredInt(buf, 0);
+            if (decoded != null) {
+              v = decoded;
+              decodeMode = "obsc";
+            }
+          }
+        }
+      }
+      if (v == null) {
+        samples0.push(`+0x${off.toString(16)}=null[${diagParts.join(",")}]`);
+        continue;
+      }
+      samples0.push(
+        `+0x${off.toString(16)}=${v}(0x${v.toString(16)})[${decodeMode}]${isString ? "[str]" : ""}${diagParts.length > 0 ? `[${diagParts.join(",")}]` : ""}${isPlausibleItemKey(v) ? "[ik]" : ""}${isPlausibleGrade(v) ? "[gr]" : ""}`,
+      );
+      if (isPlausibleItemKey(v)) itemKeyHits++;
+      if (isPlausibleGrade(v)) gradeHits++;
+    }
+    // Prefer the offset that hits as itemKey for all samples and never as grade.
+    if (itemKeyHits === samples.length && gradeHits === 0) {
+      bestItemKeyOffset = off;
+    }
+    // Prefer the offset that hits as grade for all samples and never as itemKey.
+    if (gradeHits === samples.length && itemKeyHits === 0) {
+      bestGradeOffset = off;
+    }
+  }
+
+  if (bestItemKeyOffset !== 0 && bestGradeOffset !== 0) {
+    return {
+      itemStringKey: bestItemKeyOffset,
+      itemGradeType: bestGradeOffset,
+      diagnostics: `[scanner] identifyByValue ok: itemStringKey=0x${bestItemKeyOffset.toString(16)} itemGradeType=0x${bestGradeOffset.toString(16)} samples=[${samples0.join(", ")}]`,
+    };
+  }
+  // Identification failed — return diagnostics so the caller can log the
+  // observed values. The ranges in isPlausibleItemKey / isPlausibleGrade may
+  // need widening, or the fields may be non-int32 (e.g. ObscuredLong).
+  return {
+    itemStringKey: 0,
+    itemGradeType: 0,
+    diagnostics: `[scanner] identifyByValue failed: instancePtr=0x${instancePtr.toString(16)} samples=[${samples0.join(", ")}]`,
+  };
+}
+
+/** True when `v` looks like a save itemKey: positive int32 in catalog range
+ *  (< 1_000_000) or save-encoded (>= 1_000_000, divides by 1000 to catalog). */
+function isPlausibleItemKey(v: number): boolean {
+  if (v <= 0 || !Number.isSafeInteger(v)) return false;
+  if (v < 1_000_000) {
+    // Catalog id range (gamedata.ts: SAVE_CATALOG_ITEM_KEY_MIN..MAX).
+    return v >= 110_001 && v <= 939_999;
+  }
+  // Save-encoded: /1000 should land in catalog range.
+  const base = Math.trunc(v / 1000);
+  return base >= 110_001 && base <= 939_999;
+}
+
+/** True when `v` looks like an item grade: small non-negative int (0..16). */
+function isPlausibleGrade(v: number): boolean {
+  return Number.isSafeInteger(v) && v >= 0 && v <= 16;
 }
 
 /**
@@ -645,7 +1084,35 @@ export function findLogManager(
   logByType: number;
   getBoxTypeKey: number;
   boxOpenTypeKey: number;
-  boxOpenLog: { itemStringKey: number; itemGradeType: number };
+  boxOpenLog: {
+    itemStringKey: number;
+    itemGradeType: number;
+    gradeSO: number;
+    gradeSOGrade: number;
+    diagnostics?: string;
+  };
+  /**
+   * Diagnostics for the box-open derivation path. Populated when `boxOpenTypeKey`
+   * is non-zero (dict bucket located) but `boxOpenLog.itemStringKey` is 0 (field
+   * offsets not resolved). Lets the extractor log WHY validation failed so we
+   * can fix the structural detector without a live debugger.
+   *  - `bucketCount`: list size observed in the dict (0 = empty bucket, >0 = entries present)
+   *  - `firstEntryClassName`: the class name read from the first entry's IL2CPP
+   *    header (null when the pointer was unreadable or the class name didn't
+   *    match the printable-ASCII gate). When non-null but not matching
+   *    `BoxOpenLog`, the obfuscator has renamed the class beyond what
+   *    `classNameMatches` tolerates.
+   *  - `fieldsProbe`: when `instanceClassFields` returned null despite the class
+   *    name being readable, a one-shot dump of candidate Il2CppClass.fields
+   *    offsets + the first plausible field-info struct bytes. Pinpoints whether
+   *    the Il2CppClass layout shifted on a new runtime build.
+   */
+  boxOpenDiagnostics?: {
+    bucketCount: number | null;
+    firstEntryClassName: string | null;
+    firstEntryPtr: bigint | null;
+    fieldsProbe?: string;
+  };
 } | null {
   for (const entry of entries) {
     for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
@@ -653,17 +1120,73 @@ export function findLogManager(
       if (found != null) {
         const boxOpen = findBoxOpenLogDictKey(ctx, inst, found.logByType);
         const boxOpenLog = findBoxOpenLogFields(ctx, entries, boxOpen.firstEntryPtr);
+        const boxOpenDiagnostics =
+          boxOpen.key !== 0 && boxOpenLog.itemStringKey === 0
+            ? collectBoxOpenDiagnostics(
+                ctx,
+                inst,
+                found.logByType,
+                boxOpen.key,
+                boxOpenLog.diagnostics,
+              )
+            : undefined;
         return {
           slotRva: entry.slotRva,
           logByType: found.logByType,
           getBoxTypeKey: found.getBoxTypeKey,
           boxOpenTypeKey: boxOpen.key,
           boxOpenLog,
+          boxOpenDiagnostics,
         };
       }
     }
   }
   return null;
+}
+
+/**
+ * Best-effort diagnostics for the box-open bucket: read the list size and the
+ * first entry's class name, so the extractor log can pinpoint why
+ * `validateBoxOpenList` rejected the bucket (empty list, renamed class,
+ * unreadable header, …). Pure-read: no state change.
+ */
+function collectBoxOpenDiagnostics(
+  ctx: ScanContext,
+  lmPtr: bigint,
+  logByType: number,
+  boxOpenKey: number,
+  fieldsProbe?: string,
+): {
+  bucketCount: number | null;
+  firstEntryClassName: string | null;
+  firstEntryPtr: bigint | null;
+  fieldsProbe?: string;
+} {
+  const dictPtr = readPtr(ctx.reader, lmPtr + BigInt(logByType));
+  if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) {
+    return { bucketCount: null, firstEntryClassName: null, firstEntryPtr: null, fieldsProbe };
+  }
+  const listPtr = dictLookupIntKey(
+    ctx.reader,
+    dictPtr,
+    boxOpenKey,
+    MAX_LOG_DICT_ENTRIES,
+    MAX_LOG_DICT_ENTRIES,
+  );
+  if (listPtr == null || !isPlausibleHeapPtr(listPtr)) {
+    return { bucketCount: null, firstEntryClassName: null, firstEntryPtr: null, fieldsProbe };
+  }
+  const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+  const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+  if (arr == null || count == null || count <= 0) {
+    return { bucketCount: count, firstEntryClassName: null, firstEntryPtr: null, fieldsProbe };
+  }
+  const firstEntryPtr = readPtr(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
+  if (firstEntryPtr == null || !isPlausibleHeapPtr(firstEntryPtr)) {
+    return { bucketCount: count, firstEntryClassName: null, firstEntryPtr: null, fieldsProbe };
+  }
+  const className = ctx.instanceClassName(firstEntryPtr);
+  return { bucketCount: count, firstEntryClassName: className, firstEntryPtr, fieldsProbe };
 }
 
 /**
@@ -820,4 +1343,362 @@ export function findMonsterSpawnManager(
     }
   }
   return null;
+}
+
+// ── Catalog extraction diagnostics (spike for runtime catalog overlay) ───────
+//
+// The bundled gamedata.json lags behind game patches (e.g. v1.00.28 ships
+// 620xxx ring items absent from the v1.00.21 catalog). The long-term fix is a
+// runtime catalog overlay extracted from game memory. This diagnostic dumps
+// candidate ItemSO classes + ItemManager containers so we can design the real
+// extractor without guessing. Triggered by TBH_DUMP_CATALOG_CANDIDATES=1 in
+// offsetExtractor; zero impact on the production path when disabled.
+
+const CATALOG_DUMP_MAX_CLASSES = 40;
+const CATALOG_DUMP_MAX_CONTAINERS = 20;
+const CATALOG_DUMP_MAX_NAME_PROBE = 200;
+/** Per-host static slots scanned in Pass 2 (bounded to keep dump fast). */
+const CATALOG_DUMP_MAX_SLOTS_PER_HOST = 8;
+/** Per-instance field offsets scanned in Pass 2 (bounded). */
+const CATALOG_DUMP_MAX_FIELD_SCAN = 0x80;
+/** Hint words for ItemManager / ItemDatabase host class names. */
+const CATALOG_MANAGER_NAME_HINTS = [
+  "manager",
+  "database",
+  "catalog",
+  "table",
+  "list",
+  "registry",
+  "dict",
+];
+const CATALOG_ITEM_NAME_HINTS = ["item", "gear", "equip", "loot", "treasure"];
+/**
+ * Pass 0 name-probe hints: dump class names ending with these suffixes or
+ * containing these words. Designed to discover the real ItemSO class name
+ * (v1.00.28 may use GearSO/MaterialSO/AccessorySO instead of ItemSO). Output
+ * is class names only (no field dump), so we can afford a larger cap.
+ */
+const CATALOG_NAME_PROBE_HINTS = [
+  "SO", // ScriptableObject suffix (GearSO, MaterialSO, GradeSO, ...)
+  "Gear",
+  "Material",
+  "Accessory",
+  "StageBox",
+  "Ring",
+  "Amulet",
+  "Earring",
+  "Bracer",
+  "Weapon",
+  "Armor",
+  "Helmet",
+  "Boots",
+  "Gloves",
+  "Shield",
+  "Sword",
+  "Bow",
+  "Staff",
+  "Scepter",
+  "Definition",
+  "ItemDef",
+];
+
+/** Field names that suggest an id field on an ItemSO candidate. */
+const ID_FIELD_HINTS = new Set(["id", "itemId", "itemKey", "key", "uniqueId"]);
+/** Field names that suggest a name/display field. */
+const NAME_FIELD_HINTS = new Set([
+  "name",
+  "itemName",
+  "displayName",
+  "localizationKey",
+  "itemNameKey",
+  "stringKey",
+]);
+/** Field names that suggest a grade/rarity field. */
+const GRADE_FIELD_HINTS = new Set(["grade", "gradeType", "itemGradeType", "rarity", "tier"]);
+
+function fieldHintMatch(fields: Map<string, number>, hints: Set<string>): string | null {
+  for (const name of fields.keys()) {
+    if (hints.has(name)) return name;
+  }
+  // Tolerate suffix variations (mangled names would not match, but un-mangled
+  // renamed fields like "itemId_" might).
+  for (const name of fields.keys()) {
+    for (const h of hints) {
+      if (name.toLowerCase().startsWith(h.toLowerCase())) return name;
+    }
+  }
+  return null;
+}
+
+/**
+ * Heuristic: does this class look like an ItemSO candidate? Either the class
+ * name contains an item-related hint, OR its field table has both an id-like
+ * and a name-like field (the minimum to extract catalog rows).
+ */
+function isItemSOCandidate(name: string | null, fields: Map<string, number> | null): boolean {
+  const nameHitsItem =
+    name != null && CATALOG_ITEM_NAME_HINTS.some((h) => name.toLowerCase().includes(h));
+  if (nameHitsItem && fields != null && fields.size > 0) return true;
+  if (fields == null || fields.size < 2) return false;
+  // Field-based signature: id + name (with or without grade). This catches
+  // renamed classes whose field names survived (serialization-stable).
+  return (
+    fieldHintMatch(fields, ID_FIELD_HINTS) != null &&
+    fieldHintMatch(fields, NAME_FIELD_HINTS) != null
+  );
+}
+
+/**
+ * Probe whether `inst` looks like a List<T> or Dictionary<int, T> container
+ * whose element type is `elementClassPtr`. Returns a short descriptor for the
+ * dump log, or null when the shape doesn't match.
+ */
+function probeContainerOf(
+  ctx: ScanContext,
+  inst: bigint,
+  elementClassPtr: bigint,
+): { kind: "List" | "Dict"; count: number; firstElementPtr: bigint } | null {
+  // List<T>: listPtr + 0x10 = array, +0x18 = count, array + 0x20 = first element.
+  const arr = readPtr(ctx.reader, inst + BigInt(STRUCT_CONTAINER.listItems));
+  if (arr != null && isPlausibleHeapPtr(arr)) {
+    const count = readI32(ctx.reader, inst + BigInt(STRUCT_CONTAINER.listSize));
+    if (count != null && count > 0 && count < 200_000) {
+      const e0 = readPtr(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
+      if (e0 != null && isPlausibleHeapPtr(e0)) {
+        const e0Klass = readPtr(ctx.reader, e0);
+        if (e0Klass === elementClassPtr) {
+          return { kind: "List", count, firstElementPtr: e0 };
+        }
+      }
+    }
+  }
+  // Dictionary<int, T>: dictPtr + 0x18 = entries, +0x20 = count. Each entry is
+  // 24 bytes (hash:4, next:4, key:8, value:8). We only need to validate one
+  // entry's value klass to confirm element type.
+  const entriesArr = readPtr(ctx.reader, inst + BigInt(STRUCT_DICT.entries));
+  if (entriesArr != null && isPlausibleHeapPtr(entriesArr)) {
+    const count = readI32(ctx.reader, inst + BigInt(STRUCT_DICT.count));
+    if (count != null && count > 0 && count < 200_000) {
+      // First entry's value sits at entriesArr + 0x20 (arrayFirst) + entrySize - 8
+      // (value is the last 8 bytes of the 24-byte entry). entrySize = 24, so
+      // value offset within first entry = 0x20 + 16 = 0x30.
+      const firstValue = readPtr(
+        ctx.reader,
+        entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst) + BigInt(STRUCT_DICT.entrySize - 8),
+      );
+      if (firstValue != null && isPlausibleHeapPtr(firstValue)) {
+        const vKlass = readPtr(ctx.reader, firstValue);
+        if (vKlass === elementClassPtr) {
+          return { kind: "Dict", count, firstElementPtr: firstValue };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Dump catalog-extraction candidates via the `log` callback, streaming each
+ * line as it's found (so the user sees progress immediately). Each line is
+ * prefixed with `[catalog-dump]`.
+ *
+ * What it dumps:
+ *  1. ItemSO candidate classes — classes whose name hits an item hint, OR whose
+ *     field table has id-like + name-like fields. For each: class name, field
+ *     table (up to 20 fields), and whether grade/level-like fields are present.
+ *  2. ItemManager candidates — classes whose name hits a manager hint (Manager /
+ *     Database / Catalog / Table / List / Registry / Dict) AND whose static
+ *     block has a plausible instance pointer holding a List<T>/Dict<int,T> of
+ *     an ItemSO candidate. For each: container class name, container kind,
+ *     element count, and a pointer to the first element.
+ *  3. One sample ItemSO instance field dump — shows actual field values (int /
+ *     String* / GradeSO*) so we can design the extractor without guessing.
+ *
+ * Bounded for performance:
+ *  - At most CATALOG_DUMP_MAX_CLASSES ItemSO candidates.
+ *  - At most CATALOG_DUMP_MAX_CONTAINERS ItemManager candidates.
+ *  - Pass 2 only scans host classes whose name hits a manager hint (cuts the
+ *    10k+ entries to a few dozen), and for each only the first
+ *    CATALOG_DUMP_MAX_SLOTS_PER_HOST static slots × field offsets up to
+ *    CATALOG_DUMP_MAX_FIELD_SCAN.
+ */
+export function dumpCatalogCandidates(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+  log: (line: string) => void,
+): void {
+  log(
+    `[catalog-dump] scanning ${entries.length} class entries for ItemSO / ItemManager candidates`,
+  );
+
+  // Pass 0: name probe — dump class names that match item-definition naming
+  // patterns (suffix "SO", or contains gear/material/accessory type words).
+  // This is cheap (string match only, no memory reads) and reveals the real
+  // ItemSO class name when v1.00.28 uses GearSO/MaterialSO instead of ItemSO.
+  // Output is capped at CATALOG_DUMP_MAX_NAME_PROBE class names.
+  const nameProbeHits: Array<{ name: string; classPtr: bigint }> = [];
+  for (const entry of entries) {
+    if (!entry.name) continue;
+    const lower = entry.name.toLowerCase();
+    const hit =
+      lower.endsWith("so") ||
+      CATALOG_NAME_PROBE_HINTS.some((h) => {
+        if (h === "SO") return false; // already checked via endsWith
+        return lower.includes(h.toLowerCase());
+      });
+    if (!hit) continue;
+    nameProbeHits.push({ name: entry.name, classPtr: entry.classPtr });
+    if (nameProbeHits.length >= CATALOG_DUMP_MAX_NAME_PROBE) break;
+  }
+  log(
+    `[catalog-dump] name-probe hits: ${nameProbeHits.length}` +
+      (nameProbeHits.length >= CATALOG_DUMP_MAX_NAME_PROBE
+        ? ` (capped at ${CATALOG_DUMP_MAX_NAME_PROBE})`
+        : ""),
+  );
+  // Output in compact form: up to 8 names per line to keep log short.
+  for (let i = 0; i < nameProbeHits.length; i += 8) {
+    const chunk = nameProbeHits.slice(i, i + 8);
+    log(`[catalog-dump]   ${chunk.map((h) => h.name).join(" | ")}`);
+  }
+
+  // Pass 1: collect ItemSO candidate classes.
+  const itemSOCandidates: Array<{
+    entry: ClassEntry;
+    fields: Map<string, number>;
+    idField: string | null;
+    nameField: string | null;
+    gradeField: string | null;
+  }> = [];
+  for (const entry of entries) {
+    const fields = ctx.classFields(entry.classPtr);
+    if (!isItemSOCandidate(entry.name, fields)) continue;
+    itemSOCandidates.push({
+      entry,
+      fields: fields!,
+      idField: fieldHintMatch(fields!, ID_FIELD_HINTS),
+      nameField: fieldHintMatch(fields!, NAME_FIELD_HINTS),
+      gradeField: fieldHintMatch(fields!, GRADE_FIELD_HINTS),
+    });
+    if (itemSOCandidates.length >= CATALOG_DUMP_MAX_CLASSES) break;
+  }
+
+  log(
+    `[catalog-dump] ItemSO candidates: ${itemSOCandidates.length}` +
+      (itemSOCandidates.length >= CATALOG_DUMP_MAX_CLASSES
+        ? ` (capped at ${CATALOG_DUMP_MAX_CLASSES})`
+        : ""),
+  );
+
+  for (const c of itemSOCandidates) {
+    const fieldSummary = Array.from(c.fields.entries())
+      .slice(0, 20)
+      .map(([n, o]) => `${n}=0x${o.toString(16)}`)
+      .join(",");
+    log(
+      `[catalog-dump]   ItemSO? name="${c.entry.name}" classPtr=0x${c.entry.classPtr.toString(16)}` +
+        ` idField=${c.idField ?? "—"} nameField=${c.nameField ?? "—"} gradeField=${c.gradeField ?? "—"}` +
+        ` fields=[${fieldSummary}${c.fields.size > 20 ? ",…" : ""}]`,
+    );
+  }
+
+  // Early exit: Pass 2/3 need at least one ItemSO candidate to look for.
+  if (itemSOCandidates.length === 0) {
+    log(`[catalog-dump] no ItemSO candidates — skipping ItemManager scan`);
+    log(`[catalog-dump] end`);
+    return;
+  }
+
+  // Pass 2: find ItemManager containers. Pre-filter host classes by name hint
+  // (ItemManager / ItemDatabase etc.) — scanning all 10k+ entries against
+  // every ItemSO candidate is O(N*M*K) memory reads and would take minutes.
+  const itemSOClassPtrs = new Set(itemSOCandidates.map((c) => c.entry.classPtr));
+  const itemSOClassPtrByName = new Map<string, bigint>();
+  for (const c of itemSOCandidates) {
+    if (c.entry.name) itemSOClassPtrByName.set(c.entry.name, c.entry.classPtr);
+  }
+  const managerHosts = entries.filter(
+    (e) =>
+      e.name != null && CATALOG_MANAGER_NAME_HINTS.some((h) => e.name!.toLowerCase().includes(h)),
+  );
+  log(
+    `[catalog-dump] ItemManager scan: ${managerHosts.length} host candidates (name hints: ${CATALOG_MANAGER_NAME_HINTS.join("/")})`,
+  );
+
+  let containerCount = 0;
+  let samplePtr: bigint | null = null;
+  let sampleItemSOClassPtr: bigint | null = null;
+  for (const entry of managerHosts) {
+    if (containerCount >= CATALOG_DUMP_MAX_CONTAINERS) break;
+    const slots = ctx.staticSlots(entry.classPtr).slice(0, CATALOG_DUMP_MAX_SLOTS_PER_HOST);
+    for (const { soff, value: inst } of slots) {
+      if (containerCount >= CATALOG_DUMP_MAX_CONTAINERS) break;
+      for (let foff = 0x10; foff <= CATALOG_DUMP_MAX_FIELD_SCAN; foff += 8) {
+        const fieldPtr = readPtr(ctx.reader, inst + BigInt(foff));
+        if (fieldPtr == null || !isPlausibleHeapPtr(fieldPtr)) continue;
+        for (const itemClassPtr of itemSOClassPtrs) {
+          const probe = probeContainerOf(ctx, fieldPtr, itemClassPtr);
+          if (probe != null) {
+            const elemName = ctx.className(itemClassPtr) ?? "??";
+            log(
+              `[catalog-dump]   ItemManager? host="${entry.name}" static+0x${soff.toString(16)}→inst=0x${inst.toString(16)}` +
+                ` field+0x${foff.toString(16)}→${probe.kind}<${elemName}> count=${probe.count} firstElem=0x${probe.firstElementPtr.toString(16)}`,
+            );
+            if (samplePtr == null) {
+              samplePtr = probe.firstElementPtr;
+              sampleItemSOClassPtr = itemClassPtr;
+            }
+            containerCount++;
+            break; // next static slot
+          }
+        }
+      }
+    }
+  }
+
+  log(
+    `[catalog-dump] ItemManager candidates: ${containerCount}` +
+      (containerCount >= CATALOG_DUMP_MAX_CONTAINERS
+        ? ` (capped at ${CATALOG_DUMP_MAX_CONTAINERS})`
+        : ""),
+  );
+
+  // Pass 3: dump one sample ItemSO instance's field values. This is the most
+  // useful line — it tells us whether id/name/grade are plain ints or
+  // String*/GradeSO* references, which determines how the real extractor reads
+  // them.
+  if (samplePtr != null && sampleItemSOClassPtr != null) {
+    const sampleCandidate = itemSOCandidates.find((c) => c.entry.classPtr === sampleItemSOClassPtr);
+    if (sampleCandidate != null) {
+      const fields = sampleCandidate.fields;
+      const samples: string[] = [];
+      for (const [fname, foff] of fields.entries()) {
+        if (samples.length >= 12) break;
+        const rawPtr = readPtr(ctx.reader, samplePtr + BigInt(foff));
+        const i32 = readI32(ctx.reader, samplePtr + BigInt(foff));
+        let desc: string;
+        if (rawPtr != null && isPlausibleHeapPtr(rawPtr)) {
+          const klass = ctx.instanceClassName(rawPtr);
+          if (klass != null && klass.toLowerCase().includes("string")) {
+            const s = readIl2CppString(ctx.reader, rawPtr);
+            desc = `str="${s == null ? "null" : s.length > 40 ? s.slice(0, 40) + "…" : s}"`;
+          } else if (klass != null && klass.toLowerCase().includes("grade")) {
+            desc = `GradeSO*(${klass})`;
+          } else {
+            desc = `ptr→${klass ?? "??"}(0x${rawPtr.toString(16)})`;
+          }
+        } else if (i32 != null) {
+          desc = `i32=${i32}${isPlausibleItemKey(i32) ? "[ik]" : ""}${isPlausibleGrade(i32) ? "[gr]" : ""}`;
+        } else {
+          desc = `?`;
+        }
+        samples.push(`${fname}@0x${foff.toString(16)}=${desc}`);
+      }
+      log(
+        `[catalog-dump] sample ItemSO instance at 0x${samplePtr.toString(16)} (class="${sampleCandidate.entry.name}"): ${samples.join(" | ")}`,
+      );
+    }
+  }
+
+  log(`[catalog-dump] end`);
 }
