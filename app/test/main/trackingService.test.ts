@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { LiveMemorySnapshot, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../src/core/localeCatalog";
 
 vi.mock("../../src/main/saveWatcher", () => ({
   SaveWatcher: class {
@@ -704,5 +705,75 @@ describe("TrackingService live-frame broadcast throttling", () => {
 
     expect(broadcast).toHaveBeenCalledTimes(2);
     svc.stop();
+  });
+});
+
+describe("TrackingService with LocaleCatalog", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  // stageKey 3205 -> Hell 2-5; catalog key "1205" (1 + act + stage w/ leading zero)
+  // heroKey "101" -> Knight (default English fallback)
+  const zhCatalog: LocaleCatalog = {
+    items: {},
+    stages: { "1205": "牧场" },
+    heroes: { "101": "骑士" },
+    difficulties: {},
+  };
+
+  it("defaults to emptyLocaleCatalog when no catalog is provided", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+
+    // English fallbacks: stage "Hell 2-5", hero "Knight"
+    const stats = svc.getStats();
+    expect(stats.stageName).toBe("Hell 2-5");
+    expect(stats.heroes.find((h) => h.key === "101")?.name).toBe("Knight");
+    svc.stop();
+  });
+
+  it("uses initialCatalog passed to the constructor to localize names", () => {
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      zhCatalog,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+
+    const stats = svc.getStats();
+    expect(stats.stageName).toBe("牧场");
+    expect(stats.heroes.find((h) => h.key === "101")?.name).toBe("骑士");
+    svc.stop();
+  });
+
+  it("setLocaleCatalog swaps the catalog used by getStats", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+
+    // Before swap: English fallbacks
+    expect(svc.getStats().stageName).toBe("Hell 2-5");
+
+    svc.setLocaleCatalog(zhCatalog);
+
+    // After swap: localized names without needing a new snapshot
+    const stats = svc.getStats();
+    expect(stats.stageName).toBe("牧场");
+    expect(stats.heroes.find((h) => h.key === "101")?.name).toBe("骑士");
+    svc.stop();
+  });
+
+  it("has setLocaleCatalog method", () => {
+    const svc = new TrackingService(vi.fn());
+    expect(typeof svc.setLocaleCatalog).toBe("function");
   });
 });

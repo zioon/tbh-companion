@@ -3,6 +3,7 @@ import { SaveWatcher } from "../saveWatcher";
 import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
@@ -109,6 +110,13 @@ export class TrackingService {
    * calls `setAutoClassifyService` right after `tracking.start`.
    */
   private autoClassify: AutoClassifyService | null = null;
+  /**
+   * LocaleCatalog used for hero/stage name localization in getStats. Set
+   * once at construction (defaults to emptyLocaleCatalog) and swapped via
+   * {@link setLocaleCatalog} when the user changes language. Kept as a
+   * field (not threaded through every call) so getStats stays parameterless.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
 
   constructor(
     onInventory: (snap: InventorySnapshot) => void,
@@ -123,9 +131,11 @@ export class TrackingService {
       xpGained: number,
       goldGained: number,
     ) => void,
+    initialCatalog: LocaleCatalog = emptyLocaleCatalog(),
   ) {
     this.onInventory = onInventory;
     this.parseInventorySnapshot = parseInventorySnapshot;
+    this.localeCatalog = initialCatalog;
   }
 
   start(config: AppConfig): void {
@@ -212,6 +222,8 @@ export class TrackingService {
       this.sessionState?.getStatusOverride() ?? null,
       this.lastLiveFrame,
       this.buildBoxOpenPriceResolver(),
+      null,
+      this.localeCatalog,
     );
   }
 
@@ -414,6 +426,15 @@ export class TrackingService {
    */
   setAutoClassifyService(svc: AutoClassifyService): void {
     this.autoClassify = svc;
+  }
+
+  /**
+   * Swap the LocaleCatalog used for hero/stage name localization. Called by
+   * appState when the user changes language. Does NOT re-broadcast — callers
+   * should invoke getStats() afterwards to emit a fresh payload.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
   }
 
   getBoxOpenTracker(): BoxOpenTracker {
