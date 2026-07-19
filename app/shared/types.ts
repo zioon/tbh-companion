@@ -225,11 +225,19 @@ export interface AutoClassifyStatePayload {
     category: BoxCategory;
     count: number;
     /**
-     * Remaining ms until the head item of this category auto-opens
-     * (`droppedAtMs + autoOpenSeconds*1000 - now`, clamped to >= 0).
-     * `null` when the category has no queued items.
+     * Remaining ms until the head (soonest-opening) item of this category
+     * auto-opens (`autoOpenAtMs - now`, clamped to >= 0). `null` when the
+     * category has no queued items.
      */
     nextAutoOpenInMs: number | null;
+    /**
+     * Remaining ms until the tail (latest-opening) item of this category
+     * auto-opens. Under the slot-parallel model every queued chest has its
+     * own independent timer, so this is the time until all queued chests of
+     * this category have auto-opened (i.e. the queue clears). `null` when
+     * the category has no queued items.
+     */
+    lastAutoOpenInMs: number | null;
   }>;
   /**
    * Per-item view of the queue, oldest-first. Each entry corresponds to one
@@ -247,12 +255,13 @@ export interface AutoClassifyQueueItem {
   droppedAtMs: number;
   stageKey: number;
   /**
-   * Remaining ms until this chest's auto-open fires (clamped to >= 0), or
-   * `null` when this chest is waiting behind another chest of the same
-   * boxKey (serial per-slot auto-open — its timer starts only when its
-   * predecessor is actually opened).
+   * Remaining ms until this chest's auto-open fires
+   * (`autoOpenAtMs - now`, clamped to >= 0). Under the slot-parallel model
+   * every queued chest has a concrete auto-open time computed at drop
+   * time, so this is always a number — manual opens of other chests do
+   * not move this timestamp.
    */
-  autoOpenInMs: number | null;
+  autoOpenInMs: number;
   /** Remaining ms until this queue entry expires and is pruned (clamped to >= 0). */
   expiresInMs: number;
 }
@@ -287,6 +296,7 @@ export interface Stats {
   secondsSinceGain: number | null;
   secondsSinceRead: number | null;
   stageKey: number;
+  stageName: string; // localized stage name (e.g. "Pasture"), computed by main via stageName(stageKey, catalog)
   stageWave: number;
   /** Total waves in the current stage (from live memory, 0 if unavailable). */
   stageWaveTotal: number;
@@ -687,6 +697,14 @@ export interface AppConfig {
    * persisted `language` is not "game".
    */
   resolvedLanguage?: ResolvedLanguage;
+  /**
+   * Runtime-only stageKey -> localized name map (never persisted to
+   * config.json). The main process fills this on every `getConfig()` call so
+   * the renderer's `boxLootFilters` text matching can resolve stage names
+   * without re-reading the catalog. ~30 entries. Omitted when no catalog is
+   * loaded.
+   */
+  stageMetadata?: Record<number, string>;
 }
 
 /** Scoped targets for Settings → Data & cache clear actions. */
@@ -751,6 +769,7 @@ export interface ClearAppDataResult {
 export interface StageRunHistoryEntry {
   wallTime: number;
   stageKey: number;
+  stageName?: string; // localized stage name; absent on entries cached before v1.19.x
   clearTimeSec: number;
   /** XP/gold gained since the previous recorded clear (this run's take). */
   xpGained: number;
@@ -912,6 +931,7 @@ export interface BoxTimerState {
   cooldownCount: number;
   sortOrder: BoxTrackerSortOrder;
   currentStageKey: number;
+  currentStageLabel: string; // localized current stage name, computed by main via stageName(currentStageKey, catalog)
   defaultCooldownSeconds: number;
 }
 
@@ -1214,6 +1234,7 @@ export interface LiveHeroData {
   heroKey: number;
   level: number;
   exp: number;
+  name?: string; // localized hero name; populated by main when catalog is available
 }
 
 /** A single inventory item from LocalInventoryManager bag dicts. */
