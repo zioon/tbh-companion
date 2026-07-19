@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "普通寶箱",
+    "rare": "關卡寶箱",
+    "act": "章節首領寶箱",
+    "unclassified": "未分類"
+  },
+  "levelSuffix": "{{base}} 等級 {{level}}"
+}

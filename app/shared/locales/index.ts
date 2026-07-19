@@ -13,23 +13,41 @@ import en from "./en";
 import ja from "./ja";
 import ko from "./ko";
 import zhCN from "./zh-CN";
+// Per-language loot namespace (chest category + levelSuffix) for the 12
+// languages that otherwise reuse the English bundle. These override the
+// English loot strings so chest labels show in the player's language.
+import zhHantLoot from "./zh-Hant/loot.json";
+import frFRLoot from "./fr-FR/loot.json";
+import deDELoot from "./de-DE/loot.json";
+import idIDLoot from "./id-ID/loot.json";
+import plPLLoot from "./pl-PL/loot.json";
+import ptBRLoot from "./pt-BR/loot.json";
+import ruRULoot from "./ru-RU/loot.json";
+import esESLoot from "./es-ES/loot.json";
+import thTHLoot from "./th-TH/loot.json";
+import trTRLoot from "./tr-TR/loot.json";
+import ukUALoot from "./uk-UA/loot.json";
+import viVNLoot from "./vi-VN/loot.json";
+
+function withLoot(base: Record<string, object>, loot: object): Record<string, object> {
+  return { ...base, loot };
+}
 
 export const LOCALE_RESOURCES: Record<ResolvedLanguage, Record<string, object>> = {
   en,
   "zh-CN": zhCN,
   ja,
   ko,
-  // English fallback for the 12 newly-added game languages:
-  "zh-Hant": en,
-  "fr-FR": en,
-  "de-DE": en,
-  "id-ID": en,
-  "pl-PL": en,
-  "pt-BR": en,
-  "ru-RU": en,
-  "es-ES": en,
-  "th-TH": en,
-  "tr-TR": en,
-  "uk-UA": en,
-  "vi-VN": en,
+  "zh-Hant": withLoot(en, zhHantLoot),
+  "fr-FR": withLoot(en, frFRLoot),
+  "de-DE": withLoot(en, deDELoot),
+  "id-ID": withLoot(en, idIDLoot),
+  "pl-PL": withLoot(en, plPLLoot),
+  "pt-BR": withLoot(en, ptBRLoot),
+  "ru-RU": withLoot(en, ruRULoot),
+  "es-ES": withLoot(en, esESLoot),
+  "th-TH": withLoot(en, thTHLoot),
+  "tr-TR": withLoot(en, trTRLoot),
+  "uk-UA": withLoot(en, ukUALoot),
+  "vi-VN": withLoot(en, viVNLoot),
 };

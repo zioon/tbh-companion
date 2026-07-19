@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Cofre común",
+    "rare": "Cofre de fase",
+    "act": "Cofre de jefe de acto",
+    "unclassified": "Sin clasificar"
+  },
+  "levelSuffix": "{{base}} Nv.{{level}}"
+}

@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Coffre commun",
+    "rare": "Coffre de niveau",
+    "act": "Coffre de boss d'acte",
+    "unclassified": "Non classé"
+  },
+  "levelSuffix": "{{base}} Niv.{{level}}"
+}

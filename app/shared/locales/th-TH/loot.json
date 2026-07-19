@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "หีบสมบัติทั่วไป",
+    "rare": "หีบสมบัติด่าน",
+    "act": "หีบสมบัติบอสบท",
+    "unclassified": "ไม่ระบุประเภท"
+  },
+  "levelSuffix": "{{base}} Lv.{{level}}"
+}
