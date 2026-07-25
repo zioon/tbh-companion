@@ -21,6 +21,8 @@
     "allMaterialKinds": "全部材料种类",
     "level": "等级",
     "uniqueOnly": "仅唯一",
+    "watchedOnly": "仅星标",
+    "watchedOnlyHint": "只显示你已加星标的价格轮询物品（已关注 {{count}} 个）",
     "searchItems": "搜索物品…",
     "itemsCount": "{{count}} 个物品"
   },

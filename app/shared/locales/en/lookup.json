@@ -21,6 +21,8 @@
     "allMaterialKinds": "All material kinds",
     "level": "Level",
     "uniqueOnly": "Unique only",
+    "watchedOnly": "Watched only",
+    "watchedOnlyHint": "Show only items you've starred for price polling ({{count}} watched)",
     "searchItems": "Search items...",
     "itemsCount": "{{count}} items"
   },

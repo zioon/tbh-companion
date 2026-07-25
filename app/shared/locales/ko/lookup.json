@@ -21,6 +21,8 @@
     "allMaterialKinds": "모든 재료 종류",
     "level": "레벨",
     "uniqueOnly": "유니크만",
+    "watchedOnly": "별표만",
+    "watchedOnlyHint": "가격 폴링을 위해 별표한 아이템만 표시 ({{count}}개 팔로우 중)",
     "searchItems": "아이템 검색…",
     "itemsCount": "{{count}}개 아이템"
   },

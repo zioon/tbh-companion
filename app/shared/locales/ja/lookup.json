@@ -21,6 +21,8 @@
     "allMaterialKinds": "すべての素材種別",
     "level": "レベル",
     "uniqueOnly": "ユニークのみ",
+    "watchedOnly": "スター付きのみ",
+    "watchedOnlyHint": "価格ポーリングのためにスターを付けたアイテムのみ表示（{{count}} 件フォロー）",
     "searchItems": "アイテムを検索…",
     "itemsCount": "{{count}} 個のアイテム"
   },

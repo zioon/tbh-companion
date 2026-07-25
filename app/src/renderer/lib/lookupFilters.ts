@@ -18,6 +18,8 @@ export interface LookupFilterState {
   materialKindFilter: string[];
   effectFilter: string[];
   uniqueOnly: boolean;
+  /** 仅显示用户星标关注的物品（默认开启，可在 UI 关闭）。 */
+  watchedOnly: boolean;
   /** `[lo, hi]` over LEVEL_MIN..LEVEL_MAX; the full span means "no level filter". */
   levelRange: [number, number];
   sortKey: LookupSortKey;
@@ -183,10 +185,26 @@ export function isUnresolvedLocalizationKey(name: string): boolean {
   return /^Item(?:Name|Description)_\d+$/.test(name);
 }
 
-export function filterAndSortItems(items: LookupItem[], state: LookupFilterState): LookupItem[] {
+export interface FilterAndSortOptions {
+  /**
+   * 当 `state.watchedOnly` 为 true 时，只保留 `getHash(item)` 返回的 hash
+   * 出现在 `watchedHashes` 集合中的物品。`getHash` 通常就是
+   * `marketHashName(item)`；由调用方传入以保持 `core/` 不依赖 React。
+   */
+  watchedHashes?: Set<string>;
+  getHash?: (item: LookupItem) => string | null;
+}
+
+export function filterAndSortItems(
+  items: LookupItem[],
+  state: LookupFilterState,
+  options: FilterAndSortOptions = {},
+): LookupItem[] {
   const q = state.query.trim().toLowerCase();
   const fullLevel = isFullLevelRange(state.levelRange);
   const [minLevel, maxLevel] = state.levelRange;
+  const watchedSet = options.watchedHashes;
+  const getHash = options.getHash;
   let rows = items.filter((item) => {
     if (isUnresolvedLocalizationKey(item.name)) return false;
     if (!matchesMulti(state.typeFilter, item.type)) return false;
@@ -206,6 +224,10 @@ export function filterAndSortItems(items: LookupItem[], state: LookupFilterState
       return false;
     }
     if (q && !item.name.toLowerCase().includes(q)) return false;
+    if (state.watchedOnly && watchedSet && getHash) {
+      const h = getHash(item);
+      if (!h || !watchedSet.has(h)) return false;
+    }
     return true;
   });
 

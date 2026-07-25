@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { useLookupSources } from "../lib/useLookupSources";
 import { useLookupSynthesisModel } from "../lib/useLookupSynthesisModel";
+import { useWatchedHashesSet } from "../lib/useWatchedHashes";
 import type { LookupItem } from "../../../shared/types";
 import {
   defaultLookupSortDir,
@@ -16,6 +17,7 @@ import {
   typeOptionsFromItems,
   type LookupSortKey,
 } from "../lib/lookupFilters";
+import { marketHashName } from "../../core/marketName";
 import { useEntityPanel } from "../context/entityPanelContext";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
@@ -38,6 +40,11 @@ export function Lookup() {
   const [materialKindFilter, setMaterialKindFilter] = useState<string[]>([]);
   const [effectFilter, setEffectFilter] = useState<string[]>([]);
   const [uniqueOnly, setUniqueOnly] = useState(false);
+  // watchedOnly 默认 true：进入图鉴时只显示已星标的物品，让用户聚焦于
+  // 自己关心的价格跟踪目标。可在 UI 关闭查看全部。
+  const [watchedOnly, setWatchedOnly] = useState(true);
+  const watchedSet = useWatchedHashesSet();
+  const watchedCount = watchedSet.size;
   const [levelRange, setLevelRange] = useState<[number, number]>([LEVEL_MIN, LEVEL_MAX]);
   const [sortKey, setSortKey] = useState<LookupSortKey>("grade");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -71,18 +78,23 @@ export function Lookup() {
 
   const filtered = useMemo(() => {
     if (!items) return [];
-    return filterAndSortItems(items, {
-      query: deferredQuery,
-      typeFilter,
-      gradeFilter,
-      gearTypeFilter,
-      materialKindFilter,
-      effectFilter,
-      uniqueOnly,
-      levelRange,
-      sortKey,
-      sortDir,
-    });
+    return filterAndSortItems(
+      items,
+      {
+        query: deferredQuery,
+        typeFilter,
+        gradeFilter,
+        gearTypeFilter,
+        materialKindFilter,
+        effectFilter,
+        uniqueOnly,
+        watchedOnly,
+        levelRange,
+        sortKey,
+        sortDir,
+      },
+      { watchedHashes: watchedSet, getHash: (item) => marketHashName(item) },
+    );
   }, [
     items,
     deferredQuery,
@@ -92,6 +104,8 @@ export function Lookup() {
     materialKindFilter,
     effectFilter,
     uniqueOnly,
+    watchedOnly,
+    watchedSet,
     levelRange,
     sortKey,
     sortDir,
@@ -140,6 +154,8 @@ export function Lookup() {
         materialKindFilter={materialKindFilter}
         effectFilter={effectFilter}
         uniqueOnly={uniqueOnly}
+        watchedOnly={watchedOnly}
+        watchedCount={watchedCount}
         levelRange={levelRange}
         sortKey={sortKey}
         sortDir={sortDir}
@@ -156,6 +172,7 @@ export function Lookup() {
         onMaterialKindFilterChange={setMaterialKindFilter}
         onEffectFilterChange={setEffectFilter}
         onUniqueOnlyChange={setUniqueOnly}
+        onWatchedOnlyChange={setWatchedOnly}
         onLevelRangeChange={setLevelRange}
         onSortKeyChange={handleSortKeyChange}
         onSortDirToggle={toggleSortDir}

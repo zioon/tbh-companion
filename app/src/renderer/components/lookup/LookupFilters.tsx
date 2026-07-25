@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { LuStar } from "react-icons/lu";
+import { cn } from "../../lib/cn";
 import { gradeLabel, typeLabel } from "../../lib/itemLabels";
 import {
   LEVEL_MAX,
@@ -32,6 +34,8 @@ export interface LookupFiltersProps {
   materialKindFilter: string[];
   effectFilter: string[];
   uniqueOnly: boolean;
+  watchedOnly: boolean;
+  watchedCount: number;
   levelRange: [number, number];
   sortKey: LookupSortKey;
   sortDir: "asc" | "desc";
@@ -48,6 +52,7 @@ export interface LookupFiltersProps {
   onMaterialKindFilterChange: (m: string[]) => void;
   onEffectFilterChange: (e: string[]) => void;
   onUniqueOnlyChange: (v: boolean) => void;
+  onWatchedOnlyChange: (v: boolean) => void;
   onLevelRangeChange: (range: [number, number]) => void;
   onSortKeyChange: (key: LookupSortKey) => void;
   onSortDirToggle: () => void;
@@ -61,6 +66,8 @@ export function LookupFilters({
   materialKindFilter,
   effectFilter,
   uniqueOnly,
+  watchedOnly,
+  watchedCount,
   levelRange,
   sortKey,
   sortDir,
@@ -77,6 +84,7 @@ export function LookupFilters({
   onMaterialKindFilterChange,
   onEffectFilterChange,
   onUniqueOnlyChange,
+  onWatchedOnlyChange,
   onLevelRangeChange,
   onSortKeyChange,
   onSortDirToggle,
@@ -188,6 +196,24 @@ export function LookupFilters({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
         />
+        <label
+          className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted"
+          title={t("filters.watchedOnlyHint", { count: watchedCount })}
+        >
+          <Checkbox
+            checked={watchedOnly}
+            onCheckedChange={(c) => onWatchedOnlyChange(c)}
+            aria-label={t("filters.watchedOnly")}
+          />
+          <LuStar
+            className={cn("size-3.5", watchedOnly && "fill-current text-amber-400")}
+            aria-hidden
+          />
+          <span className={cn(watchedOnly && "text-amber-400")}>
+            {t("filters.watchedOnly")}
+            {watchedCount > 0 ? ` (${watchedCount})` : ""}
+          </span>
+        </label>
         <span className="shrink-0 whitespace-nowrap text-xs text-muted">
           {t("filters.itemsCount", { count: shownCount })}
         </span>
