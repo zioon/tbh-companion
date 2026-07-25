@@ -478,7 +478,20 @@ export class InventoryService {
       return this.queuePriceRefresh(wantsForce);
     }
 
-    const targets = this.filterLowValueTargets(this.currentOwnedPriceTargets(), wantsForce);
+    // Manual refresh: do NOT apply the low-value filter. The filter
+    // (`filterLowValueTargets`) is reserved for `ensureOwnedPrices` (the
+    // auto-scan path) where it saves Steam rate-limit budget by skipping
+    // items the lookup snapshot prices at or below
+    // `lowValueThresholdUsd` (or confirms no listing). An explicit user
+    // action should refresh every stale owned item — otherwise the status
+    // line can show "97 need update" while the refresh noops with "all 13
+    // are fresh" because the 97 stale items were silently filtered out.
+    // `force` still controls whether fresh items are re-fetched.
+    //
+    // Prune uses the FULL owned set (not the filtered subset) so cached
+    // prices for low-value items survive a manual refresh — otherwise the
+    // user would lose their existing prices every time they click Refresh.
+    const targets = this.currentOwnedPriceTargets();
     this.market.pruneCacheTargets(targets);
 
     const result = await this.market.refresh(targets, this.priceRefreshCallbacks(wantsForce));

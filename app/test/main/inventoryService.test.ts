@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { InventoryService, mergeLookupNames } from "../../src/main/services/InventoryService";
 import type { GameItem } from "../../src/core/gamedata";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../src/core/localeCatalog";
-import type { InventorySnapshot, LookupItem } from "../../shared/types";
+import type { InventorySnapshot, LookupItem, PriceRefreshResult } from "../../shared/types";
+import type { OwnedPriceTarget } from "../../src/core/inventory/ownedPriceTargets";
 
 function snap(used: number, capacity: number): InventorySnapshot {
   return { items: [], chests: [], saveMtime: 0, inventoryCapacity: capacity, inventoryUsed: used };
@@ -190,6 +191,110 @@ describe("InventoryService low-value skip filter", () => {
     );
 
     expect(filtered).toHaveLength(1);
+  });
+});
+
+describe("InventoryService.refreshPrices low-value filter", () => {
+  // Regression: manual refresh must NOT apply the low-value filter. The
+  // filter is reserved for the auto-scan path (`ensureOwnedPrices`). When
+  // `refreshPrices` applied it too, the status line could show "97 need
+  // update" while the refresh noops with "all 13 are fresh" because the
+  // 97 stale items were silently filtered out as low-value / no-listing.
+  // `force` still controls whether fresh items are re-fetched; it does
+  // NOT gate the filter on the manual path.
+  function stubMarket(
+    service: InventoryService,
+    onRefresh: (targets: OwnedPriceTarget[]) => PriceRefreshResult,
+  ): void {
+    Object.defineProperty(service, "market", {
+      configurable: true,
+      value: {
+        status: () => ({
+          running: false,
+          currency: "USD",
+          count: 0,
+          ownedTargets: 1,
+          freshCount: 0,
+          staleCount: 1,
+          fetchedUtc: null,
+        }),
+        pruneCacheTargets: () => 0,
+        reloadFromDisk: () => undefined,
+        cancel: () => undefined,
+        refresh: (targets: OwnedPriceTarget[]) =>
+          Promise.resolve(onRefresh(targets)),
+      },
+    });
+  }
+
+  it("does not filter low-value items on manual refresh (force=false)", async () => {
+    const service = new InventoryService();
+    service.setLookupPriceSnapshot({
+      schemaVersion: 1,
+      generatedUtc: new Date().toISOString(),
+      baseCurrency: "USD",
+      prices: { "Cheap Ore": 0.01 }, // would be filtered if filter applied
+      fetchedUtc: {},
+      fx: {},
+    });
+
+    let captured: OwnedPriceTarget[] | undefined;
+    stubMarket(service, (targets) => {
+      captured = targets;
+      return {
+        ok: true,
+        priced: 0,
+        skipped: 0,
+        failed: 0,
+        stopped: "completed",
+        currency: "USD",
+        noop: true,
+      };
+    });
+
+    const owned: OwnedPriceTarget[] = [{ kind: "material", hash: "Cheap Ore" }];
+    vi
+      .spyOn(service as never as { currentOwnedPriceTargets: () => OwnedPriceTarget[] }, "currentOwnedPriceTargets")
+      .mockReturnValue(owned);
+
+    await service.refreshPrices(false);
+
+    expect(captured).toEqual(owned);
+  });
+
+  it("does not filter low-value items on force refresh", async () => {
+    const service = new InventoryService();
+    service.setLookupPriceSnapshot({
+      schemaVersion: 1,
+      generatedUtc: new Date().toISOString(),
+      baseCurrency: "USD",
+      prices: { "Cheap Ore": 0.01 },
+      fetchedUtc: {},
+      fx: {},
+    });
+
+    let captured: OwnedPriceTarget[] | undefined;
+    stubMarket(service, (targets) => {
+      captured = targets;
+      return {
+        ok: true,
+        priced: 0,
+        skipped: 0,
+        failed: 0,
+        stopped: "completed",
+        currency: "USD",
+        noop: true,
+      };
+    });
+
+    const owned: OwnedPriceTarget[] = [{ kind: "material", hash: "Cheap Ore" }];
+    vi
+      .spyOn(service as never as { currentOwnedPriceTargets: () => OwnedPriceTarget[] }, "currentOwnedPriceTargets")
+      .mockReturnValue(owned);
+
+    await service.refreshPrices(true);
+
+    expect(captured).toEqual(owned);
   });
 });
 
