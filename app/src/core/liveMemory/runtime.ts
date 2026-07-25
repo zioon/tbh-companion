@@ -348,8 +348,6 @@ function byteswap8(v: bigint): bigint {
  *  Ported from tbh-meter's game/obscured.py -> decode_obscured_double.
  *  Uses a module-level DataView — this is on the per-hero hot path (v1.00.27+
  *  heroes have ObscuredDouble exp). */
-const _F64_BUF = new ArrayBuffer(8);
-const _F64_VIEW = new DataView(_F64_BUF);
 function decodeObscuredDouble(hidden: bigint | null, key: bigint | null): number | null {
   if (hidden == null || key == null) return null;
   const bits = (key ^ byteswap8(hidden)) & 0xffffffffffffffffn;
@@ -1527,7 +1525,7 @@ function resolveMonsterSpawnManager(
   // the cached instance no longer passes isValidMonsterManager, drop the pin and
   // fall through to the regular resolution path.
   if (pin.ptr != null) {
-    if (isValidMonsterManager(reader, pin.ptr)) return pin.ptr;
+    if (isValidMonsterManager(reader, pin.ptr, o)) return pin.ptr;
     pin.ptr = null;
   }
   if (o.typeInfoRva.monsterSpawnManager === 0n) return null;
