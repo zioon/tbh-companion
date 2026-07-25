@@ -51,6 +51,7 @@
   "changeLog": {
     "title": "최근 Lookup 가격 변동",
     "subtitle": "{{count}}건",
+    "local": "로컬",
     "ageSeconds": "{{count}}초 전",
     "ageMinutes": "{{count}}분 전",
     "ageHours": "{{count}}시간 전",

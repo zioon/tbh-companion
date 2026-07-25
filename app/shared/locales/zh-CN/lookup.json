@@ -40,7 +40,16 @@
   "price": {
     "noListingTitle": "暂无 Steam 市场挂单 —— 打开查看最新",
     "approximateTitle": "Steam 市场近似价格（由美元换算）—— 打开挂单页",
-    "noListedPrice": "暂无挂单价"
+    "localSourceTitle": "本地轮询价格（直接以你的货币抓取）—— 打开挂单页",
+    "localBadge": "本地",
+    "noListedPrice": "暂无挂单价",
+    "rowLabelLowest": "挂单",
+    "rowLabelMedian": "成交",
+    "rowLabelBuyOrder": "收购",
+    "noMedian": "无近期成交",
+    "noBuyOrder": "无收购单",
+    "refreshThisItem": "立即刷新此物品价格（抓取挂单价 / 成交价 / 收购价）",
+    "refreshingThisItem": "正在抓取最新价格…"
   },
   "entityDetail": {
     "itemNotFound": "未找到物品。",

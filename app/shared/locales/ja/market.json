@@ -51,6 +51,7 @@
   "changeLog": {
     "title": "最近の Lookup 価格変動",
     "subtitle": "{{count}} 件",
+    "local": "ローカル",
     "ageSeconds": "{{count}} 秒前",
     "ageMinutes": "{{count}} 分前",
     "ageHours": "{{count}} 時間前",

@@ -40,7 +40,16 @@
   "price": {
     "noListingTitle": "Steam マーケットにアクティブ出品なし — 開いて最新を確認",
     "approximateTitle": "Steam マーケット概算価格（米ドルから換算）— 出品ページを開く",
-    "noListedPrice": "出品価格なし"
+    "localSourceTitle": "ローカルポーリング価格（あなたの通貨で直接取得）— 出品ページを開く",
+    "localBadge": "ローカル",
+    "noListedPrice": "出品価格なし",
+    "rowLabelLowest": "出品",
+    "rowLabelMedian": "落札",
+    "rowLabelBuyOrder": "買取",
+    "noMedian": "最近の落札なし",
+    "noBuyOrder": "買取注文なし",
+    "refreshThisItem": "今すぐこのアイテムの価格を更新（出品価 / 落札価 / 買取を取得）",
+    "refreshingThisItem": "最新価格を取得中…"
   },
   "entityDetail": {
     "itemNotFound": "アイテムが見つかりません。",

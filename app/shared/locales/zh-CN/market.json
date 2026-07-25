@@ -51,6 +51,7 @@
   "changeLog": {
     "title": "最近的图鉴价格变动",
     "subtitle": "{{count}} 条",
+    "local": "本地",
     "ageSeconds": "{{count}} 秒前",
     "ageMinutes": "{{count}} 分钟前",
     "ageHours": "{{count}} 小时前",

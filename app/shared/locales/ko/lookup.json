@@ -40,7 +40,16 @@
   "price": {
     "noListingTitle": "활성 Steam 마켓 등록 없음 — 열어서 최신 확인",
     "approximateTitle": "Steam 마켓 근사 가격(USD에서 변환) — 등록 페이지 열기",
-    "noListedPrice": "등록 가격 없음"
+    "localSourceTitle": "로컬 폴링 가격(사용자 통화로 직접 가져옴) — 등록 페이지 열기",
+    "localBadge": "로컬",
+    "noListedPrice": "등록 가격 없음",
+    "rowLabelLowest": "등록",
+    "rowLabelMedian": "최근 거래",
+    "rowLabelBuyOrder": "매수",
+    "noMedian": "최근 거래 없음",
+    "noBuyOrder": "매수 주문 없음",
+    "refreshThisItem": "지금 이 아이템 가격 새로고침 (등록가 / 체결가 / 매수가 가져오기)",
+    "refreshingThisItem": "최신 가격 가져오는 중…"
   },
   "entityDetail": {
     "itemNotFound": "아이템을 찾을 수 없습니다.",

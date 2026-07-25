@@ -51,6 +51,7 @@
   "changeLog": {
     "title": "Recent Lookup price changes",
     "subtitle": "{{count}} entries",
+    "local": "local",
     "ageSeconds": "{{count}}s ago",
     "ageMinutes": "{{count}}m ago",
     "ageHours": "{{count}}h ago",

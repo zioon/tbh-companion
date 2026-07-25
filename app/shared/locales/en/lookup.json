@@ -40,7 +40,16 @@
   "price": {
     "noListingTitle": "No active Steam Market listing — open to check the latest",
     "approximateTitle": "Approximate Steam Market price (converted from USD) — open the listing",
-    "noListedPrice": "No listed price"
+    "localSourceTitle": "Local polling price (directly fetched in your currency) — open the listing",
+    "localBadge": "local",
+    "noListedPrice": "No listed price",
+    "rowLabelLowest": "Listed",
+    "rowLabelMedian": "Last sold",
+    "rowLabelBuyOrder": "Buy order",
+    "noMedian": "no recent sales",
+    "noBuyOrder": "no buy orders",
+    "refreshThisItem": "Refresh this item's price now (fetches lowest / last sold / buy order)",
+    "refreshingThisItem": "Fetching latest prices…"
   },
   "entityDetail": {
     "itemNotFound": "Item not found.",
