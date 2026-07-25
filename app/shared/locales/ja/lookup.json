@@ -112,5 +112,30 @@
     "viaStageBossKill": "ステージボス撃破",
     "viaActBossKill": "章ボス撃破",
     "levelSuffix": "{{base}} Lv{{level}}"
+  },
+  "polling": {
+    "disabledHint": "設定で価格ポーリングを有効化すると、スケジュールに従って Lookup 価格を更新します。",
+    "runningHint": "ポーリング サイクル実行中…",
+    "triggerTitle": "Lookup 価格を今すぐ更新",
+    "triggerAria": "Lookup 価格を今すぐ更新",
+    "progress": "{{processed}}/{{targets}} · 価格取得 {{priced}}",
+    "progressRateLimited": " · レート制限 {{count}}",
+    "lastCycle": "前回: {{priced}}/{{targets}} 件価格取得",
+    "abortedSuffix": " (中止)",
+    "lastCycleRateLimited": " · レート制限 {{count}}",
+    "lastCycleAt": " · {{age}}",
+    "idle": "ポーリング待機中。",
+    "disabled": "ポーリングは無効です。",
+    "watchedCountTitle": "{{count}} 件のウォッチ アイテムを常時ポーリング",
+    "ageSeconds": "{{count}} 秒前",
+    "ageMinutes": "{{count}} 分前",
+    "ageHours": "{{count}} 時間前",
+    "ageDays": "{{count}} 日前"
+  },
+  "watched": {
+    "watchAria": "ウォッチ リストに追加",
+    "unwatchAria": "ウォッチ リストから削除",
+    "watchTitle": "このアイテムの価格を常時ポーリング",
+    "unwatchTitle": "このアイテムの常時ポーリングを停止"
   }
 }

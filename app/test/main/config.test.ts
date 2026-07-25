@@ -247,9 +247,11 @@ describe("topmost", () => {
   });
 
   it("uses `topmost` per-field, falling back to defaults when legacy is absent", () => {
-    expect(
-      mod.normalizeConfigFromRaw({ topmost: { main: false } }).topmost,
-    ).toEqual({ main: false, overlay: true, boxTracker: true });
+    expect(mod.normalizeConfigFromRaw({ topmost: { main: false } }).topmost).toEqual({
+      main: false,
+      overlay: true,
+      boxTracker: true,
+    });
   });
 
   it("coerces non-boolean per-window values to defaults (treats them as missing)", () => {

@@ -112,5 +112,30 @@
     "viaStageBossKill": "Stage boss kill",
     "viaActBossKill": "Act boss kill",
     "levelSuffix": "{{base}} Lv{{level}}"
+  },
+  "polling": {
+    "disabledHint": "Enable price polling in Settings to refresh Lookup prices on a schedule.",
+    "runningHint": "A polling cycle is running…",
+    "triggerTitle": "Refresh Lookup prices now",
+    "triggerAria": "Refresh Lookup prices now",
+    "progress": "{{processed}}/{{targets}} · priced {{priced}}",
+    "progressRateLimited": " · rate-limited {{count}}",
+    "lastCycle": "last: {{priced}}/{{targets}} priced",
+    "abortedSuffix": " (aborted)",
+    "lastCycleRateLimited": " · rate-limited {{count}}",
+    "lastCycleAt": " · {{age}}",
+    "idle": "Polling idle.",
+    "disabled": "Polling disabled.",
+    "watchedCountTitle": "{{count}} watched item(s) always polled",
+    "ageSeconds": "{{count}}s ago",
+    "ageMinutes": "{{count}}m ago",
+    "ageHours": "{{count}}h ago",
+    "ageDays": "{{count}}d ago"
+  },
+  "watched": {
+    "watchAria": "Add to watched list",
+    "unwatchAria": "Remove from watched list",
+    "watchTitle": "Always poll this item's price",
+    "unwatchTitle": "Stop always polling this item's price"
   }
 }

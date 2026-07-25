@@ -459,6 +459,91 @@ export function Settings() {
               }))}
             />
           </Field>
+
+          <div className="mt-4 flex flex-col gap-3 border-t border-border/40 pt-4">
+            <div className="flex flex-col gap-1">
+              <strong className="text-[13px] font-semibold">
+                {tSettings("steamMarket.polling.sectionTitle")}
+              </strong>
+              <span className="text-xs text-muted">{tSettings("steamMarket.polling.intro")}</span>
+            </div>
+
+            <Checkbox
+              label={tSettings("steamMarket.polling.enable")}
+              checked={cfg.lookupPricePolling.enabled}
+              disabled={saveBusy}
+              onCheckedChange={(checked) =>
+                void savePartial({
+                  lookupPricePolling: { ...cfg.lookupPricePolling, enabled: checked },
+                })
+              }
+            />
+
+            <Field
+              label={tSettings("steamMarket.polling.intervalMinutes")}
+              hint={tSettings("steamMarket.polling.intervalMinutesHint")}
+            >
+              <NumberInput
+                min={5}
+                max={60}
+                defaultValue={cfg.lookupPricePolling.intervalMinutes}
+                key={`polling-interval-${cfg.lookupPricePolling.intervalMinutes}`}
+                disabled={saveBusy || !cfg.lookupPricePolling.enabled}
+                onBlur={(e) => {
+                  const value = Math.min(60, Math.max(5, Number(e.target.value) || 5));
+                  if (value === cfg.lookupPricePolling.intervalMinutes) return;
+                  void savePartial({
+                    lookupPricePolling: { ...cfg.lookupPricePolling, intervalMinutes: value },
+                  });
+                }}
+              />
+            </Field>
+
+            <Field
+              label={tSettings("steamMarket.polling.thresholdUsd")}
+              hint={tSettings("steamMarket.polling.thresholdUsdHint")}
+            >
+              <NumberInput
+                min={0}
+                step={0.5}
+                defaultValue={cfg.lookupPricePolling.thresholdUsd}
+                key={`polling-threshold-${cfg.lookupPricePolling.thresholdUsd}`}
+                disabled={saveBusy || !cfg.lookupPricePolling.enabled}
+                onBlur={(e) => {
+                  const value = Math.max(0, Number(e.target.value) || 0);
+                  if (value === cfg.lookupPricePolling.thresholdUsd) return;
+                  void savePartial({
+                    lookupPricePolling: { ...cfg.lookupPricePolling, thresholdUsd: value },
+                  });
+                }}
+              />
+            </Field>
+
+            <Field
+              label={tSettings("steamMarket.polling.watchedHashes")}
+              hint={tSettings("steamMarket.polling.watchedHashesHint")}
+            >
+              <textarea
+                className="min-h-[80px] w-full resize-y rounded border border-border/50 bg-input px-2 py-1.5 font-mono text-xs"
+                placeholder={tSettings("steamMarket.polling.watchedHashesPlaceholder")}
+                defaultValue={cfg.lookupPricePolling.watchedHashes.join("\n")}
+                disabled={saveBusy || !cfg.lookupPricePolling.enabled}
+                onBlur={(e) => {
+                  const next = e.target.value
+                    .split(/\r?\n/)
+                    .map((s) => s.trim())
+                    .filter((s) => s.length > 0);
+                  const prev = cfg.lookupPricePolling.watchedHashes;
+                  // 顺序无关比较：两边都是去重去空后的集合
+                  const same = next.length === prev.length && next.every((h) => prev.includes(h));
+                  if (same) return;
+                  void savePartial({
+                    lookupPricePolling: { ...cfg.lookupPricePolling, watchedHashes: next },
+                  });
+                }}
+              />
+            </Field>
+          </div>
         </Section>
 
         <Section title={tSettings("notifications.sectionTitle")}>

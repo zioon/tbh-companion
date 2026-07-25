@@ -17,12 +17,14 @@ import type {
   LiveMemorySnapshot,
   LiveMemoryStatus,
   LookupItem,
+  LookupPricePollingStatus,
   LookupPriceSnapshot,
   LookupSources,
   OfferingsModel,
   SynthesisModel,
   NotificationSoundPayload,
   PetState,
+  PollingCycleResult,
   PriceProgress,
   PriceRefreshResult,
   PriceStatus,
@@ -213,6 +215,17 @@ const api: TbhApi = {
     const listener = (_e: unknown, snapshot: LookupPriceSnapshot | null): void => cb(snapshot);
     ipcRenderer.on(IPC.LOOKUP_PRICES, listener);
     return () => ipcRenderer.removeListener(IPC.LOOKUP_PRICES, listener);
+  },
+  getLookupPricePollStatus(): Promise<LookupPricePollingStatus | null> {
+    return ipcRenderer.invoke(IPC.GET_LOOKUP_PRICES_POLL_STATUS);
+  },
+  onLookupPricePollStatus(cb: (status: LookupPricePollingStatus) => void): () => void {
+    const listener = (_e: unknown, status: LookupPricePollingStatus): void => cb(status);
+    ipcRenderer.on(IPC.LOOKUP_PRICES_POLL_STATUS, listener);
+    return () => ipcRenderer.removeListener(IPC.LOOKUP_PRICES_POLL_STATUS, listener);
+  },
+  pollLookupPrices(): Promise<PollingCycleResult> {
+    return ipcRenderer.invoke(IPC.LOOKUP_PRICES_POLL);
   },
   getLiveMemory(): Promise<LiveMemorySnapshot | null> {
     return ipcRenderer.invoke(IPC.GET_LIVE_MEMORY);

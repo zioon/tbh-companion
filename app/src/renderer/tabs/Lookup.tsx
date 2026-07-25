@@ -21,6 +21,7 @@ import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { LookupFilters } from "../components/lookup/LookupFilters";
 import { ItemCard } from "../components/lookup/ItemCard";
+import { LookupPollingStatusRow } from "../components/lookup/LookupPollingStatusRow";
 import { BackToTop } from "../components/lookup/BackToTop";
 
 export function Lookup() {
@@ -126,7 +127,10 @@ export function Lookup() {
 
   return (
     <TabPage>
-      <TabHeader title={t("tabTitle")} intro={t("intro")} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TabHeader title={t("tabTitle")} intro={t("intro")} />
+        <LookupPollingStatusRow />
+      </div>
 
       <LookupFilters
         query={query}

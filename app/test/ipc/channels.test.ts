@@ -42,6 +42,9 @@ describe("IPC channel registry", () => {
     expect(preload).toContain("IPC.GET_OFFERINGS");
     expect(preload).toContain("IPC.GET_LOOKUP_PRICES");
     expect(preload).toContain("IPC.LOOKUP_PRICES");
+    expect(preload).toContain("IPC.GET_LOOKUP_PRICES_POLL_STATUS");
+    expect(preload).toContain("IPC.LOOKUP_PRICES_POLL");
+    expect(preload).toContain("IPC.LOOKUP_PRICES_POLL_STATUS");
     expect(preload).toContain("IPC.GET_LIVE_MEMORY");
     expect(preload).toContain("IPC.GET_LIVE_MEMORY_STATUS");
     expect(preload).toContain("IPC.LIVE_MEMORY");
@@ -87,6 +90,8 @@ describe("IPC channel registry", () => {
     expect(lookupHandler).toContain("IPC.GET_LOOKUP_SYNTHESIS_MODEL");
     expect(lookupHandler).toContain("IPC.GET_OFFERINGS");
     expect(lookupHandler).toContain("IPC.GET_LOOKUP_PRICES");
+    expect(lookupHandler).toContain("IPC.GET_LOOKUP_PRICES_POLL_STATUS");
+    expect(lookupHandler).toContain("IPC.LOOKUP_PRICES_POLL");
     const liveMemoryHandler = readHandler("liveMemory");
     expect(liveMemoryHandler).toContain("IPC.GET_LIVE_MEMORY");
     expect(liveMemoryHandler).toContain("IPC.GET_LIVE_MEMORY_STATUS");
@@ -197,5 +202,11 @@ describe("IPC channel registry", () => {
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_CATALOG_STATUS);
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_LOCALE_DATA);
     expect(IPC_PUSH_CHANNELS).toContain(IPC.CATALOG_STATUS);
+  });
+
+  it("registers the lookup-price polling channels in the correct registries", () => {
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_LOOKUP_PRICES_POLL_STATUS);
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.LOOKUP_PRICES_POLL);
+    expect(IPC_PUSH_CHANNELS).toContain(IPC.LOOKUP_PRICES_POLL_STATUS);
   });
 });

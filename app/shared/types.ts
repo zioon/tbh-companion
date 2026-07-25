@@ -695,6 +695,57 @@ export interface LiveMemoryPrefs {
   consentAccepted: boolean;
 }
 
+/**
+ * 本地轮询 Steam Market 高价值/重点物品价格的偏好设置。
+ *
+ * 与图鉴共享快照（CI 每 6h 抓取一次）互补：开启后客户端在本地周期性
+ * 调用 Steam priceoverview 接口刷新「已拥有且估值达阈值」或「用户收藏」
+ * 的物品价格，并 merge 进内存中的 {@link LookupPriceSnapshot}。默认关闭，
+ * 避免给不需要的用户增加 API 配额压力。
+ */
+export interface LookupPricePollingPrefs {
+  /** 是否启用本地轮询。默认 false。 */
+  enabled: boolean;
+  /** 轮询间隔（分钟）。默认 10，范围 [5, 60]。 */
+  intervalMinutes: number;
+  /** 「高价值」USD 价格阈值。默认 1.0。已拥有物品的快照价格 ≥ 此值才入选。 */
+  thresholdUsd: number;
+  /** 用户手动收藏的 market_hash_name 列表，无论价格/是否拥有都会被轮询。默认空。 */
+  watchedHashes: string[];
+}
+
+/**
+ * 单轮轮询的结果摘要。`aborted=true` 表示因连续 429 中止；`targets=0` 配
+ * `aborted=false` 表示无目标（早退）。
+ */
+export interface PollingCycleResult {
+  targets: number;
+  priced: number;
+  rateLimited: number;
+  failed: number;
+  aborted: boolean;
+}
+
+/**
+ * 主进程推给 renderer 的 polling 状态快照。`running=true` 表示当前正在跑
+ * 一轮；`progress` 反映本轮实时进度。`lastCycleResult`/`lastCycleAtMs`
+ * 来自上一轮结束时的快照，可能为 null（启动后从未跑过）。
+ */
+export interface LookupPricePollingStatus {
+  running: boolean;
+  enabled: boolean;
+  config: LookupPricePollingPrefs;
+  progress: {
+    targets: number;
+    processed: number;
+    priced: number;
+    rateLimited: number;
+    failed: number;
+  } | null;
+  lastCycleResult: PollingCycleResult | null;
+  lastCycleAtMs: number | null;
+}
+
 export interface AppConfig {
   savePath: string;
   es3Password: string;
@@ -732,6 +783,8 @@ export interface AppConfig {
    */
   lootRingSeconds: LootRingSeconds;
   liveMemory: LiveMemoryPrefs;
+  /** 本地高价值/重点物品价格轮询偏好。默认关闭。 */
+  lookupPricePolling: LookupPricePollingPrefs;
   windowLayout?: WindowLayoutPrefs;
   inventoryTable?: InventoryTablePrefs;
   /**
@@ -1553,6 +1606,9 @@ export interface TbhApi {
   getOfferings(): Promise<OfferingsModel>;
   getLookupPrices(): Promise<LookupPriceSnapshot | null>;
   onLookupPrices(cb: (snapshot: LookupPriceSnapshot | null) => void): () => void;
+  getLookupPricePollStatus(): Promise<LookupPricePollingStatus | null>;
+  onLookupPricePollStatus(cb: (status: LookupPricePollingStatus) => void): () => void;
+  pollLookupPrices(): Promise<PollingCycleResult>;
   getLiveMemory(): Promise<LiveMemorySnapshot | null>;
   getLiveMemoryStatus(): Promise<LiveMemoryStatus | null>;
   onLiveMemory(cb: (snapshot: LiveMemorySnapshot) => void): () => void;

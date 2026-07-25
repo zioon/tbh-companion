@@ -6,6 +6,8 @@ import { CardContent, CardHeader } from "../../design-system/primitives/Card/Car
 import { formatStatRow } from "../../lib/itemLabels";
 import { ItemCardHeader, MaterialGroup, StatGroup } from "./itemCardParts";
 import { LookupPrice } from "./LookupPrice";
+import { WatchedStarToggle } from "./WatchedStarToggle";
+import { marketHashName } from "../../../core/marketName";
 import { lookupItemCardHasBody } from "../../lib/lookupItemCard";
 import type { LookupItem } from "../../../../shared/types";
 
@@ -28,6 +30,7 @@ export const ItemCard = memo(function ItemCard({
   // Price sits top-right of the header — a Steam link on grid cards (onSelect),
   // a quiet non-clickable price on peeks (no onSelect).
   const interactive = Boolean(onSelect);
+  const hash = marketHashName(item);
   const cardClassName = cn(
     "flex flex-col",
     hasBody && "h-full gap-2 [contain-intrinsic-size:0_180px] [content-visibility:auto]",
@@ -40,7 +43,12 @@ export const ItemCard = memo(function ItemCard({
           item={item}
           iconSize="md"
           gradeOverride={gradeOverride}
-          trailing={<LookupPrice item={item} interactive={interactive} />}
+          trailing={
+            <span className="inline-flex items-center gap-0.5">
+              {hash ? <WatchedStarToggle hash={hash} /> : null}
+              <LookupPrice item={item} interactive={interactive} />
+            </span>
+          }
         />
       </CardHeader>
 

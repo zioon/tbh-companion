@@ -30,7 +30,24 @@
   },
   "steamMarket": {
     "sectionTitle": "Steam Market",
-    "marketCurrency": "Market currency"
+    "marketCurrency": "Market currency",
+    "polling": {
+      "sectionTitle": "High-value price polling",
+      "intro": "Periodically refresh Steam Market prices for items you own that are worth at least the threshold, plus any you've starred. Updates overlay the Lookup snapshot in real time.",
+      "enable": "Enable local polling",
+      "intervalMinutes": "Poll interval (minutes)",
+      "intervalMinutesHint": "Range 5–60. Lower values are more real-time but consume more of Steam's per-IP rate-limit budget.",
+      "thresholdUsd": "High-value threshold (USD)",
+      "thresholdUsdHint": "Owned items priced at or above this in the Lookup snapshot are polled. Items at Steam's $0.03 floor are skipped.",
+      "watchedHashes": "Watched market_hash_name list",
+      "watchedHashesHint": "One per line. Always polled regardless of ownership or price. Advanced use; the Lookup UI also has a star button.",
+      "watchedHashesPlaceholder": "One market_hash_name per line",
+      "statusIdle": "Idle.",
+      "statusRunning": "Running a cycle…",
+      "statusLastCycle": "Last cycle: {{priced}}/{{targets}} priced, {{rateLimited}} rate-limited, {{failed}} failed{{aborted}}.",
+      "statusAbortedSuffix": " (aborted)",
+      "statusLastCycleAt": " · {{time}}"
+    }
   },
   "notifications": {
     "sectionTitle": "Notifications",

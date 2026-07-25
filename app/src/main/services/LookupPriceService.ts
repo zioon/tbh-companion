@@ -92,6 +92,23 @@ export class LookupPriceService {
     return this.snapshot;
   }
 
+  /**
+   * 用合并后的快照替换内存中的快照（不持久化到 lookup_prices.json，
+   * 那是 CI 产物；内存覆盖会在下次 CI 快照到达时被替换）。
+   *
+   * 仅供本地高价值价格轮询服务（{@link LookupPricePollingService}）使用：
+   * 它把本地新抓到的 USD 价格 merge 进现有快照，然后通过此方法替换 +
+   * 广播，让图鉴 UI 立刻看到更新的价格。
+   *
+   * 注意：本方法不调用 `persist()`，避免把 polling 数据混入磁盘上的
+   * `lookup_prices.json`（保持 CI 快照的「纯净」来源）。
+   */
+  replaceSnapshot(snapshot: LookupPriceSnapshot): void {
+    this.snapshot = snapshot;
+    this.broadcastFn(IPC.LOOKUP_PRICES, snapshot);
+    this.onSnapshotUpdated?.(snapshot);
+  }
+
   /** Re-read the cache after a Settings clear (file deleted → snapshot null). */
   reloadFromDisk(): void {
     this.etag = null;

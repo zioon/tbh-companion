@@ -24,6 +24,12 @@ function baseConfig(): AppConfig {
     lootAutoClassifyEnabled: false,
     lootRingSeconds: { common: 300, stage: 420 },
     liveMemory: { enabled: false, consentAccepted: false },
+    lookupPricePolling: {
+      enabled: false,
+      intervalMinutes: 10,
+      thresholdUsd: 1.0,
+      watchedHashes: [],
+    },
     language: "auto",
   };
 }

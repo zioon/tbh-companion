@@ -30,7 +30,24 @@
   },
   "steamMarket": {
     "sectionTitle": "Steam 市场",
-    "marketCurrency": "市场价格币种"
+    "marketCurrency": "市场价格币种",
+    "polling": {
+      "sectionTitle": "高价值物品价格轮询",
+      "intro": "周期性调用 Steam 市场接口，刷新「已拥有且估值达阈值」的物品以及你手动收藏的物品价格，并实时覆盖图鉴快照。",
+      "enable": "启用本地轮询",
+      "intervalMinutes": "轮询间隔（分钟）",
+      "intervalMinutesHint": "范围 5–60。数值越小越实时，但会消耗更多 Steam 单 IP 限流配额。",
+      "thresholdUsd": "高价值阈值（美元）",
+      "thresholdUsdHint": "已拥有物品在图鉴快照里的价格 ≥ 此值才会被轮询。Steam 的 $0.03 地板价物品会被跳过。",
+      "watchedHashes": "收藏的 market_hash_name 列表",
+      "watchedHashesHint": "每行一个。无论是否拥有、价格多少都会被轮询。高级用法；图鉴界面也有星标按钮可加。",
+      "watchedHashesPlaceholder": "每行一个 market_hash_name",
+      "statusIdle": "空闲。",
+      "statusRunning": "正在执行一轮轮询…",
+      "statusLastCycle": "上一轮：{{priced}}/{{targets}} 抓到价格，{{rateLimited}} 次限流，{{failed}} 次失败{{aborted}}。",
+      "statusAbortedSuffix": "（已中止）",
+      "statusLastCycleAt": " · {{time}}"
+    }
   },
   "notifications": {
     "sectionTitle": "通知",

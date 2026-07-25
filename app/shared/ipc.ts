@@ -15,6 +15,7 @@ export const IPC = {
   LIVE_MEMORY_STATUS: "live-memory-status",
   STAGE_RUNS: "stage-runs",
   CATALOG_STATUS: "catalog-status",
+  LOOKUP_PRICES_POLL_STATUS: "lookup-prices-poll-status",
 
   // Invoke (renderer → main)
   GET_STATS: "get-stats",
@@ -53,6 +54,8 @@ export const IPC = {
   GET_LOOKUP_SYNTHESIS_MODEL: "get-lookup-synthesis-model",
   GET_OFFERINGS: "get-offerings",
   GET_LOOKUP_PRICES: "get-lookup-prices",
+  GET_LOOKUP_PRICES_POLL_STATUS: "get-lookup-prices-poll-status",
+  LOOKUP_PRICES_POLL: "lookup-prices-poll",
   GET_LIVE_MEMORY: "get-live-memory",
   GET_LIVE_MEMORY_STATUS: "get-live-memory-status",
   GET_STAGE_RUNS: "get-stage-runs",
@@ -117,6 +120,8 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.GET_LOOKUP_SYNTHESIS_MODEL,
   IPC.GET_OFFERINGS,
   IPC.GET_LOOKUP_PRICES,
+  IPC.GET_LOOKUP_PRICES_POLL_STATUS,
+  IPC.LOOKUP_PRICES_POLL,
   IPC.GET_LIVE_MEMORY,
   IPC.GET_LIVE_MEMORY_STATUS,
   IPC.GET_STAGE_RUNS,
@@ -158,4 +163,5 @@ export const IPC_PUSH_CHANNELS = [
   IPC.STAGE_RUNS,
   IPC.LOOT_PROMPT_CLASSIFY,
   IPC.CATALOG_STATUS,
+  IPC.LOOKUP_PRICES_POLL_STATUS,
 ] as const;

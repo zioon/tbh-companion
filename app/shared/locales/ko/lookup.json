@@ -112,5 +112,30 @@
     "viaStageBossKill": "스테이지 보스 처치",
     "viaActBossKill": "챕터 보스 처치",
     "levelSuffix": "{{base}} Lv{{level}}"
+  },
+  "polling": {
+    "disabledHint": "설정에서 가격 폴링을 활성화하면 일정에 따라 Lookup 가격을 새로고침합니다.",
+    "runningHint": "폴링 주기 실행 중…",
+    "triggerTitle": "지금 Lookup 가격 새로고침",
+    "triggerAria": "지금 Lookup 가격 새로고침",
+    "progress": "{{processed}}/{{targets}} · 가격 {{priced}}건",
+    "progressRateLimited": " · 제한 {{count}}건",
+    "lastCycle": "이전: {{priced}}/{{targets}}건 가격 획득",
+    "abortedSuffix": " (중단됨)",
+    "lastCycleRateLimited": " · 제한 {{count}}건",
+    "lastCycleAt": " · {{age}}",
+    "idle": "폴링 대기 중.",
+    "disabled": "폴링이 비활성화되었습니다.",
+    "watchedCountTitle": "{{count}}개 관심 아이템 항상 폴링",
+    "ageSeconds": "{{count}}초 전",
+    "ageMinutes": "{{count}}분 전",
+    "ageHours": "{{count}}시간 전",
+    "ageDays": "{{count}}일 전"
+  },
+  "watched": {
+    "watchAria": "관심 목록에 추가",
+    "unwatchAria": "관심 목록에서 제거",
+    "watchTitle": "이 아이템 가격 항상 폴링",
+    "unwatchTitle": "이 아이템의 항상 폴링 중지"
   }
 }

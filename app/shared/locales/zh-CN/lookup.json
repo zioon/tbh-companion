@@ -112,5 +112,30 @@
     "viaStageBossKill": "击杀关卡 Boss",
     "viaActBossKill": "击杀章节 Boss",
     "levelSuffix": "{{base}} Lv{{level}}"
+  },
+  "polling": {
+    "disabledHint": "请在设置中启用价格轮询，以按计划刷新图鉴价格。",
+    "runningHint": "正在执行一轮轮询…",
+    "triggerTitle": "立即刷新图鉴价格",
+    "triggerAria": "立即刷新图鉴价格",
+    "progress": "{{processed}}/{{targets}} · 已定价 {{priced}}",
+    "progressRateLimited": " · 限流 {{count}}",
+    "lastCycle": "上一轮：{{priced}}/{{targets}} 已定价",
+    "abortedSuffix": "（已中止）",
+    "lastCycleRateLimited": " · 限流 {{count}}",
+    "lastCycleAt": " · {{age}}",
+    "idle": "轮询空闲。",
+    "disabled": "轮询已禁用。",
+    "watchedCountTitle": "{{count}} 个关注物品始终被轮询",
+    "ageSeconds": "{{count}} 秒前",
+    "ageMinutes": "{{count}} 分钟前",
+    "ageHours": "{{count}} 小时前",
+    "ageDays": "{{count}} 天前"
+  },
+  "watched": {
+    "watchAria": "加入关注列表",
+    "unwatchAria": "移出关注列表",
+    "watchTitle": "始终轮询此物品的价格",
+    "unwatchTitle": "停止始终轮询此物品的价格"
   }
 }

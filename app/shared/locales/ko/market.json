@@ -47,5 +47,20 @@
     "cancelled": " (취소됨)",
     "rateLimited": " (요청 제한됨)",
     "success": "{{priced}}개 가격 책정, {{skipped}}개 최신 건 건너뜀, {{failed}}개 실패{{stopMsg}}."
+  },
+  "changeLog": {
+    "title": "최근 Lookup 가격 변동",
+    "subtitle": "{{count}}건",
+    "ageSeconds": "{{count}}초 전",
+    "ageMinutes": "{{count}}분 전",
+    "ageHours": "{{count}}시간 전",
+    "ageDays": "{{count}}일 전",
+    "dir": {
+      "up": "↑",
+      "down": "↓",
+      "flat": "=",
+      "new": "신규",
+      "delisted": "상품 제거"
+    }
   }
 }

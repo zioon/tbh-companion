@@ -76,6 +76,12 @@ export interface LookupPrices {
   resolve: (item: LookupItem) => ResolvedLookupPrice;
   /** When the snapshot was generated, for "updated X ago"; null until loaded. */
   generatedUtc: string | null;
+  /**
+   * The raw snapshot (or null). Exposed so the Market tab can diff consecutive
+   * snapshots to maintain a client-side price-change log without adding a new
+   * IPC channel. Most consumers should use `resolve` instead.
+   */
+  snapshot: LookupPriceSnapshot | null;
 }
 
 /** Resolve any Lookup item to a display price in the user's currency. */
@@ -87,6 +93,7 @@ export function useLookupPrices(): LookupPrices {
     () => ({
       resolve: (item: LookupItem) => resolveLookupPrice(item, snap, currency),
       generatedUtc: snap?.generatedUtc ?? null,
+      snapshot: snap,
     }),
     [snap, currency],
   );

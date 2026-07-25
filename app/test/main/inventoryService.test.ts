@@ -556,3 +556,46 @@ describe("InventoryService price-target English invariant", () => {
     expect((targets[0] as { hash: string }).hash).toBe("Goblin Hide");
   });
 });
+
+describe("InventoryService.loadGameData userDataDir forwarding", () => {
+  // Regression: 启动时 inventory.loadGameData() 没有传 userDataDir，导致
+  // GameDataProvider.load() 只找 bundled 路径，忽略了 userData/gamedata.json
+  // （手动刷新后写入的新版本）。结果：手动刷新成功后，下次打开应用仍然加载
+  // bundled 旧版本，catalogVersion 与 gameVersion 不匹配 → UI 显示 stale →
+  // 用户被迫再次手动刷新。修复：loadGameData 接受可选 userDataDir 并转发给
+  // gameData.load()，appState 启动时传入 resolveUserDataDir()。
+  it("forwards userDataDir to gameData.load() so the userData copy is preferred", () => {
+    const service = new InventoryService();
+    // Stub worker + market so loadGameData doesn't spawn a utility process
+    // or broadcast (mirrors the setLookupCatalog test setup).
+    service["worker"].init = vi.fn().mockResolvedValue(undefined);
+    service["market"] = { status: () => ({ currency: "USD" }) } as never;
+    // Spy gameData.load WITHOUT invoking the real implementation (avoids
+    // reading a real gamedata.json from disk). ResolveAndPushInventory is
+    // also stubbed so no broadcast runs.
+    const loadSpy = vi.spyOn(service.getGameData(), "load").mockImplementation(() => undefined);
+    const resolveSpy = vi
+      .spyOn(service, "resolveAndPushInventory")
+      .mockImplementation(() => undefined);
+
+    service.loadGameData("C:/fake/userData");
+
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+    expect(loadSpy).toHaveBeenCalledWith("C:/fake/userData");
+    // Sanity: the rest of loadGameData still runs.
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits userDataDir (undefined) when loadGameData is called with no args", () => {
+    const service = new InventoryService();
+    service["worker"].init = vi.fn().mockResolvedValue(undefined);
+    service["market"] = { status: () => ({ currency: "USD" }) } as never;
+    const loadSpy = vi.spyOn(service.getGameData(), "load").mockImplementation(() => undefined);
+    vi.spyOn(service, "resolveAndPushInventory").mockImplementation(() => undefined);
+
+    service.loadGameData();
+
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+    expect(loadSpy).toHaveBeenCalledWith(undefined);
+  });
+});

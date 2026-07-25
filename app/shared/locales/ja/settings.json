@@ -30,7 +30,24 @@
   },
   "steamMarket": {
     "sectionTitle": "Steam マーケット",
-    "marketCurrency": "マーケット通貨"
+    "marketCurrency": "マーケット通貨",
+    "polling": {
+      "sectionTitle": "高価値アイテム価格ポーリング",
+      "intro": "所持中かつ閾値以上のアイテムと、スターを付けたアイテムの Steam マーケット価格を定期的に更新します。Lookup スナップショットにリアルタイムで上書きされます。",
+      "enable": "ローカルポーリングを有効化",
+      "intervalMinutes": "ポーリング間隔 (分)",
+      "intervalMinutesHint": "範囲 5〜60。値が小さいほどリアルタイムですが、Steam の IP ごとのレート制限枠を多く消費します。",
+      "thresholdUsd": "高価値閾値 (USD)",
+      "thresholdUsdHint": "Lookup スナップショットでこの値以上の所持アイテムがポーリングされます。Steam の $0.03 フロア品はスキップされます。",
+      "watchedHashes": "ウォッチする market_hash_name リスト",
+      "watchedHashesHint": "1 行 1 件。所持有無や価格に関わらず常にポーリングされます。上級者向け; Lookup UI にもスター ボタンがあります。",
+      "watchedHashesPlaceholder": "1 行に 1 つの market_hash_name",
+      "statusIdle": "待機中。",
+      "statusRunning": "ポーリング サイクル実行中…",
+      "statusLastCycle": "前回サイクル: {{priced}}/{{targets}} 件価格取得、{{rateLimited}} 件レート制限、{{failed}} 件失敗{{aborted}}。",
+      "statusAbortedSuffix": " (中止)",
+      "statusLastCycleAt": " · {{time}}"
+    }
   },
   "notifications": {
     "sectionTitle": "通知",

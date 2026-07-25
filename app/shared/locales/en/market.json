@@ -47,5 +47,20 @@
     "cancelled": " (cancelled)",
     "rateLimited": " (rate-limited)",
     "success": "Priced {{priced}}, skipped {{skipped}} fresh, {{failed}} failed{{stopMsg}}."
+  },
+  "changeLog": {
+    "title": "Recent Lookup price changes",
+    "subtitle": "{{count}} entries",
+    "ageSeconds": "{{count}}s ago",
+    "ageMinutes": "{{count}}m ago",
+    "ageHours": "{{count}}h ago",
+    "ageDays": "{{count}}d ago",
+    "dir": {
+      "up": "↑",
+      "down": "↓",
+      "flat": "=",
+      "new": "new",
+      "delisted": "delisted"
+    }
   }
 }

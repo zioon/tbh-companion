@@ -47,5 +47,20 @@
     "cancelled": "（キャンセルされました）",
     "rateLimited": "（レート制限中）",
     "success": "価格設定 {{priced}}、スキップ {{skipped}} 件最新、失敗 {{failed}}{{stopMsg}}。"
+  },
+  "changeLog": {
+    "title": "最近の Lookup 価格変動",
+    "subtitle": "{{count}} 件",
+    "ageSeconds": "{{count}} 秒前",
+    "ageMinutes": "{{count}} 分前",
+    "ageHours": "{{count}} 時間前",
+    "ageDays": "{{count}} 日前",
+    "dir": {
+      "up": "↑",
+      "down": "↓",
+      "flat": "=",
+      "new": "新規",
+      "delisted": "出品終了"
+    }
   }
 }

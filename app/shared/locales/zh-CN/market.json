@@ -47,5 +47,20 @@
     "cancelled": "（已取消）",
     "rateLimited": "（已被限流）",
     "success": "已定价 {{priced}}，跳过 {{skipped}} 个最新，失败 {{failed}}{{stopMsg}}。"
+  },
+  "changeLog": {
+    "title": "最近的图鉴价格变动",
+    "subtitle": "{{count}} 条",
+    "ageSeconds": "{{count}} 秒前",
+    "ageMinutes": "{{count}} 分钟前",
+    "ageHours": "{{count}} 小时前",
+    "ageDays": "{{count}} 天前",
+    "dir": {
+      "up": "↑",
+      "down": "↓",
+      "flat": "=",
+      "new": "新增",
+      "delisted": "下架"
+    }
   }
 }

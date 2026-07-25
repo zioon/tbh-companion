@@ -17,12 +17,14 @@ import { StageRunService } from "../services/StageRunService";
 import { SessionStateService } from "../services/SessionStateService";
 import { LookupService } from "../services/LookupService";
 import { LookupPriceService } from "../services/LookupPriceService";
+import { LookupPricePollingService } from "../services/LookupPricePollingService";
 import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
 import { loadActBossTrackerRoutes, loadCommonChestTrackerRoutes } from "../../core/stageBoxTracker";
 import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
+import { IPC } from "../../../shared/ipc";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
 import { clearAppDataFiles, getAppDataPaths, resolveUserDataDir } from "../services/appData";
 import { UpdateService } from "../services/UpdateService";
@@ -114,6 +116,12 @@ const boxTimers = new BoxTimerService();
 const stageRuns = new StageRunService();
 const lookup = new LookupService();
 const lookupPrices = new LookupPriceService();
+const lookupPricePolling = new LookupPricePollingService({
+  lookupPrices,
+  getOwnedHashes: () => inventory.getOwnedPriceHashes(),
+  broadcast: (channel, payload) => broadcast(channel, payload),
+  onStatusChange: (status) => broadcast(IPC.LOOKUP_PRICES_POLL_STATUS, status),
+});
 const liveMemory = new LiveMemoryService();
 const catalogRefresh = new CatalogRefreshService(
   inventory.getGameData(),
@@ -227,7 +235,10 @@ function reloadLocaleCatalog(): void {
   // offline JSON, game values still win (they track the current game version).
   const gameLocale = catalogRefresh.getLocaleData();
   const catalog = mergeGameLocaleIntoCatalog(baseCatalog, gameLocale, resolved);
-  const gameItemCount = gameLocale ? Object.keys(gameLocale.locales[resolved] ?? {}).filter(k => k.startsWith("ItemName_")).length : 0;
+  const gameItemCount = gameLocale
+    ? Object.keys(gameLocale.locales[resolved] ?? {}).filter((k) => k.startsWith("ItemName_"))
+        .length
+    : 0;
   appDataLog.info(
     `catalog loaded: lang=${resolved} base=${Object.keys(baseCatalog.items).length} items, game=${gameItemCount} items`,
   );
@@ -244,8 +255,15 @@ export function startTracking(): SessionUiSnapshot {
   inventory.initMarket(config.currency);
   inventory.setAutoScanEnabled(config.marketAutoScanEnabled);
   inventory.setLowValueThresholdUsd(config.marketLowValueThresholdUsd);
-  inventory.loadGameData();
+  // Pass resolveUserDataDir() so a previously refreshed userData/gamedata.json
+  // is preferred over the bundled copy — otherwise a manual catalog refresh
+  // wouldn't survive a restart and the UI would show a false "stale" banner.
+  inventory.loadGameData(resolveUserDataDir());
   lookupPrices.start();
+  // 启动本地高价值价格轮询（如果配置开启了）。start() 内部会立即触发一次
+  // 轮询，然后按 intervalMinutes 周期性触发。即使图鉴快照尚未拉到，
+  // selectPollingTargets 会返回空列表，cycle 安全跳过。
+  lookupPricePolling.setConfig(config.lookupPricePolling);
   // Restore the persisted opt-in reader state (off by default; only if consented).
   if (config.liveMemory.enabled && config.liveMemory.consentAccepted) liveMemory.start();
   liveMemory.setOnSnapshot((snap) => tracking.ingestLiveFrame(snap));
@@ -360,6 +378,7 @@ export function stopTracking(): void {
   autoClassify = null;
   boxTimers.stopTick();
   lookupPrices.stop();
+  lookupPricePolling.stop();
   liveMemory.stop();
 }
 
@@ -498,6 +517,7 @@ export function getAppServices() {
           onLiveMemoryToggled: () => tracking.onLiveMemoryToggled(),
           setMarketAutoScanEnabled: (enabled) => inventory.setAutoScanEnabled(enabled),
           setMarketLowValueThresholdUsd: (value) => inventory.setLowValueThresholdUsd(value),
+          onLookupPricePollingChanged: (cfg) => lookupPricePolling.setConfig(cfg),
           onLanguageChanged: (newLanguage) => {
             changeLanguage(newLanguage);
             // Swap the LocaleCatalog on all 5 localizing services so the
@@ -597,6 +617,8 @@ export function getAppServices() {
     getLookupSynthesisModel: () => lookup.getSynthesisModel(),
     getOfferings: () => lookup.getOfferings(),
     getLookupPrices: () => lookupPrices.getSnapshot(),
+    getLookupPricePollStatus: () => lookupPricePolling.getPollingStatus(),
+    pollLookupPrices: () => lookupPricePolling.pollOnce(),
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),

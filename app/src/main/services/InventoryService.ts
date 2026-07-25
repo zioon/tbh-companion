@@ -125,8 +125,15 @@ export class InventoryService {
     this.market = new SteamMarketProvider(currency);
   }
 
-  loadGameData(): void {
-    this.gameData.load();
+  /**
+   * Load gamedata.json, preferring `userDataDir` if provided so a previously
+   * refreshed `userData/gamedata.json` is used instead of the bundled copy.
+   * Pass `resolveUserDataDir()` from appState so manual catalog refreshes
+   * survive restarts (otherwise the bundled version is loaded every time,
+   * causing a false "stale" banner on next launch).
+   */
+  loadGameData(userDataDir?: string): void {
+    this.gameData.load(userDataDir);
     // Spawn the worker asynchronously. The first `resolveAndPushInventory`
     // below will run on the sync fallback path because `init` hasn't
     // resolved yet — that's intentional, it keeps startup latency low for
@@ -302,6 +309,19 @@ export class InventoryService {
   /** Expose the game-data catalog (catalog-id → GameItem) for box-open item resolution. */
   getGameDataLookup(): Map<number, GameItem> {
     return this.gameData.asMap();
+  }
+
+  /**
+   * 玩家当前拥有物品的所有 market_hash_name 列表（已去重）。
+   *
+   * 供本地高价值价格轮询服务（LookupPricePollingService）使用：它把这些
+   * hash 与图鉴快照价格交叉比对，筛出「已拥有且估值达阈值」的子集作为
+   * 轮询目标。
+   */
+  getOwnedPriceHashes(): string[] {
+    const targets = this.currentOwnedPriceTargets();
+    const hashes = flattenOwnedHashes(targets);
+    return hashes.length > 1 ? Array.from(new Set(hashes)) : hashes;
   }
 
   /** Expose the GameDataProvider so CatalogRefreshService can reload + query version. */

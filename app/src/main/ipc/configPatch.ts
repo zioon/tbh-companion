@@ -33,6 +33,8 @@ export interface ConfigPatchDeps {
   setMarketLowValueThresholdUsd?: (value: number) => void;
   /** Fires when the UI language changes so the main process can refresh i18n + tray. */
   onLanguageChanged?: (newLanguage: AppLanguage) => void;
+  /** 本地高价值价格轮询配置变更：让 LookupPricePollingService 应用新配置（启停/间隔/阈值/收藏列表）。 */
+  onLookupPricePollingChanged?: (cfg: AppConfig["lookupPricePolling"]) => void;
 }
 
 /** Apply settings patch and run side effects. */
@@ -115,6 +117,12 @@ export function applyConfigPatch(deps: ConfigPatchDeps, patch: Partial<AppConfig
   // the SAVE_CONFIG invoke handler — no new IPC channel needed).
   if (patch.language !== undefined && prev.language !== next.language) {
     deps.onLanguageChanged?.(next.language);
+  }
+
+  // 本地高价值价格轮询：任何子字段变化都让 service 重新评估（service 内部
+  // 会判断 enabled/interval 是否真的变了，避免无谓重启定时器）。
+  if (patch.lookupPricePolling !== undefined) {
+    deps.onLookupPricePollingChanged?.(next.lookupPricePolling);
   }
 
   deps.setAlwaysOnTop(next.topmost);

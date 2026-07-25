@@ -15,6 +15,7 @@ import type {
   AppConfig,
   ChestAutoOpenPrefs,
   LiveMemoryPrefs,
+  LookupPricePollingPrefs,
   LootRingSeconds,
   NotificationPrefs,
   WindowTopmostPrefs,
@@ -40,6 +41,17 @@ const DEFAULT_CHEST_AUTO_OPEN: ChestAutoOpenPrefs = {
 const DEFAULT_LIVE_MEMORY: LiveMemoryPrefs = {
   enabled: false,
   consentAccepted: false,
+};
+
+// 本地高价值价格轮询默认配置。默认关闭——避免给不需要的用户增加 Steam
+// API 配额压力；间隔 10 分钟（参考 LookupPriceService 的 30 分钟拉取 CI
+// 快照、SteamMarketProvider 的 3s/请求节流），阈值 $1.0 把 Steam $0.03
+// 地板价的垃圾物品排除在外。
+const DEFAULT_LOOKUP_PRICE_POLLING: LookupPricePollingPrefs = {
+  enabled: false,
+  intervalMinutes: 10,
+  thresholdUsd: 1.0,
+  watchedHashes: [],
 };
 
 // Lap duration defaults: Common chest = 5 min, Stage-boss chest = 7 min
@@ -73,6 +85,7 @@ const DEFAULTS: AppConfig = {
   inventoryAlmostFullThresholdPercent: 90,
   chestAutoOpenEnabled: DEFAULT_CHEST_AUTO_OPEN,
   liveMemory: DEFAULT_LIVE_MEMORY,
+  lookupPricePolling: DEFAULT_LOOKUP_PRICE_POLLING,
   // On by default so the inventory stays priced without user action — the
   // pre-toggle behavior. Disabling stops auto refreshes on save parses,
   // leaving only explicit Refresh / Force / per-item user actions.
@@ -108,6 +121,49 @@ function sanitizeLiveMemoryPrefs(raw: Partial<LiveMemoryPrefs> | undefined): Liv
   return {
     enabled: Boolean(raw?.enabled),
     consentAccepted: Boolean(raw?.consentAccepted),
+  };
+}
+
+/**
+ * Sanitize Lookup price polling prefs:
+ *   - enabled: 强制 boolean
+ *   - intervalMinutes: 限定 [5, 60]，默认 10
+ *   - thresholdUsd: 限定 ≥ 0，默认 1.0
+ *   - watchedHashes: 字符串数组，去重并去空，最多 100 项（避免失控）
+ */
+function sanitizeLookupPricePollingPrefs(
+  raw: Partial<LookupPricePollingPrefs> | undefined,
+): LookupPricePollingPrefs {
+  const intervalMinutes = (() => {
+    const n =
+      typeof raw?.intervalMinutes === "number" ? raw.intervalMinutes : Number(raw?.intervalMinutes);
+    if (!Number.isFinite(n)) return DEFAULT_LOOKUP_PRICE_POLLING.intervalMinutes;
+    return Math.min(Math.max(Math.round(n), 5), 60);
+  })();
+  const thresholdUsd = (() => {
+    const n = typeof raw?.thresholdUsd === "number" ? raw.thresholdUsd : Number(raw?.thresholdUsd);
+    if (!Number.isFinite(n) || n < 0) return DEFAULT_LOOKUP_PRICE_POLLING.thresholdUsd;
+    return n;
+  })();
+  const watchedHashes = (() => {
+    if (!Array.isArray(raw?.watchedHashes)) return [] as string[];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const h of raw!.watchedHashes) {
+      if (typeof h !== "string") continue;
+      const trimmed = h.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      out.push(trimmed);
+      if (out.length >= 100) break;
+    }
+    return out;
+  })();
+  return {
+    enabled: Boolean(raw?.enabled),
+    intervalMinutes,
+    thresholdUsd,
+    watchedHashes,
   };
 }
 
@@ -201,6 +257,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     inventoryAlmostFullThresholdPercent: _threshold,
     chestAutoOpenEnabled: _autoOpen,
     liveMemory: _liveMemory,
+    lookupPricePolling: _polling,
     marketAutoScanEnabled: _marketAutoScan,
     marketLowValueThresholdUsd: _marketLowValue,
     lootAutoClassifyEnabled: _ac,
@@ -218,6 +275,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   );
   const chestAutoOpenEnabled = sanitizeChestAutoOpenPrefs(raw.chestAutoOpenEnabled);
   const liveMemory = sanitizeLiveMemoryPrefs(raw.liveMemory);
+  const lookupPricePolling = sanitizeLookupPricePollingPrefs(raw.lookupPricePolling);
   const marketAutoScanEnabled = raw.marketAutoScanEnabled !== false;
   const marketLowValueThresholdUsd = sanitizeMarketLowValueThresholdUsd(
     raw.marketLowValueThresholdUsd,
@@ -235,6 +293,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     inventoryAlmostFullThresholdPercent,
     chestAutoOpenEnabled,
     liveMemory,
+    lookupPricePolling,
     marketAutoScanEnabled,
     marketLowValueThresholdUsd,
     lootAutoClassifyEnabled,

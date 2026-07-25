@@ -6,6 +6,7 @@ import { useLookupPrices } from "../lib/useLookupPrices";
 import { formatPriceRefreshMessage } from "../lib/formatPriceRefreshMessage";
 import { reportIpcError } from "../lib/reportError";
 import { SteamPriceProgress } from "../components/market/SteamPriceProgress";
+import { LookupPriceChangeLog } from "../components/market/LookupPriceChangeLog";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Card } from "../design-system/primitives/Card/Card";
 import { Field } from "../design-system/primitives/Field/Field";
@@ -183,6 +184,8 @@ export function Market() {
           <p className="m-0 text-[13px] text-muted">{t("lookupDescription")}</p>
           <span className="text-[13px] text-muted">{lookupUpdatedText}</span>
         </div>
+
+        <LookupPriceChangeLog />
       </div>
     </TabPage>
   );

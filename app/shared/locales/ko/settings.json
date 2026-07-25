@@ -30,7 +30,24 @@
   },
   "steamMarket": {
     "sectionTitle": "Steam 마켓",
-    "marketCurrency": "마켓 통화"
+    "marketCurrency": "마켓 통화",
+    "polling": {
+      "sectionTitle": "고가 아이템 가격 폴링",
+      "intro": "보유 중이고 임계값 이상인 아이템, 그리고 별표 표시한 아이템의 Steam 마켓 가격을 주기적으로 새로고침합니다. Lookup 스냅샷에 실시간으로 덮어쓰기됩니다.",
+      "enable": "로컬 폴링 활성화",
+      "intervalMinutes": "폴링 간격 (분)",
+      "intervalMinutesHint": "범위 5–60. 값이 작을수록 실시간에 가까워지지만 Steam의 IP당 속도 제한 할당량을 더 많이 소모합니다.",
+      "thresholdUsd": "고가 임계값 (USD)",
+      "thresholdUsdHint": "Lookup 스냅샷에서 이 값 이상의 보유 아이템이 폴링됩니다. Steam의 $0.03 바닥가 아이템은 건너뜁니다.",
+      "watchedHashes": "관심 market_hash_name 목록",
+      "watchedHashesHint": "한 줄에 하나씩. 보유 여부나 가격과 무관하게 항상 폴링됩니다. 고급 용도; Lookup UI에도 별표 버튼이 있습니다.",
+      "watchedHashesPlaceholder": "한 줄에 하나의 market_hash_name",
+      "statusIdle": "대기 중.",
+      "statusRunning": "폴링 주기 실행 중…",
+      "statusLastCycle": "이전 주기: 가격 {{priced}}/{{targets}}건 획득, {{rateLimited}}건 속도 제한, {{failed}}건 실패{{aborted}}.",
+      "statusAbortedSuffix": " (중단됨)",
+      "statusLastCycleAt": " · {{time}}"
+    }
   },
   "notifications": {
     "sectionTitle": "알림",
