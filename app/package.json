@@ -29,7 +29,7 @@
     "build:lookup-prices": "tsx scripts/build-lookup-prices.ts",
     "pack": "pnpm minify-and-copy-data && electron-vite build && electron-builder --dir",
     "sync-locale": "node ../scripts/sync-locale.mjs",
-    "dist": "pnpm minify-and-copy-data && electron-vite build && electron-builder"
+    "dist": "pnpm minify-and-copy-data && electron-vite build && electron-builder --publish never"
   },
   "build": {
     "appId": "com.electron.tbh-companion",

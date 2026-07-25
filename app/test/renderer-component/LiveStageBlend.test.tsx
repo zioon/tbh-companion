@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type { ReactElement } from "react";
+import type { ComponentType, ReactElement } from "react";
 import type { LiveMemorySnapshot } from "../../shared/types";
 import { EntityPanelProvider } from "../../src/renderer/context/EntityPanelProvider";
 
@@ -87,24 +87,40 @@ function renderLive(ui: ReactElement) {
   return render(<EntityPanelProvider>{ui}</EntityPanelProvider>);
 }
 
+// Load Live.tsx once before the describe block. The dynamic import is slow on
+// first load (transpiles Live.tsx + its dependency graph: design-system
+// primitives, Tooltip/base-ui, i18n, etc.). Doing it inside each test made the
+// first test pay the full cost — when run in the full test:dom suite that
+// exceeded vitest's 5000ms default test timeout (the same test ran in
+// ~2500ms when run alone). Hoisting the import to beforeAll pays the cost
+// once upfront and lets each test render synchronously against the cached
+// module. The vi.mock calls above are hoisted above this beforeAll, so the
+// imported Live module still sees the mocked useStats/useLiveMemory/etc.
+let Live: ComponentType;
+// 30s timeout: under heavy CI load the first transpile of Live.tsx + its
+// dependency graph (design-system primitives, base-ui Tooltip, i18n) can take
+// >5s, which would otherwise cause `beforeAll` to time out and skip all 3
+// tests in this file. The default 5s is too tight for a cold-start dynamic
+// import in the full test:dom suite.
+beforeAll(async () => {
+  ({ Live } = await import("../../src/renderer/tabs/Live"));
+}, 30_000);
+
 describe("Live.tsx stage blend", () => {
-  it("shows the save stage when no live snapshot is present (reader off)", async () => {
-    const { Live } = await import("../../src/renderer/tabs/Live");
+  it("shows the save stage when no live snapshot is present (reader off)", () => {
     renderLive(<Live />);
     expect(screen.getByText("MAP:1010")).toBeInTheDocument();
   });
 
-  it("shows stats.stageName even when a live snapshot is present (no live blending)", async () => {
+  it("shows stats.stageName even when a live snapshot is present (no live blending)", () => {
     state.live = liveSnapshot(3020, 5);
-    const { Live } = await import("../../src/renderer/tabs/Live");
     renderLive(<Live />);
     expect(screen.getByText("MAP:1010")).toBeInTheDocument();
     expect(screen.queryByText("MAP:3020")).not.toBeInTheDocument();
   });
 
-  it("hides XP updated text when live memory is connected", async () => {
+  it("hides XP updated text when live memory is connected", () => {
     state.live = liveSnapshot(3020, 5);
-    const { Live } = await import("../../src/renderer/tabs/Live");
     renderLive(<Live />);
     expect(screen.queryByText(/XP updated/i)).not.toBeInTheDocument();
   });

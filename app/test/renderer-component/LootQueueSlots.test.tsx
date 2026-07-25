@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import type {
-  AutoClassifyStatePayload,
-  ChestAutoOpenPrefs,
-  ChestState,
-} from "../../shared/types";
+import type { AutoClassifyStatePayload, ChestAutoOpenPrefs, ChestState } from "../../shared/types";
 import type { PredictFillTimeResult } from "../../src/core/inventory/predictFillTime";
 import { LootQueueSlots } from "../../src/renderer/components/loot/LootQueueSlots";
 

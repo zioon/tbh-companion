@@ -286,7 +286,11 @@ function lookupBaseStatName(t: TFunction | undefined, stat: string): string | nu
   }
   const statNameKey = `common:labels.stats.${stat}`;
   const statNameVal = t(statNameKey, { interpolation: { skipInterpolation: true } });
-  if (statNameVal && statNameVal !== statNameKey && statNameVal !== statNameKey.replace(/^common:/, "")) {
+  if (
+    statNameVal &&
+    statNameVal !== statNameKey &&
+    statNameVal !== statNameKey.replace(/^common:/, "")
+  ) {
     return statNameVal;
   }
   return null;
@@ -312,7 +316,11 @@ function lookupBaseStatName(t: TFunction | undefined, stat: string): string | nu
  *   `Stat_<stat>_<mod>` modifier template). Defaults to `"affix"` for
  *   backward compatibility.
  */
-export function formatStatRow(row: LookupStatRow, t?: TFunction, kind: StatRowKind = "affix"): string {
+export function formatStatRow(
+  row: LookupStatRow,
+  t?: TFunction,
+  kind: StatRowKind = "affix",
+): string {
   const displayValue = row.display ? extractDisplayValue(row.display) : null;
   const value = displayValue ?? row.value;
 

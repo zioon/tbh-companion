@@ -1229,9 +1229,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(0);
     // Warn log emitted by the fallback path.
-    expect(logMocks.warn).toHaveBeenCalledWith(
-      expect.stringContaining("no queue item within"),
-    );
+    expect(logMocks.warn).toHaveBeenCalledWith(expect.stringContaining("no queue item within"));
   });
 
   it("matches the head when burst arrives within grace of head's autoOpenAtMs (normal auto-open)", () => {

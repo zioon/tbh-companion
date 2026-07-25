@@ -31,9 +31,7 @@ function buildI18nWithGameLocale(lang: ResolvedLanguage): typeof i18next {
   // Merge game locale dump (mirrors tryMergeGameLocale).
   // _game_locale_dump.json is Record<lang, Record<key, value>> (no wrapper).
   // getLocaleData() wraps it as { version, locales: dump }, so we mirror that.
-  const dump = readBundledJson<Record<string, Record<string, string>>>(
-    "_game_locale_dump.json",
-  );
+  const dump = readBundledJson<Record<string, Record<string, string>>>("_game_locale_dump.json");
   const game = dump[lang];
   if (game) {
     const labels = flatGameKeysToLabels(game);

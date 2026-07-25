@@ -53,9 +53,7 @@ export function InventoryFilters({
   const { t } = useTranslation("inventory");
 
   function toggleType(value: string, checked: boolean) {
-    onTypeFilterChange(
-      checked ? [...typeFilter, value] : typeFilter.filter((tp) => tp !== value),
-    );
+    onTypeFilterChange(checked ? [...typeFilter, value] : typeFilter.filter((tp) => tp !== value));
   }
 
   const locationOptions: MultiSelectOption[] = useMemo(

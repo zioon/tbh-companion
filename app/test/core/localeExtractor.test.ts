@@ -63,8 +63,24 @@ describe("extractLocales", () => {
   });
 
   it("returns same language keys as input", () => {
-    const inputLangs = ["en", "zh-CN", "zh-Hant", "fr-FR", "de-DE", "id-ID", "ja", "ko",
-      "pl-PL", "pt-BR", "ru-RU", "es-ES", "th-TH", "tr-TR", "uk-UA", "vi-VN"];
+    const inputLangs = [
+      "en",
+      "zh-CN",
+      "zh-Hant",
+      "fr-FR",
+      "de-DE",
+      "id-ID",
+      "ja",
+      "ko",
+      "pl-PL",
+      "pt-BR",
+      "ru-RU",
+      "es-ES",
+      "th-TH",
+      "tr-TR",
+      "uk-UA",
+      "vi-VN",
+    ];
     const locales: Record<string, Buffer> = {};
     for (const lang of inputLangs) locales[lang] = enBundle;
     const result = extractLocales({ sharedBundle, locales });

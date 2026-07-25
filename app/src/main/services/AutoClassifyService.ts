@@ -474,12 +474,7 @@ export class AutoClassifyService {
       // (WeakSet) to avoid double-decrement. This covers manual opens and
       // auto-opens whose burst arrived before the 1Hz tick.
       const cat = categoryFromBoxKey(item.boxKey);
-      if (
-        this.liveSlots &&
-        cat &&
-        cat !== "unclassified" &&
-        !this.autoOpenedItems.has(item)
-      ) {
+      if (this.liveSlots && cat && cat !== "unclassified" && !this.autoOpenedItems.has(item)) {
         if (this.liveSlots[cat] > 0) {
           this.liveSlots[cat]--;
         }
@@ -487,7 +482,7 @@ export class AutoClassifyService {
       }
       log.info(
         `matched ${itemKeys.length} items to queued boxKey=${item.boxKey} ` +
-          `(burstMs=${burstMs}, autoOpenAtMs=${item.autoOpenAtMs}, delta=${matchedDelta === Infinity ? "fallback" : matchedDelta}ms)`,
+          `(burstMs=${burstMs}, autoOpenAtMs=${item.autoOpenAtMs}, delta=${matchedDelta === Infinity ? "fallback" : `${matchedDelta}ms`})`,
       );
       return;
     }

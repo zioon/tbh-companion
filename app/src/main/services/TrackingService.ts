@@ -208,10 +208,7 @@ export class TrackingService {
       // self-heal via `tracker.xpLiveActive()` 5s timeout, but stage/DPS had
       // no such guard — clear the cached frame once it's older than the
       // freshness window so stats fall back to save values.
-      if (
-        this.lastLiveFrame != null &&
-        Date.now() - this.lastLiveFrame.at > LIVE_FRAME_FRESH_MS
-      ) {
+      if (this.lastLiveFrame != null && Date.now() - this.lastLiveFrame.at > LIVE_FRAME_FRESH_MS) {
         this.lastLiveFrame = null;
         this.lastLiveStage = null;
       }

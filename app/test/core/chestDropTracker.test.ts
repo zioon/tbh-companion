@@ -176,7 +176,10 @@ describe("ChestDropTracker", () => {
     const stats = restored.getStats(3600);
     expect(stats.commonTotal).toBe(2);
     expect(stats.commonSession).toBe(2); // restored counts are in-session
-    expect(stats.commonPerHour).toBe(2); // 2 drops / 1h window = 2/hr
+    // 2 drops / 1h window = 2/hr. Use toBeCloseTo because `getStats` reads
+    // `nowSeconds()` again a few ms after `oneHourAgo` was captured above, so
+    // `dropElapsed` is 3600+ε seconds and the rate is 2/(3600+ε)*3600 = 1.9999…
+    expect(stats.commonPerHour).toBeCloseTo(2, 5);
   });
 
   it("clamps short elapsed to MIN_RATE_WINDOW_SEC to avoid perHour spikes", () => {

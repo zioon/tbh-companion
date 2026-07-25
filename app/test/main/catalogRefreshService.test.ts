@@ -147,7 +147,8 @@ describe("CatalogRefreshService", () => {
     // on dev machines with the game actually installed there — tests can't
     // rely on existsSync returning true, so they cover config/env/null paths
     // and treat the default branch as "best effort".
-    const DEFAULT_GAME_INSTALL = "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data";
+    const DEFAULT_GAME_INSTALL =
+      "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data";
 
     beforeEach(() => {
       prevEnv = process.env[ENV_KEY];

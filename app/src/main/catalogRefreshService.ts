@@ -220,9 +220,7 @@ export class CatalogRefreshService {
     const runtime = this.cachedLocale;
     let bundled: Record<string, Record<string, string>> | null = null;
     try {
-      bundled = readBundledJson<Record<string, Record<string, string>>>(
-        "_game_locale_dump.json",
-      );
+      bundled = readBundledJson<Record<string, Record<string, string>>>("_game_locale_dump.json");
     } catch {
       // Bundled dump unavailable (e.g. dev without data/ checkout).
     }
@@ -310,14 +308,18 @@ export class CatalogRefreshService {
       } else {
         // extractLocales returned null — shared bundle had no entries.
         // Run per-locale diagnostics to find which bundles fail to parse.
-        log.warn("locale extraction returned no data (shared may be missing entries); diagnosing per-locale...");
+        log.warn(
+          "locale extraction returned no data (shared may be missing entries); diagnosing per-locale...",
+        );
         for (const [code, buf] of Object.entries(localeBuffers)) {
           try {
             const perLang = extractLocales({ sharedBundle, locales: { [code]: buf } });
             const entryCount = perLang ? Object.keys(perLang[code] ?? {}).length : 0;
             log.warn(`  ${code}: ${entryCount > 0 ? `${entryCount} entries` : "empty/null"}`);
           } catch (err) {
-            log.warn(`  ${code}: PARSE ERROR — ${err instanceof Error ? err.message : String(err)}`);
+            log.warn(
+              `  ${code}: PARSE ERROR — ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
       }

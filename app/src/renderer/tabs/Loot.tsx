@@ -185,9 +185,7 @@ export function Loot() {
           autoOpenEnabled={autoOpenEnabled}
           fillPrediction={fillPrediction}
         />
-        {recentDrops.length > 0 && (
-          <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />
-        )}
+        {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />}
       </div>
 
       {boxOpens.length === 0 ? (
