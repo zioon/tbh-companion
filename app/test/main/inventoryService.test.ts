@@ -539,7 +539,7 @@ describe("InventoryService price-target English invariant", () => {
     // Seed lastInventoryRaw via reflection so currentOwnedPriceTargets can
     // build targets without going through onInventory's full resolve path.
     service["lastInventoryRaw"] = {
-      items: [{ itemKey: 530017, quantity: 1 }],
+      items: [{ itemKey: 530017, isChaotic: false, inUse: false, location: "inventory" }],
       chests: [],
       saveMtime: 0,
       inventoryCapacity: 100,

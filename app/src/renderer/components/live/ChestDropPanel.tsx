@@ -6,6 +6,14 @@ import { fmtClock } from "../../lib/format";
 import { cn } from "../../lib/cn";
 import { LiveHistoryPanel, LiveHistoryRow, TIME_COLUMN_WIDTH } from "./LiveHistoryPanel";
 
+type ChestCategory = "common" | "rare" | "act";
+
+const CHEST_NAME_KEY: Record<ChestCategory, string> = {
+  common: "commonChests",
+  rare: "stageBossChests",
+  act: "actBossChests",
+};
+
 /**
  * Chest drop history log. Per-category totals/rates already show as stat
  * cards above (Common chests, Stage boss chests) — this panel is just the
@@ -51,7 +59,7 @@ export function ChestDropPanel({
                 className: "tabular-nums text-muted whitespace-nowrap",
               },
               {
-                content: entry.name,
+                content: t(CHEST_NAME_KEY[entry.category] ?? "colChest"),
                 className: cn(
                   "min-w-0 truncate",
                   entry.category === "rare" ? "text-status-info" : "text-fg",

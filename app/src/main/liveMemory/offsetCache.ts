@@ -31,14 +31,24 @@ export function offsetCachePath(cacheDir: string, version: string): string {
 
 /**
  * Load cached offsets for `version` from `cacheDir`.
- * Returns null when the file is missing, corrupt, or version-mismatched.
+ * Returns null when the file is missing, corrupt, version-mismatched, OR when
+ * the cache was written by an older extractor revision than `minRev` (so a new
+ * extractor revision that fixes a derivation bug actually re-runs instead of
+ * loading stale offsets). Caches without `_extractorRev` (pre-Rev 11) are
+ * treated as revision 0 → always invalidated when `minRev > 0`.
  */
-export function loadCachedOffsets(cacheDir: string, version: string): LiveOffsets | null {
+export function loadCachedOffsets(
+  cacheDir: string,
+  version: string,
+  minRev: number = 0,
+): LiveOffsets | null {
   try {
     const path = offsetCachePath(cacheDir, version);
     const raw = readFileSync(path, "utf-8");
     const parsed = JSON.parse(raw, reviver) as LiveOffsets;
     if (parsed?.gameVersion !== version) return null;
+    const cacheRev = parsed._extractorRev ?? 0;
+    if (minRev > 0 && cacheRev < minRev) return null;
     return parsed;
   } catch {
     return null;

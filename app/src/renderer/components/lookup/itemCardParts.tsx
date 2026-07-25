@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
 import { iconSrc } from "../../lib/iconSrc";
-import { gearGroupLabel, gradeLabel, itemDescriptor, itemMetaLine } from "../../lib/itemLabels";
+import { gearGroupLabel, gradeLabel, itemDescriptor, itemMetaLine, formatMaterialOutcome } from "../../lib/itemLabels";
 import { visibleOutcomes } from "../../lib/lookupDisplay";
 import { ItemIcon } from "../../design-system/primitives/ItemIcon/ItemIcon";
 import { TierTag } from "./TierTag";
@@ -200,7 +200,7 @@ export function MaterialGroup({
         {shown.map((outcome, i) => (
           <li key={i} className="flex items-center gap-1.5">
             <TierTag tier={outcome.tier} />
-            {outcome.displayText}
+            {formatMaterialOutcome(outcome, t)}
           </li>
         ))}
         {hiddenCount > 0 ? (

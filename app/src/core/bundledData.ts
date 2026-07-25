@@ -15,6 +15,7 @@ export const REQUIRED_BUNDLED_DATA_FILES = [
   "lookup_sources.json",
   "synthesis_model.json",
   "offerings.json",
+  "_game_locale_dump.json",
 ] as const;
 
 /** Subset verified in source `data/` and staged `dist/data/` during `pnpm qa`. */

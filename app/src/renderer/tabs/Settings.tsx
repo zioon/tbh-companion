@@ -93,7 +93,7 @@ export function Settings() {
     // triggers applyConfigPatch → onLanguageChanged → main changeLanguage +
     // rebuildTrayMenu; the main process re-reads the registry there. We then
     // re-fetch the config (now carrying resolvedLanguage) and switch the
-    // renderer. For non-"game" values we keep the optimistic path.
+    // renderer.
     if (next === "game") {
       await savePartial({ language: next }, undefined, { silent: true });
       // Re-fetch config to pick up the main-process-injected resolvedLanguage.
@@ -107,10 +107,17 @@ export function Settings() {
       }
       return;
     }
-    // Optimistically switch the renderer's i18n so labels update instantly; the
-    // main-process i18n + tray follow via applyConfigPatch's onLanguageChanged.
-    void changeRendererLanguage(next);
+    // Persist first so the main process applies the new language to
+    // LocaleCatalog (LookupService.setLocaleCatalog) BEFORE we switch the
+    // renderer's i18next. useLookupCatalog subscribes to i18next's
+    // `languageChanged` event and re-fetches `getLookupCatalog()` immediately
+    // — if we switch the renderer first, the fetch arrives at the main process
+    // before reloadLocaleCatalog() runs, and the renderer receives item names
+    // in the OLD language (then never re-fetches, since the event only fires
+    // once). Waiting for savePartial adds one IPC round-trip (~10ms) but
+    // guarantees catalog consistency.
     await savePartial({ language: next }, undefined, { silent: true });
+    await changeRendererLanguage(next);
   }
 
   async function refreshDataPaths(): Promise<void> {
@@ -551,10 +558,28 @@ export function Settings() {
         <Section title={tSettings("windowTray.sectionTitle")}>
           <div className="flex flex-col gap-3">
             <Checkbox
-              label={tSettings("windowTray.keepOnTop")}
-              checked={cfg.startTopmost}
+              label={tSettings("windowTray.keepOnTopMain")}
+              checked={cfg.topmost.main}
               disabled={saveBusy}
-              onCheckedChange={(checked) => void savePartial({ startTopmost: checked })}
+              onCheckedChange={(checked) =>
+                void savePartial({ topmost: { ...cfg.topmost, main: checked } })
+              }
+            />
+            <Checkbox
+              label={tSettings("windowTray.keepOnTopOverlay")}
+              checked={cfg.topmost.overlay}
+              disabled={saveBusy}
+              onCheckedChange={(checked) =>
+                void savePartial({ topmost: { ...cfg.topmost, overlay: checked } })
+              }
+            />
+            <Checkbox
+              label={tSettings("windowTray.keepOnTopBoxTracker")}
+              checked={cfg.topmost.boxTracker}
+              disabled={saveBusy}
+              onCheckedChange={(checked) =>
+                void savePartial({ topmost: { ...cfg.topmost, boxTracker: checked } })
+              }
             />
             <p className="m-0 text-xs text-muted">
               <Trans i18nKey="settings:windowTray.trayHint" components={{ strong: <strong /> }} />
@@ -647,6 +672,34 @@ export function Settings() {
             })}
           </p>
           <CatalogRefreshButton status={catalogStatus} onRefresh={refreshCatalog} />
+        </Section>
+
+        <Section title={tSettings("itemCatalog.installPathSectionTitle")}>
+          <Field
+            label={tSettings("itemCatalog.installPathLabel")}
+            hint={tSettings("itemCatalog.installPathHint")}
+          >
+            <input
+              type="text"
+              key={`game-install-${cfg?.gameInstallDir ?? ""}`}
+              defaultValue={cfg?.gameInstallDir ?? ""}
+              disabled={saveBusy}
+              placeholder={tSettings("itemCatalog.installPathPlaceholder")}
+              aria-label={tSettings("itemCatalog.installPathLabel")}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                const current = cfg?.gameInstallDir?.trim() ?? "";
+                if (value === current) return;
+                void savePartial(
+                  { gameInstallDir: value },
+                  value
+                    ? tSettings("itemCatalog.installPathSaved")
+                    : tSettings("itemCatalog.installPathCleared"),
+                );
+              }}
+              className="min-w-0 rounded-md border border-border bg-card px-2.5 py-1.5 text-[13px] text-fg placeholder:text-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-ideal/50 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </Field>
         </Section>
 
         {message && <p className="m-0 text-[13px] text-accent">{message}</p>}

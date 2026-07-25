@@ -60,7 +60,12 @@
     "slotsAria": "{{used}} of {{capacity}} slots used",
     "opensIn": "Next open",
     "clearsIn": "Queue clears",
-    "fillsIn": "Slots fill"
+    "fillsIn": "Slots fill",
+    "inventoryLabel": "Inventory items",
+    "inventorySlotsAria": "{{used}} of {{capacity}} inventory slots used",
+    "inventoryFullIn": "Inventory full in",
+    "inventoryFull": "Full",
+    "inventoryTurnOn": "Enable an auto-open toggle on the Live tab to estimate"
   },
   "recentDrops": {
     "title": "Recent drops"

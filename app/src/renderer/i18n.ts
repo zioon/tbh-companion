@@ -27,13 +27,24 @@ async function tryMergeGameLocale(): Promise<void> {
     // Iterate every language present in the game-extracted locale data
     // (4 or 16, depending on game version). For languages not yet loaded
     // into i18next, addResourceBundle still stores them for later use.
+    let merged = false;
     for (const lang of Object.keys(localeData.locales)) {
       const game = localeData.locales[lang];
       if (!game || Object.keys(game).length === 0) continue;
       const labels = flatGameKeysToLabels(game);
       if (labels) {
         i18next.addResourceBundle(lang, "common", { labels }, true, true);
+        merged = true;
       }
+    }
+    // addResourceBundle does NOT emit any event react-i18next subscribes to,
+    // so useTranslation() hooks won't re-render with the newly merged data
+    // (grades/types/statTemplates). Re-trigger the languageChanged event by
+    // calling changeLanguage with the current language — this forces every
+    // useTranslation subscriber to re-read translations.
+    if (merged) {
+      const cur = i18next.language;
+      if (cur) await i18next.changeLanguage(cur);
     }
   } catch {
     // Non-fatal: game bundles not available, no refresh done yet, etc.

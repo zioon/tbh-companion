@@ -198,11 +198,65 @@ describe("config language", () => {
     expect(mod.normalizeConfigFromRaw({ language: "ja" }).language).toBe("ja");
     expect(mod.normalizeConfigFromRaw({ language: "ko" }).language).toBe("ko");
   });
+  it("preserves 'game' (follow the game's registry-set language)", () => {
+    expect(mod.normalizeConfigFromRaw({ language: "game" }).language).toBe("game");
+  });
   it("falls back to 'auto' on unsupported / malformed values", () => {
     expect(mod.normalizeConfigFromRaw({ language: "fr" } as never).language).toBe("auto");
     expect(mod.normalizeConfigFromRaw({ language: "english" } as never).language).toBe("auto");
     expect(mod.normalizeConfigFromRaw({ language: 42 } as never).language).toBe("auto");
     expect(mod.normalizeConfigFromRaw({ language: null } as never).language).toBe("auto");
     expect(mod.normalizeConfigFromRaw({ language: "" } as never).language).toBe("auto");
+  });
+});
+
+describe("topmost", () => {
+  it("defaults to all three windows pinned when neither field is present", () => {
+    expect(mod.normalizeConfigFromRaw({}).topmost).toEqual({
+      main: true,
+      overlay: true,
+      boxTracker: true,
+    });
+  });
+
+  it("migrates legacy `startTopmost: true` to all three windows pinned", () => {
+    expect(mod.normalizeConfigFromRaw({ startTopmost: true }).topmost).toEqual({
+      main: true,
+      overlay: true,
+      boxTracker: true,
+    });
+  });
+
+  it("migrates legacy `startTopmost: false` to all three windows unpinned", () => {
+    expect(mod.normalizeConfigFromRaw({ startTopmost: false }).topmost).toEqual({
+      main: false,
+      overlay: false,
+      boxTracker: false,
+    });
+  });
+
+  it("uses `topmost` per-field, falling back to legacy seed for missing windows", () => {
+    // startTopmost=true seeds all three, then topmost.overlay=false overrides
+    // only the overlay window. The remaining windows keep the legacy seed.
+    expect(
+      mod.normalizeConfigFromRaw({
+        startTopmost: true,
+        topmost: { overlay: false },
+      }).topmost,
+    ).toEqual({ main: true, overlay: false, boxTracker: true });
+  });
+
+  it("uses `topmost` per-field, falling back to defaults when legacy is absent", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ topmost: { main: false } }).topmost,
+    ).toEqual({ main: false, overlay: true, boxTracker: true });
+  });
+
+  it("coerces non-boolean per-window values to defaults (treats them as missing)", () => {
+    expect(
+      mod.normalizeConfigFromRaw({
+        topmost: { main: "yes", overlay: 1, boxTracker: null } as never,
+      }).topmost,
+    ).toEqual({ main: true, overlay: true, boxTracker: true });
   });
 });

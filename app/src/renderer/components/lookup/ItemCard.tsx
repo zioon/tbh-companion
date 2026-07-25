@@ -50,12 +50,12 @@ export const ItemCard = memo(function ItemCard({
             <>
               <StatGroup
                 title={t("stats.base")}
-                rows={item.stats.base.map((r) => ({ display: formatStatRow(r, t) }))}
+                rows={item.stats.base.map((r) => ({ display: formatStatRow(r, t, "base") }))}
                 tone="base"
               />
               <StatGroup
                 title={t("stats.inherent")}
-                rows={item.stats.inherent.map((r) => ({ display: formatStatRow(r, t) }))}
+                rows={item.stats.inherent.map((r) => ({ display: formatStatRow(r, t, "affix") }))}
                 tone="inherent"
               />
               {item.stats.unique ? (

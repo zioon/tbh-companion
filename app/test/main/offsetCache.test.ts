@@ -83,7 +83,7 @@ function makeOffsets(version = VERSION): LiveOffsets {
         boxType: 0,
         level: 0,
       },
-      stageClearLog: { clearTimeSec: 0 },
+      stageClearLog: { act: 0, stage: 0, clearTimeSec: 0 },
       monster: {
         monsterList: 0,
         summonedList: 0,

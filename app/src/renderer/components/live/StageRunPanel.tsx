@@ -31,7 +31,24 @@ export function StageRunPanel({ stageRuns }: { stageRuns: StageRunStats }) {
     <LiveHistoryPanel
       title={t("stageClearTitle")}
       columns={columns}
-      empty={history.length === 0 ? <p className="m-0">{t("stageClearEmpty")}</p> : undefined}
+      empty={
+        history.length === 0 ? (
+          <div className="m-0">
+            <p className="m-0 mb-1">{t("stageClearEmpty")}</p>
+            <p className="m-0 text-muted">
+              {t("stageClearFieldsHint", {
+                fields: [
+                  t("colClearedAt"),
+                  t("colStage"),
+                  t("colClearTime"),
+                  t("colXp"),
+                  t("colGold"),
+                ].join(" · "),
+              })}
+            </p>
+          </div>
+        ) : undefined
+      }
     >
       {history.map((entry, i) => (
         <LiveHistoryRow

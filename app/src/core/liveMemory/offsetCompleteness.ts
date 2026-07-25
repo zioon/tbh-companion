@@ -13,11 +13,19 @@ interface FieldCheck {
 
 /**
  * Fields the live reader cannot function without. A zero here means core stats
- * (stage, gold, heroes) are unavailable → the reader degrades to save-only.
+ * (stage, heroes) are unavailable → the reader degrades to save-only.
  * These are never legitimately zero when correctly derived.
+ *
+ * `typeInfoRva.currencyManager` is intentionally excluded (same reasoning as
+ * `commonSaveData` below): on v1.00.28 the runtime save-data / currency-manager
+ * class structure was restructured and the gold probe no longer matches, so the
+ * extractor can never derive it. Listing it here would keep the reader
+ * permanently unsupported on v1.00.28 even though stage/hero/heroList anchors
+ * succeed. Live gold degrades to the save-snapshot path (5s latency) when
+ * currencyManager=0; other live stats (XP, stage wave, chest drops, DPS) flow
+ * normally.
  */
 const CRITICAL_FIELDS: readonly FieldCheck[] = [
-  { path: "typeInfoRva.currencyManager", get: (o) => o.typeInfoRva.currencyManager },
   { path: "typeInfoRva.stageCacheManager", get: (o) => o.typeInfoRva.stageCacheManager },
   { path: "typeInfoRva.stageManager", get: (o) => o.typeInfoRva.stageManager },
   { path: "runtime.heroList", get: (o) => o.runtime.heroList },
@@ -53,6 +61,8 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
     get: (o) => o.runtime.log.getItemWithBoxOpenTypeKey,
   },
   { path: "runtime.stageClearLog.clearTimeSec", get: (o) => o.runtime.stageClearLog.clearTimeSec },
+  { path: "runtime.stageClearLog.act", get: (o) => o.runtime.stageClearLog.act },
+  { path: "runtime.stageClearLog.stage", get: (o) => o.runtime.stageClearLog.stage },
   // BoxOpenLog struct fields — class-metadata-derived (real ES3 field names).
   // boxType/level are intentionally excluded: obfuscated field names mean the
   // extractor can never derive them, so listing them would perpetually mark the
@@ -184,6 +194,8 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       },
       stageClearLog: {
         ...base.runtime.stageClearLog,
+        act: pickN(base.runtime.stageClearLog.act, derived.runtime.stageClearLog.act),
+        stage: pickN(base.runtime.stageClearLog.stage, derived.runtime.stageClearLog.stage),
         clearTimeSec: pickN(
           base.runtime.stageClearLog.clearTimeSec,
           derived.runtime.stageClearLog.clearTimeSec,

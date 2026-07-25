@@ -30,7 +30,14 @@ import ukUALoot from "./uk-UA/loot.json";
 import viVNLoot from "./vi-VN/loot.json";
 
 function withLoot(base: Record<string, object>, loot: object): Record<string, object> {
-  return { ...base, loot };
+  // Deep-clone `common` (and any other nested namespace) so per-language
+  // `addResourceBundle(lang, "common", ..., deep=true)` calls in
+  // tryMergeGameLocale don't mutate the shared English bundle. Without this,
+  // all 12 fallback languages point at the same `en.common` reference, and
+  // merging game locale data for any one of them (e.g. zh-Hant) silently
+  // overwrites `en.common.labels.grades.LEGENDARY` with the Chinese value —
+  // which then leaks into English UI after a language switch.
+  return { ...base, common: JSON.parse(JSON.stringify(base.common)), loot };
 }
 
 export const LOCALE_RESOURCES: Record<ResolvedLanguage, Record<string, object>> = {

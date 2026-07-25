@@ -73,7 +73,7 @@ describe("missingOffsetFields", () => {
       runtime: {
         ...BASE.runtime,
         log: { ...BASE.runtime.log, stageClearTypeKey: 0 },
-        stageClearLog: { clearTimeSec: 0 },
+        stageClearLog: { act: 0, stage: 0, clearTimeSec: 0 },
         boxOpenLog: {
           itemStringKey: 0,
           itemGradeType: 0,
@@ -96,7 +96,9 @@ describe("missingOffsetFields", () => {
         "runtime.boxOpenLog.itemStringKey",
         "runtime.log.getItemWithBoxOpenTypeKey",
         "runtime.log.stageClearTypeKey",
+        "runtime.stageClearLog.act",
         "runtime.stageClearLog.clearTimeSec",
+        "runtime.stageClearLog.stage",
         "typeInfoRva.logManager",
         "typeInfoRva.monsterSpawnManager",
       ].sort(),
@@ -110,6 +112,18 @@ describe("missingOffsetFields", () => {
     // offsetCompleteness.ts comment. A zero commonSaveData must NOT keep the
     // table incomplete (otherwise the 30s fallback heal timer re-runs forever).
     expect(missingOffsetFields(noCsd, "full")).not.toContain("typeInfoRva.commonSaveData");
+  });
+
+  it("treats currencyManager as non-blocking (v1.00.28 gold probe fails; live gold degrades to save)", () => {
+    const noCm = { ...BASE, typeInfoRva: { ...BASE.typeInfoRva, currencyManager: 0n } };
+    // currencyManager is intentionally excluded from CRITICAL_FIELDS — v1.00.28
+    // restructured the currency-manager class so the gold probe can't derive it.
+    // Other live stats (XP, stage, heroes) must still flow.
+    expect(missingOffsetFields(noCm, "critical")).toEqual([]);
+    // Same exclusion from ENRICHMENT_FIELDS as commonSaveData — otherwise the
+    // 30s fallback heal timer would re-run the extractor forever on v1.00.28.
+    expect(missingOffsetFields(noCm, "full")).not.toContain("typeInfoRva.currencyManager");
+    expect(hasCriticalOffsets(noCm)).toBe(true);
   });
 });
 
@@ -170,12 +184,14 @@ describe("mergeOffsets", () => {
       runtime: {
         ...BASE.runtime,
         log: { ...BASE.runtime.log, stageClearTypeKey: 0 },
-        stageClearLog: { clearTimeSec: 0 },
+        stageClearLog: { act: 0, stage: 0, clearTimeSec: 0 },
       },
     };
     const derived = withAllEnrichment(BASE);
     const merged = mergeOffsets(stripped, derived);
     expect(merged.runtime.log.stageClearTypeKey).toBe(BASE.runtime.log.stageClearTypeKey);
+    expect(merged.runtime.stageClearLog.act).toBe(BASE.runtime.stageClearLog.act);
+    expect(merged.runtime.stageClearLog.stage).toBe(BASE.runtime.stageClearLog.stage);
     expect(merged.runtime.stageClearLog.clearTimeSec).toBe(BASE.runtime.stageClearLog.clearTimeSec);
     expect(isOffsetTableComplete(merged)).toBe(true);
   });

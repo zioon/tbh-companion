@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createI18n, type ResolvedLanguage } from "../../../src/core/i18n/factory";
 
-const resources: Record<ResolvedLanguage, Record<string, object>> = {
+const resources: Partial<Record<ResolvedLanguage, Record<string, object>>> = {
   en: {
     common: { greeting: "Hello", farewell: "Goodbye" },
     tabs: { live: "Live" },
@@ -42,14 +42,15 @@ describe("createI18n", () => {
   });
 
   it("interpolates variables", () => {
+    const enResources = resources.en!;
     const i = createI18n({
       language: "en",
       fallback: "en",
       resources: {
         ...resources,
         en: {
-          ...resources.en,
-          common: { ...resources.en.common, welcome: "Hi {{name}}" },
+          ...enResources,
+          common: { ...enResources.common, welcome: "Hi {{name}}" },
         },
       },
     });

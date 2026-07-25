@@ -11,6 +11,7 @@ import { catalogItemKeyFromSave, gameItemName, type GameItem } from "../../core/
 import { GRADE_ORDER } from "../../core/grades";
 import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
+import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import type {
   AppConfig,
@@ -249,6 +250,16 @@ export class TrackingService {
     this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
+    // Prime the tracker with the last save snapshot so the first live frame
+    // after reset can be ingested immediately (takeover on the same tick).
+    // Without this, updateLive() early-returns on `!initialized` for the
+    // entire save-watcher poll interval (default 5s), and the first save
+    // re-read only seeds prevHero/prevGold with no gain — so the next gain
+    // takes 2 save polls to surface, which the user perceives as a long
+    // blank period after pressing reset.
+    if (this.lastSnap) {
+      this.tracker.update(this.lastSnap);
+    }
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
@@ -271,6 +282,13 @@ export class TrackingService {
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
+    // Same baseline prime as reset() so XP/gold appear promptly when the
+    // caller follows up with a non-null lastSnap. When lastSnap is null
+    // (true cold-start) the tracker stays uninitialized and the next save
+    // read takes its place — no behavior change in that case.
+    if (this.lastSnap) {
+      this.tracker.update(this.lastSnap);
+    }
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
@@ -659,6 +677,21 @@ export class TrackingService {
 
     this.tracker.updateLive({ gold: snap.gold, heroes: snap.heroes }, snap.at / 1000, stage);
 
+    // Prime the stage-event baseline on the first live frame after live memory
+    // enables (or after a reset/clearSession). Without this, the first stage
+    // clear's XP/gold gain can't be diffed (baseline is null → the whole
+    // onLiveStageClear callback block is skipped), so the first clear is
+    // silently dropped — the user sees nothing until the SECOND clear arrives.
+    // Priming here (after tracker.updateLive, before stageClears handling)
+    // means the baseline captures the pre-clear xp/gold, so the first clear's
+    // diff is the real gain, not 0.
+    if (!this.stageEventBaseline) {
+      this.stageEventBaseline = {
+        xp: this.tracker.cumulativeGained,
+        gold: this.tracker.currentGold,
+      };
+    }
+
     // DPS / Damage / Mobs tracking from monster HP data (address-based, per tbh-meter)
     if (snap.monsterHp != null) {
       const timestamp = snap.at / 1000;
@@ -725,8 +758,8 @@ export class TrackingService {
       // player stays on the same stageKey (e.g. replaying the same map).
       this.dpsTracker.beginMap();
 
-      const stageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
-      if (stageKey > 0) {
+      const fallbackStageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
+      if (fallbackStageKey > 0) {
         // Use cumulativeGained (cap-filtered) instead of currentTotalXp (raw
         // hero exp sum). At max level, perHeroGain returns 0 so cumulativeGained
         // stays constant — no phantom XP attributed to stage clears.
@@ -747,7 +780,18 @@ export class TrackingService {
               : Math.floor(totalGoldGained / n);
             xpAssigned += xpGained;
             goldAssigned += goldGained;
-            this.onLiveStageClear?.(stageKey, clears[i], xpGained, goldGained);
+            // Each clear is attributed to the stage carried by its own log
+            // entry (act/stage), NOT the current live stageKey — by the time
+            // we poll the next tick, stageKey has already advanced to the
+            // next stage (e.g. clear of 3-1 arrived with stageKey=3-2).
+            // Difficulty is recovered from the fallback stageKey; if act/stage
+            // are 0 (corrupted read), fall back to the live stageKey.
+            const clearedStageKey = resolveClearedStageKey(
+              clears[i].act,
+              clears[i].stage,
+              fallbackStageKey,
+            );
+            this.onLiveStageClear?.(clearedStageKey, clears[i].clearTimeSec, xpGained, goldGained);
           }
         }
         this.stageEventBaseline = { xp, gold };

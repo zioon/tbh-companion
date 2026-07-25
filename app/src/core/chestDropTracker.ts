@@ -58,6 +58,14 @@ const HISTORY_VISIBLE = 50;
  * unaffected (a 1-hour session uses 3600s, not 60s).
  */
 const MIN_RATE_WINDOW_SEC = 60;
+/**
+ * Rolling window for `*RecentPerHour` rates. Recent drops inside this window
+ * are divided by the window size (clamped to {@link MIN_RATE_WINDOW_SEC} when
+ * the first recent drop is younger than the window). 1 hour matches the
+ * "near-term pace" intuition — short enough to reflect current farming
+ * intensity, long enough to smooth out 5-second-burst noise.
+ */
+const ROLLING_HOUR_SEC = 3600;
 
 function nowSeconds(): number {
   return Date.now() / 1000;
@@ -508,6 +516,36 @@ export class ChestDropTracker {
       }
     }
 
+    // Rolling 1-hour rate: scan full history for entries inside the window.
+    // History is append-only and bounded at HISTORY_LIMIT, so this stays cheap
+    // even at 5 Hz polling. We track the earliest in-window wallTime to size
+    // the denominator: when the first recent drop is younger than the window
+    // (e.g. session just started), use (now - earliest) so the rate doesn't
+    // get divided by a full hour and look artificially low.
+    const nowSec = nowSeconds();
+    const recentCutoff = nowSec - ROLLING_HOUR_SEC;
+    let commonRecent = 0;
+    let rareRecent = 0;
+    let actRecent = 0;
+    let earliestRecentWallTime: number | null = null;
+    for (const entry of this.history) {
+      if (entry.wallTime < recentCutoff) continue;
+      if (earliestRecentWallTime === null || entry.wallTime < earliestRecentWallTime) {
+        earliestRecentWallTime = entry.wallTime;
+      }
+      if (entry.category === "common") commonRecent++;
+      else if (entry.category === "rare") rareRecent++;
+      else if (entry.category === "act") actRecent++;
+    }
+    const recentWindowSec =
+      earliestRecentWallTime !== null
+        ? Math.max(MIN_RATE_WINDOW_SEC, Math.min(ROLLING_HOUR_SEC, nowSec - earliestRecentWallTime))
+        : ROLLING_HOUR_SEC;
+    const recentHours = recentWindowSec / 3600;
+    const commonRecentPerHour = commonRecent / recentHours;
+    const rareRecentPerHour = rareRecent / recentHours;
+    const actRecentPerHour = actRecent / recentHours;
+
     return {
       commonTotal,
       rareTotal,
@@ -516,6 +554,9 @@ export class ChestDropTracker {
       commonPerHour,
       rarePerHour,
       actPerHour,
+      commonRecentPerHour,
+      rareRecentPerHour,
+      actRecentPerHour,
       commonSession: sessionCommon,
       rareSession: sessionRare,
       actSession: sessionAct,

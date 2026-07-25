@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stageName } from "../../src/core/stages";
+import { resolveClearedStageKey, stageName } from "../../src/core/stages";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../src/core/localeCatalog";
 
 describe("stageName", () => {
@@ -63,5 +63,38 @@ describe("stageName with catalog", () => {
     };
     expect(stageName(1310, catalog)).toBe("Hell Command Chamber");
     expect(stageName(3310, catalog)).toBe("Hell Command Chamber");
+  });
+});
+
+describe("resolveClearedStageKey", () => {
+  it("combines act/stage from the log entry with the fallback's difficulty", () => {
+    // Hell 3-2 (3302) already advanced → clear of Hell 3-1 must reconstruct 3301.
+    expect(resolveClearedStageKey(3, 1, 3302)).toBe(3301);
+    // Torment 1-3 fallback → clear of Torment 1-3 reconstructed as 4103.
+    expect(resolveClearedStageKey(1, 3, 4103)).toBe(4103);
+    // Nightmare 2-5 fallback → clear of Nightmare 2-9 reconstructed as 2209.
+    expect(resolveClearedStageKey(2, 9, 2205)).toBe(2209);
+  });
+
+  it("falls back to the live stageKey when act/stage are 0 (corrupted read)", () => {
+    expect(resolveClearedStageKey(0, 0, 3302)).toBe(3302);
+    expect(resolveClearedStageKey(0, 1, 3302)).toBe(3302);
+    expect(resolveClearedStageKey(3, 0, 3302)).toBe(3302);
+  });
+
+  it("falls back to the live stageKey when act/stage are out of plausibility range", () => {
+    expect(resolveClearedStageKey(12, 1, 3302)).toBe(3302); // act > 9
+    expect(resolveClearedStageKey(-1, 1, 3302)).toBe(3302); // act < 1
+    expect(resolveClearedStageKey(3, 200, 3302)).toBe(3302); // stage > 99
+    expect(resolveClearedStageKey(3, -1, 3302)).toBe(3302); // stage < 1
+  });
+
+  it("falls back to the live stageKey when difficulty is non-positive", () => {
+    expect(resolveClearedStageKey(3, 1, 0)).toBe(0);
+    expect(resolveClearedStageKey(3, 1, -5)).toBe(-5);
+  });
+
+  it("truncates fractional inputs", () => {
+    expect(resolveClearedStageKey(3.9, 1.9, 3302)).toBe(3301);
   });
 });

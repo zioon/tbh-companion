@@ -9,7 +9,9 @@
 
 import {
   collectClassEntries,
+  collectLogManagerDiagnostics,
   dumpCatalogCandidates,
+  findBoxOpenLogDictDirect,
   findBoxOpenLogFields,
   findCurrencyManager,
   findCurrencyManagerStatic,
@@ -49,15 +51,49 @@ import type { WinProcess } from "./winProcess";
  * dumps GradeSO class fields + instance bytes for grade-offset derivation;
  * commonSaveData removed from ENRICHMENT_FIELDS (not derivable, was keeping
  * enrichmentComplete permanently false and the 30s heal timer running forever).
+ * Rev 9: v1.01.02 auto-recovery — fallback RVA zeroing (liveReader forces full
+ * critical re-derivation when bundled table is a same-major.minor fallback) +
+ * GetBoxLog validation tolerance (probe EMonsterLogType offset candidates +
+ * monsterLogType field-name fallback for obfuscated class names) +
+ * findBoxOpenLogDictDirect fallback (locate BoxOpen bucket directly when
+ * GetBoxLog validation rejects every candidate — restores loot tracking).
+ * Rev 10: fallback RVA preservation — same-major.minor fallback no longer
+ * zeroes TypeInfo RVAs. The fallback table's RVAs are kept as a working
+ * baseline (reader's resolve* helpers validate pointers before use, so stale
+ * RVAs degrade gracefully to null). The extractor still runs for enrichment
+ * (boxOpenLog etc.) and overwrites RVAs it successfully re-derives. Fixes
+ * "live 直接显示不支持了" on v1.01.02 where 3 extractor failures (player in
+ * main menu at attach time) permanently blocked live tracking even though
+ * v1.01.01 RVAs would have worked.
+ * Rev 11: findStageManager now validates that the candidate instance's
+ * HeroList points at a non-empty array. Without this, any class that happens
+ * to declare `HeroList` (e.g. a UI preview or cache class added in v1.01.02)
+ * would match, returning a slotRva that points at the wrong class — the
+ * reader would scan that wrong class's static block and never find a live
+ * StageManager instance, leaving live data permanently null ("party empty"
+ * on every candidate). Fixes "实现实时了但 DPS/经验/通关记录都没数据" on
+ * v1.01.02.
+ * Rev 12: findStageManager layer-2 hero-walk validation — when the base
+ * table supplies unit.cache / heroRuntime.info / heroInfoData.heroKey (all
+ * stable across v1.00.27+), the candidate's HeroList array is sampled and
+ * the first element must walk end-to-end to a plausible heroKey. This
+ * rejects UI preview / cache classes that pass layer 1 (non-empty array of
+ * non-Unit pointers) but cannot be StageManager. Also fixes the silent
+ * diagnostic log: ScanContext now wires its `log` through to the worker
+ * log, so "findStageManager: matched class=..." / "no match ..." lines
+ * actually appear in the live log instead of being dropped. Fixes the
+ * residual v1.01.02 regression where Rev 11 still matched a wrong class
+ * with a transiently non-empty HeroList during the 5s extraction window.
  */
-export const EXTRACTOR_REVISION = 8;
+export const EXTRACTOR_REVISION = 12;
 
 // Structural offsets whose field names ARE obfuscated but whose byte offsets are
 // stable across patches. Emitted as constants rather than derived by name.
 const STRUCT_LOG_BY_TYPE = 0x28;
 const STRUCT_GETBOX_TYPE = 0x50;
-const STRUCT_GETBOX_KEY = 3; // ELogType.GetBox
 const STRUCT_STAGE_CLEAR_KEY = 1; // ELogType.StageClear
+const STRUCT_STAGE_CLEAR_ACT = 0x40; // StageClearLog.act — live-verified on v1.00.23
+const STRUCT_STAGE_CLEAR_STAGE = 0x44; // StageClearLog.stage
 const STRUCT_STAGE_CLEAR_TIME = 0x48;
 const STRUCT_RUNTIME_WAVE = 0x138;
 
@@ -177,6 +213,7 @@ export function extractOffsets(
   version: string,
   log: ExtractorLog = noopLog,
   enrichmentOnly = false,
+  base?: LiveOffsets,
 ): ExtractResult | null {
   const t0 = Date.now();
   const regions = gaScanRegions(proc, ga);
@@ -186,7 +223,7 @@ export function extractOffsets(
       (enrichmentOnly ? " (enrichment-only)" : ""),
   );
 
-  const ctx = new ScanContext(proc);
+  const ctx = new ScanContext(proc, log);
   const { entries, stats } = collectClassEntries(ctx, ga.base, regions);
   log(
     `extract: indexed ${stats.namedClasses} named classes ` +
@@ -200,7 +237,21 @@ export function extractOffsets(
   let cm: { slotRva: bigint } | null = null;
 
   if (!enrichmentOnly) {
-    sm = findStageManager(ctx, entries);
+    // Hero-walk validation offsets: prefer the base (bundled/cache) table's
+    // unit.cache + heroRuntime.info + heroInfoData.heroKey. These are stable
+    // across v1.00.27+ (0x3b0 / 0x30 / 0x30) so even a fallback table from
+    // a neighboring version supplies correct values. When absent (e.g. a
+    // completely unknown version with no fallback), layer-2 validation is
+    // skipped and findStageManager falls back to layer-1 (non-empty array).
+    const heroOffsets =
+      base && base.unit.cache > 0 && base.heroRuntime.info > 0 && base.heroInfoData.heroKey > 0
+        ? {
+            unitCache: base.unit.cache,
+            heroRuntimeInfo: base.heroRuntime.info,
+            heroInfoDataKey: base.heroInfoData.heroKey,
+          }
+        : undefined;
+    sm = findStageManager(ctx, entries, { heroOffsets });
     if (!sm) {
       log(`extract: FAILED — no StageManager singleton (static slot with HeroList field)`);
       return null;
@@ -222,10 +273,17 @@ export function extractOffsets(
       findCurrencyManagerStatic(ctx, entries, GOLD_KEY) ??
       findCurrencyManager(ctx, entries, GOLD_KEY);
     if (!cm) {
-      log(`extract: FAILED — no currency manager passed the gold probe (key ${GOLD_KEY})`);
-      return null;
+      // v1.00.28 restructured the currency-manager class — the gold probe no
+      // longer matches. Don't fail the whole extraction: currencyManager is no
+      // longer a CRITICAL_FIELDS entry (see offsetCompleteness.ts), and live
+      // gold degrades to the save-snapshot path (5s latency). Other live stats
+      // (XP, stage wave, chest drops, DPS) flow normally.
+      log(
+        `extract: currencyManager not derived — gold probe failed (key ${GOLD_KEY}); live gold degrades to save snapshot`,
+      );
+    } else {
+      log(`extract: currencyManager rva=0x${cm.slotRva.toString(16)}`);
     }
-    log(`extract: currencyManager rva=0x${cm.slotRva.toString(16)}`);
   }
 
   // ── Enrichment anchors (zero-value fallback, retried while incomplete) ─────
@@ -235,6 +293,10 @@ export function extractOffsets(
   // the LogManager singleton isn't static-reachable (the dict key is still 0 then,
   // so the reader won't read the list, but a later bundled-table merge can fill it).
   const boxOpenFields = findBoxOpenLogFields(ctx, entries);
+  // Fallback: when findLogManager fails (GetBoxLog validation rejected every
+  // candidate), try to locate the BoxOpen bucket directly. This restores
+  // loot tracking even when chest-drop (GetBoxLog) tracking is unavailable.
+  const lmFallback = lm == null ? findBoxOpenLogDictDirect(ctx, entries) : null;
   if (lm) {
     let msg = `extract: logManager rva=0x${lm.slotRva.toString(16)} logByType=0x${lm.logByType.toString(16)} getBoxKey=${lm.getBoxTypeKey} boxOpenKey=${lm.boxOpenTypeKey} boxOpenLog.fields={itemStringKey:0x${lm.boxOpenLog.itemStringKey.toString(16)},itemGradeType:0x${lm.boxOpenLog.itemGradeType.toString(16)},gradeSO:0x${lm.boxOpenLog.gradeSO.toString(16)},gradeSOGrade:0x${lm.boxOpenLog.gradeSOGrade.toString(16)}}`;
     if (lm.boxOpenDiagnostics) {
@@ -253,10 +315,18 @@ export function extractOffsets(
       log(lm.boxOpenLog.diagnostics);
     }
     log(msg);
+  } else if (lmFallback) {
+    log(
+      `extract: logManager fallback (BoxOpen bucket direct) rva=0x${lmFallback.slotRva.toString(16)} logByType=0x${lmFallback.logByType.toString(16)} boxOpenKey=${lmFallback.boxOpenTypeKey} boxOpenLog.fields={itemStringKey:0x${lmFallback.boxOpenLog.itemStringKey.toString(16)},itemGradeType:0x${lmFallback.boxOpenLog.itemGradeType.toString(16)}} — getBoxKey=0 (chest-drop log unavailable)`,
+    );
   } else {
     log(
       `extract: logManager not derived (no validated GetBoxLog list — chest drops degrade); boxOpenLog.fields={itemStringKey:0x${boxOpenFields.itemStringKey.toString(16)},itemGradeType:0x${boxOpenFields.itemGradeType.toString(16)},gradeSO:0x${boxOpenFields.gradeSO.toString(16)},gradeSOGrade:0x${boxOpenFields.gradeSOGrade.toString(16)}}`,
     );
+    // Dump candidate dict buckets so we can see WHY validation failed on
+    // this game version. Capped at 5 candidates by collectLogManagerDiagnostics.
+    const diag = collectLogManagerDiagnostics(ctx, entries);
+    log(diag);
   }
 
   // ── MonsterSpawnManager (enrichment for DPS tracking) ──────────────
@@ -318,7 +388,7 @@ export function extractOffsets(
         stageCacheManager: scm?.slotRva ?? 0n,
         stageManager: sm?.slotRva ?? 0n,
         localInventoryManager: 0n, // unused; inventory reads via the player save snapshot
-        logManager: lm?.slotRva ?? 0n,
+        logManager: lm?.slotRva ?? lmFallback?.slotRva ?? 0n,
         monsterSpawnManager: msm?.slotRva ?? 0n,
       },
 
@@ -347,14 +417,15 @@ export function extractOffsets(
 
       hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
 
-      unit: { cache: 0x3a8 },
+      unit: { cache: 0x3b0 }, // v1.00.27+ layout (was 0x3a8 pre-1.00.27)
 
       heroRuntime: {
         info: 0x30,
         levelHidden: 0xd0,
         levelKey: 0xd4,
-        expHidden: 0x110,
-        expKey: 0x114,
+        // v1.00.27+ widened exp to ObscuredDouble (was 0x110/0x114 ObscuredFloat pre-1.00.27)
+        expHidden: 0x118,
+        expKey: 0x120,
       },
 
       heroInfoData: { heroKey: 0x30 },
@@ -383,21 +454,36 @@ export function extractOffsets(
         currencyInfoKey: 0x30,
         heroList: sm?.heroList ?? 0,
         log: {
-          logByType: lm?.logByType ?? STRUCT_LOG_BY_TYPE,
-          getBoxTypeKey: lm?.getBoxTypeKey ?? STRUCT_GETBOX_KEY,
+          logByType: lm?.logByType ?? lmFallback?.logByType ?? STRUCT_LOG_BY_TYPE,
+          getBoxTypeKey: lm?.getBoxTypeKey ?? 0, // fallback path can't derive GetBox key
           stageClearTypeKey: STRUCT_STAGE_CLEAR_KEY,
-          getItemWithBoxOpenTypeKey: lm?.boxOpenTypeKey ?? 0,
+          getItemWithBoxOpenTypeKey: lm?.boxOpenTypeKey ?? lmFallback?.boxOpenTypeKey ?? 0,
         },
         getBoxLog: { monsterType: STRUCT_GETBOX_TYPE },
         boxOpenLog: {
-          itemStringKey: lm?.boxOpenLog.itemStringKey ?? boxOpenFields.itemStringKey,
-          itemGradeType: lm?.boxOpenLog.itemGradeType ?? boxOpenFields.itemGradeType,
-          gradeSO: lm?.boxOpenLog.gradeSO ?? boxOpenFields.gradeSO ?? 0,
-          gradeSOGrade: lm?.boxOpenLog.gradeSOGrade ?? boxOpenFields.gradeSOGrade ?? 0,
+          itemStringKey:
+            lm?.boxOpenLog.itemStringKey ??
+            lmFallback?.boxOpenLog.itemStringKey ??
+            boxOpenFields.itemStringKey,
+          itemGradeType:
+            lm?.boxOpenLog.itemGradeType ??
+            lmFallback?.boxOpenLog.itemGradeType ??
+            boxOpenFields.itemGradeType,
+          gradeSO:
+            lm?.boxOpenLog.gradeSO ?? lmFallback?.boxOpenLog.gradeSO ?? boxOpenFields.gradeSO ?? 0,
+          gradeSOGrade:
+            lm?.boxOpenLog.gradeSOGrade ??
+            lmFallback?.boxOpenLog.gradeSOGrade ??
+            boxOpenFields.gradeSOGrade ??
+            0,
           boxType: 0, // obfuscated field name — requires manual IL2CPP dump
           level: 0, // obfuscated field name — requires manual IL2CPP dump
         },
-        stageClearLog: { clearTimeSec: STRUCT_STAGE_CLEAR_TIME },
+        stageClearLog: {
+          act: STRUCT_STAGE_CLEAR_ACT,
+          stage: STRUCT_STAGE_CLEAR_STAGE,
+          clearTimeSec: STRUCT_STAGE_CLEAR_TIME,
+        },
         monster: {
           monsterList: 0,
           summonedList: 0,

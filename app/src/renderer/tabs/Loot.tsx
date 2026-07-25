@@ -5,7 +5,9 @@ import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { useBoxTimers } from "../lib/useBoxTimers";
 import { useChests } from "../lib/useChests";
 import { useStats } from "../lib/useStats";
-import type { LootRingSeconds, LookupItem } from "../../../shared/types";
+import { useInventory } from "../lib/useInventory";
+import { predictFillTime, type ChestFillSource } from "../../core/inventory/predictFillTime";
+import type { ChestAutoOpenPrefs, LootRingSeconds, LookupItem } from "../../../shared/types";
 import { Button } from "../design-system/primitives/Button/Button";
 import { Dialog } from "../design-system/primitives/Dialog/Dialog";
 import { DialogClose, DialogTitle } from "../design-system/primitives/Dialog/DialogParts";
@@ -56,6 +58,7 @@ export function Loot() {
   // Stats provides per-category drop rates (commonPerHour / rarePerHour) used
   // to estimate slot-fill time. `act` has no periodic rate.
   const stats = useStats();
+  const inventory = useInventory();
   const dropsPerHour = useMemo(
     () => ({
       common: stats?.chestDrops?.commonPerHour ?? null,
@@ -64,6 +67,69 @@ export function Loot() {
     }),
     [stats?.chestDrops?.commonPerHour, stats?.chestDrops?.rarePerHour],
   );
+
+  // Auto-open prefs are owned by the Live tab (`config.chestAutoOpenEnabled`).
+  // The Loot tab reads them so the inventory fill prediction reflects
+  // whatever the user set on the Live tab — there's no separate toggle here.
+  const DEFAULT_AUTO_OPEN: ChestAutoOpenPrefs = { common: false, stageBoss: false };
+  const [autoOpenEnabled, setAutoOpenEnabled] = useState<ChestAutoOpenPrefs>(DEFAULT_AUTO_OPEN);
+
+  useEffect(() => {
+    if (typeof window.tbh?.getConfig !== "function") return;
+    let mounted = true;
+    const syncAutoOpenPrefs = (): void => {
+      void window.tbh
+        .getConfig()
+        .then((config) => {
+          if (mounted) setAutoOpenEnabled(config.chestAutoOpenEnabled);
+        })
+        .catch(reportIpcError);
+    };
+    syncAutoOpenPrefs();
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") syncAutoOpenPrefs();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      mounted = false;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  const commonPerHourDep = stats?.chestDrops?.commonPerHour;
+  const rarePerHourDep = stats?.chestDrops?.rarePerHour;
+
+  const fillPrediction = useMemo(() => {
+    if (!inventory || !chests || !stats) return null;
+    const fillSources: ChestFillSource[] = [];
+    if (autoOpenEnabled.common) {
+      fillSources.push({
+        heldChests: chests.common.quantity,
+        autoOpenSecondsPerChest: chests.autoOpen.common,
+        dropsPerHour: commonPerHourDep ?? 0,
+      });
+    }
+    if (autoOpenEnabled.stageBoss) {
+      fillSources.push({
+        heldChests: chests.stageBoss.quantity,
+        autoOpenSecondsPerChest: chests.autoOpen.stageBoss,
+        dropsPerHour: rarePerHourDep ?? 0,
+      });
+    }
+    return predictFillTime({
+      inventoryCapacity: inventory.inventoryCapacity,
+      inventoryUsed: inventory.inventoryUsed,
+      sources: fillSources,
+    });
+  }, [
+    inventory,
+    chests,
+    stats,
+    autoOpenEnabled.common,
+    autoOpenEnabled.stageBoss,
+    commonPerHourDep,
+    rarePerHourDep,
+  ]);
 
   const [ringSeconds, setRingSeconds] = useState<LootRingSeconds>(DEFAULT_RING_SECONDS);
 
@@ -110,18 +176,19 @@ export function Loot() {
         </HintBanner>
       )}
 
-      {(autoClassifyEnabled || recentDrops.length > 0) && (
-        <div className="grid grid-cols-2 items-stretch gap-3 max-[720px]:grid-cols-1">
-          {autoClassifyEnabled && (
-            <LootQueueSlots
-              queue={autoClassifyState}
-              chests={chests}
-              dropsPerHour={dropsPerHour}
-            />
-          )}
-          {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />}
-        </div>
-      )}
+      <div className="grid grid-cols-2 items-stretch gap-3 max-[720px]:grid-cols-1">
+        <LootQueueSlots
+          queue={autoClassifyState}
+          chests={chests}
+          dropsPerHour={dropsPerHour}
+          inventory={inventory}
+          autoOpenEnabled={autoOpenEnabled}
+          fillPrediction={fillPrediction}
+        />
+        {recentDrops.length > 0 && (
+          <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />
+        )}
+      </div>
 
       {boxOpens.length === 0 ? (
         <HintBanner>

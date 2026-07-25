@@ -1,5 +1,5 @@
 import type { AppLanguage } from "../../../shared/language";
-import type { AppConfig } from "../../../shared/types";
+import type { AppConfig, WindowTopmostPrefs } from "../../../shared/types";
 import { isLiveMemoryActive } from "../../core/sessionState";
 import type { XpTracker } from "../../core/tracker";
 import { expandPath, normalizeConfigFromRaw } from "../config";
@@ -18,7 +18,7 @@ export interface ConfigPatchDeps {
   setTracker: (t: XpTracker) => void;
   getMarket: () => SteamMarketProvider | null;
   restartWatcher: () => void;
-  setAlwaysOnTop: (v: boolean) => void;
+  setAlwaysOnTop: (v: WindowTopmostPrefs) => void;
   pushStats: () => void;
   resolveAndPushInventory: () => void;
   ensureOwnedPrices: (force?: boolean) => void | Promise<void>;
@@ -117,7 +117,7 @@ export function applyConfigPatch(deps: ConfigPatchDeps, patch: Partial<AppConfig
     deps.onLanguageChanged?.(next.language);
   }
 
-  deps.setAlwaysOnTop(next.startTopmost);
+  deps.setAlwaysOnTop(next.topmost);
   deps.pushStats();
   deps.resolveAndPushInventory();
 

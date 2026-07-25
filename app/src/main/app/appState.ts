@@ -120,6 +120,7 @@ const catalogRefresh = new CatalogRefreshService(
   liveMemory,
   resolveUserDataDir(),
   (channel, payload) => broadcast(channel, payload),
+  () => config.gameInstallDir ?? "",
 );
 liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged());
 /**
@@ -368,7 +369,7 @@ export function openMainWindow(): BrowserWindow {
     (w) => {
       mainWindow = w;
     },
-    () => config.startTopmost,
+    () => config.topmost.main,
     config.windowLayout?.main,
     (entry) => persistWindowLayout("main", entry),
   );
@@ -380,7 +381,7 @@ export function openOverlayWindow(): BrowserWindow {
     (w) => {
       overlayWindow = w;
     },
-    () => config.startTopmost,
+    () => config.topmost.overlay,
     () => {
       if (isAppQuitting()) return;
       sessionState.setMiniOverlayOpen(false);
@@ -397,7 +398,7 @@ export function openBoxTrackerWindow(): BrowserWindow {
     (w) => {
       boxTrackerWindow = w;
     },
-    () => config.startTopmost,
+    () => config.topmost.boxTracker,
     () => boxTimers.startTick(),
     () => {
       boxTimers.stopTick();
@@ -483,11 +484,11 @@ export function getAppServices() {
           getMarket: () => inventory.getMarket(),
           restartWatcher: () => tracking.restartWatcher(),
           setAlwaysOnTop: (v) => {
-            if (mainWindow && !mainWindow.isDestroyed()) applyWindowTopmost(mainWindow, v);
+            if (mainWindow && !mainWindow.isDestroyed()) applyWindowTopmost(mainWindow, v.main);
             if (overlayWindow && !overlayWindow.isDestroyed())
-              applyWindowTopmost(overlayWindow, v, true);
+              applyWindowTopmost(overlayWindow, v.overlay, true);
             if (boxTrackerWindow && !boxTrackerWindow.isDestroyed())
-              applyWindowTopmost(boxTrackerWindow, v, true);
+              applyWindowTopmost(boxTrackerWindow, v.boxTracker, true);
           },
           pushStats: () => tracking.pushStats(),
           resolveAndPushInventory: () => inventory.resolveAndPushInventory(),
@@ -634,11 +635,12 @@ export function getAppServices() {
         enabled: false,
         totalQueued: 0,
         byCategory: [
-          { category: "common", count: 0, nextAutoOpenInMs: null },
-          { category: "rare", count: 0, nextAutoOpenInMs: null },
-          { category: "act", count: 0, nextAutoOpenInMs: null },
+          { category: "common", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+          { category: "rare", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+          { category: "act", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
         ],
         items: [],
+        liveSlots: null,
       },
   };
 }

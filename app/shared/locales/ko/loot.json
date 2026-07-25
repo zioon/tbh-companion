@@ -60,7 +60,12 @@
     "slotsAria": "{{used}} / {{capacity}} 슬롯 사용 중",
     "opensIn": "다음 개봉",
     "clearsIn": "대기열 소화",
-    "fillsIn": "가득 찰 때까지"
+    "fillsIn": "가득 찰 때까지",
+    "inventoryLabel": "인벤토리 아이템",
+    "inventorySlotsAria": "{{used}} / {{capacity}} 인벤토리 슬롯 사용 중",
+    "inventoryFullIn": "인벤토리 가득 차기까지",
+    "inventoryFull": "가득 참",
+    "inventoryTurnOn": "「실시간 데이터」 탭에서 자동 개봉 스위치를 켠 후 예측 가능"
   },
   "recentDrops": {
     "title": "최근 드롭"

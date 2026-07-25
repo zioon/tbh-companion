@@ -339,8 +339,15 @@ export function Live() {
       : t("introLiveNoChest")
     : t("introSave");
 
-  const { commonSession, rareSession, commonPerHour, rarePerHour, readerRequired } =
-    stats.chestDrops;
+  const {
+    commonSession,
+    rareSession,
+    commonPerHour,
+    rarePerHour,
+    commonRecentPerHour,
+    rareRecentPerHour,
+    readerRequired,
+  } = stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
   const chestDetectionPending =
     readerRequired && liveScalars.connected && !liveScalars.hasChestDrops;
@@ -433,6 +440,7 @@ export function Live() {
             <LiveChestStatValue
               total={commonSession}
               perHour={commonPerHour}
+              recentPerHour={commonRecentPerHour}
               inactive={chestStatsInactive}
             />
           }
@@ -444,6 +452,7 @@ export function Live() {
             <LiveChestStatValue
               total={rareSession}
               perHour={rarePerHour}
+              recentPerHour={rareRecentPerHour}
               countClassName="text-status-info"
               inactive={chestStatsInactive}
             />

@@ -13,8 +13,26 @@ export interface MarketHashMatch {
   name: string;
 }
 
-/** Minimal item shape needed to derive a market hash — satisfied by GameItem and LookupItem. */
-export type MarketHashItem = Pick<GameItem, "name" | "grade" | "type" | "marketTradable">;
+/**
+ * Minimal item shape needed to derive a market hash — satisfied by GameItem
+ * and LookupItem.
+ *
+ * `sourceName` is optional and used (when present) as the Steam
+ * `market_hash_name` base instead of `name`. Steam hashes are always
+ * English; rendering a localized `name` (e.g. "铜币") would break price
+ * lookups because the snapshot is keyed by the English name (e.g.
+ * "Copper Coin"). LookupService sets `sourceName` on localized items so
+ * `marketHashName`/`marketHashCandidates` keep producing English hashes
+ * regardless of the UI language.
+ */
+export type MarketHashItem = Pick<GameItem, "name" | "grade" | "type" | "marketTradable"> & {
+  sourceName?: string;
+};
+
+/** Steam market_hash_name base: prefer the English source name when present. */
+function hashBaseName(item: MarketHashItem): string {
+  return item.sourceName ?? item.name;
+}
 
 export function isPriceableItem(type: string, grade: string, marketTradable: boolean): boolean {
   if (!marketTradable) return false;
@@ -66,14 +84,15 @@ export function gearMarketHashCandidates(itemName: string, catalogGrade: string)
 /** Resolve a catalog item to a Steam market_hash_name, or null if not priceable. */
 export function marketHashMatch(item: MarketHashItem): MarketHashMatch | null {
   if (!isPriceableItem(item.type, item.grade, item.marketTradable)) return null;
-  if (isPlaceholderItemName(item.name)) return null;
+  const baseName = hashBaseName(item);
+  if (isPlaceholderItemName(baseName)) return null;
 
   if (item.type === "MATERIAL") {
-    return { name: item.name };
+    return { name: baseName };
   }
 
   if (item.type === "GEAR") {
-    return { name: gearMarketHash(item.name, item.grade, "A") };
+    return { name: gearMarketHash(baseName, item.grade, "A") };
   }
 
   return null;
@@ -82,9 +101,10 @@ export function marketHashMatch(item: MarketHashItem): MarketHashMatch | null {
 /** Steam hash names to price (gear: variant A; materials: display name). */
 export function marketHashCandidates(item: MarketHashItem): string[] {
   if (!isPriceableItem(item.type, item.grade, item.marketTradable)) return [];
-  if (isPlaceholderItemName(item.name)) return [];
-  if (item.type === "MATERIAL") return [item.name];
-  if (item.type === "GEAR") return gearMarketHashCandidates(item.name, item.grade);
+  const baseName = hashBaseName(item);
+  if (isPlaceholderItemName(baseName)) return [];
+  if (item.type === "MATERIAL") return [baseName];
+  if (item.type === "GEAR") return gearMarketHashCandidates(baseName, item.grade);
   return [];
 }
 

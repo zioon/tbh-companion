@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   offsetsForVersion,
+  offsetsForVersionMeta,
   supportedVersions,
   plausiblePlayTime,
   plausibleStage,
   plausibleGold,
   plausibleWave,
+  type LiveOffsets,
 } from "../../src/core/liveMemory/offsets";
 
 describe("offsetsForVersion", () => {
@@ -31,11 +33,34 @@ describe("offsetsForVersion", () => {
     expect(o?.player.itemSaveDatas).toBe(0xa8);
   });
 
-  it("returns null for an unknown/absent version (degraded mode — LMR-07)", () => {
-    expect(offsetsForVersion("1.00.99")).toBeNull();
+  it("returns null for an absent/invalid version (degraded mode — LMR-07)", () => {
+    // Different major.minor — no fallback available.
+    expect(offsetsForVersion("9.99.99")).toBeNull();
+    expect(offsetsForVersion("2.00.00")).toBeNull();
     expect(offsetsForVersion(null)).toBeNull();
     expect(offsetsForVersion(undefined)).toBeNull();
     expect(offsetsForVersion("")).toBeNull();
+  });
+
+  it("falls back to the nearest same-major.minor version for unknown patches", () => {
+    // 1.00.29 is not in the table → falls back to 1.00.28 (nearest 1.00.x).
+    const fallback = offsetsForVersion("1.00.29");
+    expect(fallback).not.toBeNull();
+    expect(fallback?.gameVersion).toBe("1.00.29");
+    // Offsets inherited from v1.00.28 (ObscuredDouble exp layout).
+    expect(fallback?.heroRuntime.expHidden).toBe(0x118);
+    expect(fallback?.unit.cache).toBe(0x3b0);
+
+    // 1.00.50 also falls back to 1.00.28 (only same-major.minor candidate).
+    const far = offsetsForVersion("1.00.50");
+    expect(far).not.toBeNull();
+    expect(far?.gameVersion).toBe("1.00.50");
+
+    // 1.00.20 falls back to 1.00.21 (nearest lower).
+    const lower = offsetsForVersion("1.00.20");
+    expect(lower).not.toBeNull();
+    expect(lower?.gameVersion).toBe("1.00.20");
+    expect(lower?.heroRuntime.expHidden).toBe(0x110); // v1.00.21 ObscuredFloat
   });
 
   it("lists the supported versions", () => {
@@ -68,11 +93,33 @@ describe("offsetsForVersion", () => {
     expect(o.runtime.getBoxLog.monsterType).toBe(0x50); // GetBoxLog EMonsterLogType
     // Phase 4 stage-clear schema (StageClearLog via LogManager)
     expect(o.runtime.log.stageClearTypeKey).toBe(1); // ELogType.StageClear
-    expect(o.runtime.stageClearLog.clearTimeSec).toBe(0x48); // live-verified on v1.00.23
+    expect(o.runtime.stageClearLog.act).toBe(0x40); // StageClearLog.act — live-verified on v1.00.23
+    expect(o.runtime.stageClearLog.stage).toBe(0x44); // StageClearLog.stage
+    expect(o.runtime.stageClearLog.clearTimeSec).toBe(0x48); // StageClearLog.clearTimeSec
     expect("petSaveData" in o).toBe(true);
     expect("inventoryItem" in o).toBe(true);
     expect("petSaveDatas" in o.player).toBe(true);
     expect("itemSaveDatas" in o.player).toBe(true);
+  });
+
+  it("exposes fallback flag via offsetsForVersionMeta", () => {
+    // Exact match → fallback=false
+    const exact = offsetsForVersionMeta("1.00.21")!;
+    expect(exact.table.gameVersion).toBe("1.00.21");
+    expect(exact.fallback).toBe(false);
+
+    // Same-major.minor fallback (1.00.29 → 1.00.28) → fallback=true
+    const fb = offsetsForVersionMeta("1.00.29")!;
+    expect(fb.table.gameVersion).toBe("1.00.29");
+    expect(fb.fallback).toBe(true);
+
+    // v1.01.02 (not in table) falls back to v1.01.01 → fallback=true
+    const v102 = offsetsForVersionMeta("1.01.02")!;
+    expect(v102.table.gameVersion).toBe("1.01.02");
+    expect(v102.fallback).toBe(true);
+
+    // Different major.minor → null (no fallback available)
+    expect(offsetsForVersionMeta("9.99.99")).toBeNull();
   });
 });
 
@@ -106,5 +153,78 @@ describe("plausibility guards", () => {
     expect(plausibleWave(999)).toBe(true);
     expect(plausibleWave(1000)).toBe(false);
     expect(plausibleWave(null)).toBe(false);
+  });
+});
+
+// ── Cross-version regression ───────────────────────────────────────────────
+// 自动回归：遍历 supportedVersions() 中所有版本表，锁定"stable across patches"
+// 字段的预期值。新增版本表时无需手写新用例 —— 这里会自动覆盖。
+// 触发场景：以后修改 offsets.ts 时若漏改某个版本、或写入错误值，本组测试会立即失败。
+describe("cross-version offset regression (auto-covers new versions)", () => {
+  const VERSIONS = supportedVersions();
+
+  // 期望所有版本都派生了完整的 stageClearLog 三件套（act/stage/clearTimeSec）。
+  // 这三个偏移在 offsets.ts 注释中明确标注为"stable across patches"，值固定为
+  // 0x40 / 0x44 / 0x48（live-verified on v1.00.23）。任何版本缺失或偏差都会导致
+  // 通关记录归属回退到 live stageKey，重新引发"地图快一个"的 off-by-one bug。
+  const EXPECTED_STAGE_CLEAR_LOG: Readonly<Record<keyof LiveOffsets["runtime"]["stageClearLog"], number>> = {
+    act: 0x40,
+    stage: 0x44,
+    clearTimeSec: 0x48,
+  };
+
+  // 其他在 offsets.ts 中标注为"stable across patches"的运行时偏移，一并锁定。
+  const EXPECTED_STABLE_RUNTIME: Array<{
+    path: string;
+    get: (o: LiveOffsets) => number;
+    expected: number;
+  }> = [
+    { path: "runtime.log.logByType", get: (o) => o.runtime.log.logByType, expected: 0x28 },
+    { path: "runtime.log.getBoxTypeKey", get: (o) => o.runtime.log.getBoxTypeKey, expected: 3 },
+    { path: "runtime.log.stageClearTypeKey", get: (o) => o.runtime.log.stageClearTypeKey, expected: 1 },
+    { path: "runtime.getBoxLog.monsterType", get: (o) => o.runtime.getBoxLog.monsterType, expected: 0x50 },
+    { path: "runtime.heroList", get: (o) => o.runtime.heroList, expected: 0x30 },
+    { path: "runtime.currencyInfoKey", get: (o) => o.runtime.currencyInfoKey, expected: 0x30 },
+  ];
+
+  it("supportedVersions() is non-empty (guard against TABLE being accidentally wiped)", () => {
+    expect(VERSIONS.length).toBeGreaterThan(0);
+  });
+
+  it.each(VERSIONS)("version %s has stageClearLog.act/stage/clearTimeSec at the stable offsets", (version) => {
+    const o = offsetsForVersion(version)!;
+    expect(o).not.toBeNull();
+    for (const [field, expected] of Object.entries(EXPECTED_STAGE_CLEAR_LOG) as Array<
+      [keyof LiveOffsets["runtime"]["stageClearLog"], number]
+    >) {
+      expect(o.runtime.stageClearLog[field]).toBe(expected);
+    }
+  });
+
+  it.each(VERSIONS)("version %s preserves stable runtime log/hero/currency offsets", (version) => {
+    const o = offsetsForVersion(version)!;
+    for (const { path, get, expected } of EXPECTED_STABLE_RUNTIME) {
+      expect(get(o), `${path} on ${version}`).toBe(expected);
+    }
+  });
+
+  it.each(VERSIONS)("version %s exposes the full stageClearLog schema (3 fields, no extra keys)", (version) => {
+    const o = offsetsForVersion(version)!;
+    expect(Object.keys(o.runtime.stageClearLog).sort()).toEqual(["act", "clearTimeSec", "stage"]);
+  });
+
+  // 同 major.minor fallback 路径也必须继承 stageClearLog（防止 fallback 表覆盖时丢字段）。
+  it("fallback path (e.g. 1.00.29 → 1.00.28) inherits stageClearLog intact", () => {
+    const fb = offsetsForVersion("1.00.29")!;
+    expect(fb.runtime.stageClearLog.act).toBe(0x40);
+    expect(fb.runtime.stageClearLog.stage).toBe(0x44);
+    expect(fb.runtime.stageClearLog.clearTimeSec).toBe(0x48);
+  });
+
+  it("fallback path (e.g. 1.01.02 → 1.01.01) inherits stageClearLog intact", () => {
+    const fb = offsetsForVersion("1.01.02")!;
+    expect(fb.runtime.stageClearLog.act).toBe(0x40);
+    expect(fb.runtime.stageClearLog.stage).toBe(0x44);
+    expect(fb.runtime.stageClearLog.clearTimeSec).toBe(0x48);
   });
 });

@@ -33,7 +33,15 @@ export class LookupService {
     if (this.localizedItemsCache == null) {
       this.localizedItemsCache = this.sourceItems.map((item) => {
         const localizedName = gameItemName(item, this.localeCatalog);
-        return localizedName !== item.name ? { ...item, name: localizedName } : item;
+        if (localizedName !== item.name) {
+          // Preserve the English source name so marketHashName() can still
+          // derive the English Steam market_hash_name — Steam hashes are
+          // always English, and the price snapshot is keyed by them. Without
+          // this, switching to Chinese (e.g. "Copper Coin" → "铜币") would
+          // make the localized name miss every snapshot entry.
+          return { ...item, name: localizedName, sourceName: item.name };
+        }
+        return item;
       });
     }
     return this.localizedItemsCache;

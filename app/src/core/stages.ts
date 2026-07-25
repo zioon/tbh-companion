@@ -54,3 +54,32 @@ export function stageName(key: number, catalog: LocaleCatalog | null = null): st
     `D${difficulty}`;
   return `${diff} ${act}-${stage}`;
 }
+
+/**
+ * Reconstruct the full stageKey for a stage-clear event from the log entry's
+ * `act`/`stage` (which identify the **cleared** stage) combined with the
+ * difficulty digit of a reference stageKey (the current live/save stageKey).
+ *
+ * StageClearLog carries act+stage+clearTimeSec but NOT difficulty, so the
+ * caller must supply a reference stageKey to recover difficulty. This is the
+ * fix for the off-by-one stage attribution bug where a clear of 3-1 was
+ * recorded as 3-2: when the reader polls the tick after a clear, the live
+ * `stageKey` has already advanced to the next stage, but the log entry still
+ * holds the cleared stage's act/stage — using those instead of the live
+ * stageKey gives the correct attribution.
+ *
+ * Returns `fallbackStageKey` when `act`/`stage` are 0 (corrupted / mid-write
+ * read) or when `fallbackStageKey` is non-positive (no difficulty source).
+ */
+export function resolveClearedStageKey(
+  act: number,
+  stage: number,
+  fallbackStageKey: number,
+): number {
+  const difficulty = Math.floor(Math.trunc(fallbackStageKey) / 1000);
+  if (difficulty <= 0) return Math.trunc(fallbackStageKey);
+  const a = Math.trunc(act);
+  const s = Math.trunc(stage);
+  if (a < 1 || a > 9 || s < 1 || s > 99) return Math.trunc(fallbackStageKey);
+  return difficulty * 1000 + a * 100 + s;
+}

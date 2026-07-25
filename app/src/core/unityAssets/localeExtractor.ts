@@ -36,22 +36,35 @@ export interface LocaleExtractorInput {
 export type ExtractedLocales = Record<string, Record<string, string>>;
 
 /**
- * Find the smallest MonoBehaviour in a parsed bundle (which is the
- * SharedTableData / StringTable), scan marker entries, and return an
- * ordered list of { hash, str } pairs.
+ * Scan every MonoBehaviour in a parsed bundle and aggregate marker entries
+ * across all of them. A locale bundle contains multiple StringTable MonoBehaviours
+ * (one per table — items, stats, grades, gear types, UI strings, etc.), and each
+ * holds a disjoint set of (hash, string) pairs. Earlier code picked only the
+ * smallest MonoBehaviour, which silently dropped all tables except the first
+ * (e.g. ItemName_* survived but Stat_*, Grade_*, GearType_* were lost).
+ *
+ * Shared bundle (key→hash mapping) has its own SharedTableData MonoBehaviour
+ * with the union of all keys; per-language bundles have one MonoBehaviour per
+ * table with that table's translated values. Scanning all MonoBehaviours
+ * captures every table.
  */
 function scanLocaleEntries(bundleBuffer: Buffer): { hash: number; str: string }[] {
   if (bundleBuffer.length === 0) return [];
   try {
     const bundle = parseBundle(bundleBuffer);
     const sf = parseSerializedFile(bundle.data);
-    const monos = sf.objects
-      .filter((o) => o.classID === TYPE_MONOBEHAVIOUR)
-      .map((o) => ({ info: o, raw: sf.getObjectRaw(o, bundle.data) }))
-      .sort((a, b) => a.raw.length - b.raw.length);
-    const smallest = monos[0];
-    if (!smallest) return [];
-    return scanMarkerEntries(smallest.raw).map((e) => ({ hash: e.hash, str: e.str }));
+    const monos = sf.objects.filter((o) => o.classID === TYPE_MONOBEHAVIOUR);
+    const out: { hash: number; str: string }[] = [];
+    for (const info of monos) {
+      const raw = sf.getObjectRaw(info, bundle.data);
+      // Later tables overwrite earlier ones on hash collision — but in
+      // practice each hash appears in exactly one table, so append-only
+      // is correct and preserves every key.
+      for (const e of scanMarkerEntries(raw)) {
+        out.push({ hash: e.hash, str: e.str });
+      }
+    }
+    return out;
   } catch {
     return [];
   }

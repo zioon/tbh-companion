@@ -13,6 +13,7 @@ import { RangeSlider } from "../../design-system/primitives/RangeSlider/RangeSli
 import { MultiSelect } from "../../design-system/primitives/MultiSelect/MultiSelect";
 import { SortControl } from "../filters/SortControl";
 import type { SelectOption } from "../../design-system/primitives/Select/Select";
+import { gradeColor } from "../../lib/gradeColor";
 
 const SORT_OPTIONS: { value: LookupSortKey; labelKey: string }[] = [
   { value: "name", labelKey: "sort.name" },
@@ -115,7 +116,11 @@ export function LookupFilters({
           allLabel={t("filters.allGrades")}
           value={gradeFilter}
           onValueChange={onGradeFilterChange}
-          options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g, t) }))}
+          options={gradeOptions.map((g) => ({
+            value: g,
+            label: gradeLabel(g, t),
+            color: gradeColor(g),
+          }))}
         />
 
         {showGearFilters ? (

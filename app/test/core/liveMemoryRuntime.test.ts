@@ -501,8 +501,14 @@ describe("readRuntimeChestLog", () => {
 const STAGE_CLEAR_LIST = 0xd70000n;
 const STAGE_CLEAR_ARR = 0xd80000n;
 
-/** Seed LogManager → logByType dict → StageClear List<StageClearLog> with the given clear times. */
-function seedStageClearChain(m: FakeMemory, clearTimesSec: number[]): FakeMemory {
+/**
+ * Seed LogManager → logByType dict → StageClear List<StageClearLog> with the
+ * given entries. Each entry is `[act, stage, clearTimeSec]`. `act`/`stage` are
+ * written to StageClearLog+0x40 / +0x44; pass `0` for either to simulate a
+ * corrupted / mid-write read (the reader should then surface `act:0`/`stage:0`
+ * so the caller falls back to the current stageKey).
+ */
+function seedStageClearChain(m: FakeMemory, entries: [number, number, number][]): FakeMemory {
   m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
     .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
     .writePtr(LOG_BLOCK, LM_INSTANCE);
@@ -529,15 +535,16 @@ function seedStageClearChain(m: FakeMemory, clearTimesSec: number[]): FakeMemory
 
   m.writePtr(STAGE_CLEAR_LIST + BigInt(O.container.listItems), STAGE_CLEAR_ARR).writeI32(
     STAGE_CLEAR_LIST + BigInt(O.container.listSize),
-    clearTimesSec.length,
+    entries.length,
   );
   const first = STAGE_CLEAR_ARR + BigInt(O.container.arrayFirst);
-  for (let i = 0; i < clearTimesSec.length; i++) {
+  for (let i = 0; i < entries.length; i++) {
     const entry = 0xe10000n + BigInt(i * 0x100);
-    m.writePtr(first + BigInt(i * 8), entry).writeI32(
-      entry + BigInt(O.runtime.stageClearLog.clearTimeSec),
-      clearTimesSec[i],
-    );
+    const [act, stage, clearTimeSec] = entries[i]!;
+    m.writePtr(first + BigInt(i * 8), entry)
+      .writeI32(entry + BigInt(O.runtime.stageClearLog.act), act)
+      .writeI32(entry + BigInt(O.runtime.stageClearLog.stage), stage)
+      .writeI32(entry + BigInt(O.runtime.stageClearLog.clearTimeSec), clearTimeSec);
   }
   return m;
 }
@@ -551,32 +558,68 @@ describe("readRuntimeStageClears", () => {
 
   it("primes to the current log length on first read (backlog not counted)", () => {
     const pin = makeStageClearPinState();
-    const m = seedStageClearChain(new FakeMemory(), [42, 85]); // pre-existing backlog
+    const m = seedStageClearChain(new FakeMemory(), [
+      [3, 1, 42],
+      [3, 1, 85],
+    ]); // pre-existing backlog
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
     expect(pin.lastCount).toBe(2);
   });
 
-  it("returns clear-time seconds for entries appended since the last read", () => {
+  it("returns entries (act/stage/clearTimeSec) appended since the last read", () => {
     const pin = makeStageClearPinState();
-    const m = seedStageClearChain(new FakeMemory(), [85]);
+    const m = seedStageClearChain(new FakeMemory(), [[3, 1, 85]]);
     readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin); // prime at length 1
-    seedStageClearChain(m, [85, 63]); // one new clear appended
-    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([63]);
+    seedStageClearChain(m, [
+      [3, 1, 85],
+      [3, 2, 63],
+    ]); // one new clear appended (stage 3-2)
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 3, stage: 2, clearTimeSec: 63 },
+    ]);
   });
 
   it("rejects implausible clear times (corrupted / mid-write read)", () => {
     const pin = makeStageClearPinState();
     pin.primed = true;
     pin.lastCount = 0;
-    const m = seedStageClearChain(new FakeMemory(), [0, -1, 999_999, 85]);
-    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([85]);
+    const m = seedStageClearChain(new FakeMemory(), [
+      [3, 1, 0],
+      [3, 1, -1],
+      [3, 1, 999_999],
+      [3, 1, 85],
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 3, stage: 1, clearTimeSec: 85 },
+    ]);
+  });
+
+  it("passes act/stage through as 0 when they read out of plausibility range", () => {
+    // Mid-write / corrupted act/stage: each out-of-range field is clamped to 0
+    // independently; the caller (resolveClearedStageKey) then falls back to
+    // the current stageKey because act/stage < 1 triggers its fallback path.
+    const pin = makeStageClearPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    const m = seedStageClearChain(new FakeMemory(), [
+      [0, 0, 42], // both zero
+      [12, 1, 43], // act out of range (1-9) → act clamped to 0, stage kept
+      [3, 200, 44], // stage out of range (1-99) → stage clamped to 0, act kept
+      [3, 1, 85], // valid
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 0, stage: 0, clearTimeSec: 42 },
+      { act: 0, stage: 1, clearTimeSec: 43 },
+      { act: 3, stage: 0, clearTimeSec: 44 },
+      { act: 3, stage: 1, clearTimeSec: 85 },
+    ]);
   });
 
   it("realigns the tail and returns no clears when the log shrinks", () => {
     const pin = makeStageClearPinState();
     pin.primed = true;
     pin.lastCount = 5;
-    const m = seedStageClearChain(new FakeMemory(), [12]);
+    const m = seedStageClearChain(new FakeMemory(), [[3, 1, 12]]);
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
     expect(pin.lastCount).toBe(1);
   });
@@ -823,6 +866,62 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(result.opens).toHaveLength(1);
     // Extracted from "ItemName_601171" → 601171 (real catalog id), NOT 600017.
     expect(result.opens![0].itemKey).toBe(601171);
+  });
+
+  // Regression: v1.00.28 String pointer with an UNREADABLE target (string
+  // memory paged out / freed / not yet initialized). The String-pointer path
+  // fails (readIl2CppString returns null), and the pointer's low 32 bits are
+  // a heap-address low dword OUTSIDE the catalog range (e.g. 0x15D95800 =
+  // 367177440). Without the range guard in the allowString branch, the
+  // readI32 fallback would return 367177440, which /1000-normalization
+  // (catalogItemKeyFromSave) maps to 367177 — coincidentally IN [110001,
+  // 939999] — bypassing garbage filters and surfacing a ghost "#367177440"
+  // entry in the loot list (root cause of the user-reported #367177440
+  // drop). With the guard, readBoxOpenLogField returns null and the entry
+  // is dropped (opens stays empty).
+  it("drops the entry when the String pointer is unreadable and the low dword is outside the catalog range", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+
+    const m = new FakeMemory();
+    // Pointer low dword = 0x15D95800 = 367177440 (OUTSIDE [110001, 939999]).
+    // High dword makes the full pointer a plausible heap addr. The String
+    // object at STRING_OBJ is intentionally NOT seeded — readIl2CppString
+    // reads length from uninitialized memory → null → returns null.
+    const STRING_OBJ = 0x0000_0001_15D9_5800n;
+
+    m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+      .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+      .writePtr(LOG_BLOCK, LM_INSTANCE);
+    m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+      .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+      .writeI32(LOG_DICT + BigInt(O.dict.count), 2);
+    const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+    m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+      .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+    m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+      GETBOX_LIST + BigInt(O.container.listSize),
+      0,
+    );
+    const de1 = de0 + BigInt(O.dict.entrySize);
+    m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de1 + BigInt(O.dict.entryKey), 99)
+      .writePtr(de1 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+    m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+      BOX_OPEN_LIST + BigInt(O.container.listSize),
+      1,
+    );
+    const entry = 0xeb0000n;
+    m.writePtr(BOX_OPEN_ARR + BigInt(O.container.arrayFirst), entry);
+    // itemStringKey at +0x10 = String pointer whose target is never seeded.
+    m.writePtr(entry + BigInt(0x10), STRING_OBJ);
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    // Entry dropped: no valid itemKey could be extracted (range guard
+    // returned null instead of the garbage low dword 367177440).
+    expect(result.opens).toHaveLength(0);
   });
 
   // Plain-int32 layout (v1.00.21/23/27): itemStringKey is a real int32 field.

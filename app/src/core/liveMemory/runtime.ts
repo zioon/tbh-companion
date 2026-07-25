@@ -20,6 +20,7 @@ import type {
   LiveHeroData,
   LiveInventoryItem,
   LivePetData,
+  StageClearEntry,
 } from "../../../shared/types";
 
 export interface RuntimeStage {
@@ -482,6 +483,7 @@ export function resolveStageManager(
   }
 
   let scanned = 0;
+  let firstFailStatus: string | null = null;
   for (let off = 0; off <= SM_STATIC_SCAN_MAX; off += 8) {
     const cand = readPtr(reader, block + BigInt(off));
     if (cand == null) continue;
@@ -491,11 +493,19 @@ export function resolveStageManager(
       pin.lastStatus = "";
       return cand;
     }
+    // Capture the first candidate's failure reason for diagnostics.
+    // readParty returns a status string explaining why heroes is null — this
+    // lets us distinguish "HeroList ptr null" (offset wrong) from "party empty"
+    // (offset right but no heroes) from "count exceeds MAX" (offset wrong).
+    if (firstFailStatus == null) {
+      const party = readParty(reader, cand, o);
+      if (party.status) firstFailStatus = party.status;
+    }
   }
   pin.lastStatus =
     scanned === 0
       ? "StageManager static block scan: no plausible pointers found"
-      : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect)`;
+      : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect); first fail=${firstFailStatus ?? "n/a"}`;
   return null;
 }
 
@@ -722,15 +732,26 @@ function stageClearLogList(
 }
 
 /**
- * Clear times (whole seconds, as recorded by the game) added to the
- * StageClear log since the last read. Tails the log by index the same way
- * {@link readRuntimeChestLog} tails GetBox: primes to the current length on
- * first read (backlog not counted) and returns `[]`; when the log shrinks it
- * realigns the tail to `count` and returns `[]` (never re-reads history, see
- * {@link readRuntimeChestLog} for rationale). Returns null when the LogManager
- * can't be resolved — distinct from `[]` (resolved, no new clears this tick).
- * Stage attribution is the caller's job (the live/save stageKey at read time);
- * the log entry's own act/stage ints don't carry difficulty.
+ * StageClearLog entries added since the last read. Tails the log by index the
+ * same way {@link readRuntimeChestLog} tails GetBox: primes to the current
+ * length on first read (backlog not counted) and returns `[]`; when the log
+ * shrinks it realigns the tail to `count` and returns `[]` (never re-reads
+ * history, see {@link readRuntimeChestLog} for rationale). Returns null when
+ * the LogManager can't be resolved — distinct from `[]` (resolved, no new
+ * clears this tick).
+ *
+ * Each entry carries the **cleared** stage's `act`/`stage` (read from
+ * StageClearLog+0x40 / +0x44) plus `clearTimeSec`. The log entry does NOT
+ * carry difficulty — the caller combines `act`/`stage` with the difficulty
+ * digit of the current live/save stageKey to form a full stageKey. This
+ * avoids the off-by-one stage attribution bug where a clear of 3-1 was
+ * recorded as 3-2 because `stageKey` had already advanced by the next tick.
+ *
+ * Implausible `clearTimeSec` (≤0 or ≥MAX_CLEAR_TIME_SEC) entries are skipped
+ * entirely. When `act`/`stage` read as 0 or out of plausibility range, the
+ * entry is still returned (with `act`/`stage` set to 0) so the caller can
+ * fall back to the current stageKey for that entry while preserving the
+ * clear-time sample.
  */
 export function readRuntimeStageClears(
   reader: MemoryReader,
@@ -738,7 +759,7 @@ export function readRuntimeStageClears(
   gaSize: number,
   o: LiveOffsets,
   pin: StageClearPinState,
-): number[] | null {
+): StageClearEntry[] | null {
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
   if (lmPtr == null) return null;
   const list = stageClearLogList(reader, lmPtr, o);
@@ -757,15 +778,26 @@ export function readRuntimeStageClears(
   }
 
   const start = pin.lastCount;
-  const clears: number[] = [];
+  const clears: StageClearEntry[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
+  const actOff = BigInt(o.runtime.stageClearLog.act);
+  const stageOff = BigInt(o.runtime.stageClearLog.stage);
+  const clearTimeOff = BigInt(o.runtime.stageClearLog.clearTimeSec);
   for (let i = start; i < count; i++) {
     const entryPtr = readPtr(reader, first + BigInt(i * 8));
     if (entryPtr == null) continue;
-    const clearTimeSec = readI32(reader, entryPtr + BigInt(o.runtime.stageClearLog.clearTimeSec));
-    if (clearTimeSec != null && clearTimeSec > 0 && clearTimeSec < MAX_CLEAR_TIME_SEC) {
-      clears.push(clearTimeSec);
-    }
+    const clearTimeSec = readI32(reader, entryPtr + clearTimeOff);
+    if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) continue;
+    const act = readI32(reader, entryPtr + actOff);
+    const stage = readI32(reader, entryPtr + stageOff);
+    // act is 1-digit (1-9), stage is 1-99. 0 or out-of-range ⇒ corrupted /
+    // mid-write read; pass through as 0 so the caller falls back to the
+    // current stageKey for this entry while keeping the clear-time sample.
+    clears.push({
+      act: act != null && act >= 1 && act <= 9 ? act : 0,
+      stage: stage != null && stage >= 1 && stage <= 99 ? stage : 0,
+      clearTimeSec,
+    });
   }
   pin.lastCount = count;
   return clears;
@@ -993,14 +1025,33 @@ function readBoxOpenLogField(
           if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
         }
       }
+      // ptrVal is a plausible 64-bit pointer but its target isn't a readable
+      // String. Two sub-cases:
+      //   (a) Real String pointer (v1.00.28) with unreadable/uninitialized
+      //       target → the low 32 bits are a heap-address low dword (garbage,
+      //       usually outside [110001, 939999]). Returning it would let
+      //       /1000-normalization accidentally map it into the valid catalog
+      //       range (e.g. 0x15D95800 = 367177440 → /1000 = 367177) and surface
+      //       a ghost "#367177440" entry in the loot list. Return null to drop
+      //       the entry; do NOT fall through to readI32/ObscuredInt — those
+      //       would return the pointer's low dword as a garbage int.
+      //   (b) Plain int32 field (v1.00.21/23/27) misread as 8-byte pointer —
+      //       the low 32 bits ARE the catalog id (6-digit [110001, 939999]).
+      //       Fall through to the plain-int32 return below.
+      const low32 = readI32(reader, entryPtr + BigInt(offset));
+      const looksLikeCatalogId = low32 != null && low32 >= 110_001 && low32 <= 939_999;
+      if (!looksLikeCatalogId) return null;
+      // else: fall through to plain-int32 return.
     }
+    // ptrVal == null: field value < 0x10000 (e.g. ObscuredInt with small
+    // hidden, or zero/uninitialized). Fall through to plain-int32/ObscuredInt.
   }
 
   // Plain int32 (v1.00.21/23/27): accept any non-negative value. For
   // boxType/level (allowString=false) this is the primary path — grade=0
   // and small boxType values are valid. For itemStringKey, this is the
   // fallback when the String-pointer path didn't apply (plain-int32 field
-  // layout) or failed to decode.
+  // layout) or the pointer's low dword happens to be a valid catalog id.
   const raw = readI32(reader, entryPtr + BigInt(offset));
   if (raw != null && raw >= 0) return raw;
 

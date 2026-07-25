@@ -3,36 +3,50 @@
 // single "open events" so one chest's multi-item drop consumes one queue slot.
 // Pure: no Electron, no React, no fs.
 
+import { categoryFromBoxKey } from "./boxOpenLog";
+
 /**
- * Slot-parallel auto-open model.
+ * Serial-queue auto-open model (per-category shared timer).
  *
- * The game runs an independent auto-open timer per chest slot. When a chest
- * drops, it occupies the next free slot and its timer starts immediately
- * (`autoOpenAtMs = droppedAtMs + autoOpenSeconds * 1000`). Manual opens do
- * not affect other slots' timers — opening a chest only frees its slot; the
- * next drop will occupy the freed slot with a fresh `autoOpenSeconds`
- * countdown. Different categories (common / rare / act) run fully in
- * parallel because they have independent slot pools and auto-open seconds.
+ * The game runs ONE shared auto-open timer per category (common / rare /
+ * act). The timer targets the head of the category's queue; when it elapses,
+ * the head chest is opened, the timer immediately retargets the new head
+ * (whose `autoOpenAtMs` was precomputed at its drop time and does NOT
+ * change), and so on. A new chest dropped into a non-empty category queue
+ * is appended to the tail with
+ *   `autoOpenAtMs = prevTail.autoOpenAtMs + autoOpenSeconds * 1000`
+ * — NOT `droppedAtMs + autoOpenSeconds * 1000`, because the timer is busy
+ * with the head and won't reach this chest until all preceding chests have
+ * opened. When the category queue is empty, the timer is idle and the next
+ * drop starts it fresh with `autoOpenAtMs = droppedAtMs + autoOpenSeconds`.
+ *
+ * Manual opens of the head do not affect other items' timers — the new head
+ * keeps its original precomputed `autoOpenAtMs`. Slot pools are per-category
+ * and independent (a common chest drop never delays a rare chest's timer).
+ * When a category's slot pool is full, the game rate-limits drops, so the
+ * companion never has to handle "no slot available" for an incoming drop.
  *
  * Consequence for the queue: every queued item always has a concrete
  * `autoOpenAtMs` (no "waiting" state). The queue is sorted by `autoOpenAtMs`
- * ascending so the head is the next chest expected to auto-open.
+ * ascending so the head is the next chest expected to auto-open globally
+ * (across all categories, since `insertSorted` is global).
  */
 
 /** Min TTL floor (ms). Prevents rune-reduced autoOpen from expiring entries instantly. */
 const MIN_TTL_MS = 60_000;
-/** Buffer added on top of 2*autoOpen (ms). Covers reader latency + burst aggregation. */
+/** Buffer added on top of autoOpen (ms). Covers reader latency + burst aggregation. */
 const TTL_BUFFER_MS = 30_000;
 
 /**
  * Compute the TTL for a queue entry from the chest's effective auto-open
- * seconds. The queue must survive at least one full auto-open cycle (the
- * player drops the chest, then waits for auto-open), and the entry may be
- * enqueued at any point in the cycle, so we use 2x the auto-open time as a
- * safety margin. `MIN_TTL_MS` guards against runes reducing autoOpen to 0.
+ * seconds. TTL is anchored to `autoOpenAtMs` (the chest's real auto-open
+ * moment, already including any queue-wait time under the serial model),
+ * so one autoOpen cycle of coverage after that moment is sufficient for the
+ * unclassified burst to arrive and be matched. `MIN_TTL_MS` guards against
+ * runes reducing autoOpen to 0.
  */
 export function computeTtlMs(autoOpenSeconds: number): number {
-  return Math.max(autoOpenSeconds * 2 * 1000, MIN_TTL_MS) + TTL_BUFFER_MS;
+  return Math.max(autoOpenSeconds * 1000, MIN_TTL_MS) + TTL_BUFFER_MS;
 }
 
 /** A queued chest drop awaiting its subsequent open event. */
@@ -56,13 +70,21 @@ export interface QueueItem {
   autoOpenSeconds: number;
   /**
    * Wall-clock ms when this chest is expected to auto-open. Under the
-   * slot-parallel model every queued chest has a concrete auto-open time
-   * computed at drop time: `autoOpenAtMs = droppedAtMs + autoOpenSeconds *
-   * 1000`. Manual opens of other chests do not move this timestamp — the
-   * slot timer is independent of chest identity.
+   * serial-queue model each category has one shared timer, so the chest's
+   * auto-open moment is computed at drop time relative to the previous
+   * same-category tail:
+   *   - queue empty for this category: `autoOpenAtMs = droppedAtMs +
+   *     autoOpenSeconds * 1000` (timer starts fresh)
+   *   - queue non-empty for this category: `autoOpenAtMs = prevTail.
+   *     autoOpenAtMs + autoOpenSeconds * 1000` (timer is busy, this chest
+   *     must wait for all preceding same-category chests to open)
    *
-   * The queue is kept sorted by `autoOpenAtMs` ascending so the head is
-   * the next chest expected to auto-open.
+   * Once computed, the value never changes — manual opens of the head
+   * promote the new head without altering its precomputed `autoOpenAtMs`,
+   * matching the game's per-category shared timer behavior.
+   *
+   * The queue is kept sorted by `autoOpenAtMs` ascending so the global head
+   * is the next chest expected to auto-open across all categories.
    */
   autoOpenAtMs: number;
 }
@@ -77,15 +99,20 @@ export interface EnqueueInput {
 
 /**
  * Insert a new item, keeping the queue sorted by `autoOpenAtMs` ascending so
- * the head is the next chest to auto-open. Slot-parallel model: every chest
- * gets a concrete `autoOpenAtMs = droppedAtMs + autoOpenSeconds * 1000` at
- * drop time, regardless of how many other chests of the same category are
- * already queued. Stable on ties — equal `autoOpenAtMs` items keep their
- * existing relative order.
+ * the head is the next chest to auto-open. Serial-queue model: the new
+ * item's `autoOpenAtMs` is computed relative to the previous same-category
+ * tail (NOT its `droppedAtMs`), because each category has one shared timer
+ * that must finish with all preceding chests before reaching this one. When
+ * no same-category item exists, the timer is idle and the new item anchors
+ * to its `droppedAtMs`. Stable on ties — equal `autoOpenAtMs` items keep
+ * their existing relative order.
  */
 export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
   const ttlMs = computeTtlMs(input.autoOpenSeconds);
-  const autoOpenAtMs = input.droppedAtMs + input.autoOpenSeconds * 1000;
+  const sameCategoryTail = findSameCategoryTail(queue, input.boxKey);
+  const autoOpenAtMs = sameCategoryTail
+    ? sameCategoryTail.autoOpenAtMs + input.autoOpenSeconds * 1000
+    : input.droppedAtMs + input.autoOpenSeconds * 1000;
   const expiresAtMs = autoOpenAtMs + ttlMs;
   const item: QueueItem = {
     boxKey: input.boxKey,
@@ -96,6 +123,25 @@ export function enqueue(queue: QueueItem[], input: EnqueueInput): QueueItem[] {
     autoOpenAtMs,
   };
   return insertSorted(queue, item);
+}
+
+/**
+ * Find the last item in `queue` that belongs to the same category as
+ * `boxKey` (the one with the largest `autoOpenAtMs`). Returns null if no
+ * same-category item exists or if `boxKey`'s category cannot be resolved.
+ * Used by `enqueue` to compute the serial-queue `autoOpenAtMs` for a new
+ * same-category drop.
+ */
+function findSameCategoryTail(queue: QueueItem[], boxKey: string): QueueItem | null {
+  const cat = categoryFromBoxKey(boxKey);
+  if (!cat) return null;
+  let tail: QueueItem | null = null;
+  for (const item of queue) {
+    if (categoryFromBoxKey(item.boxKey) === cat) {
+      if (!tail || item.autoOpenAtMs > tail.autoOpenAtMs) tail = item;
+    }
+  }
+  return tail;
 }
 
 /**
@@ -115,7 +161,7 @@ function insertSorted(queue: QueueItem[], item: QueueItem): QueueItem[] {
   return [...queue.slice(0, insertIdx), item, ...queue.slice(insertIdx)];
 }
 
-/** Sort key for an item: always `autoOpenAtMs` (slot-parallel model). */
+/** Sort key for an item: always `autoOpenAtMs` (serial-queue model). */
 function sortKey(item: QueueItem): number {
   return item.autoOpenAtMs;
 }
@@ -129,10 +175,12 @@ function compareItems(a: QueueItem, b: QueueItem, bKey: number): number {
 
 /**
  * Pop the first live (non-expired) item from the head. Expired items skipped
- * during the pop are dropped. Under the slot-parallel model every queued
- * item already has a concrete `autoOpenAtMs`, so there is no "waiting"
- * state to promote — the next head is simply whatever remains at the front
- * of the sorted queue.
+ * during the pop are dropped. Under the serial-queue model every queued
+ * item already has a concrete `autoOpenAtMs` computed at drop time, so
+ * there is no "waiting" state to promote — the new head is simply whatever
+ * remains at the front of the sorted queue, with its original
+ * `autoOpenAtMs` unchanged (matching the game's behavior when the head is
+ * opened manually or auto-opened).
  *
  * Returns `{ item: null, queue: [] }` when no live items remain.
  */
@@ -153,7 +201,7 @@ export function dequeue(
 
 /**
  * Drop all items whose `expiresAtMs` is `<= nowMs`. Does not mutate input.
- * Under the slot-parallel model every item always has a concrete
+ * Under the serial-queue model every item always has a concrete
  * `expiresAtMs`, so there are no "waiting" items to special-case.
  */
 export function pruneExpired(queue: QueueItem[], nowMs: number): QueueItem[] {

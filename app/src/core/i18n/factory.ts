@@ -9,7 +9,12 @@ export type { ResolvedLanguage };
 export interface CreateI18nOptions {
   language: ResolvedLanguage;
   fallback: ResolvedLanguage;
-  resources: Record<ResolvedLanguage, Record<string, object>>;
+  /**
+   * Per-language resource bundles. Partial on purpose: i18next only needs
+   * entries for `language` and `fallback` to function, and tests / scoped
+   * builds may only seed a subset of the 16 supported languages.
+   */
+  resources: Partial<Record<ResolvedLanguage, Record<string, object>>>;
   /**
    * Optional hook to register plugins (e.g. initReactI18next) before init
    * runs. The renderer uses this so react-i18next can bind to the instance.

@@ -27,6 +27,7 @@ import {
   type LootFilterState,
 } from "../../lib/lootFilters";
 import { gradeColor } from "../../lib/gradeColor";
+import { gradeLabel } from "../../lib/itemLabels";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { useTbhContext } from "../../context/tbhContext";
 import { ItemLink } from "../ItemLink";
@@ -208,8 +209,13 @@ export const LootBoxSection = memo(function LootBoxSection({
 
   const rows = useMemo(() => filterAndSortLoot(stats.breakdown, filter), [stats.breakdown, filter]);
   const gradeSelectOptions: MultiSelectOption[] = useMemo(
-    () => gradeOptionsFromLoot(stats.breakdown).map((g) => ({ value: g, label: g })),
-    [stats.breakdown],
+    () =>
+      gradeOptionsFromLoot(stats.breakdown).map((g) => ({
+        value: g,
+        label: gradeLabel(g, t),
+        color: gradeColor(g),
+      })),
+    [stats.breakdown, t],
   );
   const isUnclassified = stats.category === "unclassified" && onReclassify;
 
@@ -219,11 +225,11 @@ export const LootBoxSection = memo(function LootBoxSection({
     () =>
       isUnclassified
         ? [
-            { label: t("boxSection.columnItem"), width: "30%" },
+            { label: t("boxSection.columnItem"), width: "26%" },
             { label: t("boxSection.columnCount"), align: "right" as const, width: "12%" },
             { label: t("boxSection.columnDropPct"), align: "right" as const, width: "14%" },
-            { label: t("boxSection.columnBuyout"), align: "right" as const, width: "16%" },
-            { label: t("boxSection.columnAssignTo"), align: "center" as const, width: "28%" },
+            { label: t("boxSection.columnBuyout"), align: "right" as const, width: "14%" },
+            { label: t("boxSection.columnAssignTo"), align: "center" as const, width: "34%" },
           ]
         : [
             { label: t("boxSection.columnItem"), width: "38%" },
@@ -313,7 +319,7 @@ export const LootBoxSection = memo(function LootBoxSection({
       )}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="m-0 text-sm font-semibold">{stats.label}</h2>
+          <h2 className="m-0 text-sm font-semibold">{localizedLabel}</h2>
           <Badge variant="muted">{t("boxSection.opensBadge", { count: stats.totalOpens })}</Badge>
           {stats.hourlyValue != null && (
             <Badge variant="info">{fmtMoneyPerHour(stats.hourlyValue, currency)}</Badge>
@@ -338,7 +344,7 @@ export const LootBoxSection = memo(function LootBoxSection({
             variant="ghost"
             size="sm"
             onClick={() => setConfirming(true)}
-            aria-label={t("boxSection.resetAriaLabel", { label: stats.label })}
+            aria-label={t("boxSection.resetAriaLabel", { label: localizedLabel })}
           >
             {t("boxSection.reset")}
           </Button>
@@ -408,7 +414,7 @@ export const LootBoxSection = memo(function LootBoxSection({
                             ariaLabel={t("boxSection.assignCategoryAriaLabel", { name: row.name })}
                           />
                           <Select
-                            className="w-20 shrink-0"
+                            className="w-28 shrink-0"
                             triggerClassName="py-1 text-xs"
                             options={reclassifyLevelOptions}
                             value={getReclassifyRow(row.itemKey).level}

@@ -47,6 +47,9 @@
   "windowTray": {
     "sectionTitle": "Window & tray",
     "keepOnTop": "Keep all windows on top",
+    "keepOnTopMain": "Keep main window on top",
+    "keepOnTopOverlay": "Keep mini overlay on top",
+    "keepOnTopBoxTracker": "Keep stage chest tracker on top",
     "trayHint": "Closing the main window keeps TBH Companion running in the system tray. Use <strong>Quit</strong> from the tray menu to exit fully."
   },
   "advanced": {
@@ -71,7 +74,13 @@
     "gameVersionSuffix": " · Game version: {{version}}",
     "outdatedSuffix": " · outdated",
     "itemsLoaded": "{{count}} items loaded from {{source}}.",
-    "sourceBundled": "bundled"
+    "sourceBundled": "bundled",
+    "installPathSectionTitle": "Game install path",
+    "installPathLabel": "Path to the game's TaskbarHero_Data folder",
+    "installPathHint": "Set this if your game is installed outside the default Steam library (e.g. on a different drive or in a VM). Leave empty to use the default.",
+    "installPathPlaceholder": "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data",
+    "installPathSaved": "Game install path saved.",
+    "installPathCleared": "Game install path cleared — using default."
   },
   "cacheAction": {
     "clear": "Clear",

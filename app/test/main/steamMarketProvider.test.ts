@@ -102,24 +102,28 @@ describe("SteamMarketProvider", () => {
     expect(Object.keys(raw.prices)).toEqual(["Item A"]);
   });
 
-  it("treats sell-only cache entries as stale until buy histogram succeeds", async () => {
+  it("treats sell-only cache entries as fresh when sell price is fresh", async () => {
+    vi.useRealTimers();
+
     fetchSteamPrice.mockResolvedValue({ ok: true, status: 200, entry });
 
     const provider = new SteamMarketProvider("USD");
+    const now = Date.now();
     const sellOnly = {
       ...entry,
       buyOrderFetched: true,
       buyOrderCheckUtc: undefined,
+      buyOrder: null,
+      rawBuyOrder: null,
+      buyOrderQuantity: null,
+      buyOrderLevels: null,
+      fetchedUtc: new Date(now).toISOString(),
     };
     provider["cache"].prices["Legacy Item"] = sellOnly;
 
-    expect(provider.isFresh("Legacy Item")).toBe(false);
+    expect(provider.isFresh("Legacy Item", now)).toBe(true);
 
-    const onFinished = vi.fn();
-    const result = await runRefresh(provider, [mat("Legacy Item")], { onFinished });
-
-    expect(result.noop).toBeUndefined();
-    expect(fetchSteamPrice).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
   });
 
   it("short-circuits when all targets are fresh", async () => {

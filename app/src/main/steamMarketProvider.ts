@@ -148,8 +148,6 @@ export class SteamMarketProvider {
     if (hasBuy) {
       if (!entry.buyOrderCheckUtc) return false;
       if (now - Date.parse(entry.buyOrderCheckUtc) >= FRESH_TTL_MS) return false;
-    } else if (!entry.buyOrderCheckUtc) {
-      return false;
     }
     return true;
   }

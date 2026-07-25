@@ -55,6 +55,19 @@ class RateMeter {
     this.samples.push([mtime, 0]);
   }
 
+  /**
+   * Reset the sample timeline to `mtime` while preserving the accumulated
+   * `gained` total. Used when live memory takes over from the save path:
+   * the meter's first sample was at saveMtime (several seconds earlier),
+   * which would make per-hero rolling rates use a larger denominator than
+   * the session-level meter (anchored at live wallTime), causing the session
+   * rate to appear inflated relative to the sum of hero rates.
+   */
+  reanchor(mtime: number): void {
+    this.samples = [[mtime, this.gained]];
+    this.rolling = 0;
+  }
+
   add(gain: number, mtime: number): void {
     if (gain <= 0 || gain > MAX_LIVE_XP_GAIN_PER_TICK) return;
     this.gained += gain;
@@ -468,8 +481,14 @@ export class XpTracker {
           meter = new RateMeter(this.rollingWindow);
           meter.init(wallTimeSec);
           this.heroMeters.set(key, meter);
+        } else {
+          // Re-anchor the meter to live wallTime so its time base matches
+          // liveXp.firstAnchor. Without this, the meter's first sample stays
+          // at saveMtime (from tracker.update), making per-hero rolling rates
+          // use a larger denominator than the session rate → session rate
+          // appears inflated relative to the sum of hero rates after reset.
+          meter.reanchor(wallTimeSec);
         }
-        meter.refreshRolling(wallTimeSec);
       }
     } else {
       // Session gain is the sum of per-hero deltas — never the party total delta.

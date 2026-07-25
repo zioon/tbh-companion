@@ -10,7 +10,7 @@ function baseConfig(): AppConfig {
     es3Password: "test",
     pollIntervalSeconds: 5,
     rollingWindowMinutes: 5,
-    startTopmost: true,
+    topmost: { main: true, overlay: true, boxTracker: true },
     logHistoryCsv: true,
     currency: "USD",
     notificationsEnabled: true,
@@ -395,6 +395,38 @@ describe("applyConfigPatch", () => {
 
     expect(onLanguageChanged).toHaveBeenCalledWith("zh-CN");
     expect(cfg.language).toBe("zh-CN");
+  });
+
+  it("calls onLanguageChanged when switching to 'game' (follow-game option)", () => {
+    // Regression: sanitizeLanguage previously rejected "game" and fell back to
+    // "auto", so switching from "auto" to "game" produced next.language ===
+    // "auto" === prev.language — onLanguageChanged was never called and the
+    // UI snapped back to "auto".
+    let cfg = baseConfig();
+    const onLanguageChanged = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        onLanguageChanged,
+      },
+      { language: "game" },
+    );
+
+    expect(onLanguageChanged).toHaveBeenCalledWith("game");
+    expect(cfg.language).toBe("game");
   });
 
   it("does not call onLanguageChanged when the patch omits language", () => {

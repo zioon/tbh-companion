@@ -39,7 +39,7 @@ const baseConfig = {
   es3Password: "x",
   pollIntervalSeconds: 5,
   rollingWindowMinutes: 5,
-  startTopmost: true,
+  topmost: { main: true, overlay: true, boxTracker: true },
   logHistoryCsv: false,
   currency: "USD",
   notificationsEnabled: true,
@@ -347,6 +347,10 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     };
     svc.ingestLiveFrame(frame);
     svc.ingestLiveFrame({ ...frame, chestDrops: ["common"], at: 3000 });
+    // Flush the second tick's pending buffer (aggregator collapses bursts
+    // after a 0.5s silence — without this empty tick the second ["common"]
+    // would still be buffered and not yet recorded).
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 3700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(2);
@@ -428,6 +432,9 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 2000,
     };
     svc.ingestLiveFrame(frame);
+    // Empty tick >0.5s later flushes the burst (aggregator collapses bursts
+    // only after a silence gap — without this the buffer stays pending).
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(1);
@@ -469,6 +476,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 2000,
     };
     svc.ingestLiveFrame(frame);
+    // Empty tick >0.5s later flushes the burst so collapse runs.
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(1);
@@ -509,6 +518,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 2000,
     };
     svc.ingestLiveFrame(frame);
+    // Empty tick >0.5s later flushes the burst so collapse runs.
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.rareTotal).toBe(1);
@@ -517,7 +528,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     expect(onLiveStageBossDrop).toHaveBeenCalledWith(4103);
   });
 
-  it("seeds the baseline on the first clear (unknown true start) without firing onLiveStageClear", () => {
+  it("fires onLiveStageClear on the first clear with 0 XP/gold when the baseline is primed in the same frame", () => {
+    // Edge case: the very first live frame already carries a clear (e.g. the
+    // StageClearLog had a backlog entry that survived pin-priming). The baseline
+    // is primed from the current xp/gold BEFORE the clear is diffed, so the
+    // diff is 0. The clear is still recorded (stageKey + clearTimeSec) — this
+    // is the fix for "启动 app 后打了一关，记录一直不出现" (first clear was
+    // silently dropped before the baseline-priming fix).
     const onLiveStageClear = vi.fn();
     const svc = new TrackingService(
       vi.fn(),
@@ -540,7 +557,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [42],
+      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42 }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -552,11 +569,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     };
     svc.ingestLiveFrame(frame);
 
-    expect(onLiveStageClear).not.toHaveBeenCalled();
+    // Baseline primed in the same frame → diff = 0, but the clear is recorded.
+    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
+    expect(onLiveStageClear).toHaveBeenCalledWith(4103, 42, 0, 0);
     svc.stop();
   });
 
-  it("fires onLiveStageClear from the second clear onward with XP/gold gained since the previous clear", () => {
+  it("fires onLiveStageClear on every clear with XP/gold gained since the previous clear", () => {
     const onLiveStageClear = vi.fn();
     const svc = new TrackingService(
       vi.fn(),
@@ -579,7 +598,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [42],
+      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42 }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -599,7 +618,10 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [85, 63],
+      stageClears: [
+        { act: 1, stage: 3, clearTimeSec: 85 },
+        { act: 1, stage: 3, clearTimeSec: 63 },
+      ],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -610,10 +632,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 3000,
     });
 
-    // Two clears in one frame split the frame's XP/gold delta evenly (one sample per tick).
-    expect(onLiveStageClear).toHaveBeenCalledTimes(2);
-    expect(onLiveStageClear).toHaveBeenNthCalledWith(1, 4103, 85, 200, 200);
-    expect(onLiveStageClear).toHaveBeenNthCalledWith(2, 4103, 63, 200, 200);
+    // First clear: baseline primed in the same frame → diff = 0.
+    // Two more clears in the next frame: diff = (900-500, 1400-1000) = (400, 400),
+    // split evenly (one sample per tick).
+    expect(onLiveStageClear).toHaveBeenCalledTimes(3);
+    expect(onLiveStageClear).toHaveBeenNthCalledWith(1, 4103, 42, 0, 0);
+    expect(onLiveStageClear).toHaveBeenNthCalledWith(2, 4103, 85, 200, 200);
+    expect(onLiveStageClear).toHaveBeenNthCalledWith(3, 4103, 63, 200, 200);
     svc.stop();
   });
 
@@ -639,7 +664,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [85],
+      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85 }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -652,6 +677,136 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     svc.ingestLiveFrame(frame);
 
     expect(onLiveStageClear).not.toHaveBeenCalled();
+    svc.stop();
+  });
+
+  it("attributes a clear to the log entry's act/stage, not the already-advanced live stageKey", () => {
+    // Regression test for the off-by-one stage attribution bug: when a clear
+    // of Hell 3-1 (stageKey=3301) arrived, the reader's next tick already saw
+    // stageKey=3302 (the next stage) and recorded the clear against Hell 3-2.
+    // The fix reads act/stage from the StageClearLog entry itself and
+    // combines them with the difficulty digit of the live stageKey.
+    const onLiveStageClear = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageClear,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    // First frame: prime the baseline (no clear, no callback fires).
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3301, // Hell 3-1 — the stage being cleared
+      stageWave: 1,
+      gold: 1000,
+      heroes: [{ heroKey: 101, level: 5, exp: 500 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    });
+
+    // Second frame: the reader now sees stageKey=3302 (Hell 3-2, already
+    // advanced), but the new StageClearLog entry still carries act=3/stage=1
+    // (the stage that was actually cleared). The recorded stageKey must be
+    // 3301, NOT 3302.
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3302, // Hell 3-2 — stage has already advanced
+      stageWave: 1,
+      gold: 1400,
+      heroes: [{ heroKey: 101, level: 5, exp: 900 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: [{ act: 3, stage: 1, clearTimeSec: 85 }],
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 3000,
+    });
+
+    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
+    expect(onLiveStageClear).toHaveBeenCalledWith(3301, 85, 400, 400);
+    svc.stop();
+  });
+
+  it("falls back to the live stageKey when the log entry's act/stage are 0 (corrupted read)", () => {
+    const onLiveStageClear = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageClear,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    // First frame: prime the baseline (no clear).
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3301,
+      stageWave: 1,
+      gold: 1000,
+      heroes: [{ heroKey: 101, level: 5, exp: 500 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    });
+
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3301,
+      stageWave: 1,
+      gold: 1400,
+      heroes: [{ heroKey: 101, level: 5, exp: 900 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85 }],
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 3000,
+    });
+
+    // act/stage=0 ⇒ fall back to the live stageKey (3301).
+    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
+    expect(onLiveStageClear).toHaveBeenCalledWith(3301, 85, 400, 400);
     svc.stop();
   });
 });

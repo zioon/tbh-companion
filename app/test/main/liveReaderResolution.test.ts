@@ -67,10 +67,11 @@ const stubs = vi.hoisted(() => ({
   recordCalls: 0,
   enrichmentRecordCalls: 0,
   enrichmentResetCalls: 0,
+  version: "9.99.99" as string,
 }));
 
 vi.mock("../../src/main/liveMemory/offsetCache", () => ({
-  loadCachedOffsets: () => stubs.cached,
+  loadCachedOffsets: (_dir: string, _version: string, _minRev: number = 0) => stubs.cached,
   saveCachedOffsets: (_dir: string, offsets: LiveOffsets) => {
     stubs.saved = offsets;
   },
@@ -78,6 +79,7 @@ vi.mock("../../src/main/liveMemory/offsetCache", () => ({
 }));
 
 vi.mock("../../src/main/liveMemory/offsetExtractor", () => ({
+  EXTRACTOR_REVISION: 11,
   extractOffsets: () => {
     stubs.extractCalls += 1;
     // extractOffsets now returns { offsets, classIndex }; wrap the stubbed
@@ -108,7 +110,7 @@ vi.mock("../../src/main/liveMemory/offsetHealing", () => ({
 
 vi.mock("node:fs", () => ({
   existsSync: () => true,
-  readFileSync: () => VERSION,
+  readFileSync: () => stubs.version,
 }));
 
 vi.mock("node:path", async () => {
@@ -159,6 +161,7 @@ beforeEach(() => {
   stubs.recordCalls = 0;
   stubs.enrichmentRecordCalls = 0;
   stubs.enrichmentResetCalls = 0;
+  stubs.version = "9.99.99";
 });
 
 describe("LiveMemoryReader self-healing resolution", () => {
@@ -227,5 +230,80 @@ describe("LiveMemoryReader self-healing resolution", () => {
     const reader = await attachFresh();
     expect(reader.supported).toBe(false);
     expect(reader.attached).toBe(true);
+  });
+});
+
+describe("LiveMemoryReader fallback version handling", () => {
+  // A version that falls back to v1.00.21 (same major.minor 1.00).
+  // v1.00.21's table has non-zero critical RVAs (stageManager, stageCacheManager)
+  // but is a fallback. Per Rev 10+fix strategy, the fallback RVAs are KEPT as a
+  // working baseline (so isSupported=true → reader stays supported), AND the
+  // extractor is forced to run the FULL critical path (enrichmentOnly=false) so
+  // it re-derives StageManager/StageCacheManager from live memory and overwrites
+  // the stale baseline via mergeOffsets. Without forcing the critical path, the
+  // extractor would take the enrichment-only path (because isSupported=true)
+  // and never re-derive critical anchors — the reader would stay "supported"
+  // but return null for every live read (no DPS/XP/stage-clears).
+  const FALLBACK_VERSION = "1.00.20"; // not in TABLE, falls back to 1.00.21
+
+  it("keeps fallback RVAs as baseline but forces critical-path extraction", async () => {
+    stubs.version = FALLBACK_VERSION;
+    stubs.cached = null;
+    stubs.extracted = DERIVED;
+
+    const reader = await attachFresh();
+
+    // Fallback table's critical RVAs are present → isSupported=true, BUT
+    // isFallbackTable=true forces the extractor to run with enrichmentOnly=false
+    // (critical path) so it re-derives StageManager/StageCacheManager. The
+    // critical budget (recordExtractionAttempt) is consumed, not enrichment.
+    expect(stubs.extractCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(1); // critical budget, not enrichment
+    expect(stubs.enrichmentRecordCalls).toBe(0);
+    expect(reader.supported).toBe(true); // fallback RVAs keep reader supported
+  });
+
+  it("stays supported even when critical extraction fails (fallback RVAs keep working)", async () => {
+    // This is the v1.01.02 scenario: fallback table present, extractor runs
+    // critical path but fails (e.g. StageManager not yet instantiated at
+    // attach time). Old Rev 9 behavior:
+    //   fallback RVAs zeroed → critical missing → 3 failures → permanently
+    //   unsupported.
+    // Rev 10 bug:
+    //   fallback RVAs kept → isSupported=true → enrichment-only path → never
+    //   re-derives critical anchors → "supported" but no data.
+    // Rev 10 + this fix:
+    //   fallback RVAs kept → isSupported=true → critical path forced → fails
+    //   → budget exhausted, but reader stays SUPPORTED because fallback RVAs
+    //   are still in the table (may return null data, but not "unsupported").
+    stubs.version = FALLBACK_VERSION;
+    stubs.cached = null;
+    stubs.extracted = null; // extractor fails
+    stubs.mayAttempt = true; // critical budget available
+
+    const reader = await attachFresh();
+
+    expect(stubs.extractCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(1); // critical budget consumed
+    expect(stubs.enrichmentRecordCalls).toBe(0);
+    expect(reader.supported).toBe(true); // ← key assertion: stays supported
+  });
+
+  it("does NOT force critical path for an exact-match bundled version", async () => {
+    // v1.00.21 is in the table → exact match, no fallback. Extractor runs in
+    // enrichment mode (enrichmentOnly=true) because the bundled RVAs are
+    // trusted for the exact version.
+    stubs.version = "1.00.21";
+    stubs.cached = null;
+    // Extractor returns null — we only care that it ran in enrichment mode.
+    stubs.extracted = null;
+
+    await attachFresh();
+
+    // Exact-match bundled table has critical offsets → isSupported=true, no
+    // fallback → extractor runs in enrichment mode (enrichment attempt
+    // recorded, not critical).
+    expect(stubs.enrichmentRecordCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(0);
   });
 });

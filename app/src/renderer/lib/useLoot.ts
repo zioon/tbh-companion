@@ -34,6 +34,7 @@ const EMPTY_STATE: AutoClassifyStatePayload = {
     { category: "act", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
   ],
   items: [],
+  liveSlots: null,
 };
 
 export function useLoot(): {

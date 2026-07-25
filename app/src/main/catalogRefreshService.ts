@@ -16,6 +16,7 @@ import type { CatalogRefreshResult, CatalogStatus } from "../../shared/types";
 import type { GameLocaleData } from "../../shared/types";
 import { createLogger } from "./log";
 import { resolveUserDataDir } from "./services/appData";
+import { readBundledJson } from "../core/bundledData";
 
 type BroadcastFn = (channel: string, payload: unknown) => void;
 
@@ -27,11 +28,29 @@ const LOCALE_BUNDLE_PREFIX = "localization-string-tables-";
 const EN_BUNDLE_FILENAME =
   "localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle";
 
-// Default install path (Steam). Overridable by env for non-standard installs.
+// Default install path (Steam). Used when config.gameInstallDir is empty and
+// the env override (below) is unset. Kept as a constant so users on the
+// "standard" Steam library don't need to configure anything.
 const DEFAULT_GAME_INSTALL = "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data";
+// Env override — for headless tests / CI / dev machines with the game on a
+// different drive. Not surfaced in the UI; users should use Settings → Item
+// Catalog → game install path instead.
 const GAME_INSTALL_ENV = "TBH_GAME_INSTALL_DATA_DIR";
 
-function resolveGameInstallDir(): string | null {
+/**
+ * Resolve the game install dir with this priority:
+ *   1. config.gameInstallDir (user-set via Settings UI) — highest, user wins
+ *   2. TBH_GAME_INSTALL_DATA_DIR env var (dev/test override)
+ *   3. DEFAULT_GAME_INSTALL (Steam default path) — existsSync-checked
+ *   4. null (no install found)
+ *
+ * The `config` getter is injected so the service always sees the latest
+ * user-set path without a restart. Env still wins over default for back-compat
+ * with existing dev workflows.
+ */
+export function resolveGameInstallDir(configGameInstallDir: string | undefined): string | null {
+  const fromConfig = configGameInstallDir?.trim();
+  if (fromConfig) return fromConfig;
   const fromEnv = process.env[GAME_INSTALL_ENV];
   if (fromEnv) return fromEnv;
   if (existsSync(DEFAULT_GAME_INSTALL)) return DEFAULT_GAME_INSTALL;
@@ -132,6 +151,9 @@ export class CatalogRefreshService {
     private readonly liveMemory: LiveMemoryService,
     private readonly userDataDir: string = resolveUserDataDir(),
     private readonly broadcast?: BroadcastFn,
+    /** Returns the current config's gameInstallDir (or empty) — injected so the
+     * service picks up settings changes without a restart. */
+    private readonly getGameInstallDir: () => string = () => "",
   ) {
     this.loadCachedLocaleFromDisk();
   }
@@ -176,18 +198,53 @@ export class CatalogRefreshService {
     };
   }
 
-  /** Return the cached locale data (null if not yet refreshed). */
+  /** Return the cached locale data, falling back to the bundled dump.
+   *
+   * The runtime locale extraction (scanMarkerEntries) currently only captures
+   * a subset of the game's locale tables (ItemName_*, ItemDescription_*) —
+   * the binary scan misses Stat_*, Grade_*, GearType_*, UI_* etc. because
+   * those tables use a different internal layout in the StringTable
+   * MonoBehaviour. As a fallback, we merge the bundled
+   * `data/_game_locale_dump.json` (produced by scripts/dump_game_locale.py
+   * via UnityPy typetree parsing, which captures every table) as the base,
+   * then overlay the runtime-extracted entries on top so any freshly
+   * extracted ItemName values take precedence.
+   *
+   * Returns null only when neither `cachedLocale` nor the bundled dump is
+   * available (e.g. dev checkout without `data/`). Before any refresh the
+   * runtime cache is empty, but the bundled fallback still provides useful
+   * locale data — `version` is null in that case (no gameVersion until a
+   * refresh runs).
+   */
   getLocaleData(): GameLocaleData | null {
-    return this.cachedLocale;
+    const runtime = this.cachedLocale;
+    let bundled: Record<string, Record<string, string>> | null = null;
+    try {
+      bundled = readBundledJson<Record<string, Record<string, string>>>(
+        "_game_locale_dump.json",
+      );
+    } catch {
+      // Bundled dump unavailable (e.g. dev without data/ checkout).
+    }
+    if (!runtime && !bundled) return null;
+    if (!bundled) return runtime;
+    if (!runtime) return { version: null, locales: bundled };
+    // Merge: bundled base + runtime overlay (runtime wins on key collision).
+    const merged: Record<string, Record<string, string>> = {};
+    const langs = new Set<string>([...Object.keys(bundled), ...Object.keys(runtime.locales)]);
+    for (const lang of langs) {
+      merged[lang] = { ...bundled[lang], ...(runtime.locales[lang] ?? {}) };
+    }
+    return { version: runtime.version, locales: merged };
   }
 
   /** Trigger a refresh. Returns the result; also broadcasts status. */
   async refresh(): Promise<CatalogRefreshResult> {
     try {
-      const installDir = resolveGameInstallDir();
+      const installDir = resolveGameInstallDir(this.getGameInstallDir());
       if (!installDir) {
         throw new Error(
-          `game install dir not found (set ${GAME_INSTALL_ENV} or install at ${DEFAULT_GAME_INSTALL})`,
+          `game install dir not found (set it in Settings → Item Catalog, or set ${GAME_INSTALL_ENV} env, or install at ${DEFAULT_GAME_INSTALL})`,
         );
       }
       const paths = resolveAssetPaths(installDir);

@@ -46,7 +46,11 @@ export const STRUCT_DICT = {
   entryValue: 16,
 } as const;
 
-const STRUCT_GETBOX_MONSTER_TYPE = 0x50; // GetBoxLog EMonsterLogType (0/1/2)
+/** GetBoxLog EMonsterLogType field offset candidates. The field has lived at
+ *  0x50 on every version seen so far, but the field name is obfuscated so the
+ *  byte offset is not name-stable. Probe a small candidate set rather than
+ *  assume — extended for v1.01.02 where the offset may have shifted. */
+const STRUCT_GETBOX_MONSTER_TYPE_CANDIDATES = [0x50, 0x48, 0x58, 0x40, 0x60];
 const STRUCT_CACHE_INFO_DATA = 0x10; // StageCache → StageInfoData
 const STRUCT_STAGE_CACHE_STATIC_OFF = 0x88; // vb.uu / uz.us current StageCache static field
 const STRUCT_CURRENCY_DICT = 0x8; // currency-manager statics: dict at +8 (list at +0)
@@ -169,13 +173,20 @@ function dictLookupIntKey(
  * static-slot walks are each resolved at most once per Il2CppClass, which keeps
  * the structural detectors affordable over tens of thousands of candidates.
  */
+export type ScanContextLogFn = (line: string) => void;
+
 export class ScanContext {
   private readonly names = new Map<bigint, string | null>();
   private readonly fields = new Map<bigint, Map<string, number> | null>();
   private readonly statics = new Map<bigint, ReadonlyArray<{ soff: number; value: bigint }>>();
   private readonly probedClasses = new Set<bigint>();
 
-  constructor(readonly reader: MemoryReader) {}
+  constructor(readonly reader: MemoryReader, private readonly logFn?: ScanContextLogFn) {}
+
+  /** Emit a diagnostic line through the wired logger (no-op when absent). */
+  log(line: string): void {
+    this.logFn?.(line);
+  }
 
   /** `Il2CppClass.name`, cached; null when unreadable or non-printable. */
   className(classPtr: bigint): string | null {
@@ -504,20 +515,122 @@ export function findStageCacheManagerStatic(
  * StageManager singleton: the wrapper class whose static block holds an object
  * whose class declares a `HeroList` field (serialization-stable name). Returns
  * the wrapper's TypeInfo slot RVA plus the derived HeroList instance offset.
+ *
+ * Validation layers (a non-StageManager class that also declares `HeroList`
+ * must fail at least one):
+ *   1. HeroList pointer is plausible and its count is in [1, 64].
+ *   2. (Optional, when `opts.heroOffsets` is provided) At least one hero in
+ *      the array walks end-to-end: `hero → unit.cache → heroRuntime.info →
+ *      heroInfoData.heroKey` yields a plausible int in (0, 10_000_000). This
+ *      rejects UI preview / cache classes that hold non-Unit references in
+ *      their `HeroList` field — they pass layer 1 but fail layer 2.
+ *
+ * Without layer 2, the v1.01.02 regression "实现实时了但 DPS/经验/通关记录都没数据"
+ * was only partially fixed: the extractor picked a wrong class whose HeroList
+ * briefly held a non-empty array of non-Unit pointers during the 5s extraction
+ * window; by the time the reader scanned that class's 31 static slots, all
+ * arrays were empty (or pointed at non-Unit data) and live data stayed null.
  */
+export interface FindStageManagerOpts {
+  /**
+   * Hero-walk validation offsets. When provided, each candidate's HeroList
+   * array is sampled (up to `maxHeroesProbe` elements) and the first element
+   * that walks end-to-end to a plausible heroKey validates the class.
+   * All three offsets must be non-zero for layer 2 to run.
+   */
+  heroOffsets?: {
+    /** Unit.cache — pointer at `heroPtr + this` → HeroRuntime. */
+    unitCache: number;
+    /** HeroRuntime.info — pointer at `runtimePtr + this` → HeroInfoData. */
+    heroRuntimeInfo: number;
+    /** HeroInfoData.heroKey — int32 at `infoPtr + this`. */
+    heroInfoDataKey: number;
+  };
+  /** How many array elements to probe when hero-walk validation is active. */
+  maxHeroesProbe?: number;
+}
+
 export function findStageManager(
   ctx: ScanContext,
   entries: readonly ClassEntry[],
+  opts?: FindStageManagerOpts,
 ): { slotRva: bigint; heroList: number } | null {
+  const heroOffsets = opts?.heroOffsets;
+  const canWalkHero =
+    heroOffsets != null &&
+    heroOffsets.unitCache > 0 &&
+    heroOffsets.heroRuntimeInfo > 0 &&
+    heroOffsets.heroInfoDataKey > 0;
+  const maxProbe = Math.min(opts?.maxHeroesProbe ?? 8, 64);
+  let rejected = 0;
+  let rejectedEmpty = 0;
+  let rejectedHeroWalk = 0;
+  let firstRejectName: string | null = null;
+  let firstRejectReason = "";
   for (const entry of entries) {
     for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
       const fields = ctx.instanceClassFields(inst);
       const heroList = fields?.get("HeroList");
-      if (heroList != null && heroList > 0) {
-        return { slotRva: entry.slotRva, heroList };
+      if (heroList == null || heroList <= 0) continue;
+      // Layer 1: HeroList must point at a non-empty array.
+      const arrPtr = readPtr(ctx.reader, inst + BigInt(heroList));
+      if (arrPtr == null || !isPlausibleHeapPtr(arrPtr)) {
+        rejected++;
+        if (firstRejectName == null) {
+          firstRejectName = entry.name ?? "(unnamed)";
+          firstRejectReason = "arrPtr null/implausible";
+        }
+        continue;
       }
+      const count = readI32(ctx.reader, arrPtr + BigInt(STRUCT_CONTAINER.listSize));
+      if (count == null || count <= 0 || count > 64) {
+        rejectedEmpty++;
+        if (firstRejectName == null) {
+          firstRejectName = entry.name ?? "(unnamed)";
+          firstRejectReason = `count=${count ?? "null"} (empty/out-of-range)`;
+        }
+        continue;
+      }
+      // Layer 2 (when opts provided): at least one hero must walk to a
+      // plausible heroKey. UI preview / cache classes that hold non-Unit
+      // pointers in their HeroList fail here.
+      if (canWalkHero) {
+        const first = arrPtr + BigInt(STRUCT_CONTAINER.arrayFirst);
+        let validated = false;
+        for (let i = 0; i < Math.min(count, maxProbe); i++) {
+          const heroPtr = readPtr(ctx.reader, first + BigInt(i * 8));
+          if (heroPtr == null || !isPlausibleHeapPtr(heroPtr)) continue;
+          const runtimePtr = readPtr(ctx.reader, heroPtr + BigInt(heroOffsets!.unitCache));
+          if (runtimePtr == null || !isPlausibleHeapPtr(runtimePtr)) continue;
+          const infoPtr = readPtr(ctx.reader, runtimePtr + BigInt(heroOffsets!.heroRuntimeInfo));
+          if (infoPtr == null || !isPlausibleHeapPtr(infoPtr)) continue;
+          const heroKey = readI32(ctx.reader, infoPtr + BigInt(heroOffsets!.heroInfoDataKey));
+          if (heroKey == null || heroKey <= 0 || heroKey >= 10_000_000) continue;
+          validated = true;
+          break;
+        }
+        if (!validated) {
+          rejectedHeroWalk++;
+          if (firstRejectName == null) {
+            firstRejectName = entry.name ?? "(unnamed)";
+            firstRejectReason = `hero-walk failed (count=${count}, none walked to a valid heroKey)`;
+          }
+          continue;
+        }
+      }
+      ctx.log(
+        `findStageManager: matched class="${entry.name}" inst=0x${inst.toString(16)} ` +
+          `heroList=0x${heroList.toString(16)} arrPtr=0x${arrPtr.toString(16)} count=${count} ` +
+          `(rejected=${rejected} empty=${rejectedEmpty} heroWalk=${rejectedHeroWalk})`,
+      );
+      return { slotRva: entry.slotRva, heroList };
     }
   }
+  ctx.log(
+    `findStageManager: no match — rejected=${rejected} empty=${rejectedEmpty} ` +
+      `heroWalk=${rejectedHeroWalk} firstReject="${firstRejectName}"` +
+      (firstRejectReason ? ` (${firstRejectReason})` : ""),
+  );
   return null;
 }
 
@@ -561,20 +674,73 @@ function isBoxOpenLogClassName(name: string | null): boolean {
 /** Validate a List<GetBoxLog> candidate: non-empty + sampled entries are real
  *  GetBoxLog with EMonsterLogType ∈ {0,1,2}. The non-empty requirement is what
  *  keeps unrelated dictionaries (seen live: compiler-generated `<>c`) from
- *  false-positive matching — keep it. */
-function validateGetBoxList(ctx: ScanContext, listPtr: bigint): boolean {
+ *  false-positive matching — keep it.
+ *
+ *  Tolerance for per-build drift (v1.01.02+):
+ *  1. EMonsterLogType offset is probed across
+ *     {@link STRUCT_GETBOX_MONSTER_TYPE_CANDIDATES} instead of hardcoded 0x50.
+ *     The field name is obfuscated so the byte offset is not name-stable.
+ *  2. When the class name doesn't match `GetBoxLog` (even via
+ *     {@link classNameMatches}), accept the entry if its IL2CPP class metadata
+ *     has a field literally named `monsterLogType` — the ES3 serialization
+ *     name stays stable even when the class name is fully randomized.
+ */
+export function validateGetBoxList(ctx: ScanContext, listPtr: bigint): boolean {
   const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
   const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
   if (arr == null || count == null || count <= 0 || count > MAX_CHEST_LOG) return false;
   const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
+  // Probe the first entry to discover the EMonsterLogType offset. Try each
+  // candidate (and the named "monsterLogType" field) until one yields a value
+  // in {0,1,2}. If none does, the field layout is unknown — reject.
+  const firstEntry = readPtr(ctx.reader, first);
+  if (firstEntry == null || !isPlausibleHeapPtr(firstEntry)) return false;
+  const monsterTypeOff = resolveGetBoxMonsterTypeOffset(ctx, firstEntry);
+  if (monsterTypeOff == null) return false;
+
   for (let i = 0; i < Math.min(count, LOG_VALIDATE_ENTRIES); i++) {
     const e = readPtr(ctx.reader, first + BigInt(i * 8));
     if (e == null || !isPlausibleHeapPtr(e)) return false;
-    if (!isGetBoxLogClassName(ctx.instanceClassName(e))) return false;
-    const mt = readI32(ctx.reader, e + BigInt(STRUCT_GETBOX_MONSTER_TYPE));
+    if (!isGetBoxLogClassName(ctx.instanceClassName(e))) {
+      // Class-name gate failed. Try the field-name fallback: read this
+      // entry's IL2CPP class fields and accept if `monsterLogType` is
+      // present (ES3 serialization-stable name). Only the first entry is
+      // probed — if it's a GetBoxLog, the rest of the list is too
+      // (homogeneous List<T>).
+      if (i === 0) {
+        const fields = ctx.instanceClassFields(e);
+        if (fields == null || !fields.has("monsterLogType")) return false;
+        continue;
+      }
+      // Subsequent entries: trust the first entry's verdict (homogeneous list).
+      continue;
+    }
+    const mt = readI32(ctx.reader, e + BigInt(monsterTypeOff));
     if (mt == null || mt < 0 || mt > 2) return false;
   }
   return true;
+}
+
+/** Discover the EMonsterLogType field offset on a GetBoxLog instance by
+ *  probing candidate offsets. Returns the first offset whose value is in
+ *  {0,1,2}, or null when none validates. Also tries the field name
+ *  "monsterLogType" from the class metadata first (stable ES3 name). */
+function resolveGetBoxMonsterTypeOffset(ctx: ScanContext, entryPtr: bigint): number | null {
+  // 1. Named field lookup (most robust — ES3-stable name).
+  const fields = ctx.instanceClassFields(entryPtr);
+  if (fields != null) {
+    const named = fields.get("monsterLogType");
+    if (named != null && named > 0) {
+      const v = readI32(ctx.reader, entryPtr + BigInt(named));
+      if (v != null && v >= 0 && v <= 2) return named;
+    }
+  }
+  // 2. Candidate offset probe.
+  for (const off of STRUCT_GETBOX_MONSTER_TYPE_CANDIDATES) {
+    const v = readI32(ctx.reader, entryPtr + BigInt(off));
+    if (v != null && v >= 0 && v <= 2) return off;
+  }
+  return null;
 }
 
 /** Validate a List<BoxOpenLog> candidate: non-empty + sampled entries are real
@@ -1187,6 +1353,149 @@ function collectBoxOpenDiagnostics(
   }
   const className = ctx.instanceClassName(firstEntryPtr);
   return { bucketCount: count, firstEntryClassName: className, firstEntryPtr, fieldsProbe };
+}
+
+/**
+ * Best-effort diagnostics for `findLogManager` rejection: walk the same
+ * static-slot → logByType-dict path that `findGetBoxLogDict` would, but
+ * instead of validating + returning on the first hit, dump every dict
+ * bucket encountered so the extractor log can pinpoint WHY validation
+ * failed (renamed GetBoxLog class, empty list, shifted dict offset, …).
+ *
+ * Called only when `findLogManager` returns null — pure-read, no state
+ * change, bounded to 5 buckets to keep the log short. Output is a
+ * newline-joined string prefixed with `[logManager-diag]` per line so
+ * `grep "[logManager-diag]"` collects the whole dump.
+ *
+ * Returns `"[logManager-diag] no dict-shaped static slot found"` when no
+ * static slot's instance has a dict-shaped field at any candidate offset —
+ * the LogManager singleton either isn't loaded yet or its layout shifted
+ * beyond `LOG_DICT_OFFSET_CANDIDATES`.
+ */
+export function collectLogManagerDiagnostics(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+): string {
+  const lines: string[] = [];
+  let probed = 0;
+  for (const entry of entries) {
+    for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
+      for (const logOff of LOG_DICT_OFFSET_CANDIDATES) {
+        const dictPtr = readPtr(ctx.reader, inst + BigInt(logOff));
+        if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) continue;
+        const entriesArr = readPtr(ctx.reader, dictPtr + BigInt(STRUCT_DICT.entries));
+        if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) continue;
+        const count = readI32(ctx.reader, dictPtr + BigInt(STRUCT_DICT.count));
+        if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) continue;
+        const first = entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst);
+        for (let i = 0; i < count; i++) {
+          const eBase = first + BigInt(i * STRUCT_DICT.entrySize);
+          const hash = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryHash));
+          if (hash == null || hash < 0) continue; // deleted / unused slot
+          const key = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryKey));
+          const listPtr = readPtr(ctx.reader, eBase + BigInt(STRUCT_DICT.entryValue));
+          if (listPtr == null || !isPlausibleHeapPtr(listPtr)) {
+            lines.push(
+              `[logManager-diag] slotRva=0x${entry.slotRva.toString(16)} logOff=0x${logOff.toString(16)} key=${key ?? "null"} dictCount=${count} bucketCount=null (no list ptr)`,
+            );
+            probed++;
+            if (probed >= 5) return lines.join("\n");
+            continue;
+          }
+          const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+          const bucketCount = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+          let firstEntryClassName: string | null = null;
+          let firstEntryFields: string | null = null;
+          if (arr != null && bucketCount != null && bucketCount > 0) {
+            const firstEntry = readPtr(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
+            if (firstEntry != null && isPlausibleHeapPtr(firstEntry)) {
+              firstEntryClassName = ctx.instanceClassName(firstEntry);
+              const fields = ctx.instanceClassFields(firstEntry);
+              if (fields != null) {
+                const fl: string[] = [];
+                for (const [fn, fo] of fields) fl.push(`${fn}=0x${fo.toString(16)}`);
+                firstEntryFields = `[${fl.join(",")}]`;
+              }
+            }
+          }
+          lines.push(
+            `[logManager-diag] slotRva=0x${entry.slotRva.toString(16)} logOff=0x${logOff.toString(16)} key=${key ?? "null"} dictCount=${count} bucketCount=${bucketCount ?? "null"} firstEntryClassName=${firstEntryClassName ?? "null"} firstEntryFields=${firstEntryFields ?? "null"}`,
+          );
+          probed++;
+          if (probed >= 5) return lines.join("\n");
+        }
+      }
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : "[logManager-diag] no dict-shaped static slot found";
+}
+
+/**
+ * Direct fallback for {@link findLogManager} when GetBoxLog validation fails.
+ * Walks every static slot's candidate logByType offsets, scans each dict's
+ * buckets, and returns the first one whose value validates as a
+ * `List<BoxOpenLog>` (via {@link validateBoxOpenList}, which has a field-name
+ * fallback for obfuscated class names). Resolves BoxOpenLog field offsets
+ * from the live first entry.
+ *
+ * Returns `{ slotRva, logByType, boxOpenTypeKey, boxOpenLog }` on success,
+ * or null when no dict has a valid BoxOpen bucket. `getBoxTypeKey` is 0
+ * (GetBoxLog chest-drop log is unavailable in this path — only loot tracking
+ * is restored).
+ *
+ * This is the v1.01.02 safety net: when GetBoxLog's class name or
+ * EMonsterLogType offset shifts beyond what validateGetBoxList tolerates
+ * (even after Task 4's widening), the loot tracker can still function
+ * because BoxOpenLog validation is more tolerant (field-name fallback).
+ */
+export function findBoxOpenLogDictDirect(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+): {
+  slotRva: bigint;
+  logByType: number;
+  boxOpenTypeKey: number;
+  boxOpenLog: {
+    itemStringKey: number;
+    itemGradeType: number;
+    gradeSO: number;
+    gradeSOGrade: number;
+    diagnostics?: string;
+  };
+} | null {
+  for (const entry of entries) {
+    for (const { value: inst } of ctx.staticSlots(entry.classPtr)) {
+      for (const logOff of LOG_DICT_OFFSET_CANDIDATES) {
+        const dictPtr = readPtr(ctx.reader, inst + BigInt(logOff));
+        if (dictPtr == null || !isPlausibleHeapPtr(dictPtr)) continue;
+        const entriesArr = readPtr(ctx.reader, dictPtr + BigInt(STRUCT_DICT.entries));
+        if (entriesArr == null || !isPlausibleHeapPtr(entriesArr)) continue;
+        const count = readI32(ctx.reader, dictPtr + BigInt(STRUCT_DICT.count));
+        if (count == null || count <= 0 || count > MAX_LOG_DICT_ENTRIES) continue;
+        const first = entriesArr + BigInt(STRUCT_CONTAINER.arrayFirst);
+        for (let i = 0; i < count; i++) {
+          const eBase = first + BigInt(i * STRUCT_DICT.entrySize);
+          const hash = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryHash));
+          if (hash == null || hash < 0) continue;
+          const key = readI32(ctx.reader, eBase + BigInt(STRUCT_DICT.entryKey));
+          if (key == null) continue;
+          const listPtr = readPtr(ctx.reader, eBase + BigInt(STRUCT_DICT.entryValue));
+          if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+          const firstEntryPtr = validateBoxOpenList(ctx, listPtr);
+          if (firstEntryPtr == null) continue;
+          // Found a BoxOpen bucket — resolve field offsets from the live entry.
+          const boxOpenLog = findBoxOpenLogFields(ctx, entries, firstEntryPtr);
+          return {
+            slotRva: entry.slotRva,
+            logByType: logOff,
+            boxOpenTypeKey: key,
+            boxOpenLog,
+          };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /**

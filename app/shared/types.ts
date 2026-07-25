@@ -79,6 +79,16 @@ export interface ChestDropStats {
   rarePerHour: number;
   actPerHour: number;
   /**
+   * Rolling 1-hour drop rates: drops in the last `ROLLING_HOUR_SEC` seconds
+   * (or since the first recent drop when the window is shorter), divided by
+   * the window size in hours. Independent of `*PerHour` (which spans the full
+   * session from `sessionDropStart`). Surfaced in the Live tab alongside the
+   * session rate so short-term trends are visible during long sessions.
+   */
+  commonRecentPerHour: number;
+  rareRecentPerHour: number;
+  actRecentPerHour: number;
+  /**
    * Session-scoped drop counts. After `reset` these start at 0; after
    * `applySnapshot` (app restart) these include the restored history so
    * the displayed count matches the cumulative session totals. These share
@@ -632,6 +642,18 @@ export interface WindowLayoutPrefs {
   boxTracker?: WindowLayoutEntry;
 }
 
+/**
+ * Per-window "keep on top" preferences. Each of the three windows
+ * (main, mini overlay, stage-boss chest tracker) can be pinned independently.
+ * Migrated from the legacy single `startTopmost: boolean` field; when loading
+ * an old config the legacy value seeds all three windows.
+ */
+export interface WindowTopmostPrefs {
+  main: boolean;
+  overlay: boolean;
+  boxTracker: boolean;
+}
+
 export type InventoryColumnId =
   | "grade"
   | "level"
@@ -678,7 +700,12 @@ export interface AppConfig {
   es3Password: string;
   pollIntervalSeconds: number;
   rollingWindowMinutes: number;
-  startTopmost: boolean;
+  /**
+   * Per-window "keep on top" preference (main / overlay / boxTracker).
+   * Replaces the legacy single `startTopmost: boolean` field; migrated by
+   * `normalizeConfigFromRaw` when an old config lacks `topmost`.
+   */
+  topmost: WindowTopmostPrefs;
   logHistoryCsv: boolean;
   currency: string;
   notificationsEnabled: boolean;
@@ -716,6 +743,17 @@ export interface AppConfig {
   marketLowValueThresholdUsd: number;
   /** UI language; "auto" follows the system locale. Default "auto". */
   language: AppLanguage;
+  /**
+   * Game install directory override for catalog refresh. When non-empty, this
+   * path's `TaskbarHero_Data` parent is used as the game install root. When
+   * empty, the service falls back to the Steam default path
+   * (`D:\SteamLibrary\steamapps\common\TaskbarHero\TaskbarHero_Data`) and the
+   * `TBH_GAME_INSTALL_DATA_DIR` env var (for headless/test overrides). Users
+   * on non-standard installs (e.g. a secondary Steam library, a different
+   * drive, or a VM sharing a host install) set this once via Settings → Item
+   * Catalog so the catalog can be refreshed without code changes.
+   */
+  gameInstallDir?: string;
   /**
    * Runtime-only resolved language (never persisted to config.json). The main
    * process fills this on every `getConfig()` call so the renderer can boot
@@ -1022,6 +1060,15 @@ export interface LookupMaterialGearGroup {
 export interface LookupItem {
   id: number;
   name: string;
+  /**
+   * English source name preserved across localization. Set by
+   * `LookupService.getCatalog()` when the display `name` is localized, so
+   * `marketHashName()` can still derive the English Steam
+   * `market_hash_name` (Steam hashes are always English; using a localized
+   * name would break price lookups). Undefined for bundled items before
+   * any localization has been applied.
+   */
+  sourceName?: string;
   grade: string;
   type: "GEAR" | "MATERIAL";
   gearType: string | null;
@@ -1288,6 +1335,23 @@ export interface LivePetData {
 }
 
 /**
+ * A single StageClearLog entry observed since the previous tick. `act` and
+ * `stage` identify the **cleared** stage (the log entry is appended on clear,
+ * before StageManager advances). Difficulty is NOT carried by the log entry —
+ * the caller combines `act`/`stage` with the difficulty digit of the current
+ * live/save stageKey to form a full stageKey. When `act`/`stage` are 0
+ * (corrupted / mid-write read), the caller falls back to the current stageKey.
+ */
+export interface StageClearEntry {
+  /** Cleared stage's act (1-digit, from StageClearLog+0x40). 0 = unreadable. */
+  act: number;
+  /** Cleared stage's stage (1-99, from StageClearLog+0x44). 0 = unreadable. */
+  stage: number;
+  /** Clear time in whole seconds, as recorded by the game itself. */
+  clearTimeSec: number;
+}
+
+/**
  * A live read from game process memory (read-only). Per-stat: a `null` field
  * means "no live value this tick" — the renderer falls back to the save value.
  * Phase 1 emits stage only; Phase 2 expands with gold, heroes, chests, inventory, pets.
@@ -1339,13 +1403,20 @@ export interface LiveMemorySnapshot {
   /** Diagnostics: why `inventoryItems` is null this tick. Dev-only. */
   inventoryItemsStatus?: string;
   /**
-   * Stage clear times (whole seconds, as recorded by the game) observed since
-   * the previous tick, read from the StageClear battle log. `[]` = reader
-   * active, no new clears; `null` = unavailable (offset not derived / no
-   * battle). Attribution to a stage key happens in `main/` using the current
-   * live/save stageKey — the log entry itself doesn't carry difficulty.
+   * Stage clears observed since the previous tick, read from the StageClear
+   * battle log. `[]` = reader active, no new clears; `null` = unavailable
+   * (offset not derived / no battle). Each entry carries the **cleared**
+   * stage's act/stage (from StageClearLog+0x40 / +0x44) plus the clear time
+   * in whole seconds. The log entry does NOT carry difficulty — `main/`
+   * combines `act`/`stage` with the difficulty digit of the current
+   * live/save stageKey to form a full stageKey
+   * (`difficulty*1000 + act*100 + stage`). This avoids the off-by-one stage
+   * attribution bug where a clear of 3-1 was recorded as 3-2 because
+   * `stageKey` had already advanced by the time the reader polled the next
+   * tick. If `act`/`stage` are 0 (corrupted / mid-write read), the caller
+   * falls back to the current stageKey.
    */
-  stageClears: number[] | null;
+  stageClears: StageClearEntry[] | null;
   /**
    * Box opens observed since the previous tick, read from the
    * GetItemWithBoxOpen battle log. `[]` = reader active, no new opens;
