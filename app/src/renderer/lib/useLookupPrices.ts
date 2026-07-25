@@ -82,6 +82,8 @@ export interface LookupPrices {
    * IPC channel. Most consumers should use `resolve` instead.
    */
   snapshot: LookupPriceSnapshot | null;
+  /** 当前显示货币（ISO 代码，如 "USD"/"BRL"/"CNY"）。供需要直接 formatMoney 的组件使用。 */
+  currency: string;
 }
 
 /** Resolve any Lookup item to a display price in the user's currency. */
@@ -94,6 +96,7 @@ export function useLookupPrices(): LookupPrices {
       resolve: (item: LookupItem) => resolveLookupPrice(item, snap, currency),
       generatedUtc: snap?.generatedUtc ?? null,
       snapshot: snap,
+      currency,
     }),
     [snap, currency],
   );

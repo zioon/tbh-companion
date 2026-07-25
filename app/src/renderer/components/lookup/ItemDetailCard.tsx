@@ -384,8 +384,8 @@ export function ItemDetailCard({
                               min: recipe.level.min,
                               max: recipe.level.max,
                             })}{" "}
-                            · {craftingTypeLabel(recipe.craftingType, t)} · {fmtLookupPct(recipe.outputPct)}
-                            %
+                            · {craftingTypeLabel(recipe.craftingType, t)} ·{" "}
+                            {fmtLookupPct(recipe.outputPct)}%
                           </p>
                           <div className="flex flex-col gap-1 pl-1">
                             {recipe.materials.map((material) => {

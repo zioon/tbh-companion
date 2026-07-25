@@ -224,8 +224,8 @@ const api: TbhApi = {
     ipcRenderer.on(IPC.LOOKUP_PRICES_POLL_STATUS, listener);
     return () => ipcRenderer.removeListener(IPC.LOOKUP_PRICES_POLL_STATUS, listener);
   },
-  pollLookupPrices(): Promise<PollingCycleResult> {
-    return ipcRenderer.invoke(IPC.LOOKUP_PRICES_POLL);
+  pollLookupPrices(hash?: string): Promise<PollingCycleResult> {
+    return ipcRenderer.invoke(IPC.LOOKUP_PRICES_POLL, hash);
   },
   getLiveMemory(): Promise<LiveMemorySnapshot | null> {
     return ipcRenderer.invoke(IPC.GET_LIVE_MEMORY);

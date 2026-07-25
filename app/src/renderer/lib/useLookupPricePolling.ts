@@ -72,10 +72,16 @@ export function useLookupPricePolling(): LookupPricePollingStatus | null {
  * aborted) or when a cycle is already running (main returns aborted with
  * targets=0). The caller should reflect loading state via the `running` field
  * of `useLookupPricePolling()` instead of awaiting this promise.
+ *
+ * 传 `hash` 时只抓单个物品的三档价格（绕过 polling 配置和目标筛选），
+ * 用于图鉴 UI「立即刷新此物品」按钮。不传则跑完整 cycle（含所有 owned +
+ * watched 目标）。
  */
-export async function triggerLookupPricePoll(): Promise<PollingCycleResult | null> {
+export async function triggerLookupPricePoll(
+  hash?: string,
+): Promise<PollingCycleResult | null> {
   try {
-    return await window.tbh.pollLookupPrices();
+    return await window.tbh.pollLookupPrices(hash);
   } catch (err) {
     reportIpcError(err, "useLookupPricePolling:trigger");
     return null;

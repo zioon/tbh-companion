@@ -612,6 +612,28 @@ export interface LookupPriceSnapshot {
   baseCurrency: "USD";
   /** market_hash_name -> lowest active listing in USD; null = no active listing. */
   prices: Record<string, number | null>;
+  /**
+   * market_hash_name -> 本地 polling 抓取的目标货币价格（非 USD）。
+   * 由 LookupPricePollingService 写入：polling 时直接用用户当前货币调
+   * Steam priceoverview，避免 FX 圆整误差。`localCurrency` 标明货币。
+   * CI 快照不含此字段；polling merge 时追加。null = 本地确认无挂单。
+   */
+  pricesLocal?: Record<string, number | null>;
+  /**
+   * market_hash_name -> 本地 polling 抓取的「最近成交价中位数」（目标货币）。
+   * 与 `pricesLocal` 同源：来自 priceoverview 的 `median_price` 字段。
+   * null = 接口返回了但无成交记录；缺失 = polling 未抓取。
+   */
+  medianLocal?: Record<string, number | null>;
+  /**
+   * market_hash_name -> 本地 polling 抓取的「最高收购价」（目标货币）。
+   * 来自 Steam `itemordershistogram` 的 `highest_buy_order`，需要先解析
+   * `item_nameid`。null = 接口返回了但无收购单；缺失 = polling 未抓取
+   * 或 nameid 解析失败。
+   */
+  buyOrderLocal?: Record<string, number | null>;
+  /** `pricesLocal` 的货币代码（如 "BRL"/"CNY"/"USD"）。无 pricesLocal 时为 undefined。 */
+  localCurrency?: string;
   /** market_hash_name -> ISO time that price was last fetched; drives rolling refresh. */
   fetchedUtc?: Record<string, string>;
   /** ISO currency code -> units per 1 USD (e.g. BRL: 5.1). */
@@ -847,6 +869,23 @@ export interface ResolvedLookupPrice {
   display: string | null;
   /** Steam Market listing URL for the hash (null when not-tradable). */
   listingUrl: string | null;
+  /**
+   * 价格来源：`"local"` = 本地 polling 直接用目标货币抓取（最准确）；
+   * `"ci"` = CI 快照 USD 价格 × FX 汇率换算；`null` = 无价格（no-listing/not-tradable）。
+   */
+  source: "local" | "ci" | null;
+  /**
+   * 最近成交价中位数（目标货币）。来自本地 polling 的 priceoverview
+   * `median_price`。null = polling 未抓取或该物品无成交记录；undefined =
+   * 该字段未填充（CI 快照本身不含 median）。
+   */
+  median?: number | null;
+  /**
+   * 最高收购价（目标货币）。来自本地 polling 的 itemordershistogram
+   * `highest_buy_order`。null = polling 未抓取/nameid 解析失败/无收购单；
+   * undefined = 该字段未填充。
+   */
+  buyOrder?: number | null;
 }
 
 export interface AppDataPathEntry {
@@ -1608,7 +1647,7 @@ export interface TbhApi {
   onLookupPrices(cb: (snapshot: LookupPriceSnapshot | null) => void): () => void;
   getLookupPricePollStatus(): Promise<LookupPricePollingStatus | null>;
   onLookupPricePollStatus(cb: (status: LookupPricePollingStatus) => void): () => void;
-  pollLookupPrices(): Promise<PollingCycleResult>;
+  pollLookupPrices(hash?: string): Promise<PollingCycleResult>;
   getLiveMemory(): Promise<LiveMemorySnapshot | null>;
   getLiveMemoryStatus(): Promise<LiveMemoryStatus | null>;
   onLiveMemory(cb: (snapshot: LiveMemorySnapshot) => void): () => void;

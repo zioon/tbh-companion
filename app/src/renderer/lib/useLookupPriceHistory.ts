@@ -7,6 +7,10 @@ import { useLookupPrices } from "./useLookupPrices";
  * polling merge both arrive on the same `LOOKUP_PRICES` channel). The market
  * tab renders the most recent `MAX_ENTRIES` entries as a "recent changes" log
  * so users can see what the polling cycle just updated.
+ *
+ * 同时跟踪 `prices`（USD，CI 来源）和 `pricesLocal`（目标货币，本地 polling
+ * 来源）的变化。当本地 polling 写入新价格时，两个字典可能同时变化；日志
+ * 会分别记录 USD 变动和本地货币变动，让用户看到完整的价目轨迹。
  */
 export interface LookupPriceChange {
   /** market_hash_name */
@@ -15,6 +19,10 @@ export interface LookupPriceChange {
   oldUsd: number | null;
   /** New USD price; null = now unlisted. */
   newUsd: number | null;
+  /** Previous local-currency price; null/undefined = previously unlisted / unknown. */
+  oldLocal: number | null | undefined;
+  /** New local-currency price; null/undefined = now unlisted. */
+  newLocal: number | null | undefined;
   /** Epoch ms when the snapshot carrying the new price arrived. */
   atMs: number;
 }
@@ -24,9 +32,9 @@ export const MAX_LOOKUP_PRICE_CHANGES = 50;
 /**
  * Maintain a rolling log of price changes observed on the
  * `LOOKUP_PRICES` push channel. Diffs the previous snapshot's `prices`
- * against each incoming snapshot and records entries where the price or
- * listing state changed. Capped at {@link MAX_LOOKUP_PRICE_CHANGES} entries
- * (newest first).
+ * and `pricesLocal` against each incoming snapshot and records entries
+ * where the price or listing state changed. Capped at
+ * {@link MAX_LOOKUP_PRICE_CHANGES} entries (newest first).
  *
  * Pure client-side: no new IPC, no persistence — the log lives only for the
  * current app session. Reload resets it.
@@ -34,34 +42,78 @@ export const MAX_LOOKUP_PRICE_CHANGES = 50;
 export function useLookupPriceHistory(): LookupPriceChange[] {
   const { snapshot } = useLookupPrices();
   const prevPricesRef = useRef<Record<string, number | null> | null>(null);
+  const prevLocalRef = useRef<Record<string, number | null> | null>(null);
   const [changes, setChanges] = useState<LookupPriceChange[]>([]);
 
   useEffect(() => {
     if (!snapshot) {
       prevPricesRef.current = null;
+      prevLocalRef.current = null;
       return;
     }
-    const prev = prevPricesRef.current;
+    const prevPrices = prevPricesRef.current;
+    const prevLocal = prevLocalRef.current;
     prevPricesRef.current = snapshot.prices;
-    if (!prev) return; // first snapshot — nothing to diff
+    prevLocalRef.current = snapshot.pricesLocal ?? null;
+    if (!prevPrices && !prevLocal) return; // first snapshot — nothing to diff
 
     const nowMs = Date.now();
     const newEntries: LookupPriceChange[] = [];
+    const seenHashes = new Set<string>();
+
+    // Diff USD prices
     for (const [hash, newUsd] of Object.entries(snapshot.prices)) {
-      const oldUsd = prev[hash];
-      // Skip if the value is identical (typeof null === "object", so handle
-      // both null and number uniformly)
-      if (oldUsd === newUsd) continue;
-      // Skip null→null (no actual change)
-      if (oldUsd == null && newUsd == null) continue;
-      newEntries.push({ hash, oldUsd: oldUsd ?? null, newUsd: newUsd ?? null, atMs: nowMs });
+      seenHashes.add(hash);
+      const oldUsd = prevPrices?.[hash] ?? null;
+      const newLocal = snapshot.pricesLocal?.[hash] ?? null;
+      const oldLocal = prevLocal?.[hash] ?? null;
+      // USD 变了，或 local 变了，或两者从无到有
+      const usdChanged = oldUsd !== newUsd && !(oldUsd == null && newUsd == null);
+      const localChanged =
+        oldLocal !== newLocal && !(oldLocal == null && newLocal == null);
+      if (!usdChanged && !localChanged) continue;
+      newEntries.push({
+        hash,
+        oldUsd: oldUsd ?? null,
+        newUsd: newUsd ?? null,
+        oldLocal,
+        newLocal,
+        atMs: nowMs,
+      });
     }
-    // Also detect hashes that disappeared (price was a number, now absent
-    // from snapshot) — rare, but CI re-runs can prune stale entries.
-    for (const [hash, oldUsd] of Object.entries(prev)) {
-      if (oldUsd == null) continue;
-      if (!(hash in snapshot.prices)) {
-        newEntries.push({ hash, oldUsd, newUsd: null, atMs: nowMs });
+
+    // Hashes that disappeared from prices (USD)
+    if (prevPrices) {
+      for (const [hash, oldUsd] of Object.entries(prevPrices)) {
+        if (seenHashes.has(hash)) continue;
+        if (oldUsd == null) continue;
+        newEntries.push({
+          hash,
+          oldUsd,
+          newUsd: null,
+          oldLocal: prevLocal?.[hash] ?? null,
+          newLocal: null,
+          atMs: nowMs,
+        });
+      }
+    }
+
+    // Hashes only in pricesLocal (not in prices) — rare but possible
+    if (snapshot.pricesLocal) {
+      for (const [hash, newLocal] of Object.entries(snapshot.pricesLocal)) {
+        if (seenHashes.has(hash)) continue;
+        const oldLocal = prevLocal?.[hash] ?? null;
+        const localChanged =
+          oldLocal !== newLocal && !(oldLocal == null && newLocal == null);
+        if (!localChanged) continue;
+        newEntries.push({
+          hash,
+          oldUsd: prevPrices?.[hash] ?? null,
+          newUsd: prevPrices?.[hash] ?? null,
+          oldLocal,
+          newLocal,
+          atMs: nowMs,
+        });
       }
     }
 

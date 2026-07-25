@@ -38,6 +38,20 @@ function makeService(opts: {
   snapshot?: LookupPriceSnapshot | null;
   ownedHashes?: string[];
   fetchUsd?: (hash: string) => Promise<{ ok: boolean; usd: number | null; rateLimited: boolean }>;
+  fetchLocal?: (
+    hash: string,
+    currency: string,
+  ) => Promise<{
+    ok: boolean;
+    amount: number | null;
+    median?: number | null;
+    rateLimited: boolean;
+  }>;
+  fetchBuyOrder?: (
+    hash: string,
+    currency: string,
+  ) => Promise<{ ok: boolean; buyOrder: number | null; rateLimited: boolean }>;
+  getCurrency?: () => string;
   sleep?: (ms: number) => Promise<void>;
   initialConfig?: Partial<LookupPricePollingConfig>;
 }): {
@@ -61,8 +75,11 @@ function makeService(opts: {
     {
       lookupPrices,
       getOwnedHashes: () => opts.ownedHashes ?? [],
+      getCurrency: opts.getCurrency ?? (() => "USD"),
       broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
       fetchUsd: opts.fetchUsd,
+      fetchLocal: opts.fetchLocal,
+      fetchBuyOrder: opts.fetchBuyOrder,
       sleep: opts.sleep ?? (() => Promise.resolve()),
     },
     opts.initialConfig,
@@ -316,6 +333,150 @@ describe("LookupPricePollingService.pollOnce", () => {
     resolveFirst!();
     await firstPromise;
   });
+
+  it("writes pricesLocal and localCurrency when target currency is non-USD", async () => {
+    const snap: LookupPriceSnapshot = {
+      schemaVersion: 1,
+      generatedUtc: "2026-07-26T08:00:00.000Z",
+      baseCurrency: "USD",
+      prices: { A: 5.0, B: 2.0 },
+      fetchedUtc: {},
+      fx: { USD: 1, BRL: 5.2 },
+    };
+    // fetchLocal 优先于 fetchUsd，覆盖目标货币抓取路径
+    const fetchLocal = vi.fn(async (hash: string, currency: string) => ({
+      ok: true,
+      amount: hash === "A" ? 32.0 : currency === "BRL" ? 12.0 : null,
+      rateLimited: false,
+    }));
+    const fetchUsd = vi.fn(async () => ({ ok: true, usd: 99, rateLimited: false }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: ["A", "B"],
+      fetchLocal,
+      fetchUsd,
+      getCurrency: () => "BRL",
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    const result = await service.pollOnce();
+    expect(result.priced).toBe(2);
+    // fetchLocal 应被调用（fetchUsd 被忽略）
+    expect(fetchLocal).toHaveBeenCalledTimes(2);
+    expect(fetchLocal).toHaveBeenCalledWith("A", "BRL");
+    expect(fetchLocal).toHaveBeenCalledWith("B", "BRL");
+    expect(fetchUsd).not.toHaveBeenCalled();
+
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    // pricesLocal 用 fetchLocal 返回的目标货币价格
+    expect(payload.pricesLocal?.["A"]).toBe(32.0);
+    expect(payload.pricesLocal?.["B"]).toBe(12.0);
+    expect(payload.localCurrency).toBe("BRL");
+    // prices 字段保留原值（fetchLocal 路径不写 prices）
+    expect(payload.prices["A"]).toBe(5.0);
+    expect(payload.prices["B"]).toBe(2.0);
+  });
+
+  it("writes medianLocal and buyOrderLocal alongside pricesLocal", async () => {
+    const snap: LookupPriceSnapshot = {
+      schemaVersion: 1,
+      generatedUtc: "2026-07-26T08:00:00.000Z",
+      baseCurrency: "USD",
+      prices: { A: 5.0, B: 2.0 },
+      fetchedUtc: {},
+      fx: { USD: 1, BRL: 5.2 },
+    };
+    // fetchLocal 同时返回 lowest + median；fetchBuyOrder 独立注入
+    const fetchLocal = vi.fn(async (hash: string) => ({
+      ok: true,
+      amount: hash === "A" ? 32.0 : 12.0,
+      median: hash === "A" ? 30.5 : 11.0,
+      rateLimited: false,
+    }));
+    const fetchBuyOrder = vi.fn(async (hash: string) => ({
+      ok: true,
+      buyOrder: hash === "A" ? 28.0 : 9.5,
+      rateLimited: false,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: ["A", "B"],
+      fetchLocal,
+      fetchBuyOrder,
+      getCurrency: () => "BRL",
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    const result = await service.pollOnce();
+    expect(result.priced).toBe(2);
+    expect(fetchLocal).toHaveBeenCalledTimes(2);
+    expect(fetchBuyOrder).toHaveBeenCalledTimes(2);
+    expect(fetchBuyOrder).toHaveBeenCalledWith("A", "BRL");
+    expect(fetchBuyOrder).toHaveBeenCalledWith("B", "BRL");
+
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    // 三档价格同时写入对应字段
+    expect(payload.pricesLocal?.["A"]).toBe(32.0);
+    expect(payload.medianLocal?.["A"]).toBe(30.5);
+    expect(payload.buyOrderLocal?.["A"]).toBe(28.0);
+    expect(payload.pricesLocal?.["B"]).toBe(12.0);
+    expect(payload.medianLocal?.["B"]).toBe(11.0);
+    expect(payload.buyOrderLocal?.["B"]).toBe(9.5);
+    expect(payload.localCurrency).toBe("BRL");
+  });
+
+  it("skips buyOrder when fetchBuyOrder not injected and nameIdService absent", async () => {
+    const snap = snapshot({ A: 5.0 });
+    const fetchLocal = vi.fn(async () => ({
+      ok: true,
+      amount: 32.0,
+      median: 30.5,
+      rateLimited: false,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: ["A"],
+      fetchLocal,
+      getCurrency: () => "BRL",
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    await service.pollOnce();
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    // lowest + median 写入；buyOrder 未抓取（fetchBuyOrder/nameIdService 都未注入）
+    // buyOrderLocal 字段会被 merge 成 {}，但条目缺失 → resolve 时回退为 null
+    expect(payload.pricesLocal?.["A"]).toBe(32.0);
+    expect(payload.medianLocal?.["A"]).toBe(30.5);
+    expect(payload.buyOrderLocal?.["A"] ?? null).toBeNull();
+  });
+
+  it("writes buyOrder=null when fetchBuyOrder returns ok=false", async () => {
+    const snap = snapshot({ A: 5.0 });
+    const fetchLocal = vi.fn(async () => ({
+      ok: true,
+      amount: 32.0,
+      median: 30.5,
+      rateLimited: false,
+    }));
+    const fetchBuyOrder = vi.fn(async () => ({
+      ok: false,
+      buyOrder: null,
+      rateLimited: false,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: ["A"],
+      fetchLocal,
+      fetchBuyOrder,
+      getCurrency: () => "BRL",
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    await service.pollOnce();
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    // buyOrderLocal[hash] = null 表示「已确认无收购单」
+    expect(payload.buyOrderLocal?.["A"]).toBeNull();
+  });
 });
 
 describe("LookupPricePollingService.setConfig", () => {
@@ -335,5 +496,167 @@ describe("LookupPricePollingService.setConfig", () => {
     service.setConfig({ enabled: true, intervalMinutes: 5 });
     service.setConfig({ enabled: false });
     expect(service.getConfig().enabled).toBe(false);
+  });
+});
+
+describe("LookupPricePollingService.pollSingleHash", () => {
+  it("aborts when hash is empty/whitespace", async () => {
+    const { service } = makeService({});
+    expect((await service.pollSingleHash("")).aborted).toBe(true);
+    expect((await service.pollSingleHash("   ")).aborted).toBe(true);
+  });
+
+  it("fetches and merges three-tier prices for a single hash regardless of polling config", async () => {
+    // 关键：polling 关闭（enabled=false），pollSingleHash 仍然抓取
+    const snap: LookupPriceSnapshot = {
+      schemaVersion: 1,
+      generatedUtc: "2026-07-26T08:00:00.000Z",
+      baseCurrency: "USD",
+      prices: { "Ethereal Earring (Cosmic) A": 853.72 },
+      fetchedUtc: {},
+      fx: { USD: 1, CNY: 7.2 },
+    };
+    const fetchLocal = vi.fn(async () => ({
+      ok: true,
+      amount: 6174.5,
+      median: 6100.0,
+      rateLimited: false,
+    }));
+    const fetchBuyOrder = vi.fn(async () => ({
+      ok: true,
+      buyOrder: 5800.0,
+      rateLimited: false,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: [], // 不 owned 也能抓
+      fetchLocal,
+      fetchBuyOrder,
+      getCurrency: () => "CNY",
+      // 故意不设 initialConfig.enabled = true，验证手动路径绕过 enabled
+    });
+
+    const result = await service.pollSingleHash("Ethereal Earring (Cosmic) A");
+    expect(result.targets).toBe(1);
+    expect(result.priced).toBe(1);
+    expect(result.rateLimited).toBe(0);
+    expect(result.aborted).toBe(false);
+    expect(fetchLocal).toHaveBeenCalledTimes(1);
+    expect(fetchLocal).toHaveBeenCalledWith("Ethereal Earring (Cosmic) A", "CNY");
+    expect(fetchBuyOrder).toHaveBeenCalledTimes(1);
+
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0].channel).toBe(IPC.LOOKUP_PRICES);
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    expect(payload.pricesLocal?.["Ethereal Earring (Cosmic) A"]).toBe(6174.5);
+    expect(payload.medianLocal?.["Ethereal Earring (Cosmic) A"]).toBe(6100.0);
+    expect(payload.buyOrderLocal?.["Ethereal Earring (Cosmic) A"]).toBe(5800.0);
+    expect(payload.localCurrency).toBe("CNY");
+    // 原 CI prices 字段保留（fetchLocal 路径不写 prices）
+    expect(payload.prices["Ethereal Earring (Cosmic) A"]).toBe(853.72);
+  });
+
+  it("returns aborted when another cycle is running", async () => {
+    const snap = snapshot({ A: 5.0 });
+    let resolveFirst: () => void;
+    const firstCall = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let callCount = 0;
+    const fetchUsd = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) await firstCall;
+      return { ok: true, usd: 6.0, rateLimited: false };
+    });
+    const { service } = makeService({
+      snapshot: snap,
+      ownedHashes: ["A"],
+      fetchUsd,
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    const pollOncePromise = service.pollOnce();
+    // pollSingleHash 应被 cycleRunning 拦截
+    const singleResult = await service.pollSingleHash("A");
+    expect(singleResult.aborted).toBe(true);
+    expect(singleResult.targets).toBe(0);
+
+    resolveFirst!();
+    await pollOncePromise;
+  });
+
+  it("reports rate-limited result without merging when fetchLocal returns 429", async () => {
+    const snap = snapshot({ A: 5.0 });
+    const fetchLocal = vi.fn(async () => ({
+      ok: false,
+      amount: null,
+      rateLimited: true,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: [],
+      fetchLocal,
+      getCurrency: () => "CNY",
+    });
+
+    const result = await service.pollSingleHash("A");
+    expect(result.priced).toBe(0);
+    expect(result.rateLimited).toBe(1);
+    expect(broadcasts).toHaveLength(0); // 没有价格，不广播
+  });
+
+  it("writes buyOrder=null when fetchBuyOrder returns ok=false (no buy orders)", async () => {
+    const snap = snapshot({ A: 5.0 });
+    const fetchLocal = vi.fn(async () => ({
+      ok: true,
+      amount: 32.0,
+      median: 30.5,
+      rateLimited: false,
+    }));
+    const fetchBuyOrder = vi.fn(async () => ({
+      ok: false,
+      buyOrder: null,
+      rateLimited: false,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: [],
+      fetchLocal,
+      fetchBuyOrder,
+      getCurrency: () => "BRL",
+    });
+
+    await service.pollSingleHash("A");
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    expect(payload.buyOrderLocal?.["A"]).toBeNull();
+    expect(payload.medianLocal?.["A"]).toBe(30.5);
+  });
+
+  it("preserves generatedUtc and fx from original snapshot", async () => {
+    const snap: LookupPriceSnapshot = {
+      schemaVersion: 1,
+      generatedUtc: "2026-07-25T21:33:00.000Z",
+      baseCurrency: "USD",
+      prices: { A: 5.0 },
+      fetchedUtc: {},
+      fx: { USD: 1, CNY: 7.2, BRL: 5.2 },
+    };
+    const fetchLocal = vi.fn(async () => ({
+      ok: true,
+      amount: 36.0,
+      median: 35.0,
+      rateLimited: false,
+    }));
+    const { service, broadcasts } = makeService({
+      snapshot: snap,
+      ownedHashes: [],
+      fetchLocal,
+      getCurrency: () => "CNY",
+    });
+
+    await service.pollSingleHash("A");
+    const payload = broadcasts[0].payload as LookupPriceSnapshot;
+    expect(payload.generatedUtc).toBe("2026-07-25T21:33:00.000Z");
+    expect(payload.fx).toEqual({ USD: 1, CNY: 7.2, BRL: 5.2 });
   });
 });

@@ -186,13 +186,33 @@ export class LookupPriceService {
       return;
     }
 
-    this.snapshot = parsed;
-    this.persist(parsed);
+    // 保留 polling 写入的本地字段：CI 快照不含 pricesLocal/medianLocal/
+    // buyOrderLocal/localCurrency，直接替换会让本地 polling 的目标货币价格
+    // 丢失。polling 数据比 CI 快照新，理应保留。下一次 polling cycle 会继续
+    // 追加/覆盖这些字段。
+    const prev = this.snapshot;
+    const hasLocalData =
+      prev?.pricesLocal ||
+      prev?.medianLocal ||
+      prev?.buyOrderLocal ||
+      prev?.localCurrency;
+    const merged: LookupPriceSnapshot = hasLocalData
+      ? {
+          ...parsed,
+          pricesLocal: prev!.pricesLocal,
+          medianLocal: prev!.medianLocal,
+          buyOrderLocal: prev!.buyOrderLocal,
+          localCurrency: prev!.localCurrency,
+        }
+      : parsed;
+
+    this.snapshot = merged;
+    this.persist(parsed); // 磁盘上保持 CI 纯净（不含本地字段）
     log.info(
       `Lookup snapshot updated: ${Object.keys(parsed.prices).length} prices, generated ${parsed.generatedUtc}`,
     );
-    this.broadcastFn(IPC.LOOKUP_PRICES, parsed);
-    this.onSnapshotUpdated?.(parsed);
+    this.broadcastFn(IPC.LOOKUP_PRICES, merged);
+    this.onSnapshotUpdated?.(merged);
   }
 
   private persist(snapshot: LookupPriceSnapshot): void {

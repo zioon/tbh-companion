@@ -18,6 +18,7 @@ import { SessionStateService } from "../services/SessionStateService";
 import { LookupService } from "../services/LookupService";
 import { LookupPriceService } from "../services/LookupPriceService";
 import { LookupPricePollingService } from "../services/LookupPricePollingService";
+import { getSteamItemNameIdService } from "../services/steamItemNameId";
 import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
@@ -119,6 +120,11 @@ const lookupPrices = new LookupPriceService();
 const lookupPricePolling = new LookupPricePollingService({
   lookupPrices,
   getOwnedHashes: () => inventory.getOwnedPriceHashes(),
+  getCurrency: () => config.currency,
+  // 注入共享的 nameId 单例，让 polling 在抓 buyOrder 时复用客户端已有的
+  // item_nameid 缓存（bundled map + userData/steam_item_nameids.json），
+  // 避免每个 hash 都重新抓 listing HTML。未注入时 polling 跳过 buyOrder。
+  nameIdService: getSteamItemNameIdService(),
   broadcast: (channel, payload) => broadcast(channel, payload),
   onStatusChange: (status) => broadcast(IPC.LOOKUP_PRICES_POLL_STATUS, status),
 });
@@ -618,7 +624,8 @@ export function getAppServices() {
     getOfferings: () => lookup.getOfferings(),
     getLookupPrices: () => lookupPrices.getSnapshot(),
     getLookupPricePollStatus: () => lookupPricePolling.getPollingStatus(),
-    pollLookupPrices: () => lookupPricePolling.pollOnce(),
+    pollLookupPrices: (hash?: string) =>
+      hash ? lookupPricePolling.pollSingleHash(hash) : lookupPricePolling.pollOnce(),
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),

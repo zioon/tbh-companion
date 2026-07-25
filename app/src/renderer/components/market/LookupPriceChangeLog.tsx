@@ -70,6 +70,8 @@ export function LookupPriceChangeLog() {
                     ? "text-danger"
                     : "text-muted";
           const dirLabel = t(`changeLog.dir.${dir}`);
+          // 本地货币价格（如果有）——显示在 USD 价格右边，标注「本地」
+          const hasLocal = c.oldLocal != null || c.newLocal != null;
           return (
             <li key={`${c.hash}-${c.atMs}-${idx}`} className="flex items-baseline gap-2">
               <span className="shrink-0 font-mono text-[11px] text-muted" title={c.hash}>
@@ -78,6 +80,11 @@ export function LookupPriceChangeLog() {
               <span className={`shrink-0 font-medium ${dirColor}`}>
                 {formatUsd(c.oldUsd)} → {formatUsd(c.newUsd)}
               </span>
+              {hasLocal ? (
+                <span className="shrink-0 text-[11px] text-muted">
+                  {t("changeLog.local")}: {formatUsd(c.oldLocal ?? null)} → {formatUsd(c.newLocal ?? null)}
+                </span>
+              ) : null}
               <span className={`shrink-0 text-[11px] ${dirColor}`}>{dirLabel}</span>
               <span className="ml-auto shrink-0 text-muted">{formatAge(t, c.atMs)}</span>
             </li>

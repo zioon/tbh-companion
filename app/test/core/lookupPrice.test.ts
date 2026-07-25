@@ -329,4 +329,109 @@ describe("resolveLookupPrice", () => {
     expect(r.hash).toBeNull();
     expect(r.listingUrl).toBeNull();
   });
+
+  it("prefers pricesLocal when localCurrency matches the display currency (source=local)", () => {
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Ancient Ember": 15.5 },
+      localCurrency: "BRL",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.state).toBe("priced");
+    expect(r.source).toBe("local");
+    // amount 走 pricesLocal，不走 USD × FX
+    expect(r.amount).toBe(15.5);
+    expect(r.display).toBe("R$ 15,50");
+    // usd 仍然回填 CI 快照里的 USD 价格
+    expect(r.usd).toBe(2);
+  });
+
+  it("falls back to CI USD×FX (source=ci) when pricesLocal is for a different currency", () => {
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Ancient Ember": 200 },
+      localCurrency: "JPY",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.source).toBe("ci");
+    expect(r.amount).toBe(10); // 2 USD × 5 BRL
+  });
+
+  it("falls back to CI USD×FX (source=ci) when pricesLocal lacks the hash", () => {
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Other Item": 99 },
+      localCurrency: "BRL",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.source).toBe("ci");
+    expect(r.amount).toBe(10);
+  });
+
+  it("marks CI-source prices with source=ci", () => {
+    const r = resolveLookupPrice(material, snap, "BRL");
+    expect(r.source).toBe("ci");
+  });
+
+  it("returns no-listing when pricesLocal has the hash but value is null", () => {
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Ancient Ember": null },
+      localCurrency: "BRL",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.state).toBe("no-listing");
+    expect(r.source).toBeNull();
+  });
+
+  it("returns source=local with median/buyOrder when lowest is null but sub-row data exists", () => {
+    // 场景：Steam 上物品暂无挂单（lowest=null）但有历史成交和收购单。
+    // 主行显示 no-listing，但副行应显示成交价和收购价。
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Ancient Ember": null },
+      medianLocal: { "Ancient Ember": 14.0 },
+      buyOrderLocal: { "Ancient Ember": 12.5 },
+      localCurrency: "BRL",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.state).toBe("no-listing");
+    expect(r.source).toBe("local");
+    expect(r.amount).toBeNull();
+    expect(r.display).toBeNull();
+    expect(r.median).toBe(14.0);
+    expect(r.buyOrder).toBe(12.5);
+  });
+
+  it("returns source=local with priced state when lowest has value", () => {
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Ancient Ember": 15.5 },
+      medianLocal: { "Ancient Ember": 14.0 },
+      buyOrderLocal: { "Ancient Ember": 12.5 },
+      localCurrency: "BRL",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.state).toBe("priced");
+    expect(r.source).toBe("local");
+    expect(r.amount).toBe(15.5);
+    expect(r.median).toBe(14.0);
+    expect(r.buyOrder).toBe(12.5);
+  });
+
+  it("returns source=local with only buyOrder when lowest and median are null", () => {
+    // 场景：物品无挂单、无近期成交，但有收购单。
+    const localSnap: LookupPriceSnapshot = {
+      ...snap,
+      pricesLocal: { "Ancient Ember": null },
+      medianLocal: { "Ancient Ember": null },
+      buyOrderLocal: { "Ancient Ember": 8.0 },
+      localCurrency: "BRL",
+    };
+    const r = resolveLookupPrice(material, localSnap, "BRL");
+    expect(r.state).toBe("no-listing");
+    expect(r.source).toBe("local");
+    expect(r.median).toBeNull();
+    expect(r.buyOrder).toBe(8.0);
+  });
 });
