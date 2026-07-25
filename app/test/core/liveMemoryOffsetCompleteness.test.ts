@@ -268,9 +268,7 @@ describe("mergeOffsets", () => {
       const merged = mergeOffsets(base, derived);
 
       expect(merged.typeInfoRva.logManager).toBe(base.typeInfoRva.logManager);
-      expect(merged.typeInfoRva.monsterSpawnManager).toBe(
-        base.typeInfoRva.monsterSpawnManager,
-      );
+      expect(merged.typeInfoRva.monsterSpawnManager).toBe(base.typeInfoRva.monsterSpawnManager);
     });
 
     it("non-fallback base still uses base-wins semantics (regression guard)", () => {

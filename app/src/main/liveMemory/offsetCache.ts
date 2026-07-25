@@ -53,8 +53,20 @@ export function offsetCachePath(cacheDir: string, version: string): string {
  * Returns null when the file is missing, corrupt, version-mismatched, OR when
  * the cache was written by an older extractor revision than `minRev` (so a new
  * extractor revision that fixes a derivation bug actually re-runs instead of
- * loading stale offsets). Caches without `_extractorRev` (pre-Rev 11) are
- * treated as revision 0 → always invalidated when `minRev > 0`.
+ * loading stale offsets).
+ *
+ * Two on-disk shapes are accepted:
+ *   - Envelope (current): `{ gameVersion, extractorRevision, offsets }` written
+ *     by `saveCachedOffsets`. The revision is read from `extractorRevision`.
+ *   - Bare `LiveOffsets` (legacy pre-Rev 11): no envelope. The revision is read
+ *     from the optional `_extractorRev` field on the LiveOffsets itself, or 0
+ *     when absent → always invalidated when `minRev > 0`.
+ *
+ * Pre-fix this function returned the envelope as if it were a `LiveOffsets`,
+ * so every field inside `.offsets` (`goldKey`, `typeInfoRva`, …) was unreachable
+ * and the `_extractorRev` lookup (which only exists on the envelope as
+ * `extractorRevision`) always returned 0 → caches were silently invalidated
+ * every launch.
  */
 export function loadCachedOffsets(
   cacheDir: string,
@@ -64,11 +76,21 @@ export function loadCachedOffsets(
   try {
     const path = offsetCachePath(cacheDir, version);
     const raw = readFileSync(path, "utf-8");
-    const parsed = JSON.parse(raw, reviver) as LiveOffsets;
-    if (parsed?.gameVersion !== version) return null;
-    const cacheRev = parsed._extractorRev ?? 0;
+    const parsed = JSON.parse(raw, reviver) as CacheEnvelope | LiveOffsets;
+    // Envelope detection: a present-and-object `offsets` field is the marker.
+    const isEnvelope =
+      typeof (parsed as CacheEnvelope | null)?.offsets === "object" &&
+      (parsed as CacheEnvelope | null)?.offsets !== null;
+    const offsets = isEnvelope ? (parsed as CacheEnvelope).offsets : (parsed as LiveOffsets);
+    const envGameVersion = isEnvelope
+      ? (parsed as CacheEnvelope).gameVersion
+      : (parsed as LiveOffsets).gameVersion;
+    const cacheRev = isEnvelope
+      ? (parsed as CacheEnvelope).extractorRevision
+      : ((parsed as LiveOffsets)._extractorRev ?? 0);
+    if (envGameVersion !== version) return null;
     if (minRev > 0 && cacheRev < minRev) return null;
-    return parsed;
+    return offsets;
   } catch {
     return null;
   }

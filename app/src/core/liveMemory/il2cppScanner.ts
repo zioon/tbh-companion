@@ -181,7 +181,10 @@ export class ScanContext {
   private readonly statics = new Map<bigint, ReadonlyArray<{ soff: number; value: bigint }>>();
   private readonly probedClasses = new Set<bigint>();
 
-  constructor(readonly reader: MemoryReader, private readonly logFn?: ScanContextLogFn) {}
+  constructor(
+    readonly reader: MemoryReader,
+    private readonly logFn?: ScanContextLogFn,
+  ) {}
 
   /** Emit a diagnostic line through the wired logger (no-op when absent). */
   log(line: string): void {

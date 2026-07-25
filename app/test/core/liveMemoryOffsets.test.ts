@@ -179,7 +179,9 @@ describe("cross-version offset regression (auto-covers new versions)", () => {
   // 这三个偏移在 offsets.ts 注释中明确标注为"stable across patches"，值固定为
   // 0x40 / 0x44 / 0x48（live-verified on v1.00.23）。任何版本缺失或偏差都会导致
   // 通关记录归属回退到 live stageKey，重新引发"地图快一个"的 off-by-one bug。
-  const EXPECTED_STAGE_CLEAR_LOG: Readonly<Record<keyof LiveOffsets["runtime"]["stageClearLog"], number>> = {
+  const EXPECTED_STAGE_CLEAR_LOG: Readonly<
+    Record<keyof LiveOffsets["runtime"]["stageClearLog"], number>
+  > = {
     act: 0x40,
     stage: 0x44,
     clearTimeSec: 0x48,
@@ -193,8 +195,16 @@ describe("cross-version offset regression (auto-covers new versions)", () => {
   }> = [
     { path: "runtime.log.logByType", get: (o) => o.runtime.log.logByType, expected: 0x28 },
     { path: "runtime.log.getBoxTypeKey", get: (o) => o.runtime.log.getBoxTypeKey, expected: 3 },
-    { path: "runtime.log.stageClearTypeKey", get: (o) => o.runtime.log.stageClearTypeKey, expected: 1 },
-    { path: "runtime.getBoxLog.monsterType", get: (o) => o.runtime.getBoxLog.monsterType, expected: 0x50 },
+    {
+      path: "runtime.log.stageClearTypeKey",
+      get: (o) => o.runtime.log.stageClearTypeKey,
+      expected: 1,
+    },
+    {
+      path: "runtime.getBoxLog.monsterType",
+      get: (o) => o.runtime.getBoxLog.monsterType,
+      expected: 0x50,
+    },
     { path: "runtime.heroList", get: (o) => o.runtime.heroList, expected: 0x30 },
     { path: "runtime.currencyInfoKey", get: (o) => o.runtime.currencyInfoKey, expected: 0x30 },
   ];
@@ -203,15 +213,18 @@ describe("cross-version offset regression (auto-covers new versions)", () => {
     expect(VERSIONS.length).toBeGreaterThan(0);
   });
 
-  it.each(VERSIONS)("version %s has stageClearLog.act/stage/clearTimeSec at the stable offsets", (version) => {
-    const o = offsetsForVersion(version)!;
-    expect(o).not.toBeNull();
-    for (const [field, expected] of Object.entries(EXPECTED_STAGE_CLEAR_LOG) as Array<
-      [keyof LiveOffsets["runtime"]["stageClearLog"], number]
-    >) {
-      expect(o.runtime.stageClearLog[field]).toBe(expected);
-    }
-  });
+  it.each(VERSIONS)(
+    "version %s has stageClearLog.act/stage/clearTimeSec at the stable offsets",
+    (version) => {
+      const o = offsetsForVersion(version)!;
+      expect(o).not.toBeNull();
+      for (const [field, expected] of Object.entries(EXPECTED_STAGE_CLEAR_LOG) as Array<
+        [keyof LiveOffsets["runtime"]["stageClearLog"], number]
+      >) {
+        expect(o.runtime.stageClearLog[field]).toBe(expected);
+      }
+    },
+  );
 
   it.each(VERSIONS)("version %s preserves stable runtime log/hero/currency offsets", (version) => {
     const o = offsetsForVersion(version)!;
@@ -220,10 +233,13 @@ describe("cross-version offset regression (auto-covers new versions)", () => {
     }
   });
 
-  it.each(VERSIONS)("version %s exposes the full stageClearLog schema (3 fields, no extra keys)", (version) => {
-    const o = offsetsForVersion(version)!;
-    expect(Object.keys(o.runtime.stageClearLog).sort()).toEqual(["act", "clearTimeSec", "stage"]);
-  });
+  it.each(VERSIONS)(
+    "version %s exposes the full stageClearLog schema (3 fields, no extra keys)",
+    (version) => {
+      const o = offsetsForVersion(version)!;
+      expect(Object.keys(o.runtime.stageClearLog).sort()).toEqual(["act", "clearTimeSec", "stage"]);
+    },
+  );
 
   // 同 major.minor fallback 路径也必须继承 stageClearLog（防止 fallback 表覆盖时丢字段）。
   it("fallback path (e.g. 1.00.29 → 1.00.28) inherits stageClearLog intact", () => {

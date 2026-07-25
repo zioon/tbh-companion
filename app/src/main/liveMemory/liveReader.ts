@@ -4,7 +4,11 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { offsetsForVersion, offsetsForVersionMeta, type LiveOffsets } from "../../core/liveMemory/offsets";
+import {
+  offsetsForVersion,
+  offsetsForVersionMeta,
+  type LiveOffsets,
+} from "../../core/liveMemory/offsets";
 import {
   hasCriticalOffsets,
   isOffsetTableComplete,
@@ -103,6 +107,28 @@ function detectGameVersion(p: WinProcess): { version: string; installDir: string
   } catch {
     return null;
   }
+}
+
+/**
+ * True when `offsets` carries a `_fallbackFromVersion` marker AND its critical
+ * RVAs (stageManager / stageCacheManager) still match the original bundled
+ * fallback baseline. When they match, the extractor has not yet re-derived
+ * fresh anchors for the current build — live reads may resolve to wrong
+ * classes (returning null). When they differ, a previous session's extractor
+ * already overwrote the stale baseline via mergeOffsets, so the table is
+ * safe to use without forcing the critical path again.
+ *
+ * Pure (no `this`), so it can be called from `resolveOffsets` before
+ * `this.offsets` is updated.
+ */
+function isCriticalStaleOnBaseline(offsets: LiveOffsets | null): boolean {
+  if (!offsets?._fallbackFromVersion) return false;
+  const baseline = offsetsForVersion(offsets._fallbackFromVersion);
+  if (!baseline) return false;
+  return (
+    offsets.typeInfoRva.stageManager === baseline.typeInfoRva.stageManager &&
+    offsets.typeInfoRva.stageCacheManager === baseline.typeInfoRva.stageCacheManager
+  );
 }
 
 /**
@@ -292,16 +318,7 @@ export class LiveMemoryReader {
    * 3-failure critical budget would permanently block re-derivation.
    */
   get isCriticalStaleOnFallback(): boolean {
-    if (!this.offsets?._fallbackFromVersion) return false;
-    const baseline = offsetsForVersion(this.offsets._fallbackFromVersion);
-    if (!baseline) return false;
-    // Compare critical RVAs — if any differs from the baseline, derived has
-    // overwritten at least one critical anchor, so we're no longer "stale
-    // on baseline". Both must match baseline to count as stale.
-    return (
-      this.offsets.typeInfoRva.stageManager === baseline.typeInfoRva.stageManager &&
-      this.offsets.typeInfoRva.stageCacheManager === baseline.typeInfoRva.stageCacheManager
-    );
+    return isCriticalStaleOnBaseline(this.offsets);
   }
 
   get pid(): number | null {
@@ -449,55 +466,58 @@ export class LiveMemoryReader {
     let source: OffsetResolutionSource = "none";
 
     const meta = offsetsForVersionMeta(version);
-    // Track whether `base` came from a fallback table. Fallback RVAs may be
-    // stale (the real game build moved TypeInfo slots), so the extractor MUST
-    // run the full critical path (enrichmentOnly=false) to re-derive them —
-    // even though hasCriticalOffsets(base) is true. Without this, the extractor
-    // would take the enrichment-only path (because isSupported=true) and never
-    // re-derive StageManager/StageCacheManager, leaving the reader with stale
-    // RVAs that resolve to null → no DPS/XP/stage-clear data.
+    // Track whether `base` carries a `_fallbackFromVersion` marker — either
+    // from a fresh fallback table OR from a prior session's merged cache (the
+    // marker is preserved across mergeOffsets for provenance). When the marker
+    // is present AND critical RVAs still match the baseline, the extractor
+    // must run the full critical path to re-derive them. Once derived RVAs
+    // have overwritten the baseline (detected via isCriticalStaleOnBaseline),
+    // the critical path is no longer forced — the cache is trusted.
     let isFallbackTable = false;
     if (meta) {
-      if (meta.fallback) {
-        // Fallback to a same-major.minor version. Two-phase strategy:
-        //
-        //  Phase 1 (optimistic baseline): keep the fallback table's TypeInfo
-        //  RVAs as a working baseline so `hasCriticalOffsets` returns true and
-        //  the reader is marked supported. If the RVAs happen to match the
-        //  real game build (common for small patches), live tracking flows
-        //  immediately. The reader's resolve* helpers validate each pointer
-        //  before use, so stale RVAs degrade gracefully to null.
-        //
-        //  Phase 2 (critical re-derivation): the extractor runs with
-        //  enrichmentOnly=false (forced via isFallbackTable below) so it
-        //  re-derives StageManager/StageCacheManager/CurrencyManager from
-        //  live memory. Successfully derived RVAs overwrite the fallback
-        //  baseline via mergeOffsets. If extraction fails (budget exhausted),
-        //  the fallback RVAs remain in use — the reader stays supported but
-        //  may return null data for stale anchors.
-        //
-        //  This is the fix for both "live 直接显示不支持了" AND "实现实时了但
-        //  DPS/经验/通关记录都没数据": the old Rev 9 behavior zeroed every
-        //  RVA on fallback (permanently unsupported after 3 failures); the
-        //  Rev 10 bug kept the RVAs but ran the extractor in enrichment-only
-        //  mode (never re-deriving critical anchors). Rev 10 + this fix keeps
-        //  the RVAs AND forces critical re-derivation.
-        isFallbackTable = true;
-        base = meta.table;
-        this.log(
-          `resolve: bundled table for v${version} (fallback from v${meta.table.gameVersion} — RVAs kept as baseline; extractor will re-derive critical anchors)`,
-        );
-      } else {
-        base = meta.table;
-        this.log(`resolve: bundled table for v${version}`);
-      }
+      base = meta.table;
+      isFallbackTable = meta.fallback;
       source = "bundled";
-    } else if (cacheDir && version) {
+      this.log(
+        meta.fallback
+          ? `resolve: bundled table for v${version} (fallback from v${meta.table.gameVersion} — RVAs kept as baseline; extractor will re-derive critical anchors if still stale)`
+          : `resolve: bundled table for v${version}`,
+      );
+    }
+
+    // Even when a bundled/fallback table exists, prefer a more complete (or
+    // equally complete but extractor-validated) disk cache. Without this, a
+    // version whose bundled table is enrichment-incomplete (typical —
+    // logManager/boxOpenLog/stageClearLog struct offsets are runtime-derived)
+    // would re-run the ~8s extractor on every launch, even though the previous
+    // session already persisted a fully-derived table. Same applies to fallback
+    // versions: once the extractor has re-derived fresh critical RVAs and
+    // merged them into the cache, the cache is more authoritative than the
+    // stale baseline. The cache's `_extractorRev` stamp gates staleness — a
+    // newer extractor revision automatically invalidates the cache and falls
+    // back to the bundled table.
+    if (cacheDir && version) {
       const cached = loadCachedOffsets(cacheDir, version, EXTRACTOR_REVISION);
       if (cached) {
-        base = cached;
-        source = "cache";
-        this.log(`resolve: loaded disk cache for v${version}`);
+        const baseMissing = base ? missingOffsetFields(base).length : Infinity;
+        const cacheMissing = missingOffsetFields(cached).length;
+        // Prefer cache when:
+        //   - no bundled/fallback table (unknown version), OR
+        //   - cache is strictly more complete (extractor filled gaps), OR
+        //   - cache is equally complete but is the previously live-validated
+        //     extractor output (vs the static bundled table).
+        if (!base || cacheMissing <= baseMissing) {
+          base = cached;
+          // Preserve fallback marker — a prior session's merged cache carries
+          // `_fallbackFromVersion` for provenance, and the stale-on-baseline
+          // check below uses it to decide whether critical re-derivation is
+          // still needed.
+          isFallbackTable = !!cached._fallbackFromVersion;
+          source = "cache";
+          this.log(
+            `resolve: loaded disk cache for v${version} (cache missing=${cacheMissing}, bundled missing=${baseMissing === Infinity ? "n/a" : baseMissing})`,
+          );
+        }
       }
     }
 
@@ -526,15 +546,15 @@ export class LiveMemoryReader {
 
     if (ga && version && cacheDir) {
       const isSupported = base != null && hasCriticalOffsets(base);
-      // Fallback tables keep their RVAs as a baseline (so isSupported=true), but
-      // those RVAs may be stale for the real game build. Force the extractor to
-      // run the FULL critical path (enrichmentOnly=false) so it re-derives
-      // StageManager/StageCacheManager/CurrencyManager from live memory and
-      // overwrites the stale baseline via mergeOffsets. Without this, the
-      // extractor would take the enrichment-only path (because isSupported=true)
-      // and never re-derive the critical anchors — the reader would stay
-      // "supported" but return null for every live read (no DPS/XP/stage-clears).
-      const forceCriticalPath = isFallbackTable;
+      // Force the extractor to run the FULL critical path (enrichmentOnly=false)
+      // ONLY when the base carries a `_fallbackFromVersion` marker AND its
+      // critical RVAs still match the stale baseline. Once a prior session's
+      // extractor has re-derived fresh RVAs and merged them into the cache,
+      // `isCriticalStaleOnBaseline(base)` returns false — the cache is trusted
+      // and the extractor (if still needed for enrichment gaps) takes the
+      // cheaper enrichment-only path. This is the key change that lets a
+      // fallback version's second launch skip the ~8s critical extraction.
+      const forceCriticalPath = isFallbackTable && isCriticalStaleOnBaseline(base);
       const useCriticalBudget = !isSupported || forceCriticalPath;
       // Enrichment and critical extractions have independent attempt budgets.
       // Critical (unsupported) scans are bounded by MAX_EXTRACTION_ATTEMPTS;
@@ -573,13 +593,14 @@ export class LiveMemoryReader {
         // (the dump fires inside extractOffsets when the env var is set).
         if (forceExtractForCatalogDump) catalogDumpDone = true;
         if (derived) {
-          // Successful extraction — record the attempt so the budget reflects
-          // a real (productive) run. Failed extractions (null / throw) do not
-          // consume the budget, leaving room for retries.
-          if (!forceExtractForCatalogDump) {
-            if (!isSupported) recordExtractionAttempt(cacheDir, version, appBuild);
-            else recordEnrichmentAttempt(cacheDir, version, appBuild);
-          }
+          // Note: the attempt budget was already recorded above (before the
+          // extractor ran). Both successful AND failed extractions consume one
+          // budget unit — that is intentional, so 3 consecutive failures
+          // permanently stop the heal loop and don't keep re-running the ~8s
+          // extractor every tick. A detected state change (box-open event,
+          // fallback critical-stale) resets the budget via the dedicated
+          // reset functions; do NOT record a second time here on success or
+          // every productive run would count as 2 attempts.
           const merged = base ? mergeOffsets(base, derived.offsets) : derived.offsets;
           // Tag the persisted cache with the extractor revision so a future
           // reader launch with a newer revision knows to re-derive instead of
@@ -587,7 +608,9 @@ export class LiveMemoryReader {
           merged._extractorRev = EXTRACTOR_REVISION;
           saveCachedOffsets(cacheDir, merged);
           const mergedSource: OffsetResolutionSource = base ? "merged" : "extracted";
-          this.log(`resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION})`);
+          this.log(
+            `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION})`,
+          );
           return { table: merged, source: mergedSource, classIndex: derived.classIndex };
         }
         this.log(
@@ -684,7 +707,9 @@ export class LiveMemoryReader {
       const now = Date.now();
       if (this.smPin.lastStatus && now - (this.lastSmFailLogAt ?? 0) > 10_000) {
         this.lastSmFailLogAt = now;
-        this.log(`read: stage null — smPtr=${smPtr ? "0x" + smPtr.toString(16) : "null"} ${this.smPin.lastStatus}`);
+        this.log(
+          `read: stage null — smPtr=${smPtr ? "0x" + smPtr.toString(16) : "null"} ${this.smPin.lastStatus}`,
+        );
       }
       return null;
     }
@@ -886,7 +911,11 @@ export class LiveMemoryReader {
   }
 
   /** Name-scan fallback for PlayerSaveData when RVA produced no player instance. */
-  private runPlayerNameScan(p: WinProcess, ga: { base: bigint; size: number }, o: LiveOffsets): void {
+  private runPlayerNameScan(
+    p: WinProcess,
+    ga: { base: bigint; size: number },
+    o: LiveOffsets,
+  ): void {
     this.log("PlayerSaveData: running name-scan fallback...");
     // Candidate singleton class names in priority order. CommonSaveData is the
     // real anchor (per LiveOffsets.typeInfoRva.commonSaveData comment);

@@ -956,7 +956,7 @@ describe("readRuntimeBoxOpenLog", () => {
     // High dword makes the full pointer a plausible heap addr. The String
     // object at STRING_OBJ is intentionally NOT seeded — readIl2CppString
     // reads length from uninitialized memory → null → returns null.
-    const STRING_OBJ = 0x0000_0001_15D9_5800n;
+    const STRING_OBJ = 0x0000_0001_15d9_5800n;
 
     m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
       .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
@@ -1460,13 +1460,10 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
     // Seed a STALE cache pointing at offsets that won't validate.
     pin.cachedHpOffsets = { cOff: 0x30, mOff: 0x3c };
 
-    const m = seedMonsterList(new FakeMemory(), [
-      { addr: 0xd00000n, current: 99, max: 100 },
-    ]);
+    const m = seedMonsterList(new FakeMemory(), [{ addr: 0xd00000n, current: 99, max: 100 }]);
     // Seed the stale-offset slots with garbage so the cached-pair read returns
     // values that fail validHpPair (current > maxHp*1.1).
-    m.writeF32(0xd00000n + 0x100n + 0x30n, 999)
-      .writeF32(0xd00000n + 0x100n + 0x3cn, 1);
+    m.writeF32(0xd00000n + 0x100n + 0x30n, 999).writeF32(0xd00000n + 0x100n + 0x3cn, 1);
 
     const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
     expect(r!.monsterHps).toEqual([[0xd00000, 99, 100]]);
@@ -1483,8 +1480,10 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
       .writePtr(MONSTER_LIST_OBJ + BigInt(O.container.listItems), MONSTER_ARR)
       .writeI32(MONSTER_LIST_OBJ + BigInt(O.container.listSize), 1);
     const monsterAddr = 0xd00000n;
-    m.writePtr(MONSTER_ARR + BigInt(O.container.arrayFirst), monsterAddr)
-      .writePtr(monsterAddr + 0xb0n, monsterAddr + 0x100n);
+    m.writePtr(MONSTER_ARR + BigInt(O.container.arrayFirst), monsterAddr).writePtr(
+      monsterAddr + 0xb0n,
+      monsterAddr + 0x100n,
+    );
     for (const [cOff, mOff] of [
       [0x40, 0x4c],
       [0x38, 0x44],

@@ -404,8 +404,7 @@ describe("LiveMemoryReader fallback version handling", () => {
 
     // Simulate the player entering a stage: next extractor run succeeds and
     // re-derives fresh v1.01.02 RVAs.
-    const derivedStageMgr =
-      offsetsForVersion("1.01.01")!.typeInfoRva.stageManager + 0x1000n;
+    const derivedStageMgr = offsetsForVersion("1.01.01")!.typeInfoRva.stageManager + 0x1000n;
     stubs.extracted = {
       ...DERIVED,
       gameVersion: "1.01.02",
@@ -439,8 +438,7 @@ describe("LiveMemoryReader fallback version handling", () => {
     // cause the extractor to re-run on every heal tick (CPU waste).
     stubs.version = "1.01.02";
     stubs.cached = null;
-    const derivedStageMgr =
-      offsetsForVersion("1.01.01")!.typeInfoRva.stageManager + 0x1000n;
+    const derivedStageMgr = offsetsForVersion("1.01.01")!.typeInfoRva.stageManager + 0x1000n;
     stubs.extracted = {
       ...DERIVED,
       gameVersion: "1.01.02",
@@ -474,5 +472,120 @@ describe("LiveMemoryReader fallback version handling", () => {
     const beforeCriticalResets = stubs.criticalResetCalls;
     reader.healOffsets();
     expect(stubs.criticalResetCalls).toBe(beforeCriticalResets);
+  });
+});
+
+// ── Disk cache reuse for bundled/fallback versions ───────────────────────
+// Pre-fix: the cache was only read when `offsetsForVersionMeta(version)`
+// returned null (unknown version). Bundled and fallback versions always
+// started from the bundled table, ignoring the persisted cache — so every
+// launch re-ran the ~8s extractor even though the previous session had
+// already persisted a complete merged table.
+// Post-fix: the cache is always consulted, and a more complete (or equally
+// complete but extractor-validated) cache wins over the bundled table.
+// Fallback versions whose cache already has derived critical RVAs no longer
+// force the critical path on every launch.
+describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () => {
+  // A complete cache for v1.00.21 (re-versioned COMPLETE fixture). Represents
+  // what the previous session would have persisted after a successful
+  // enrichment extraction filled the logManager gap in the bundled table.
+  const COMPLETE_V1_00_21: LiveOffsets = { ...COMPLETE, gameVersion: "1.00.21" };
+
+  it("skips extraction on a bundled version when cache is already complete", async () => {
+    // v1.00.21 is in the bundled table (INCOMPLETE — missing logManager), but
+    // the cache holds a fully complete table from a prior session. The cache
+    // must win and the extractor must NOT run.
+    stubs.version = "1.00.21";
+    stubs.cached = COMPLETE_V1_00_21;
+
+    const reader = await attachFresh();
+
+    expect(stubs.extractCalls).toBe(0);
+    expect(reader.supported).toBe(true);
+  });
+
+  it("prefers a more complete cache over the bundled table and runs enrichment only", async () => {
+    // v1.00.21 bundled table is INCOMPLETE (missing logManager + boxOpenLog).
+    // Cache has logManager filled but is still missing boxOpenLog → cache is
+    // strictly more complete than bundled, so cache wins. The extractor then
+    // runs in enrichment mode (not critical) to fill the remaining gap.
+    stubs.version = "1.00.21";
+    stubs.cached = {
+      ...INCOMPLETE,
+      gameVersion: "1.00.21",
+      typeInfoRva: { ...INCOMPLETE.typeInfoRva, logManager: 0x5e40000n },
+    };
+    stubs.extracted = DERIVED;
+
+    await attachFresh();
+
+    expect(stubs.extractCalls).toBe(1);
+    // Enrichment budget consumed, critical budget untouched.
+    expect(stubs.enrichmentRecordCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(0);
+  });
+
+  it("does NOT force critical path when fallback cache already has derived RVAs", async () => {
+    // v1.01.02 falls back to v1.01.01. The cache holds a prior session's
+    // merged result: `_fallbackFromVersion` is preserved (provenance), but
+    // critical RVAs (stageManager/stageCacheManager) have been overwritten
+    // with derived values that DIFFER from the v1.01.01 baseline. The reader
+    // must trust the cache and NOT force the critical path again — this is
+    // the key win: a fallback version's second launch skips the ~8s critical
+    // extraction.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    const derivedStageMgr = baseline.typeInfoRva.stageManager + 0x1000n;
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        stageManager: derivedStageMgr,
+        stageCacheManager: derivedStageMgr + 0x100n,
+      },
+    };
+
+    const reader = await attachFresh();
+
+    // Cache is complete → extractor skipped entirely.
+    expect(stubs.extractCalls).toBe(0);
+    expect(reader.supported).toBe(true);
+    // Not stale on baseline — derived RVAs are in place.
+    expect(reader.isCriticalStaleOnFallback).toBe(false);
+  });
+
+  it("forces critical path when fallback cache still has baseline RVAs", async () => {
+    // Defensive: if the cache somehow holds a fallback table whose critical
+    // RVAs still match the baseline (e.g. prior session's extractor failed
+    // before deriving critical anchors, but a partial cache was written by
+    // an older code path), the critical path must still be forced so the
+    // stale baseline gets re-derived. This guards against a stale cache
+    // silently keeping the reader on wrong RVAs forever.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    // Cache = baseline's critical RVAs (unchanged) + gameVersion re-versioned.
+    stubs.cached = {
+      ...baseline,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+    };
+    stubs.extracted = {
+      ...DERIVED,
+      gameVersion: "1.01.02",
+      typeInfoRva: {
+        ...DERIVED.typeInfoRva,
+        stageManager: baseline.typeInfoRva.stageManager + 0x1000n,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager + 0x100n,
+      },
+    };
+
+    await attachFresh();
+
+    // isCriticalStaleOnBaseline(cache)=true → forceCriticalPath=true →
+    // critical budget consumed (not enrichment).
+    expect(stubs.recordCalls).toBe(1);
+    expect(stubs.enrichmentRecordCalls).toBe(0);
   });
 });

@@ -132,9 +132,9 @@ export function isOffsetTableComplete(o: LiveOffsets): boolean {
 export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffsets {
   const derivedWins = !!base._fallbackFromVersion;
   const pickN = (b: number, d: number): number =>
-    derivedWins ? (d !== 0 ? d : b) : (b !== 0 ? b : d);
+    derivedWins ? (d !== 0 ? d : b) : b !== 0 ? b : d;
   const pickB = (b: bigint, d: bigint): bigint =>
-    derivedWins ? (d !== 0n ? d : b) : (b !== 0n ? b : d);
+    derivedWins ? (d !== 0n ? d : b) : b !== 0n ? b : d;
   return {
     ...base,
     typeInfoRva: {
@@ -184,10 +184,7 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       stage: {
         ...base.runtime.stage,
         currentCache: pickN(base.runtime.stage.currentCache, derived.runtime.stage.currentCache),
-        cacheInfoData: pickN(
-          base.runtime.stage.cacheInfoData,
-          derived.runtime.stage.cacheInfoData,
-        ),
+        cacheInfoData: pickN(base.runtime.stage.cacheInfoData, derived.runtime.stage.cacheInfoData),
         stageKey: pickN(base.runtime.stage.stageKey, derived.runtime.stage.stageKey),
         waveAmount: pickN(base.runtime.stage.waveAmount, derived.runtime.stage.waveAmount),
         runtimeWave: pickN(base.runtime.stage.runtimeWave, derived.runtime.stage.runtimeWave),

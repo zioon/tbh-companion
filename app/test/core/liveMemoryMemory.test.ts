@@ -28,9 +28,7 @@ describe("readPtrArray", () => {
     // No bulk buffer at 0x2000 — only individual pointers at 0x2000/0x2008.
     // This is the FakeMemory pattern used by liveMemoryRuntime tests today:
     // each pointer is seeded with writePtr(slot, val) at its own address.
-    const m = new FakeMemory()
-      .writePtr(0x2000n, 0xaa0000n)
-      .writePtr(0x2008n, 0xbb0000n);
+    const m = new FakeMemory().writePtr(0x2000n, 0xaa0000n).writePtr(0x2008n, 0xbb0000n);
 
     const out = readPtrArray(m, 0x2000n, 2);
     expect(out).toEqual([0xaa0000n, 0xbb0000n]);
