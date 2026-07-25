@@ -189,11 +189,28 @@ export function readRuntimeGold(
 // AggregateSaveData list. SubKey 1 = COMBAT (pure combat gold, excludes sales/idle/quest).
 // This is more accurate than wallet balance (CurrencyManager) which includes gear sales.
 // Ported from tbh-meter/reader/metrics/gold.py -> combat_gold_save.
+//
+// Per-reader pin (combat gold entry pointer cached across ticks): the
+// AggregateSaveData list is small but the previous implementation walked it
+// every tick (up to 2000 entries × 2-3 reads = 4-6k IPC calls per tick).
+// The combat-gold entry is stable across a session — cache its index once.
+export interface CombatGoldPinState {
+  /** Cached list pointer + entry index, or null when not yet located. */
+  listPtr: bigint | null;
+  arrPtr: bigint | null;
+  /** Cached index of the GoldEarn[SubKey=1] entry within the list. */
+  entryIndex: number;
+}
+export function makeCombatGoldPinState(): CombatGoldPinState {
+  return { listPtr: null, arrPtr: null, entryIndex: -1 };
+}
+
 export function readRuntimeCombatGold(
   reader: MemoryReader,
   gaBase: bigint,
   gaSize: number,
   o: LiveOffsets,
+  pin?: CombatGoldPinState,
 ): number | null {
   if (o.player.aggregates === 0) return null; // offset not yet derived
 
@@ -221,6 +238,31 @@ export function readRuntimeCombatGold(
 
   const first = arrPtr + BigInt(STRUCT_CONTAINER.arrayFirst);
 
+  // Fast path: try the cached entry index. The list pointer must match (GC
+  // may rebuild the list) and the cached index must still be in range. Even
+  // with caching, we re-validate type/subKey so a stale index into a
+  // reshuffled list doesn't return garbage.
+  if (pin != null && pin.listPtr === listPtr && pin.arrPtr === arrPtr && pin.entryIndex >= 0) {
+    if (pin.entryIndex < count) {
+      const entryPtr = readPtr(reader, first + BigInt(pin.entryIndex * 8));
+      if (entryPtr != null) {
+        const type = readI32(reader, entryPtr + 0x10n);
+        const subKey = readI32(reader, entryPtr + 0x14n);
+        if (type === 2 && subKey === 1) {
+          const value = readI64(reader, entryPtr + 0x18n);
+          if (value != null) {
+            const v = Number(value);
+            if (plausibleGold(v) && v > 0) return v;
+          }
+        }
+      }
+    }
+    // Cached entry no longer valid — fall through to full scan.
+    pin.listPtr = null;
+    pin.arrPtr = null;
+    pin.entryIndex = -1;
+  }
+
   // AggregateSaveData: TYPE@0x10 (int), SUB_KEY@0x14 (int), VALUE@0x18 (long)
   // Find GoldEarn(2) with SubKey=1 (COMBAT)
   for (let i = 0; i < count; i++) {
@@ -236,6 +278,12 @@ export function readRuntimeCombatGold(
     const value = readI64(reader, entryPtr + 0x18n);
     if (value == null) return null;
     const v = Number(value);
+    // Cache the located entry so subsequent ticks skip the full scan.
+    if (pin != null) {
+      pin.listPtr = listPtr;
+      pin.arrPtr = arrPtr;
+      pin.entryIndex = i;
+    }
     return plausibleGold(v) && v > 0 ? v : null;
   }
   return null;
@@ -250,11 +298,14 @@ function byteswap12(v: number): number {
   );
 }
 
-/** Reinterpret a uint32 bit pattern as an IEEE-754 float32. */
+/** Reinterpret a uint32 bit pattern as an IEEE-754 float32.
+ *  Uses a module-level DataView to avoid allocating an ArrayBuffer on every
+ *  call — this is on the per-hero hot path (each hero's exp decode calls it). */
+const _F32_BUF = new ArrayBuffer(4);
+const _F32_VIEW = new DataView(_F32_BUF);
 function u32ToF32(bits: number): number {
-  const dv = new DataView(new ArrayBuffer(4));
-  dv.setUint32(0, bits >>> 0, true);
-  return dv.getFloat32(0, true);
+  _F32_VIEW.setUint32(0, bits >>> 0, true);
+  return _F32_VIEW.getFloat32(0, true);
 }
 
 /** Decode an ACTk ObscuredInt to a signed int32: `(hidden - key) ^ key`. */
@@ -288,15 +339,17 @@ function byteswap8(v: bigint): bigint {
 
 /** Decode an ACTk ObscuredDouble to a float64: `f64(key ^ byteswap8(hidden))`.
  *  hidden/key are unsigned 64-bit values read via readU64.
- *  Ported from tbh-meter's game/obscured.py -> decode_obscured_double. */
+ *  Ported from tbh-meter's game/obscured.py -> decode_obscured_double.
+ *  Uses a module-level DataView — this is on the per-hero hot path (v1.00.27+
+ *  heroes have ObscuredDouble exp). */
+const _F64_BUF = new ArrayBuffer(8);
+const _F64_VIEW = new DataView(_F64_BUF);
 function decodeObscuredDouble(hidden: bigint | null, key: bigint | null): number | null {
   if (hidden == null || key == null) return null;
   const bits = (key ^ byteswap8(hidden)) & 0xffffffffffffffffn;
   // Reinterpret bigint bits as float64
-  const buf = new ArrayBuffer(8);
-  const view = new DataView(buf);
-  view.setBigUint64(0, bits, true);
-  return view.getFloat64(0, true);
+  _F64_VIEW.setBigUint64(0, bits, true);
+  return _F64_VIEW.getFloat64(0, true);
 }
 
 // ── Heroes (StageManager.HeroList → Hero[] → Unit.cache → HeroRuntime) ────────
@@ -1005,9 +1058,11 @@ function readBoxOpenLogField(
   if (raw != null && raw >= 0) return raw;
 
   // Negative or null: try ObscuredInt decode (hiddenValue + currentCryptoKey).
-  const hidden = readI32(reader, entryPtr + BigInt(offset));
+  // Reuse the already-read `raw` as the hidden value instead of re-reading the
+  // same offset — previously this performed a second readBytes for the same 4
+  // bytes, doubling IPC calls per box-open entry.
   const key = readI32(reader, entryPtr + BigInt(offset + 4));
-  return decodeObscuredInt(hidden, key);
+  return decodeObscuredInt(raw, key);
 }
 
 // ── Inventory (PlayerSaveData.itemSaveDatas → ItemSaveData entries) ───────────
@@ -1248,10 +1303,14 @@ function resolveMonsterSpawnManager(
   o: LiveOffsets,
   pin: MonsterSpawnPinState,
 ): bigint | null {
-  // Fast path: cached pin (may be set by name-scan fallback in liveReader)
-  if (pin.ptr != null) return pin.ptr;
-  if (o.typeInfoRva.monsterSpawnManager === 0n) return null;
+  // Fast path: cached pin (may be set by name-scan fallback in liveReader).
+  // Re-validate liveness each tick — unlike Stage/LogManager, monster spawn
+  // state changes between scenes and GC may move the singleton. Previously
+  // the pin was never re-validated, so a stale pointer kept returning garbage
+  // HP data for the rest of the session.
+  if (pin.ptr != null && isValidMonsterManager(reader, pin.ptr, o)) return pin.ptr;
   pin.ptr = null;
+  if (o.typeInfoRva.monsterSpawnManager === 0n) return null;
 
   const klass = resolveClassPtr(reader, gaBase, gaSize, o.typeInfoRva.monsterSpawnManager);
   if (klass == null) return null;
@@ -1264,7 +1323,7 @@ function resolveMonsterSpawnManager(
       if (block != null && block > 0x10000n && block < 0x7ff0_0000_0000n) {
         const bbwf = readPtr(reader, block);
         if (bbwf != null && bbwf > 0x10000n && bbwf < 0x7ff0_0000_0000n) {
-          if (isValidMonsterManager(reader, bbwf)) {
+          if (isValidMonsterManager(reader, bbwf, o)) {
             pin.ptr = bbwf;
             return bbwf;
           }
@@ -1288,7 +1347,7 @@ function resolveMonsterSpawnManager(
     const cand = readPtr(reader, block + BigInt(off));
     if (cand == null) continue;
     if (cand !== 0n && cand > 0x10000n && cand < 0x7ff0_0000_0000n) {
-      if (isValidMonsterManager(reader, cand)) {
+      if (isValidMonsterManager(reader, cand, o)) {
         pin.ptr = cand;
         return cand;
       }
@@ -1298,9 +1357,13 @@ function resolveMonsterSpawnManager(
 }
 
 /** Check that a candidate MonsterSpawnManager instance has at least one valid monster list.
- *  Reads monsterList@0x28 — must be non-null and point at a valid list with non-zero count. */
-function isValidMonsterManager(reader: MemoryReader, inst: bigint): boolean {
-  const listPtr = readPtr(reader, inst + 0x28n); // MONSTER_LIST
+ *  Uses the same `monsterList` offset the reader uses (`o.runtime.monster.monsterList`,
+ *  defaulting to 0x28 when not derived) — previously hardcoded 0x28, which could
+ *  diverge from the reader's actual offset on versions where the extractor
+ *  derived a different value. */
+function isValidMonsterManager(reader: MemoryReader, inst: bigint, o: LiveOffsets): boolean {
+  const monsterListOff = o.runtime.monster.monsterList > 0 ? o.runtime.monster.monsterList : 0x28;
+  const listPtr = readPtr(reader, inst + BigInt(monsterListOff));
   if (listPtr == null || listPtr <= 0x10000n || listPtr >= 0x7ff0_0000_0000n) return false;
   // Verify it has a non-empty backing array with sane count
   const arr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
@@ -1330,12 +1393,24 @@ function readMonsterHp(
 
   const hc = readPtr(reader, monsterPtr + BigInt(hcOff));
   if (hc == null || hc <= 0x10000n || hc >= 0x7ff0_0000_0000n) return null;
-  return probeHealthController(reader, hc);
+  return probeHealthController(reader, hc, o);
 }
 
-/** Try multiple known HP offset pairs within a controller struct. */
-function probeHealthController(reader: MemoryReader, ctrlPtr: bigint): [number, number] | null {
-  for (const [cOff, mOff] of HC_PROBE_PAIRS) {
+/** Try multiple known HP offset pairs within a controller struct.
+ *  Prefers the configured `hpCurrent`/`hpMax` offsets when both are non-zero —
+ *  previously it ignored them and only used the hardcoded probe pairs, which
+ *  silently broke HP reads on any version whose offsets didn't match a pair. */
+function probeHealthController(
+  reader: MemoryReader,
+  ctrlPtr: bigint,
+  o: LiveOffsets,
+): [number, number] | null {
+  const pairs: [number, number][] = [];
+  if (o.runtime.monster.hpCurrent > 0 && o.runtime.monster.hpMax > 0) {
+    pairs.push([o.runtime.monster.hpCurrent, o.runtime.monster.hpMax]);
+  }
+  pairs.push(...HC_PROBE_PAIRS);
+  for (const [cOff, mOff] of pairs) {
     const current = readF32(reader, ctrlPtr + BigInt(cOff));
     const maxHp = readF32(reader, ctrlPtr + BigInt(mOff));
     if (current != null && maxHp != null && Number.isFinite(current) && Number.isFinite(maxHp)) {

@@ -111,6 +111,14 @@ function pickB(base: bigint, derived: bigint): bigint {
  * Fill the base table's missing (zero) fields from the derived table, keeping
  * every already-present base value. Structural constants stay from `base`.
  * Same-version merge: base values are trusted; the extractor only fills gaps.
+ *
+ * NOTE: every nested runtime sub-object must be merged explicitly. Earlier
+ * versions only merged a subset (heroList / log / getBoxLog / boxOpenLog /
+ * stageClearLog / monster) and left `runtime.stage`, `runtime.currency`,
+ * `runtime.currencyInfoKey` taken wholesale from `base`. That silently
+ * discarded extractor-derived values for `runtime.stage.currentCache` (which
+ * the extractor can move on versions where StageCache sits at a different
+ * offset than the bundled 0x88), `runtime.currency.{list,dict,…}`, etc.
  */
 export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffsets {
   return {
@@ -134,6 +142,7 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       ...base.player,
       petSaveDatas: pickN(base.player.petSaveDatas, derived.player.petSaveDatas),
       itemSaveDatas: pickN(base.player.itemSaveDatas, derived.player.itemSaveDatas),
+      aggregates: pickN(base.player.aggregates, derived.player.aggregates),
     },
     petSaveData: {
       petKey: pickN(base.petSaveData.petKey, derived.petSaveData.petKey),
@@ -145,6 +154,31 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
     },
     runtime: {
       ...base.runtime,
+      currency: {
+        ...base.runtime.currency,
+        list: pickN(base.runtime.currency.list, derived.runtime.currency.list),
+        dict: pickN(base.runtime.currency.dict, derived.runtime.currency.dict),
+        entryInfoData: pickN(
+          base.runtime.currency.entryInfoData,
+          derived.runtime.currency.entryInfoData,
+        ),
+        entryObscuredQty: pickN(
+          base.runtime.currency.entryObscuredQty,
+          derived.runtime.currency.entryObscuredQty,
+        ),
+      },
+      stage: {
+        ...base.runtime.stage,
+        currentCache: pickN(base.runtime.stage.currentCache, derived.runtime.stage.currentCache),
+        cacheInfoData: pickN(
+          base.runtime.stage.cacheInfoData,
+          derived.runtime.stage.cacheInfoData,
+        ),
+        stageKey: pickN(base.runtime.stage.stageKey, derived.runtime.stage.stageKey),
+        waveAmount: pickN(base.runtime.stage.waveAmount, derived.runtime.stage.waveAmount),
+        runtimeWave: pickN(base.runtime.stage.runtimeWave, derived.runtime.stage.runtimeWave),
+      },
+      currencyInfoKey: pickN(base.runtime.currencyInfoKey, derived.runtime.currencyInfoKey),
       heroList: pickN(base.runtime.heroList, derived.runtime.heroList),
       log: {
         ...base.runtime.log,
@@ -181,6 +215,8 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
           base.runtime.boxOpenLog?.gradeSOGrade ?? 0,
           derived.runtime.boxOpenLog.gradeSOGrade,
         ),
+        boxType: pickN(base.runtime.boxOpenLog?.boxType ?? 0, derived.runtime.boxOpenLog.boxType),
+        level: pickN(base.runtime.boxOpenLog?.level ?? 0, derived.runtime.boxOpenLog.level),
       },
       stageClearLog: {
         ...base.runtime.stageClearLog,

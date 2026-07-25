@@ -15,7 +15,7 @@
 //     scheduler stops hammering a version that will never succeed on its own,
 //     but resumes the moment the precondition becomes true.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { EXTRACTOR_REVISION } from "./offsetExtractor";
 
@@ -62,7 +62,13 @@ function readEnrichmentMarker(dir: string, version: string): AttemptMarker | nul
 
 function writeMarkerFile(path: string, marker: AttemptMarker): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(marker), "utf-8");
+  // Atomic write: write tmp file then rename. A direct writeFileSync can leave
+  // a half-written JSON when the process crashes mid-write (or when AV software
+  // locks the file), which would silently fail to parse on next launch —
+  // repeatedly re-running the 8s extractor each session.
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, JSON.stringify(marker), "utf-8");
+  renameSync(tmp, path);
 }
 
 function effectiveAttempts(marker: AttemptMarker | null, appBuild: string): number {

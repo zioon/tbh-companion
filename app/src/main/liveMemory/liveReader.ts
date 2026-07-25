@@ -31,6 +31,7 @@ import {
 import {
   makeBoxOpenPinState,
   makeChestLogPinState,
+  makeCombatGoldPinState,
   makeGoldPinState,
   makeMonsterSpawnPinState,
   makeSmPinState,
@@ -49,6 +50,7 @@ import {
   resolveStageManager,
   type BoxOpenPinState,
   type ChestLogPinState,
+  type CombatGoldPinState,
   type GoldPinState,
   type MonsterSpawnPinState,
   type SmPinState,
@@ -113,6 +115,7 @@ export class LiveMemoryReader {
   private offsets: LiveOffsets | null = null;
   private offsetSource: OffsetResolutionSource = "none";
   private goldPin: GoldPinState = makeGoldPinState();
+  private combatGoldPin: CombatGoldPinState = makeCombatGoldPinState();
   private smPin: SmPinState = makeSmPinState();
   private chestPin: ChestLogPinState = makeChestLogPinState();
   private stageClearPin: StageClearPinState = makeStageClearPinState();
@@ -410,20 +413,26 @@ export class LiveMemoryReader {
       if (mayExtract) {
         // Catalog-dump mode does not consume the attempt budget — it is a
         // diagnostic run, not a real extraction attempt.
-        if (!forceExtractForCatalogDump) {
-          if (!isSupported) recordExtractionAttempt(cacheDir, version, appBuild);
-          else recordEnrichmentAttempt(cacheDir, version, appBuild);
-        }
+        // Budget is recorded AFTER a successful extraction (previously it was
+        // recorded before, so an extractor throw or null return still consumed
+        // the attempt — 3 such failures permanently disabled the extractor).
         this.log(
           isSupported
-            ? `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`
-            : `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})`,
+            ? `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild) + 1}/${MAX_ENRICHMENT_ATTEMPTS})`
+            : `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild) + 1}/${MAX_EXTRACTION_ATTEMPTS})`,
         );
         const derived = extractOffsets(proc, ga, version, (msg) => this.log(msg), isSupported);
         // Catalog dump completes after one extractor run regardless of outcome
         // (the dump fires inside extractOffsets when the env var is set).
         if (forceExtractForCatalogDump) catalogDumpDone = true;
         if (derived) {
+          // Successful extraction — record the attempt so the budget reflects
+          // a real (productive) run. Failed extractions (null / throw) do not
+          // consume the budget, leaving room for retries.
+          if (!forceExtractForCatalogDump) {
+            if (!isSupported) recordExtractionAttempt(cacheDir, version, appBuild);
+            else recordEnrichmentAttempt(cacheDir, version, appBuild);
+          }
           const merged = base ? mergeOffsets(base, derived.offsets) : derived.offsets;
           saveCachedOffsets(cacheDir, merged);
           const mergedSource: OffsetResolutionSource = base ? "merged" : "extracted";
@@ -483,6 +492,7 @@ export class LiveMemoryReader {
     this.playerPtr = null;
     this.classIndex = null;
     this.goldPin = makeGoldPinState();
+    this.combatGoldPin = makeCombatGoldPinState();
     this.smPin = makeSmPinState();
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
@@ -640,7 +650,7 @@ export class LiveMemoryReader {
       // Combat gold (AggregateSaveData GoldEarn[SubKey=1]) — pure combat earnings.
       // Falls back to wallet balance (CurrencyManager) when aggregate offset unavailable.
       gold:
-        readRuntimeCombatGold(p, ga.base, ga.size, o) ??
+        readRuntimeCombatGold(p, ga.base, ga.size, o, this.combatGoldPin) ??
         readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
       heroes: heroesResult.heroes,
       heroesStatus,

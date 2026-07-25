@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import koffi from "koffi";
 import type { MemoryReader } from "../../core/liveMemory/memory";
+import { BufferPool } from "./bufferPool";
 
 const kernel32 = koffi.load("kernel32.dll");
 
@@ -156,6 +157,16 @@ export class WinProcess implements MemoryReader {
   readonly pid: number;
   readonly name: string;
   private handle: unknown;
+  /**
+   * Per-process buffer pool for {@link readBytes}. Reuses Buffers across the
+   * 25 Hz read loop and the 4 MiB-chunk memory scanner so V8 GC isn't flooded
+   * by millions of allocations/sec. Single-threaded utilityProcess → no lock.
+   * Note: returned Buffers are NOT released back to the pool by callers (they
+   * may be held by parsers); the pool only helps when successive reads of the
+   * same size reuse freshly-acquired buffers that were released here on short
+   * reads or never made it out.
+   */
+  private readonly bufPool = new BufferPool();
 
   private constructor(pid: number, name: string, handle: unknown) {
     this.pid = pid;
@@ -364,14 +375,37 @@ export class WinProcess implements MemoryReader {
   }
 
   readBytes(address: bigint, size: number): Buffer | null {
+    if (isInvalidHandle(this.handle)) return null;
     winProcessStats.readBytesCalls++;
     winProcessStats.readBytesBytes += size;
-    const buf = Buffer.alloc(size);
+    // Use allocUnsafe + pool reuse instead of Buffer.alloc (which zero-fills
+    // every call). The 25 Hz read loop + 4 MiB chunk scanner would otherwise
+    // generate millions of zero-fill allocations per second, overwhelming V8
+    // GC. Callers always check length or read within bounds, so uninitialized
+    // memory is never observed (ReadProcessMemory overwrites the whole buffer
+    // on success).
+    const buf = this.bufPool.acquire(size);
     const outLen = [0n];
     const ok = ReadProcessMemory(this.handle, address, buf, BigInt(size), outLen);
-    if (!ok) return null;
+    if (!ok) {
+      this.bufPool.release(buf);
+      return null;
+    }
     const read = Number(outLen[0]);
-    return read === size ? buf : buf.subarray(0, read);
+    if (read === size) return buf;
+    if (read === 0) {
+      this.bufPool.release(buf);
+      return null;
+    }
+    // Short read: return a subarray view of the actually-read bytes. The
+    // underlying ArrayBuffer stays alive with the full `size` capacity, but
+    // callers only see `read` bytes. Previously this returned
+    // `buf.subarray(0, read)` directly, which caused RangeError in callers
+    // doing `readBigUInt64LE()` / `readInt32LE()` when `read < 8`/`< 4` —
+    // crashing the worker loop and forcing a detach. Return null instead so
+    // helpers like readPtr/readI32 fall through to their null paths.
+    this.bufPool.release(buf);
+    return null;
   }
 }
 

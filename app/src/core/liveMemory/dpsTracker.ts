@@ -11,7 +11,6 @@ export class DpsTracker {
   private damageSamples: Array<[number, number]> = [];
   /** Session-cumulative damage (never resets). */
   sessionDamage = 0;
-  peakDps = 0;
   /** Session-cumulative mobs killed (never resets). */
   sessionMobsKilled = 0;
   private lastDeadCount: number | null = null;
@@ -117,10 +116,6 @@ export class DpsTracker {
     if (damageThisFrame > 0 && Number.isFinite(damageThisFrame)) {
       this.damageSamples.push([timestamp, damageThisFrame]);
       this.sessionDamage += damageThisFrame;
-
-      if (this.dps > this.peakDps) {
-        this.peakDps = this.dps;
-      }
     }
 
     // Track mob kills from dead monster count delta
@@ -132,9 +127,12 @@ export class DpsTracker {
           this.killTotal += delta;
           this.killSamples.push([timestamp, this.killTotal]);
 
-          // Prune samples outside the 60s KPM window
+          // Prune samples outside the 60s KPM window. Use `> 1` (not `> 2`)
+          // so the window keeps exactly one boundary sample at each end —
+          // keeping two old samples left the boundary sample stuck forever
+          // once the array shrank to length 2, making KPM span hours.
           const kpmCutoff = timestamp - DpsTracker.KPM_WINDOW_SECONDS;
-          while (this.killSamples.length > 2 && this.killSamples[0][0] < kpmCutoff) {
+          while (this.killSamples.length > 1 && this.killSamples[0][0] < kpmCutoff) {
             this.killSamples.shift();
           }
         }
@@ -152,12 +150,14 @@ export class DpsTracker {
 
   /** Called when entering a new map (stage). Defers the per-map counter reset
    *  by a few seconds so the UI can display the final damage value before it
-   *  zeroes out. The actual reset happens inside update() once the delay expires. */
-  beginMap(): void {
+   *  zeroes out. The actual reset happens inside update() once the delay expires.
+   *  Optional `timestamp` lets callers inject the same clock used for `update`
+   *  (snap.at / 1000) — defaults to `Date.now()/1000` for back-compat. */
+  beginMap(timestamp: number = Date.now() / 1000): void {
     this._wavesCleared = 0;
     this._wasAlive = false;
     this._pendingMapReset = {
-      delayUntil: Date.now() / 1000 + DpsTracker.MAP_RESET_DELAY_SECONDS,
+      delayUntil: timestamp + DpsTracker.MAP_RESET_DELAY_SECONDS,
       damageBase: this.sessionDamage,
       killsBase: this.sessionMobsKilled,
     };
@@ -201,18 +201,23 @@ export class DpsTracker {
     return total / this.windowSeconds;
   }
 
-  /** Kills Per Minute (KPM) over a 60-second rolling window. */
+  /** Kills Per Minute (KPM) over a 60-second rolling window.
+   *  Computed as (kills_in_window / window_span_seconds) * 60 — previously
+   *  this divided by 1 (returning raw kill count), which only happened to be
+   *  right when the window was exactly 60s long. For shorter windows it
+   *  drastically understated the rate. */
   get kpm(): number {
     if (this.killSamples.length < 2) return 0;
-    const k0 = this.killSamples[0][1];
-    const k1 = this.killSamples[this.killSamples.length - 1][1];
-    return (k1 - k0) / 1;
+    const [t0, k0] = this.killSamples[0];
+    const [t1, k1] = this.killSamples[this.killSamples.length - 1];
+    const dt = t1 - t0;
+    if (dt <= 0) return 0;
+    return ((k1 - k0) / dt) * 60;
   }
 
   reset(): void {
     this.damageSamples = [];
     this.sessionDamage = 0;
-    this.peakDps = 0;
     this.sessionMobsKilled = 0;
     this.lastDeadCount = null;
     this.lastHp.clear();

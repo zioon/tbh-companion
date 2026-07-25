@@ -33,6 +33,15 @@ const log = createLogger("tracking");
 
 /** Live-memory frames arrive at ~25 Hz; the UI doesn't need a broadcast that often. */
 const LIVE_BROADCAST_INTERVAL_MS = 200;
+/**
+ * Freshness window for `lastLiveFrame`. The worker produces a frame every ~40 ms
+ * while attached; if no frame has arrived for this long, treat the cached frame
+ * as stale and clear it so `buildStats`/`dpsTracker` fall back to save values.
+ * Without this, a worker crash leaves the last frame cached with `connected=true`
+ * forever — stage/wave/DPS freeze on the pre-crash value (heroes self-heal via
+ * `tracker.xpLiveActive()` 5s timeout, but stage/DPS had no such guard).
+ */
+const LIVE_FRAME_FRESH_MS = 5000;
 
 export class TrackingService {
   private tracker!: XpTracker;
@@ -174,6 +183,19 @@ export class TrackingService {
       // queue pruning and prompt timeouts stay accurate even when stats pushes
       // are suppressed by the live-memory throttle.
       this.autoClassify?.tick();
+      // Stale-frame guard: if the live-memory worker crashed or stalled, the
+      // last received frame stays cached with `connected=true` and `buildStats`
+      // keeps serving its (now stale) stage/wave/DPS values forever. Heroes
+      // self-heal via `tracker.xpLiveActive()` 5s timeout, but stage/DPS had
+      // no such guard — clear the cached frame once it's older than the
+      // freshness window so stats fall back to save values.
+      if (
+        this.lastLiveFrame != null &&
+        Date.now() - this.lastLiveFrame.at > LIVE_FRAME_FRESH_MS
+      ) {
+        this.lastLiveFrame = null;
+        this.lastLiveStage = null;
+      }
       // Skip the redundant push if a live-memory frame already broadcast recently —
       // avoids the 1 Hz safety-net tick doubling up with the ~5 Hz live broadcast.
       if (Date.now() - this.lastLiveBroadcastMs < LIVE_BROADCAST_INTERVAL_MS) return;
