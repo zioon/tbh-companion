@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Gewöhnliche Truhe",
+    "rare": "Stufen-Truhe",
+    "act": "Aktboss-Truhe",
+    "unclassified": "Nicht klassifiziert"
+  },
+  "levelSuffix": "{{base}} St.{{level}}"
+}

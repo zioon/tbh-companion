@@ -4,7 +4,7 @@ import { LuCheck, LuChevronDown, LuX } from "react-icons/lu";
 import { cn } from "../../lib/variants";
 import { Tooltip } from "../Tooltip/Tooltip";
 
-export type MultiSelectOption = { value: string; label: string };
+export type MultiSelectOption = { value: string; label: string; color?: string };
 export type MultiSelectGroup = { label: string; options: MultiSelectOption[] };
 
 type ComboGroup = { value: string; items: MultiSelectOption[] };
@@ -15,9 +15,24 @@ function isGrouped(
   return options.length > 0 && "options" in options[0];
 }
 
-function defaultSummary(selected: MultiSelectOption[], allLabel: string): string {
+function defaultSummary(selected: MultiSelectOption[], allLabel: string): ReactNode {
   if (selected.length === 0) return allLabel;
-  if (selected.length === 1) return selected[0].label;
+  if (selected.length === 1) {
+    const opt = selected[0];
+    if (opt.color) {
+      return (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span
+            className="size-[9px] shrink-0 rounded-full"
+            style={{ background: opt.color }}
+            aria-hidden
+          />
+          <span className="truncate">{opt.label}</span>
+        </span>
+      );
+    }
+    return opt.label;
+  }
   return `${selected.length} selected`;
 }
 
@@ -46,7 +61,7 @@ export function MultiSelect({
   label?: ReactNode;
   searchable?: boolean;
   allLabel?: string;
-  summarize?: (selected: MultiSelectOption[]) => string;
+  summarize?: (selected: MultiSelectOption[]) => ReactNode;
   disabled?: boolean;
   className?: string;
   title?: string;
@@ -90,6 +105,13 @@ export function MultiSelect({
           <LuCheck aria-hidden />
         </Combobox.ItemIndicator>
       </span>
+      {option.color ? (
+        <span
+          className="size-[9px] shrink-0 rounded-full"
+          style={{ background: option.color }}
+          aria-hidden
+        />
+      ) : null}
       <span className="min-w-0 truncate">{option.label}</span>
     </Combobox.Item>
   );

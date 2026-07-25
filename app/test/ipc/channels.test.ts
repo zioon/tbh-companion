@@ -195,6 +195,7 @@ describe("IPC channel registry", () => {
   it("registers the catalog channels in the correct registries", () => {
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.CATALOG_REFRESH);
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_CATALOG_STATUS);
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_LOCALE_DATA);
     expect(IPC_PUSH_CHANNELS).toContain(IPC.CATALOG_STATUS);
   });
 });

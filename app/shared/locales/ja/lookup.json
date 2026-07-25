@@ -86,8 +86,8 @@
     "firstDropOnly": "初回クリアのみ",
     "firstDropOnlySuffix": "· {{label}}",
     "categoryCommon": "一般宝箱",
-    "categoryStageBoss": "ステージボス宝箱",
-    "categoryActBoss": "章ボス宝箱",
+    "categoryStageBoss": "ステージ宝箱",
+    "categoryActBoss": "アクトボス宝箱",
     "categoryDefault": "宝箱",
     "stageRanges": "ステージ範囲",
     "dropSources": "ドロップ元",
@@ -110,6 +110,7 @@
     "noLootMatchFilters": "これらのフィルターに一致する戦利品はありません。",
     "viaMonsterKill": "モンスター撃破",
     "viaStageBossKill": "ステージボス撃破",
-    "viaActBossKill": "章ボス撃破"
+    "viaActBossKill": "章ボス撃破",
+    "levelSuffix": "{{base}} Lv{{level}}"
   }
 }

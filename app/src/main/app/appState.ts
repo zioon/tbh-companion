@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, type OpenDialogOptions } from "electron";
 import { dirname } from "node:path";
 
 import {
@@ -44,26 +44,66 @@ import { isAppQuitting, rebuildTrayMenu } from "../tray/trayService";
 import { applyWindowTopmost } from "../windows/alwaysOnTop";
 import { changeLanguage, readGameLanguage, t } from "../i18n";
 import { resolveLanguage, type ResolvedLanguage } from "../../../shared/language";
+import { loadLocaleCatalog, mergeGameLocaleIntoCatalog } from "../../core/localeCatalog";
 
 let config: AppConfig;
 
 /**
- * 包装 normalizeConfigFromRaw，注入运行时派生字段 `resolvedLanguage`。
- * 仅当 config.language === "game" 时填充（从游戏注册表读取）；其它情况下
- * 字段为 undefined，渲染进程会自行用 resolveLanguage(cfg.language, navigator.language)
- * 推断。
+ * 包装 normalizeConfigFromRaw，注入运行时派生字段 `resolvedLanguage` 与
+ * `stageMetadata`。`resolvedLanguage` 仅当 config.language === "game" 时填充
+ * （从游戏注册表读取）；其它情况下字段为 undefined，渲染进程会自行用
+ * resolveLanguage(cfg.language, navigator.language) 推断。
+ *
+ * `stageMetadata` 在每次调用时都填充（stageKey → 本地化关卡名），供渲染
+ * 进程的 `boxLootFilters` 文本匹配使用（无需自己重新读取 catalog）。
  *
  * 主进程读注册表是因为渲染进程没有 reg.exe 访问权限；通过现有的 getConfig
  * IPC 返回值传递，无需新增 IPC 通道。
  */
 function getConfigWithRuntime(): AppConfig {
   const base = normalizeConfigFromRaw(config);
-  if (base.language !== "game") return base;
-  const gameLang = readGameLanguage();
-  if (!gameLang) return base;
-  // gameLang 非 null 时 resolveLanguage 不会用到 systemLocale，传空串即可。
-  const resolved: ResolvedLanguage = resolveLanguage(base.language, "", gameLang);
-  return { ...base, resolvedLanguage: resolved };
+  // 计算解析后的语言：game 模式读注册表（失败则回退到 system locale）；
+  // auto 模式按 system locale 推断；具体语言直接使用其本身。该值既用于
+  // 填充 `resolvedLanguage`（仅 game 模式），也用于加载 LocaleCatalog。
+  const gameLang = base.language === "game" ? readGameLanguage() : null;
+  const systemLocale = safeGetSystemLocale();
+  const resolved: ResolvedLanguage = resolveLanguage(base.language, systemLocale, gameLang);
+
+  // 构建 stageMetadata：catalog.stages 的 key 是 "1<act><stage>" 4 位数（前置
+  // "1" 固定为 NORMAL 难度），同一 act/stage 在 4 个难度下共用同一本地化名。
+  // 对每个 catalog 条目展开成 4 个 stageKey，覆盖所有用户可能用到的过滤目标。
+  const catalog = loadLocaleCatalog(resolved);
+  const stageMetadata: Record<number, string> = {};
+  for (const [catalogKey, name] of Object.entries(catalog.stages)) {
+    if (catalogKey.length !== 4) continue;
+    const act = catalogKey.charCodeAt(1) - 48;
+    const stage = parseInt(catalogKey.slice(2), 10);
+    if (!Number.isFinite(act) || !Number.isFinite(stage)) continue;
+    for (let diff = 1; diff <= 4; diff++) {
+      const stageKey = diff * 1000 + act * 100 + stage;
+      stageMetadata[stageKey] = name;
+    }
+  }
+
+  // 沿用既有语义：只有当 language === "game" 且注册表读取成功时才回填
+  // resolvedLanguage，其它情况让渲染进程自行解析。
+  if (base.language === "game" && gameLang) {
+    return { ...base, resolvedLanguage: resolved, stageMetadata };
+  }
+  return { ...base, stageMetadata };
+}
+
+/**
+ * `app.getLocale()` 在 app.whenReady() 之前会抛错；此处兜底返回 "en-US"。
+ * 与 i18n.ts 中的 safeGetLocale 行为一致，用于 `getConfigWithRuntime` 在
+ * 启动早期被调用时（理论上不会发生，但兜底以防崩溃）。
+ */
+function safeGetSystemLocale(): string {
+  try {
+    return app.getLocale();
+  } catch {
+    return "en-US";
+  }
 }
 
 const sessionState = new SessionStateService();
@@ -80,6 +120,7 @@ const catalogRefresh = new CatalogRefreshService(
   liveMemory,
   resolveUserDataDir(),
   (channel, payload) => broadcast(channel, payload),
+  () => config.gameInstallDir ?? "",
 );
 liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged());
 /**
@@ -136,6 +177,12 @@ const tracking = new TrackingService(
   (stageKey, clearTimeSec, xpGained, goldGained) => {
     stageRuns.recordClear(stageKey, clearTimeSec, xpGained, goldGained);
   },
+  // Live chest slot counts from PlayerSaveData.BoxData runtime are no longer
+  // routed to AutoClassifyService — the service now tracks slots via save data
+  // (recalibration on every save parse) + real-time adjustments (drops +1,
+  // opens/auto-opens -1). This works on all game versions including v1.00.28
+  // where the live memory path is unavailable. The `chestSlots` field still
+  // exists in LiveMemorySnapshot for diagnostic/display purposes.
 );
 
 let mainWindow: BrowserWindow | null = null;
@@ -154,6 +201,42 @@ function persistWindowLayout<K extends keyof WindowLayoutPrefs>(
     },
   };
   saveConfig(config);
+}
+
+/**
+ * 为当前解析出的语言构建一份新的 LocaleCatalog，并注入到所有依赖本地化
+ * 的服务（TrackingService / InventoryService / BoxTimerService /
+ * StageRunService / LiveMemoryService）。在启动期间和语言切换时各调用一次。
+ *
+ * 注意：服务自身的 `setLocaleCatalog` 不会主动 re-broadcast；调用方需在
+ * 语言切换后显式触发 re-emit（见 `onLanguageChanged`）。
+ */
+function reloadLocaleCatalog(): void {
+  const base = normalizeConfigFromRaw(config);
+  const gameLang = base.language === "game" ? readGameLanguage() : null;
+  const resolved: ResolvedLanguage = resolveLanguage(
+    base.language,
+    safeGetSystemLocale(),
+    gameLang,
+  );
+  const baseCatalog = loadLocaleCatalog(resolved);
+  // Overlay game-extracted translations (ItemName_*, StageName_*, etc.) on top
+  // of the bundled offline JSON. This is what gives the 12 languages without
+  // dedicated locale_strings_<lang>.json files native item/stage/hero names
+  // from the game's own localization bundles. For the 4 languages with
+  // offline JSON, game values still win (they track the current game version).
+  const gameLocale = catalogRefresh.getLocaleData();
+  const catalog = mergeGameLocaleIntoCatalog(baseCatalog, gameLocale, resolved);
+  const gameItemCount = gameLocale ? Object.keys(gameLocale.locales[resolved] ?? {}).filter(k => k.startsWith("ItemName_")).length : 0;
+  appDataLog.info(
+    `catalog loaded: lang=${resolved} base=${Object.keys(baseCatalog.items).length} items, game=${gameItemCount} items`,
+  );
+  tracking.setLocaleCatalog(catalog);
+  inventory.setLocaleCatalog(catalog);
+  boxTimers.setLocaleCatalog(catalog);
+  stageRuns.setLocaleCatalog(catalog);
+  liveMemory.setLocaleCatalog(catalog);
+  lookup.setLocaleCatalog(catalog);
 }
 
 export function startTracking(): SessionUiSnapshot {
@@ -214,6 +297,41 @@ export function startTracking(): SessionUiSnapshot {
   chests.setOnReconcile((slots) => autoClassifyRef.reconcileWithChestSlots(slots));
   autoClassify.setEnabled(config.lootAutoClassifyEnabled);
   tracking.setAutoClassifyService(autoClassify);
+  // Load the LocaleCatalog for the current resolved language and inject it
+  // into all 5 localizing services. Done after `tracking.start()` so the
+  // service instances exist; subsequent snapshots will use the catalog when
+  // building Stats / BoxTimerState / StageRunStats / ResolvedInventory /
+  // LiveMemorySnapshot.heroes.
+  reloadLocaleCatalog();
+  // Re-push inventory after locale catalog is set so the renderer receives
+  // localized item names immediately. (Inventory was already resolved in
+  // loadGameData() above — before the catalog was available — so the first
+  // broadcast carries English/placeholder names without this nudge.)
+  // TrackingService pushes on its own 1-second cadence and will pick up the
+  // new catalog on the next tick; no explicit pushStats needed here.
+  inventory.resolveAndPushInventory();
+
+  // Auto-trigger catalog refresh if locale data is missing or stale. This
+  // ensures the 12 languages without offline locale_strings_<lang>.json get
+  // native item/stage/hero names from the game's own locale bundles on first
+  // run (or after a game update). Fire-and-forget: refresh runs in the
+  // background, and on success we reload the catalog + re-emit snapshots so
+  // the renderer sees the updated names without a manual refresh click.
+  void (async () => {
+    const status = catalogRefresh.getStatus();
+    const localeData = catalogRefresh.getLocaleData();
+    const needsRefresh = !localeData || status.stale;
+    if (!needsRefresh) return;
+    const result = await catalogRefresh.refresh();
+    if (!result.ok) return;
+    reloadLocaleCatalog();
+    // Re-emit snapshots so the renderer picks up the new translations.
+    tracking.pushStats();
+    boxTimers.push();
+    stageRuns.push();
+    inventory.resolveAndPushInventory();
+  })();
+
   return ui;
 }
 
@@ -251,7 +369,7 @@ export function openMainWindow(): BrowserWindow {
     (w) => {
       mainWindow = w;
     },
-    () => config.startTopmost,
+    () => config.topmost.main,
     config.windowLayout?.main,
     (entry) => persistWindowLayout("main", entry),
   );
@@ -263,7 +381,7 @@ export function openOverlayWindow(): BrowserWindow {
     (w) => {
       overlayWindow = w;
     },
-    () => config.startTopmost,
+    () => config.topmost.overlay,
     () => {
       if (isAppQuitting()) return;
       sessionState.setMiniOverlayOpen(false);
@@ -280,7 +398,7 @@ export function openBoxTrackerWindow(): BrowserWindow {
     (w) => {
       boxTrackerWindow = w;
     },
-    () => config.startTopmost,
+    () => config.topmost.boxTracker,
     () => boxTimers.startTick(),
     () => {
       boxTimers.stopTick();
@@ -366,11 +484,11 @@ export function getAppServices() {
           getMarket: () => inventory.getMarket(),
           restartWatcher: () => tracking.restartWatcher(),
           setAlwaysOnTop: (v) => {
-            if (mainWindow && !mainWindow.isDestroyed()) applyWindowTopmost(mainWindow, v);
+            if (mainWindow && !mainWindow.isDestroyed()) applyWindowTopmost(mainWindow, v.main);
             if (overlayWindow && !overlayWindow.isDestroyed())
-              applyWindowTopmost(overlayWindow, v, true);
+              applyWindowTopmost(overlayWindow, v.overlay, true);
             if (boxTrackerWindow && !boxTrackerWindow.isDestroyed())
-              applyWindowTopmost(boxTrackerWindow, v, true);
+              applyWindowTopmost(boxTrackerWindow, v.boxTracker, true);
           },
           pushStats: () => tracking.pushStats(),
           resolveAndPushInventory: () => inventory.resolveAndPushInventory(),
@@ -382,6 +500,14 @@ export function getAppServices() {
           setMarketLowValueThresholdUsd: (value) => inventory.setLowValueThresholdUsd(value),
           onLanguageChanged: (newLanguage) => {
             changeLanguage(newLanguage);
+            // Swap the LocaleCatalog on all 5 localizing services so the
+            // next snapshot / build uses the new language. `applyConfigPatch`
+            // re-broadcasts Stats + Inventory right after this callback via
+            // its own `pushStats` + `resolveAndPushInventory` deps, so we
+            // only need to re-emit the services it doesn't touch.
+            reloadLocaleCatalog();
+            boxTimers.push();
+            stageRuns.push();
             rebuildTrayMenu(getAppServices());
           },
         },
@@ -475,7 +601,24 @@ export function getAppServices() {
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),
     getCatalogStatus: () => catalogRefresh.getStatus(),
-    refreshCatalog: () => catalogRefresh.refresh(),
+    refreshCatalog: async () => {
+      const result = await catalogRefresh.refresh();
+      if (result.ok) {
+        // Reload the LocaleCatalog so the 12 languages without offline
+        // locale_strings_<lang>.json pick up game-bundle translations
+        // (ItemName_*, StageName_*, etc.) from the freshly-extracted
+        // locale data. Without this, manual catalog refresh would write
+        // locale.json but never apply it to the running services.
+        reloadLocaleCatalog();
+        // Re-emit snapshots with the updated catalog.
+        tracking.pushStats();
+        boxTimers.push();
+        stageRuns.push();
+        inventory.resolveAndPushInventory();
+      }
+      return result;
+    },
+    getLocaleData: () => catalogRefresh.getLocaleData(),
     resetLootBox: (boxKey: string) => tracking.resetLootBox(boxKey),
     resetLootAll: () => tracking.resetLootAll(),
     reclassifyLootItem: (itemKey: number, fromBoxKey: string, toBoxKey: string) =>
@@ -492,11 +635,12 @@ export function getAppServices() {
         enabled: false,
         totalQueued: 0,
         byCategory: [
-          { category: "common", count: 0, nextAutoOpenInMs: null },
-          { category: "rare", count: 0, nextAutoOpenInMs: null },
-          { category: "act", count: 0, nextAutoOpenInMs: null },
+          { category: "common", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+          { category: "rare", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+          { category: "act", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
         ],
         items: [],
+        liveSlots: null,
       },
   };
 }

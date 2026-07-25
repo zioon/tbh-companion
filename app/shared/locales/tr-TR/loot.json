@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Sıradan Sandık",
+    "rare": "Aşama Sandığı",
+    "act": "Perde Boss Sandığı",
+    "unclassified": "Sınıflandırılmamış"
+  },
+  "levelSuffix": "{{base}} Sv.{{level}}"
+}

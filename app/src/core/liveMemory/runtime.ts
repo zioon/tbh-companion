@@ -8,6 +8,7 @@ import {
   readI64,
   readIl2CppString,
   readPtr,
+  readPtrArray,
   readU32,
   readU64,
   type MemoryReader,
@@ -20,6 +21,7 @@ import type {
   LiveHeroData,
   LiveInventoryItem,
   LivePetData,
+  StageClearEntry,
 } from "../../../shared/types";
 
 export interface RuntimeStage {
@@ -298,11 +300,15 @@ function byteswap12(v: number): number {
   );
 }
 
-/** Reinterpret a uint32 bit pattern as an IEEE-754 float32.
- *  Uses a module-level DataView to avoid allocating an ArrayBuffer on every
- *  call — this is on the per-hero hot path (each hero's exp decode calls it). */
+// Module-level reusable buffers for bit reinterpretation. read loop is
+// single-threaded (utilityProcess runs one event loop), so reuse is safe.
+// Avoids ~125-250 ArrayBuffer allocations per second from 25 Hz × hero decode.
 const _F32_BUF = new ArrayBuffer(4);
 const _F32_VIEW = new DataView(_F32_BUF);
+const _F64_BUF = new ArrayBuffer(8);
+const _F64_VIEW = new DataView(_F64_BUF);
+
+/** Reinterpret a uint32 bit pattern as an IEEE-754 float32. */
 function u32ToF32(bits: number): number {
   _F32_VIEW.setUint32(0, bits >>> 0, true);
   return _F32_VIEW.getFloat32(0, true);
@@ -347,7 +353,7 @@ const _F64_VIEW = new DataView(_F64_BUF);
 function decodeObscuredDouble(hidden: bigint | null, key: bigint | null): number | null {
   if (hidden == null || key == null) return null;
   const bits = (key ^ byteswap8(hidden)) & 0xffffffffffffffffn;
-  // Reinterpret bigint bits as float64
+  // Reuse module-level buffer (see _F64_VIEW declaration above).
   _F64_VIEW.setBigUint64(0, bits, true);
   return _F64_VIEW.getFloat64(0, true);
 }
@@ -535,6 +541,7 @@ export function resolveStageManager(
   }
 
   let scanned = 0;
+  let firstFailStatus: string | null = null;
   for (let off = 0; off <= SM_STATIC_SCAN_MAX; off += 8) {
     const cand = readPtr(reader, block + BigInt(off));
     if (cand == null) continue;
@@ -544,15 +551,54 @@ export function resolveStageManager(
       pin.lastStatus = "";
       return cand;
     }
+    // Capture the first candidate's failure reason for diagnostics.
+    // readParty returns a status string explaining why heroes is null — this
+    // lets us distinguish "HeroList ptr null" (offset wrong) from "party empty"
+    // (offset right but no heroes) from "count exceeds MAX" (offset wrong).
+    if (firstFailStatus == null) {
+      const party = readParty(reader, cand, o);
+      if (party.status) firstFailStatus = party.status;
+    }
   }
   pin.lastStatus =
     scanned === 0
       ? "StageManager static block scan: no plausible pointers found"
-      : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect)`;
+      : `StageManager static block scan: ${scanned} candidate(s) but none passed isLiveStageManager (party not deployed / in menu / runtime.heroList offset suspect); first fail=${firstFailStatus ?? "n/a"}`;
   return null;
 }
 
 // ── Live chest drops (LogManager → Dictionary<ELogType, List<GetBoxLog>>) ─────
+
+/**
+ * Decide how to commit a log shrink to `pin.lastCount`.
+ *
+ * Returns:
+ *   - `count`            when the shrink should be committed (realign tail to count).
+ *   - `null`             when the shrink looks like a transient stale read
+ *                        (large non-zero delta) — caller should KEEP lastCount
+ *                        unchanged and skip this tick. The next tick re-reads
+ *                        and either confirms (then realigns) or recovers.
+ *
+ * Heuristics:
+ *   - count === 0                  ⇒ new-run clear; accept (return 0).
+ *   - delta == 1 (ring-buffer evict) ⇒ accept (return count).
+ *   - delta > SHRINK_TRANSIENT_THRESHOLD (with count > 0)
+ *                                   ⇒ suspected transient; reject (return null).
+ *   - small delta                   ⇒ accept (return count).
+ *
+ * Without this guard, a transient ReadProcessMemory read of a stale/partial
+ * _size value would pollute `lastCount`. The next normal tick would then scan
+ * entry[transientCount..realCount-1] again and re-classify them as new
+ * drops — producing phantom duplicate chest-drop / box-open / stage-clear
+ * events that pollute tracker statistics.
+ */
+const SHRINK_TRANSIENT_THRESHOLD = 100;
+function handleLogShrink(count: number, lastCountBefore: number): number | null {
+  if (count >= lastCountBefore) return count;
+  if (count === 0) return 0;
+  if (lastCountBefore - count > SHRINK_TRANSIENT_THRESHOLD) return null;
+  return count;
+}
 
 /** Chest drop category derived from GetBoxLog's EMonsterLogType field. */
 export type LiveChestCategory = "common" | "rare" | "act";
@@ -717,12 +763,25 @@ export function readRuntimeChestLog(
   // re-reading from 0 would classify the entire history as new drops and fire
   // phantom chest-drop events. Instead, realign the tail to `count` and return
   // no drops this tick; subsequent ticks resume tailing from `count`.
+  //
+  // See `handleLogShrink` for the transient-race defense (large non-zero delta
+  // ⇒ suspected stale _size read; keep `lastCount` unchanged and let the next
+  // tick re-verify, so a transient value never pollutes `lastCount` and causes
+  // phantom duplicate drops on the following tick).
   if (count < lastCountBefore) {
-    pin.lastCount = count;
+    const next = handleLogShrink(count, lastCountBefore);
+    if (next == null) {
+      return {
+        drops: [],
+        status: "",
+        debug: { count, lastCountBefore, start: lastCountBefore, entriesRead: 0 },
+      };
+    }
+    pin.lastCount = next;
     return {
       drops: [],
       status: "",
-      debug: { count, lastCountBefore, start: count, entriesRead: 0 },
+      debug: { count, lastCountBefore, start: next, entriesRead: 0 },
     };
   }
 
@@ -775,15 +834,26 @@ function stageClearLogList(
 }
 
 /**
- * Clear times (whole seconds, as recorded by the game) added to the
- * StageClear log since the last read. Tails the log by index the same way
- * {@link readRuntimeChestLog} tails GetBox: primes to the current length on
- * first read (backlog not counted) and returns `[]`; when the log shrinks it
- * realigns the tail to `count` and returns `[]` (never re-reads history, see
- * {@link readRuntimeChestLog} for rationale). Returns null when the LogManager
- * can't be resolved — distinct from `[]` (resolved, no new clears this tick).
- * Stage attribution is the caller's job (the live/save stageKey at read time);
- * the log entry's own act/stage ints don't carry difficulty.
+ * StageClearLog entries added since the last read. Tails the log by index the
+ * same way {@link readRuntimeChestLog} tails GetBox: primes to the current
+ * length on first read (backlog not counted) and returns `[]`; when the log
+ * shrinks it realigns the tail to `count` and returns `[]` (never re-reads
+ * history, see {@link readRuntimeChestLog} for rationale). Returns null when
+ * the LogManager can't be resolved — distinct from `[]` (resolved, no new
+ * clears this tick).
+ *
+ * Each entry carries the **cleared** stage's `act`/`stage` (read from
+ * StageClearLog+0x40 / +0x44) plus `clearTimeSec`. The log entry does NOT
+ * carry difficulty — the caller combines `act`/`stage` with the difficulty
+ * digit of the current live/save stageKey to form a full stageKey. This
+ * avoids the off-by-one stage attribution bug where a clear of 3-1 was
+ * recorded as 3-2 because `stageKey` had already advanced by the next tick.
+ *
+ * Implausible `clearTimeSec` (≤0 or ≥MAX_CLEAR_TIME_SEC) entries are skipped
+ * entirely. When `act`/`stage` read as 0 or out of plausibility range, the
+ * entry is still returned (with `act`/`stage` set to 0) so the caller can
+ * fall back to the current stageKey for that entry while preserving the
+ * clear-time sample.
  */
 export function readRuntimeStageClears(
   reader: MemoryReader,
@@ -791,7 +861,7 @@ export function readRuntimeStageClears(
   gaSize: number,
   o: LiveOffsets,
   pin: StageClearPinState,
-): number[] | null {
+): StageClearEntry[] | null {
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
   if (lmPtr == null) return null;
   const list = stageClearLogList(reader, lmPtr, o);
@@ -805,20 +875,39 @@ export function readRuntimeStageClears(
   }
 
   if (count < pin.lastCount) {
-    pin.lastCount = count;
+    // See `handleLogShrink` for the transient-race defense rationale.
+    const next = handleLogShrink(count, pin.lastCount);
+    if (next == null) return [];
+    pin.lastCount = next;
     return [];
   }
 
   const start = pin.lastCount;
-  const clears: number[] = [];
+  const clears: StageClearEntry[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
+  const actOff = BigInt(o.runtime.stageClearLog.act);
+  const stageOff = BigInt(o.runtime.stageClearLog.stage);
+  const clearTimeOff = BigInt(o.runtime.stageClearLog.clearTimeSec);
   for (let i = start; i < count; i++) {
     const entryPtr = readPtr(reader, first + BigInt(i * 8));
     if (entryPtr == null) continue;
-    const clearTimeSec = readI32(reader, entryPtr + BigInt(o.runtime.stageClearLog.clearTimeSec));
-    if (clearTimeSec != null && clearTimeSec > 0 && clearTimeSec < MAX_CLEAR_TIME_SEC) {
-      clears.push(clearTimeSec);
-    }
+    const clearTimeSec = readI32(reader, entryPtr + clearTimeOff);
+    if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) continue;
+    const act = readI32(reader, entryPtr + actOff);
+    const stage = readI32(reader, entryPtr + stageOff);
+    // act is 1-digit (1-9), stage is 1-99. 0 or out-of-range ⇒ corrupted /
+    // mid-write read. Surface the entry with `valid=false` so the caller can
+    // drop it: falling back to the live stageKey would re-introduce the
+    // off-by-one attribution bug (live stageKey has already advanced past the
+    // cleared stage by the time we poll the next tick).
+    const actValid = act != null && act >= 1 && act <= 9;
+    const stageValid = stage != null && stage >= 1 && stage <= 99;
+    clears.push({
+      act: actValid ? act! : 0,
+      stage: stageValid ? stage! : 0,
+      clearTimeSec,
+      valid: actValid && stageValid,
+    });
   }
   pin.lastCount = count;
   return clears;
@@ -834,6 +923,12 @@ export function makeBoxOpenPinState(): BoxOpenPinState {
 }
 
 const MAX_BOX_OPEN_LOG = 5_000;
+
+/** Maximum number of re-read attempts for a single BoxOpenLog entry.
+ *  Each sample is a few µs apart (kernel call latency); 3 samples gives the
+ *  writer ~10µs total to finish committing fields — enough for the typical
+ *  2-3 store-instruction sequence the game uses to append a log entry. */
+const BOX_OPEN_LOG_SAMPLES = 3;
 
 /** Resolve the GetItemWithBoxOpen List<BoxOpenLog> backing array + length. */
 function boxOpenLogList(
@@ -953,7 +1048,10 @@ export function readRuntimeBoxOpenLog(
   }
 
   if (count < pin.lastCount) {
-    pin.lastCount = count;
+    // See `handleLogShrink` for the transient-race defense rationale.
+    const next = handleLogShrink(count, pin.lastCount);
+    if (next == null) return { opens: [], status: "" };
+    pin.lastCount = next;
     return { opens: [], status: "" };
   }
 
@@ -961,36 +1059,57 @@ export function readRuntimeBoxOpenLog(
   const opens: BoxOpenEntry[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
   for (let i = start; i < count; i++) {
-    const entryPtr = readPtr(reader, first + BigInt(i * 8));
-    if (entryPtr == null) continue;
-    const itemKey = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemStringKey, true);
-    if (itemKey == null || itemKey <= 0) continue;
-
-    const entry: BoxOpenEntry = { itemKey };
-    if (o.runtime.boxOpenLog.boxType) {
-      const boxType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.boxType);
-      if (boxType != null) entry.boxType = boxType;
+    // Multi-sample: the game appends BoxOpenLog entries while we iterate. A
+    // single sample taken mid-write may see the slot allocated but the
+    // itemKey/boxType/level fields not yet committed — yielding a null
+    // itemKey and the entry being silently dropped. Re-read up to
+    // BOX_OPEN_LOG_SAMPLES times until itemKey resolves; the few-µs delay
+    // between samples is enough for the writer to finish committing fields.
+    let entry: BoxOpenEntry | null = null;
+    for (let s = 0; s < BOX_OPEN_LOG_SAMPLES; s++) {
+      entry = readBoxOpenLogEntry(reader, first + BigInt(i * 8), o);
+      if (entry != null) break;
     }
-    if (o.runtime.boxOpenLog.level) {
-      const level = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.level);
-      if (level != null && level > 0) entry.level = level;
-    }
-    // Grade: v1.00.28 moved this to a GradeSO ScriptableObject reference.
-    // Pre-1.00.28 has it as a plain int field (itemGradeType).
-    if (o.runtime.boxOpenLog.gradeSO && o.runtime.boxOpenLog.gradeSOGrade) {
-      const gradeSO = readPtr(reader, entryPtr + BigInt(o.runtime.boxOpenLog.gradeSO));
-      if (gradeSO != null) {
-        const gradeType = readI32(reader, gradeSO + BigInt(o.runtime.boxOpenLog.gradeSOGrade));
-        if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
-      }
-    } else if (o.runtime.boxOpenLog.itemGradeType) {
-      const gradeType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemGradeType);
-      if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
-    }
-    opens.push(entry);
+    if (entry != null) opens.push(entry);
   }
   pin.lastCount = count;
   return { opens, status: "" };
+}
+
+/** Read one BoxOpenLog entry. Returns null when the entry pointer is
+ *  unreadable or the itemKey field can't be decoded (caller may retry). */
+function readBoxOpenLogEntry(
+  reader: MemoryReader,
+  slotPtr: bigint,
+  o: LiveOffsets,
+): BoxOpenEntry | null {
+  const entryPtr = readPtr(reader, slotPtr);
+  if (entryPtr == null) return null;
+  const itemKey = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemStringKey, true);
+  if (itemKey == null || itemKey <= 0) return null;
+
+  const entry: BoxOpenEntry = { itemKey };
+  if (o.runtime.boxOpenLog.boxType) {
+    const boxType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.boxType);
+    if (boxType != null) entry.boxType = boxType;
+  }
+  if (o.runtime.boxOpenLog.level) {
+    const level = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.level);
+    if (level != null && level > 0) entry.level = level;
+  }
+  // Grade: v1.00.28 moved this to a GradeSO ScriptableObject reference.
+  // Pre-1.00.28 has it as a plain int field (itemGradeType).
+  if (o.runtime.boxOpenLog.gradeSO && o.runtime.boxOpenLog.gradeSOGrade) {
+    const gradeSO = readPtr(reader, entryPtr + BigInt(o.runtime.boxOpenLog.gradeSO));
+    if (gradeSO != null) {
+      const gradeType = readI32(reader, gradeSO + BigInt(o.runtime.boxOpenLog.gradeSOGrade));
+      if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
+    }
+  } else if (o.runtime.boxOpenLog.itemGradeType) {
+    const gradeType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemGradeType);
+    if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
+  }
+  return entry;
 }
 
 /**
@@ -1046,14 +1165,43 @@ function readBoxOpenLogField(
           if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
         }
       }
+      // ptrVal is a plausible 64-bit pointer but its target isn't a readable
+      // String. Two sub-cases:
+      //   (a) Real String pointer (v1.00.28) with unreadable/uninitialized
+      //       target → the low 32 bits are a heap-address low dword (garbage,
+      //       usually outside [110001, 939999]). Returning it would let
+      //       /1000-normalization accidentally map it into the valid catalog
+      //       range (e.g. 0x15D95800 = 367177440 → /1000 = 367177) and surface
+      //       a ghost "#367177440" entry in the loot list. Return null to drop
+      //       the entry; do NOT fall through to readI32/ObscuredInt — those
+      //       would return the pointer's low dword as a garbage int.
+      //   (b) Plain int32 field (v1.00.21/23/27) misread as 8-byte pointer —
+      //       the low 32 bits ARE the catalog id (6-digit [110001, 939999]).
+      //       Fall through to the plain-int32 return below.
+      //
+      // Discriminator: in case (b) the high 32 bits of the 8-byte read are
+      // always 0 (itemStringKey is followed by a zero-init'd padding or the
+      // next field happens to be 0 at this offset alignment). In case (a)
+      // the String pointer always has a non-zero high 32 bits (Windows user-
+      // mode heap addresses are typically 0x00000200_xxxxxxxx or larger).
+      // Requiring ptrVal === low32 (high dword 0) for fall-through eliminates
+      // the residual ghost-itemKey risk where a real String pointer's low
+      // dword happens to land in [110001, 939999] by coincidence.
+      const low32 = readI32(reader, entryPtr + BigInt(offset));
+      const looksLikeCatalogId = low32 != null && low32 >= 110_001 && low32 <= 939_999;
+      const high32IsZero = ptrVal >> 32n === 0n;
+      if (!looksLikeCatalogId || !high32IsZero) return null;
+      // else: fall through to plain-int32 return.
     }
+    // ptrVal == null: field value < 0x10000 (e.g. ObscuredInt with small
+    // hidden, or zero/uninitialized). Fall through to plain-int32/ObscuredInt.
   }
 
   // Plain int32 (v1.00.21/23/27): accept any non-negative value. For
   // boxType/level (allowString=false) this is the primary path — grade=0
   // and small boxType values are valid. For itemStringKey, this is the
   // fallback when the String-pointer path didn't apply (plain-int32 field
-  // layout) or failed to decode.
+  // layout) or the pointer's low dword happens to be a valid catalog id.
   const raw = readI32(reader, entryPtr + BigInt(offset));
   if (raw != null && raw >= 0) return raw;
 
@@ -1149,14 +1297,42 @@ export function readRuntimeInventory(
   const results: LiveInventoryItem[] = [];
   const first = itemsArrPtr + BigInt(o.container.arrayFirst);
 
+  // Bulk-read all entry pointers in ONE ReadProcessMemory call. Falls back to
+  // per-slot readPtr on partial/failed reads (see readPtrArray). This reduces
+  // the kernel-call count for the pointer array from `count` to 1 (typical)
+  // or `count` (fallback) — important for inventories up to 100k items.
+  const entryPtrs = readPtrArray(reader, first, count) ?? [];
+
+  // Per-entry field read: a single read covering both itemKey (0x10) and
+  // isChaotic (0x20) when their span fits in a small read. Falls back to
+  // per-field readI32 when the bulk read fails or the span is too large.
+  const itemKeyOff = o.inventoryItem.itemKey;
+  const isChaoticOff = o.inventoryItem.isChaotic;
+  const fieldStart = Math.min(itemKeyOff, isChaoticOff);
+  const fieldEnd = Math.max(itemKeyOff + 4, isChaoticOff + 4);
+  const fieldSpan = fieldEnd - fieldStart;
+  const bulkFields = fieldSpan > 0 && fieldSpan <= 64;
+
   for (let i = 0; i < count; i++) {
-    const entryPtr = readPtr(reader, first + BigInt(i * 8));
+    const entryPtr = entryPtrs[i];
     if (entryPtr == null) continue;
 
-    const itemKey = readI32(reader, entryPtr + BigInt(o.inventoryItem.itemKey));
-    if (itemKey == null || itemKey <= 0) continue;
+    let itemKey: number | null = null;
+    let isChaoticRaw: number | null = null;
 
-    const isChaoticRaw = readI32(reader, entryPtr + BigInt(o.inventoryItem.isChaotic));
+    if (bulkFields) {
+      const buf = reader.readBytes(entryPtr + BigInt(fieldStart), fieldSpan);
+      if (buf && buf.length >= fieldSpan) {
+        itemKey = buf.readInt32LE(itemKeyOff - fieldStart);
+        isChaoticRaw = buf.readInt32LE(isChaoticOff - fieldStart);
+      }
+    }
+
+    // Fallback to per-field reads when the bulk read didn't cover both fields.
+    if (itemKey == null) itemKey = readI32(reader, entryPtr + BigInt(itemKeyOff));
+    if (isChaoticRaw == null) isChaoticRaw = readI32(reader, entryPtr + BigInt(isChaoticOff));
+
+    if (itemKey == null || itemKey <= 0) continue;
 
     results.push({ itemKey, isChaotic: (isChaoticRaw ?? 0) !== 0 });
   }
@@ -1252,14 +1428,39 @@ export function readRuntimePets(
   const results: LivePetData[] = [];
   const first = itemsArrPtr + BigInt(o.container.arrayFirst);
 
+  // Bulk-read all pet pointers in ONE ReadProcessMemory call. Same pattern as
+  // readRuntimeInventory: one call for the whole pointer array, fallback to
+  // per-slot readPtr on partial/failed reads.
+  const petPtrs = readPtrArray(reader, first, count) ?? [];
+
+  // Per-entry field read: a single read covering both petKey (0x10) and
+  // isUnlock (0x14) when their span fits. Falls back to per-field readI32.
+  const petKeyOff = o.petSaveData.petKey;
+  const isUnlockOff = o.petSaveData.isUnlock;
+  const fieldStart = Math.min(petKeyOff, isUnlockOff);
+  const fieldEnd = Math.max(petKeyOff + 4, isUnlockOff + 4);
+  const fieldSpan = fieldEnd - fieldStart;
+  const bulkFields = fieldSpan > 0 && fieldSpan <= 64;
+
   for (let i = 0; i < count; i++) {
-    const petPtr = readPtr(reader, first + BigInt(i * 8));
+    const petPtr = petPtrs[i];
     if (petPtr == null) continue;
 
-    const petKey = readI32(reader, petPtr + BigInt(o.petSaveData.petKey));
-    if (petKey == null || petKey <= 0) continue;
+    let petKey: number | null = null;
+    let isUnlockRaw: number | null = null;
 
-    const isUnlockRaw = readI32(reader, petPtr + BigInt(o.petSaveData.isUnlock));
+    if (bulkFields) {
+      const buf = reader.readBytes(petPtr + BigInt(fieldStart), fieldSpan);
+      if (buf && buf.length >= fieldSpan) {
+        petKey = buf.readInt32LE(petKeyOff - fieldStart);
+        isUnlockRaw = buf.readInt32LE(isUnlockOff - fieldStart);
+      }
+    }
+
+    if (petKey == null) petKey = readI32(reader, petPtr + BigInt(petKeyOff));
+    if (isUnlockRaw == null) isUnlockRaw = readI32(reader, petPtr + BigInt(isUnlockOff));
+
+    if (petKey == null || petKey <= 0) continue;
 
     results.push({ petKey, unlocked: (isUnlockRaw ?? 0) !== 0 });
   }
@@ -1275,13 +1476,29 @@ export function readRuntimePets(
 
 // ── Monster HP and dead count (MonsterSpawnManager) ──────────────────────────
 
-/** Per-reader pin for a resolved MonsterSpawnManager instance pointer. */
+/**
+ * Per-reader pin for a resolved MonsterSpawnManager instance pointer and the
+ * cached HP field offsets inside `UnitHealthController`.
+ *
+ * `cachedHpOffsets` is the last-known-good `[cOff, mOff]` pair found by
+ * `probeHealthController`. All monsters in the same wave share the same
+ * controller struct layout, so once one monster validates a pair, every
+ * subsequent monster can skip the 4-pair probe and read HP directly —
+ * dropping the per-monster read count from up to 8 readF32 calls (4 pairs × 2
+ * fields) to 2 readF32 calls (the cached pair).
+ *
+ * The cache is invalidated when the cached pair fails validation for a
+ * monster (e.g. controller in a transient mid-write state, or a struct layout
+ * change between game versions). On invalidation, the next read re-runs the
+ * full probe and re-populates the cache.
+ */
 export interface MonsterSpawnPinState {
   ptr: bigint | null;
+  cachedHpOffsets: { cOff: number; mOff: number } | null;
 }
 
 export function makeMonsterSpawnPinState(): MonsterSpawnPinState {
-  return { ptr: null };
+  return { ptr: null, cachedHpOffsets: null };
 }
 
 const MAX_MONSTERS = 500;
@@ -1304,12 +1521,15 @@ function resolveMonsterSpawnManager(
   pin: MonsterSpawnPinState,
 ): bigint | null {
   // Fast path: cached pin (may be set by name-scan fallback in liveReader).
-  // Re-validate liveness each tick — unlike Stage/LogManager, monster spawn
-  // state changes between scenes and GC may move the singleton. Previously
-  // the pin was never re-validated, so a stale pointer kept returning garbage
-  // HP data for the rest of the session.
-  if (pin.ptr != null && isValidMonsterManager(reader, pin.ptr, o)) return pin.ptr;
-  pin.ptr = null;
+  // Re-validate on every call: StageManager and LogManager pins both re-check
+  // liveness each tick — MonsterSpawnManager must do the same to avoid returning
+  // a stale instance after scene swap / GC (HPs would silently degrade). When
+  // the cached instance no longer passes isValidMonsterManager, drop the pin and
+  // fall through to the regular resolution path.
+  if (pin.ptr != null) {
+    if (isValidMonsterManager(reader, pin.ptr)) return pin.ptr;
+    pin.ptr = null;
+  }
   if (o.typeInfoRva.monsterSpawnManager === 0n) return null;
 
   const klass = resolveClassPtr(reader, gaBase, gaSize, o.typeInfoRva.monsterSpawnManager);
@@ -1380,6 +1600,51 @@ const HC_PROBE_PAIRS: [number, number][] = [
   [0x48, 0x54],
 ];
 
+/** Read HP from a `UnitHealthController`, using the cached offset pair when valid.
+ *  Falls back to the full 4-pair probe when the cache is empty or the cached
+ *  pair fails validation (transient mid-write / layout change). On successful
+ *  probe, updates `pin.cachedHpOffsets` so subsequent monsters read HP directly. */
+function readHpFromController(
+  reader: MemoryReader,
+  ctrlPtr: bigint,
+  pin: MonsterSpawnPinState,
+): [number, number] | null {
+  // Fast path: try the cached offset pair first.
+  const cached = pin.cachedHpOffsets;
+  if (cached != null) {
+    const current = readF32(reader, ctrlPtr + BigInt(cached.cOff));
+    const maxHp = readF32(reader, ctrlPtr + BigInt(cached.mOff));
+    if (validHpPair(current, maxHp)) {
+      return [current!, maxHp!];
+    }
+    // Cached pair failed validation — drop the cache and re-probe below.
+    pin.cachedHpOffsets = null;
+  }
+  // Fallback: probe all known pairs. On success, cache the winning pair so
+  // subsequent monsters (which share the same controller struct layout) hit
+  // the fast path on their first read.
+  const probed = probeHealthController(reader, ctrlPtr);
+  if (probed != null) {
+    pin.cachedHpOffsets = { cOff: probed.cOff, mOff: probed.mOff };
+    return [probed.current, probed.maxHp];
+  }
+  return null;
+}
+
+/** Validate a [current, maxHp] pair read from a `UnitHealthController`. */
+function validHpPair(current: number | null, maxHp: number | null): boolean {
+  return (
+    current != null &&
+    maxHp != null &&
+    Number.isFinite(current) &&
+    Number.isFinite(maxHp) &&
+    current >= 0 &&
+    maxHp > 0 &&
+    current <= maxHp * 1.1 &&
+    maxHp < 1e7
+  );
+}
+
 /** Scan a monster (Unit) for its health controller and read HP.
  *  Uses the configured HealthController offset (0xB0, tbh-meter verified).
  *  No fallback scanning — unlike meter, companion reads are not offline:
@@ -1388,35 +1653,26 @@ function readMonsterHp(
   reader: MemoryReader,
   monsterPtr: bigint,
   o: LiveOffsets,
+  pin: MonsterSpawnPinState,
 ): [number, number] | null {
   const hcOff = o.runtime.monster.monsterHealth > 0 ? o.runtime.monster.monsterHealth : 0xb0;
 
   const hc = readPtr(reader, monsterPtr + BigInt(hcOff));
   if (hc == null || hc <= 0x10000n || hc >= 0x7ff0_0000_0000n) return null;
-  return probeHealthController(reader, hc, o);
+  return readHpFromController(reader, hc, pin);
 }
 
-/** Try multiple known HP offset pairs within a controller struct.
- *  Prefers the configured `hpCurrent`/`hpMax` offsets when both are non-zero —
- *  previously it ignored them and only used the hardcoded probe pairs, which
- *  silently broke HP reads on any version whose offsets didn't match a pair. */
+/** Try multiple known HP offset pairs within a controller struct. Returns the
+ *  winning pair's values AND offsets so the caller can cache them. */
 function probeHealthController(
   reader: MemoryReader,
   ctrlPtr: bigint,
-  o: LiveOffsets,
-): [number, number] | null {
-  const pairs: [number, number][] = [];
-  if (o.runtime.monster.hpCurrent > 0 && o.runtime.monster.hpMax > 0) {
-    pairs.push([o.runtime.monster.hpCurrent, o.runtime.monster.hpMax]);
-  }
-  pairs.push(...HC_PROBE_PAIRS);
-  for (const [cOff, mOff] of pairs) {
+): { current: number; maxHp: number; cOff: number; mOff: number } | null {
+  for (const [cOff, mOff] of HC_PROBE_PAIRS) {
     const current = readF32(reader, ctrlPtr + BigInt(cOff));
     const maxHp = readF32(reader, ctrlPtr + BigInt(mOff));
-    if (current != null && maxHp != null && Number.isFinite(current) && Number.isFinite(maxHp)) {
-      if (current >= 0 && maxHp > 0 && current <= maxHp * 1.1 && maxHp < 1e7) {
-        return [current, maxHp];
-      }
+    if (validHpPair(current, maxHp)) {
+      return { current: current!, maxHp: maxHp!, cOff, mOff };
     }
   }
   return null;
@@ -1429,6 +1685,7 @@ function walkMonsterList(
   listPtr: bigint,
   out: Array<[number, number, number]>, // [addr, hpCurrent, hpMax]
   o: LiveOffsets,
+  pin: MonsterSpawnPinState,
 ): void {
   const arr = readPtr(reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
   if (arr == null || !isPlausibleHeapPtr(arr)) return;
@@ -1440,7 +1697,7 @@ function walkMonsterList(
   for (let i = 0; i < count; i++) {
     const monsterPtr = readPtr(reader, first + BigInt(i * 8));
     if (monsterPtr == null || !isPlausibleHeapPtr(monsterPtr)) continue;
-    const hp = readMonsterHp(reader, monsterPtr, o);
+    const hp = readMonsterHp(reader, monsterPtr, o, pin);
     if (hp != null) {
       // Convert bigint address to number for IPC serialization (safe: Win64 user-mode < 2^53)
       out.push([Number(monsterPtr), hp[0], hp[1]]);
@@ -1489,7 +1746,7 @@ export function readRuntimeMonsterHp(
   for (const loff of listOffs) {
     const listPtr = readPtr(reader, msmPtr + BigInt(loff));
     if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
-    walkMonsterList(reader, listPtr, monsterHps, o);
+    walkMonsterList(reader, listPtr, monsterHps, o, pin);
   }
 
   // Dead monster count

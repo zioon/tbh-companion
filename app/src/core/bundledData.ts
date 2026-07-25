@@ -15,9 +15,13 @@ export const REQUIRED_BUNDLED_DATA_FILES = [
   "lookup_sources.json",
   "synthesis_model.json",
   "offerings.json",
+  "_game_locale_dump.json",
 ] as const;
 
-/** Subset verified in source `data/` and staged `dist/data/` during `pnpm qa`. */
+/** Subset verified in source `data/` and staged `dist/data/` during `pnpm qa`.
+ * Includes `_game_locale_dump.json` because the runtime locale fallback in
+ * CatalogRefreshService.getLocaleData() reads it as a bundled resource —
+ * omitting it from CI builds would silently degrade locale coverage. */
 export const QA_GATE_BUNDLED_DATA_FILES = [
   "gamedata.json",
   "stage_boxes.json",
@@ -25,6 +29,7 @@ export const QA_GATE_BUNDLED_DATA_FILES = [
   "rune_box_cap.json",
   "steam_item_nameids.json",
   "steam_market_fee.json",
+  "_game_locale_dump.json",
 ] as const;
 
 export type BundledDataFile = (typeof REQUIRED_BUNDLED_DATA_FILES)[number];

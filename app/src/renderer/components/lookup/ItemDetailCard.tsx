@@ -9,7 +9,6 @@ import type {
   SynthesisModel,
   SynthesisPathToItem,
 } from "../../../../shared/types";
-import { gradeLabel } from "../../../core/labels";
 import { offeringForCoin, offeringSourcesForItem } from "../../../core/lookup/offerings";
 import {
   formatMaterialAverageLevelRange,
@@ -26,9 +25,11 @@ import { CardContent, CardHeader } from "../../design-system/primitives/Card/Car
 import { DataList, DataListRow } from "../../design-system/primitives/DataList/DataList";
 import { Input } from "../../design-system/primitives/Input/Input";
 import { boxIconPath } from "../../lib/boxIconPath";
+import { translateBoxDropName } from "../../lib/boxDisplay";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
-import { fmtDropPct, fmtLookupPct, hasDropChance, humanizeStatKey } from "../../lib/lookupDisplay";
+import { craftingTypeLabel, gradeLabel, formatStatRow } from "../../lib/itemLabels";
+import { fmtDropPct, fmtLookupPct, hasDropChance } from "../../lib/lookupDisplay";
 import { filterUsedInOutputs, sortUsedInRecipes } from "../../lib/usedInFilters";
 import type { LookupNavNode } from "../../lib/useLookupNav";
 import { ItemLink } from "../ItemLink";
@@ -103,6 +104,7 @@ function SynthesisGradeCard({
   synthesisType,
   model,
   bestPathKey,
+  t,
 }: {
   materialAmount: number;
   inputGrade: string;
@@ -110,12 +112,13 @@ function SynthesisGradeCard({
   synthesisType: string;
   model: SynthesisModel;
   bestPathKey: string | null;
+  t: ReturnType<typeof useTranslation>["t"];
 }) {
   return (
     <Card padding="none" className="overflow-hidden">
       <div className="border-b border-border px-3 py-2">
         <p className="m-0 text-[12px] font-semibold" style={{ color: gradeColor(inputGrade) }}>
-          {materialAmount}× {gradeLabel(inputGrade)}
+          {materialAmount}× {gradeLabel(inputGrade, t)}
         </p>
       </div>
       <DataList shell="none" scrollable className={SCROLL_SECTION_MAX}>
@@ -161,13 +164,14 @@ function UsedInRecipeCard({
   peekItem,
   onNavigate,
   outputItemIndex,
+  t,
 }: {
   entry: LookupUsedInEntry;
   peekItem?: (id: number) => LookupItem | undefined;
   onNavigate?: (node: LookupNavNode) => void;
   outputItemIndex: Map<number, LookupItem>;
+  t: ReturnType<typeof useTranslation>["t"];
 }) {
-  const { t } = useTranslation("lookup");
   const [query, setQuery] = useState("");
   const filteredOutputs = useMemo(
     () => filterUsedInOutputs(entry.outputs, query, outputItemIndex),
@@ -183,7 +187,7 @@ function UsedInRecipeCard({
           min: entry.level.min,
           max: entry.level.max,
         })}{" "}
-        · {humanizeStatKey(entry.craftingType)}
+        · {craftingTypeLabel(entry.craftingType, t)}
       </p>
       <div className="flex flex-col gap-1 pl-1">
         {entry.materials.map((material) => {
@@ -330,8 +334,16 @@ export function ItemDetailCard({
           <div className="flex min-w-0 flex-col gap-3">
             {item.stats ? (
               <>
-                <StatGroup title={t("stats.base")} rows={item.stats.base} tone="base" />
-                <StatGroup title={t("stats.inherent")} rows={item.stats.inherent} tone="inherent" />
+                <StatGroup
+                  title={t("stats.base")}
+                  rows={item.stats.base.map((r) => ({ display: formatStatRow(r, t, "base") }))}
+                  tone="base"
+                />
+                <StatGroup
+                  title={t("stats.inherent")}
+                  rows={item.stats.inherent.map((r) => ({ display: formatStatRow(r, t, "affix") }))}
+                  tone="inherent"
+                />
                 {item.stats.unique ? (
                   <StatGroup
                     title={t("stats.unique")}
@@ -372,8 +384,8 @@ export function ItemDetailCard({
                               min: recipe.level.min,
                               max: recipe.level.max,
                             })}{" "}
-                            · {humanizeStatKey(recipe.craftingType)} ·{" "}
-                            {fmtLookupPct(recipe.outputPct)}%
+                            · {craftingTypeLabel(recipe.craftingType, t)} · {fmtLookupPct(recipe.outputPct)}
+                            %
                           </p>
                           <div className="flex flex-col gap-1 pl-1">
                             {recipe.materials.map((material) => {
@@ -412,7 +424,7 @@ export function ItemDetailCard({
                         <DataListRow key={drop.boxItemKey} index={i}>
                           <ItemLink
                             node={{ type: "box", id: drop.boxItemKey }}
-                            name={drop.boxName}
+                            name={translateBoxDropName(t, drop)}
                             grade={drop.grade}
                             iconPath={boxIconPath(drop.boxItemKey)}
                             suffix={`· ${fmtDropPct(drop.dropPct)}%`}
@@ -443,6 +455,7 @@ export function ItemDetailCard({
                         synthesisType={synthesisType}
                         model={synthesisModel}
                         bestPathKey={bestPathKey}
+                        t={t}
                       />
                     ))}
                   </div>
@@ -497,6 +510,7 @@ export function ItemDetailCard({
                   peekItem={peekItem}
                   onNavigate={onNavigate}
                   outputItemIndex={outputItemIndex}
+                  t={t}
                 />
               ))}
             </div>

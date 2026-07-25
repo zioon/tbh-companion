@@ -29,6 +29,15 @@ const tormentStage: LookupBoxStageRef = {
   spawnPct: 100,
 };
 
+// Mirrors the runtime map the main process injects via AppConfig.stageMetadata:
+//   stageName(1101) -> "Normal 1-1", stageName(1103) -> "Normal 1-3",
+//   stageName(4210) -> "Torment 2-10".
+const stageMetadata: Record<number, string> = {
+  1101: "Normal 1-1",
+  1103: "Normal 1-3",
+  4210: "Torment 2-10",
+};
+
 function gear(id: number, name: string, grade: string): LookupItem {
   return {
     id,
@@ -62,13 +71,33 @@ const resolved = resolveBoxLoot(lootDrops, (key) => catalog.get(key));
 
 describe("stageMatchesQuery", () => {
   it("matches display name, compact key, and difficulty", () => {
-    expect(stageMatchesQuery(1101, "Pasture", "pasture")).toBe(true);
-    expect(stageMatchesQuery(1103, "Wasteland", "wasteland")).toBe(true);
-    expect(stageMatchesQuery(1101, "Pasture", "normal 1-1")).toBe(true);
-    expect(stageMatchesQuery(1101, "Pasture", "normal")).toBe(true);
-    expect(stageMatchesQuery(4210, tormentStage.stageName, "torment")).toBe(true);
-    expect(stageMatchesQuery(4210, tormentStage.stageName, "2-10")).toBe(true);
-    expect(stageMatchesQuery(1101, "Pasture", "torment")).toBe(false);
+    expect(stageMatchesQuery(1101, "Pasture", "pasture", stageMetadata)).toBe(true);
+    expect(stageMatchesQuery(1103, "Wasteland", "wasteland", stageMetadata)).toBe(true);
+    expect(stageMatchesQuery(1101, "Pasture", "normal 1-1", stageMetadata)).toBe(true);
+    expect(stageMatchesQuery(1101, "Pasture", "normal", stageMetadata)).toBe(true);
+    expect(stageMatchesQuery(4210, tormentStage.stageName, "torment", stageMetadata)).toBe(true);
+    expect(stageMatchesQuery(4210, tormentStage.stageName, "2-10", stageMetadata)).toBe(true);
+    expect(stageMatchesQuery(1101, "Pasture", "torment", stageMetadata)).toBe(false);
+  });
+
+  it("matches against stageMetadata[stageKey] when displayName doesn't match", () => {
+    expect(stageMatchesQuery(1101, "Some Other Name", "pasture", { 1101: "Pasture" })).toBe(true);
+    expect(stageMatchesQuery(1101, "Some Other Name", "normal", { 1101: "Normal 1-1" })).toBe(true);
+    // No match when neither displayName nor stageMetadata contains the query.
+    expect(stageMatchesQuery(1101, "Some Other Name", "torment", { 1101: "Normal 1-1" })).toBe(
+      false,
+    );
+  });
+
+  it("falls back to empty string when stageMetadata doesn't have the stageKey", () => {
+    expect(stageMatchesQuery(9999, "DisplayName", "pasture", {})).toBe(false);
+    // Empty query short-circuits before lookup, so missing key is fine.
+    expect(stageMatchesQuery(9999, "DisplayName", "", {})).toBe(true);
+  });
+
+  it("matches against difficulty prefix in stageMetadata value", () => {
+    expect(stageMatchesQuery(3205, "Some Name", "hell", { 3205: "Hell 2-5" })).toBe(true);
+    expect(stageMatchesQuery(3205, "Some Name", "Hell", { 3205: "Hell 2-5" })).toBe(true);
   });
 });
 
@@ -78,39 +107,51 @@ describe("filterFirstDropStages", () => {
       { stageKey: 1101, stageName: "Pasture" },
       { stageKey: 4210, stageName: "Act End" },
     ];
-    expect(filterFirstDropStages(first, "normal")).toEqual([first[0]]);
+    expect(filterFirstDropStages(first, "normal", stageMetadata)).toEqual([first[0]]);
   });
 });
 
 describe("filterAndSortBoxStages", () => {
   it("filters farm stages by search query", () => {
-    const farm = filterAndSortBoxStages([pasture, tormentStage], {
-      query: "torment",
-      sortKey: "spawnPct",
-      sortDir: "desc",
-    });
+    const farm = filterAndSortBoxStages(
+      [pasture, tormentStage],
+      {
+        query: "torment",
+        sortKey: "spawnPct",
+        sortDir: "desc",
+      },
+      stageMetadata,
+    );
     expect(farm).toEqual([tormentStage]);
   });
 
   it("sorts by spawn % descending with stage key tie-break", () => {
     const low = { ...pasture, stageKey: 1102, spawnPct: 40 };
     const high = { ...pasture, stageKey: 1103, spawnPct: 80 };
-    const rows = filterAndSortBoxStages([low, high], {
-      query: "",
-      sortKey: "spawnPct",
-      sortDir: "desc",
-    });
+    const rows = filterAndSortBoxStages(
+      [low, high],
+      {
+        query: "",
+        sortKey: "spawnPct",
+        sortDir: "desc",
+      },
+      stageMetadata,
+    );
     expect(rows.map((r) => r.stageKey)).toEqual([1103, 1102]);
   });
 
   it("sorts by stage name ascending", () => {
     const alpha = { ...pasture, stageName: "Alpha" };
     const beta = { ...pasture, stageKey: 1102, stageName: "Beta" };
-    const rows = filterAndSortBoxStages([beta, alpha], {
-      query: "",
-      sortKey: "name",
-      sortDir: "asc",
-    });
+    const rows = filterAndSortBoxStages(
+      [beta, alpha],
+      {
+        query: "",
+        sortKey: "name",
+        sortDir: "asc",
+      },
+      stageMetadata,
+    );
     expect(rows.map((r) => r.stageName)).toEqual(["Alpha", "Beta"]);
   });
 });

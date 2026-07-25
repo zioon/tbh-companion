@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   collectClassEntries,
+  collectLogManagerDiagnostics,
+  findBoxOpenLogDictDirect,
   findBoxOpenLogFields,
   findCurrencyManager,
   findLogManager,
@@ -10,6 +12,7 @@ import {
   findStageManager,
   readCString,
   readClassFields,
+  validateGetBoxList,
   ScanContext,
   type ClassEntry,
 } from "../../src/core/liveMemory/il2cppScanner";
@@ -250,6 +253,7 @@ describe("findStageManager", () => {
     const wrapper = 0x7ff200000n;
     const smClass = 0x7ff210000n;
     const smInst = 0x7ff220000n;
+    const heroArr = 0x7ff240000n;
 
     const e = entry(m, wrapper, 0x5000n, "nq`1");
     const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
@@ -257,6 +261,47 @@ describe("findStageManager", () => {
     seedInstance(m, smInst, smClass);
     seedClass(m, smClass, "StageManager");
     seedFields(m, smClass, [{ name: "HeroList", offset: 0x30 }]);
+    // findStageManager validates the HeroList points at a non-empty array
+    // (count > 0 at +0x18). Without this, non-StageManager classes that also
+    // declare HeroList would match — see findStageManager's doc comment.
+    m.writePtr(smInst + 0x30n, heroArr);
+    m.writeI32(heroArr + 0x18n, 3); // count = 3 heroes
+
+    const result = findStageManager(new ScanContext(m), [e]);
+    expect(result).toEqual({ slotRva: 0x5000n, heroList: 0x30 });
+  });
+
+  it("rejects a wrapper whose HeroList is an empty array (non-StageManager class)", () => {
+    // v1.01.02 regression: a non-StageManager class (UI preview / cache) also
+    // declares HeroList but its array is always empty. findStageManager must
+    // skip it and continue scanning for the real StageManager with a non-empty
+    // party. Without this check, the extractor returns the wrong class's
+    // slotRva and the reader never finds a live StageManager instance.
+    const m = new FakeMemory();
+    const wrapper = 0x7ff200000n;
+    const wrongClass = 0x7ff210000n;
+    const wrongInst = 0x7ff220000n;
+    const wrongArr = 0x7ff240000n;
+    const realClass = 0x7ff250000n;
+    const realInst = 0x7ff260000n;
+    const realArr = 0x7ff270000n;
+
+    const e = entry(m, wrapper, 0x5000n, "nq`1");
+    const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
+    // Wrong class first (empty HeroList — should be rejected).
+    m.writePtr(block + 0x10n, wrongInst);
+    seedInstance(m, wrongInst, wrongClass);
+    seedClass(m, wrongClass, "HeroPreviewCache");
+    seedFields(m, wrongClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(wrongInst + 0x30n, wrongArr);
+    m.writeI32(wrongArr + 0x18n, 0); // empty party
+    // Real StageManager second (non-empty HeroList — should match).
+    m.writePtr(block + 0x20n, realInst);
+    seedInstance(m, realInst, realClass);
+    seedClass(m, realClass, "StageManager");
+    seedFields(m, realClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(realInst + 0x30n, realArr);
+    m.writeI32(realArr + 0x18n, 4); // 4 heroes deployed
 
     const result = findStageManager(new ScanContext(m), [e]);
     expect(result).toEqual({ slotRva: 0x5000n, heroList: 0x30 });
@@ -276,6 +321,177 @@ describe("findStageManager", () => {
     seedFields(m, someClass, [{ name: "otherField", offset: 0x18 }]);
 
     expect(findStageManager(new ScanContext(m), [e])).toBeNull();
+  });
+
+  // ── Layer-2 hero-walk validation (Rev 12) ──────────────────────────────────
+  // A non-StageManager class (UI preview / cache) can declare HeroList and
+  // briefly hold a non-empty array of non-Unit pointers. Layer 1 (non-empty
+  // count) would match it; layer 2 walks the first hero end-to-end and
+  // rejects it because the pointers don't lead to a plausible heroKey.
+
+  /** Seed a full hero walk: heroPtr → unit.cache(0x3b0) → runtime.info(0x30) → heroKey(0x30). */
+  function seedHeroWalk(
+    m: FakeMemory,
+    heroPtr: bigint,
+    runtimePtr: bigint,
+    infoPtr: bigint,
+    heroKey: number,
+  ): void {
+    m.writePtr(heroPtr + 0x3b0n, runtimePtr);
+    m.writePtr(runtimePtr + 0x30n, infoPtr);
+    m.writeI32(infoPtr + 0x30n, heroKey);
+  }
+
+  it("layer-2 accepts a StageManager whose first hero walks to a valid heroKey", () => {
+    const m = new FakeMemory();
+    const wrapper = 0x7ff200000n;
+    const smClass = 0x7ff210000n;
+    const smInst = 0x7ff220000n;
+    const heroArr = 0x7ff240000n;
+    const heroPtr = 0x7ff250000n;
+    const runtimePtr = 0x7ff260000n;
+    const infoPtr = 0x7ff270000n;
+
+    const e = entry(m, wrapper, 0x5000n, "nq`1");
+    const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
+    m.writePtr(block + 0x20n, smInst);
+    seedInstance(m, smInst, smClass);
+    seedClass(m, smClass, "StageManager");
+    seedFields(m, smClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(smInst + 0x30n, heroArr);
+    m.writeI32(heroArr + 0x18n, 1); // count = 1 hero
+    m.writePtr(heroArr + 0x20n, heroPtr); // first element
+    seedHeroWalk(m, heroPtr, runtimePtr, infoPtr, 100001); // valid heroKey
+
+    const result = findStageManager(new ScanContext(m), [e], {
+      heroOffsets: { unitCache: 0x3b0, heroRuntimeInfo: 0x30, heroInfoDataKey: 0x30 },
+    });
+    expect(result).toEqual({ slotRva: 0x5000n, heroList: 0x30 });
+  });
+
+  it("layer-2 rejects a non-StageManager class whose HeroList holds non-Unit pointers", () => {
+    // v1.01.02 regression: a UI preview class declares HeroList with count > 0,
+    // but the array elements are not Unit objects — they don't have a valid
+    // cache pointer at +0x3b0. Layer 2 must reject it and continue scanning.
+    const m = new FakeMemory();
+    const wrapper = 0x7ff200000n;
+    const wrongClass = 0x7ff210000n;
+    const wrongInst = 0x7ff220000n;
+    const wrongArr = 0x7ff240000n;
+    const wrongHeroPtr = 0x7ff250000n;
+    const realClass = 0x7ff2a0000n;
+    const realInst = 0x7ff2b0000n;
+    const realArr = 0x7ff2c0000n;
+    const realHeroPtr = 0x7ff2d0000n;
+    const realRuntime = 0x7ff2e0000n;
+    const realInfo = 0x7ff2f0000n;
+
+    const e = entry(m, wrapper, 0x5000n, "nq`1");
+    const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
+    // Wrong class first (non-Unit HeroList — layer 2 must reject).
+    m.writePtr(block + 0x10n, wrongInst);
+    seedInstance(m, wrongInst, wrongClass);
+    seedClass(m, wrongClass, "HeroPreviewCache");
+    seedFields(m, wrongClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(wrongInst + 0x30n, wrongArr);
+    m.writeI32(wrongArr + 0x18n, 3); // count = 3 (passes layer 1)
+    m.writePtr(wrongArr + 0x20n, wrongHeroPtr); // first element
+    // wrongHeroPtr + 0x3b0 is 0 (not a plausible pointer) → hero-walk fails
+    // Real StageManager second (valid hero walk — layer 2 passes).
+    m.writePtr(block + 0x20n, realInst);
+    seedInstance(m, realInst, realClass);
+    seedClass(m, realClass, "StageManager");
+    seedFields(m, realClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(realInst + 0x30n, realArr);
+    m.writeI32(realArr + 0x18n, 2); // count = 2
+    m.writePtr(realArr + 0x20n, realHeroPtr);
+    seedHeroWalk(m, realHeroPtr, realRuntime, realInfo, 100002);
+
+    const result = findStageManager(new ScanContext(m), [e], {
+      heroOffsets: { unitCache: 0x3b0, heroRuntimeInfo: 0x30, heroInfoDataKey: 0x30 },
+    });
+    expect(result).toEqual({ slotRva: 0x5000n, heroList: 0x30 });
+  });
+
+  it("layer-2 skips a hero with out-of-range heroKey and accepts the next valid one", () => {
+    // The first hero's heroKey is 0 (invalid); the second hero walks cleanly.
+    // Layer 2 must probe up to maxHeroesProbe and accept the class.
+    const m = new FakeMemory();
+    const wrapper = 0x7ff200000n;
+    const smClass = 0x7ff210000n;
+    const smInst = 0x7ff220000n;
+    const heroArr = 0x7ff240000n;
+    const hero1 = 0x7ff250000n;
+    const hero2 = 0x7ff260000n;
+    const rt1 = 0x7ff270000n;
+    const rt2 = 0x7ff280000n;
+    const info1 = 0x7ff290000n;
+    const info2 = 0x7ff2a0000n;
+
+    const e = entry(m, wrapper, 0x5000n, "nq`1");
+    const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
+    m.writePtr(block + 0x20n, smInst);
+    seedInstance(m, smInst, smClass);
+    seedClass(m, smClass, "StageManager");
+    seedFields(m, smClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(smInst + 0x30n, heroArr);
+    m.writeI32(heroArr + 0x18n, 2); // count = 2
+    m.writePtr(heroArr + 0x20n, hero1); // hero[0]
+    m.writePtr(heroArr + 0x28n, hero2); // hero[1]
+    seedHeroWalk(m, hero1, rt1, info1, 0); // invalid heroKey
+    seedHeroWalk(m, hero2, rt2, info2, 100003); // valid
+
+    const result = findStageManager(new ScanContext(m), [e], {
+      heroOffsets: { unitCache: 0x3b0, heroRuntimeInfo: 0x30, heroInfoDataKey: 0x30 },
+    });
+    expect(result).toEqual({ slotRva: 0x5000n, heroList: 0x30 });
+  });
+
+  it("layer-2 returns null when every candidate fails hero-walk (party all garbage)", () => {
+    const m = new FakeMemory();
+    const wrapper = 0x7ff200000n;
+    const smClass = 0x7ff210000n;
+    const smInst = 0x7ff220000n;
+    const heroArr = 0x7ff240000n;
+    const hero1 = 0x7ff250000n;
+
+    const e = entry(m, wrapper, 0x5000n, "nq`1");
+    const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
+    m.writePtr(block + 0x20n, smInst);
+    seedInstance(m, smInst, smClass);
+    seedClass(m, smClass, "StageManager");
+    seedFields(m, smClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(smInst + 0x30n, heroArr);
+    m.writeI32(heroArr + 0x18n, 1);
+    m.writePtr(heroArr + 0x20n, hero1);
+    // hero1 + 0x3b0 = 0 → runtimePtr null → hero-walk fails
+
+    const result = findStageManager(new ScanContext(m), [e], {
+      heroOffsets: { unitCache: 0x3b0, heroRuntimeInfo: 0x30, heroInfoDataKey: 0x30 },
+    });
+    expect(result).toBeNull();
+  });
+
+  it("layer-2 is skipped when heroOffsets is undefined (back-compat with no opts)", () => {
+    // Existing callers that don't pass opts must still get layer-1-only behavior.
+    const m = new FakeMemory();
+    const wrapper = 0x7ff200000n;
+    const smClass = 0x7ff210000n;
+    const smInst = 0x7ff220000n;
+    const heroArr = 0x7ff240000n;
+
+    const e = entry(m, wrapper, 0x5000n, "nq`1");
+    const block = seedStaticBlock(m, wrapper, 0x7ff230000n);
+    m.writePtr(block + 0x20n, smInst);
+    seedInstance(m, smInst, smClass);
+    seedClass(m, smClass, "StageManager");
+    seedFields(m, smClass, [{ name: "HeroList", offset: 0x30 }]);
+    m.writePtr(smInst + 0x30n, heroArr);
+    m.writeI32(heroArr + 0x18n, 3); // non-empty, but no hero pointers seeded
+
+    // No opts → layer 2 skipped → layer 1 passes → match returned.
+    const result = findStageManager(new ScanContext(m), [e]);
+    expect(result).toEqual({ slotRva: 0x5000n, heroList: 0x30 });
   });
 });
 
@@ -599,6 +815,34 @@ describe("findLogManager", () => {
   });
 });
 
+// ── collectLogManagerDiagnostics ─────────────────────────────────────────────
+
+describe("collectLogManagerDiagnostics", () => {
+  it("dumps candidate dict buckets when findLogManager would return null", () => {
+    // A dict whose entries are NOT GetBoxLog (class name mismatch) — the same
+    // scenario as the "rejects a structurally-similar dict" test above.
+    const m = new FakeMemory();
+    const e = seedLogManager(m, { entryClassName: "SomethingElse", monsterTypes: [0, 0] });
+    // Sanity: findLogManager returns null for this layout.
+    expect(findLogManager(new ScanContext(m), [e])).toBeNull();
+    // Diagnostics should describe what was seen.
+    const diag = collectLogManagerDiagnostics(new ScanContext(m), [e]);
+    expect(diag).toContain("[logManager-diag]");
+    expect(diag).toContain("bucketCount=2"); // monsterTypes.length === 2
+    expect(diag).toContain("firstEntryClassName=");
+  });
+
+  it("returns a no-dict message when no static slot has a dict-shaped field", () => {
+    const m = new FakeMemory();
+    // A class with no dict at any candidate offset.
+    const e = entry(m, 0x7ff600000n, 0x8000n, "EmptyClass");
+    seedStaticBlock(m, 0x7ff600000n, 0x7ff610000n);
+    const diag = collectLogManagerDiagnostics(new ScanContext(m), [e]);
+    expect(diag).toContain("[logManager-diag]");
+    expect(diag).toContain("no dict-shaped static slot found");
+  });
+});
+
 // ── findBoxOpenLogFields ─────────────────────────────────────────────────────
 
 describe("findBoxOpenLogFields", () => {
@@ -852,6 +1096,7 @@ describe("findPlayerSaveData", () => {
       playerStaticOff: 0x10,
       petSaveDatas: 0x68,
       itemSaveDatas: 0xa0,
+      boxData: 0,
       petKey: 0x10,
       petIsUnlock: 0x14,
       itemKey: 0x10,
@@ -949,5 +1194,164 @@ describe("findPlayerSaveData", () => {
     seedFields(m, someClass, [{ name: "unrelated", offset: 0x18 }]);
 
     expect(findPlayerSaveData(new ScanContext(m), [e])).toBeNull();
+  });
+});
+
+// ── validateGetBoxList tolerance ──────────────────────────────────────────────
+
+/** Build a minimal List<GetBoxLog> in FakeMemory for direct validateGetBoxList
+ *  testing. Poisons all EMonsterLogType candidate offsets with an out-of-range
+ *  value (99) then writes the valid value at `monsterTypeOffset`, so the test
+ *  actually exercises offset probing rather than relying on FakeMemory's
+ *  default 0. */
+function buildFakeGetBoxLogList(opts: {
+  entryClassName: string;
+  monsterTypeOffset: number;
+  monsterTypeValue: number;
+  count: number;
+  entryFields?: Array<{ name: string; offset: number }>;
+}): { ctx: ScanContext; listPtr: bigint } {
+  const m = new FakeMemory();
+  const list = 0x7ff800000n;
+  const listArr = 0x7ff810000n;
+  const entryClass = 0x7ff820000n;
+
+  m.writePtr(list + 0x10n, listArr);
+  m.writeI32(list + 0x18n, opts.count);
+
+  const POISON_OFFSETS = [0x50, 0x48, 0x58, 0x40, 0x60];
+  for (let i = 0; i < opts.count; i++) {
+    const logObj = 0x7ff830000n + BigInt(i * 0x100);
+    m.writePtr(listArr + 0x20n + BigInt(i * 8), logObj);
+    seedInstance(m, logObj, entryClass);
+    // Poison all candidate offsets with 99 so only the right one validates.
+    for (const off of POISON_OFFSETS) {
+      m.writeI32(logObj + BigInt(off), 99);
+    }
+    m.writeI32(logObj + BigInt(opts.monsterTypeOffset), opts.monsterTypeValue);
+  }
+
+  seedClass(m, entryClass, opts.entryClassName);
+  if (opts.entryFields) {
+    seedFields(m, entryClass, opts.entryFields);
+  }
+
+  return { ctx: new ScanContext(m), listPtr: list };
+}
+
+describe("validateGetBoxList tolerance", () => {
+  it("accepts a GetBoxLog entry whose EMonsterLogType is at 0x48 instead of 0x50", () => {
+    // Simulate v1.01.02 shifting the EMonsterLogType field offset.
+    // 0x50 is poisoned with 99, so the old hardcoded-0x50 implementation
+    // would reject this; the new candidate-probing implementation should
+    // find 0x48.
+    const { ctx, listPtr } = buildFakeGetBoxLogList({
+      entryClassName: "GetBoxLog",
+      monsterTypeOffset: 0x48,
+      monsterTypeValue: 1,
+      count: 1,
+    });
+    expect(validateGetBoxList(ctx, listPtr)).toBe(true);
+  });
+
+  it("accepts a GetBoxLog entry with obfuscated class name but monsterLogType field", () => {
+    // Simulate v1.01.02 renaming GetBoxLog → vb.bfne (namespace + obfuscated).
+    // classNameMatches tolerates namespace prefix but NOT obfuscated short name.
+    // Fallback: if the entry's class fields include "monsterLogType" (ES3-stable
+    // name), accept it.
+    const { ctx, listPtr } = buildFakeGetBoxLogList({
+      entryClassName: "vb.bfne",
+      entryFields: [
+        { name: "monsterLogType", offset: 0x50 },
+        { name: "stageKey", offset: 0x10 },
+      ],
+      monsterTypeOffset: 0x50,
+      monsterTypeValue: 2,
+      count: 1,
+    });
+    expect(validateGetBoxList(ctx, listPtr)).toBe(true);
+  });
+
+  it("rejects a list whose entries are neither GetBoxLog nor have monsterLogType field", () => {
+    const { ctx, listPtr } = buildFakeGetBoxLogList({
+      entryClassName: "SomeOtherClass",
+      entryFields: [{ name: "unrelated", offset: 0x10 }],
+      monsterTypeOffset: 0x50,
+      monsterTypeValue: 1,
+      count: 1,
+    });
+    expect(validateGetBoxList(ctx, listPtr)).toBe(false);
+  });
+
+  it("rejects a list where no candidate offset yields a valid EMonsterLogType", () => {
+    // All candidate offsets poisoned with 99, no valid value written.
+    const m = new FakeMemory();
+    const list = 0x7ff800000n;
+    const listArr = 0x7ff810000n;
+    const entryClass = 0x7ff820000n;
+    m.writePtr(list + 0x10n, listArr);
+    m.writeI32(list + 0x18n, 1);
+    const logObj = 0x7ff830000n;
+    m.writePtr(listArr + 0x20n, logObj);
+    seedInstance(m, logObj, entryClass);
+    seedClass(m, entryClass, "GetBoxLog");
+    for (const off of [0x50, 0x48, 0x58, 0x40, 0x60]) {
+      m.writeI32(logObj + BigInt(off), 99);
+    }
+    expect(validateGetBoxList(new ScanContext(m), list)).toBe(false);
+  });
+});
+
+// ── findBoxOpenLogDictDirect fallback ─────────────────────────────────────────
+
+describe("findBoxOpenLogDictDirect fallback", () => {
+  it("locates a BoxOpenLog bucket without going through GetBoxLog validation", () => {
+    // Scenario: LogManager's dict has a BoxOpen bucket (key=2) whose entries
+    // ARE valid BoxOpenLog instances (class name matches, itemStringKey field
+    // present), but the GetBox bucket (key=3) has "SomethingElse" entries that
+    // fail validateGetBoxList. findLogManager returns null, but
+    // findBoxOpenLogDictDirect should still find the BoxOpen bucket and
+    // resolve its field offsets.
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "SomethingElse", // GetBox bucket fails class-name + field gate
+      monsterTypes: [0],
+      boxOpen: { key: 2 },
+    });
+    // Add fields to the BoxOpenLog class that seedLogManager created
+    const boClass = 0x7ff4c0000n;
+    seedFields(m, boClass, [
+      { name: "itemStringKey", offset: 0x18 },
+      { name: "itemGradeType", offset: 0x1c },
+    ]);
+
+    // Sanity: findLogManager returns null for this layout.
+    expect(findLogManager(new ScanContext(m), [e])).toBeNull();
+
+    const result = findBoxOpenLogDictDirect(new ScanContext(m), [e]);
+    expect(result).not.toBeNull();
+    expect(result!.slotRva).toBe(0x7000n);
+    expect(result!.logByType).toBe(0x28);
+    expect(result!.boxOpenTypeKey).toBe(2);
+    expect(result!.boxOpenLog.itemStringKey).toBe(0x18);
+    expect(result!.boxOpenLog.itemGradeType).toBe(0x1c);
+  });
+
+  it("returns null when no dict has a valid BoxOpenLog bucket", () => {
+    // Only a GetBox bucket with invalid entries; no BoxOpen bucket at all.
+    const m = new FakeMemory();
+    const e = seedLogManager(m, {
+      entryClassName: "SomethingElse",
+      monsterTypes: [0],
+      // no boxOpen option → dict has only 1 entry (GetBox)
+    });
+    expect(findBoxOpenLogDictDirect(new ScanContext(m), [e])).toBeNull();
+  });
+
+  it("returns null when no static slot has a dict-shaped field", () => {
+    const m = new FakeMemory();
+    const e = entry(m, 0x7ff600000n, 0x8000n, "EmptyClass");
+    seedStaticBlock(m, 0x7ff600000n, 0x7ff610000n);
+    expect(findBoxOpenLogDictDirect(new ScanContext(m), [e])).toBeNull();
   });
 });

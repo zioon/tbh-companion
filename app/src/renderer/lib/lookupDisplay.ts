@@ -1,4 +1,4 @@
-import { typeLabel } from "../../core/labels";
+import { typeLabel } from "./itemLabels";
 import { classForGearType } from "../../core/lookup/classRestriction";
 import type { LookupItem, LookupMaterialOutcome } from "../../../shared/types";
 

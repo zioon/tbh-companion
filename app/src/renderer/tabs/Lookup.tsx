@@ -105,12 +105,15 @@ export function Lookup() {
 
   const gradeOptions = useMemo(() => (items ? gradeOptionsFromItems(items) : []), [items]);
   const typeOptions = useMemo(() => (items ? typeOptionsFromItems(items) : []), [items]);
-  const gearTypeGroups = useMemo(() => (items ? gearTypeGroupsFromItems(items) : []), [items]);
+  const gearTypeGroups = useMemo(
+    () => (items ? gearTypeGroupsFromItems(items, t) : []),
+    [items, t],
+  );
   const materialKindOptions = useMemo(
     () => (items ? materialKindOptionsFromItems(items) : []),
     [items],
   );
-  const effectGroups = useMemo(() => (items ? effectGroupsFromItems(items) : []), [items]);
+  const effectGroups = useMemo(() => (items ? effectGroupsFromItems(items, t) : []), [items, t]);
 
   if (!items || !sources || !synthesisModel) {
     return (

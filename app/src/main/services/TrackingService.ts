@@ -3,18 +3,21 @@ import { SaveWatcher } from "../saveWatcher";
 import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
-import { catalogItemKeyFromSave, type GameItem } from "../../core/gamedata";
+import { catalogItemKeyFromSave, gameItemName, type GameItem } from "../../core/gamedata";
 import { GRADE_ORDER } from "../../core/grades";
 import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
+import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import type {
   AppConfig,
   BoxOpenEntry,
   InventorySnapshot,
+  LiveChestSlots,
   LiveMemorySnapshot,
   LookupItem,
   LookupPriceSnapshot,
@@ -118,6 +121,13 @@ export class TrackingService {
    * calls `setAutoClassifyService` right after `tracking.start`.
    */
   private autoClassify: AutoClassifyService | null = null;
+  /**
+   * LocaleCatalog used for hero/stage name localization in getStats. Set
+   * once at construction (defaults to emptyLocaleCatalog) and swapped via
+   * {@link setLocaleCatalog} when the user changes language. Kept as a
+   * field (not threaded through every call) so getStats stays parameterless.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
 
   constructor(
     onInventory: (snap: InventorySnapshot) => void,
@@ -132,9 +142,18 @@ export class TrackingService {
       xpGained: number,
       goldGained: number,
     ) => void,
+    /**
+     * Called at ~5 Hz with live chest slot counts read from
+     * `PlayerSaveData.BoxData` runtime. `null` = reader active but offsets
+     * unavailable this tick; callers should fall back to save-derived counts.
+     * Used by AutoClassifyService for high-frequency reconcile.
+     */
+    private readonly onLiveChestSlots?: (slots: LiveChestSlots | null) => void,
+    initialCatalog: LocaleCatalog = emptyLocaleCatalog(),
   ) {
     this.onInventory = onInventory;
     this.parseInventorySnapshot = parseInventorySnapshot;
+    this.localeCatalog = initialCatalog;
   }
 
   start(config: AppConfig): void {
@@ -234,6 +253,8 @@ export class TrackingService {
       this.sessionState?.getStatusOverride() ?? null,
       this.lastLiveFrame,
       this.buildBoxOpenPriceResolver(),
+      null,
+      this.localeCatalog,
     );
   }
 
@@ -251,6 +272,16 @@ export class TrackingService {
     this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
+    // Prime the tracker with the last save snapshot so the first live frame
+    // after reset can be ingested immediately (takeover on the same tick).
+    // Without this, updateLive() early-returns on `!initialized` for the
+    // entire save-watcher poll interval (default 5s), and the first save
+    // re-read only seeds prevHero/prevGold with no gain — so the next gain
+    // takes 2 save polls to surface, which the user perceives as a long
+    // blank period after pressing reset.
+    if (this.lastSnap) {
+      this.tracker.update(this.lastSnap);
+    }
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
@@ -273,6 +304,13 @@ export class TrackingService {
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
+    // Same baseline prime as reset() so XP/gold appear promptly when the
+    // caller follows up with a non-null lastSnap. When lastSnap is null
+    // (true cold-start) the tracker stays uninitialized and the next save
+    // read takes its place — no behavior change in that case.
+    if (this.lastSnap) {
+      this.tracker.update(this.lastSnap);
+    }
     this.sessionState?.onTrackerReset(
       this.tracker,
       this.chestDropTracker,
@@ -389,7 +427,10 @@ export class TrackingService {
       // `#1703973696` forever.
       if (catalogId < 110_001 || catalogId > 939_999) {
         if (this.gameDataLookup?.has(catalogId)) {
-          return { itemKey: catalogId, name: this.gameDataLookup.get(catalogId)!.name };
+          return {
+            itemKey: catalogId,
+            name: gameItemName(this.gameDataLookup.get(catalogId)!, this.localeCatalog),
+          };
         }
         return null;
       }
@@ -405,7 +446,7 @@ export class TrackingService {
         // the id with a `#id` placeholder name so the entry isn't lost.
         return { itemKey: variantId, name: `#${variantId}` };
       }
-      return { itemKey: variantId, name: item.name };
+      return { itemKey: variantId, name: gameItemName(item, this.localeCatalog) };
     });
   }
 
@@ -436,6 +477,19 @@ export class TrackingService {
    */
   setAutoClassifyService(svc: AutoClassifyService): void {
     this.autoClassify = svc;
+  }
+
+  /**
+   * Swap the LocaleCatalog used for hero/stage/item name localization.
+   * Called by appState at startup and when the user changes language. Also
+   * re-resolves every recorded box-open entry so the history / breakdown
+   * names pick up the new language (otherwise the Loot tab would keep
+   * showing the old language until new drops arrive). Does NOT re-broadcast
+   * — callers should invoke getStats() afterwards to emit a fresh payload.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
+    this.runReResolveNames();
   }
 
   getBoxOpenTracker(): BoxOpenTracker {
@@ -526,7 +580,8 @@ export class TrackingService {
       variantId !== catalogId
         ? (this.lookupItems?.get(variantId) ?? this.gameDataLookup?.get(variantId))
         : baseItem;
-    const name = (variantItem ?? baseItem)?.name ?? `#${entry.itemKey}`;
+    const item = variantItem ?? baseItem;
+    const name = item ? gameItemName(item, this.localeCatalog) : `#${entry.itemKey}`;
     return { boxKey, itemKey: variantId, name, grade };
   }
 
@@ -644,6 +699,21 @@ export class TrackingService {
 
     this.tracker.updateLive({ gold: snap.gold, heroes: snap.heroes }, snap.at / 1000, stage);
 
+    // Prime the stage-event baseline on the first live frame after live memory
+    // enables (or after a reset/clearSession). Without this, the first stage
+    // clear's XP/gold gain can't be diffed (baseline is null → the whole
+    // onLiveStageClear callback block is skipped), so the first clear is
+    // silently dropped — the user sees nothing until the SECOND clear arrives.
+    // Priming here (after tracker.updateLive, before stageClears handling)
+    // means the baseline captures the pre-clear xp/gold, so the first clear's
+    // diff is the real gain, not 0.
+    if (!this.stageEventBaseline) {
+      this.stageEventBaseline = {
+        xp: this.tracker.cumulativeGained,
+        gold: this.tracker.currentGold,
+      };
+    }
+
     // DPS / Damage / Mobs tracking from monster HP data (address-based, per tbh-meter)
     if (snap.monsterHp != null) {
       const timestamp = snap.at / 1000;
@@ -699,19 +769,29 @@ export class TrackingService {
       }
     }
 
+    // Live chest slot counts (5 Hz) → forwarded to the onLiveChestSlots
+    // callback. The appState wiring layer routes non-null values to
+    // AutoClassifyService.reconcileWithChestSlots; null is observed by the
+    // renderer to fall back to save-derived counts.
+    this.onLiveChestSlots?.(snap.chestSlots);
+
     if (snap.stageClears && snap.stageClears.length > 0) {
       // A stage clear also resets the per-map damage/kill counters even if the
       // player stays on the same stageKey (e.g. replaying the same map).
       this.dpsTracker.beginMap();
 
-      const stageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
-      if (stageKey > 0) {
+      const fallbackStageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
+      if (fallbackStageKey > 0) {
         // Use cumulativeGained (cap-filtered) instead of currentTotalXp (raw
         // hero exp sum). At max level, perHeroGain returns 0 so cumulativeGained
         // stays constant — no phantom XP attributed to stage clears.
         const xp = this.tracker.cumulativeGained;
         const gold = this.tracker.currentGold;
-        const clears = snap.stageClears;
+        // Drop invalid entries (act/stage unreadable — mid-write race /
+        // corrupted memory). Attributing them to the live stageKey would
+        // re-introduce the off-by-one bug: by the time we poll the next tick,
+        // stageKey has already advanced past the cleared stage.
+        const clears = snap.stageClears.filter((c) => c.valid);
         if (this.stageEventBaseline) {
           const totalXpGained = xp - this.stageEventBaseline.xp;
           const totalGoldGained = gold - this.stageEventBaseline.gold;
@@ -726,7 +806,17 @@ export class TrackingService {
               : Math.floor(totalGoldGained / n);
             xpAssigned += xpGained;
             goldAssigned += goldGained;
-            this.onLiveStageClear?.(stageKey, clears[i], xpGained, goldGained);
+            // Each clear is attributed to the stage carried by its own log
+            // entry (act/stage), NOT the current live stageKey — by the time
+            // we poll the next tick, stageKey has already advanced to the
+            // next stage (e.g. clear of 3-1 arrived with stageKey=3-2).
+            // Difficulty is recovered from the fallback stageKey.
+            const clearedStageKey = resolveClearedStageKey(
+              clears[i].act,
+              clears[i].stage,
+              fallbackStageKey,
+            );
+            this.onLiveStageClear?.(clearedStageKey, clears[i].clearTimeSec, xpGained, goldGained);
           }
         }
         this.stageEventBaseline = { xp, gold };

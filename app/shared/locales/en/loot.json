@@ -12,9 +12,9 @@
   "resetAllBody": "This clears all recorded box opens for every chest type. The session timer is not affected. This cannot be undone.",
   "cancel": "Cancel",
   "category": {
-    "common": "Common chest",
-    "rare": "Stage boss chest",
-    "act": "Act boss chest",
+    "common": "Common Treasure Chest",
+    "rare": "Stage Treasure Chest",
+    "act": "Act Boss Treasure Chest",
     "unclassified": "Unclassified"
   },
   "levelSuffix": "{{base}} Lv{{level}}",
@@ -60,7 +60,12 @@
     "slotsAria": "{{used}} of {{capacity}} slots used",
     "opensIn": "Next open",
     "clearsIn": "Queue clears",
-    "fillsIn": "Slots fill"
+    "fillsIn": "Slots fill",
+    "inventoryLabel": "Inventory items",
+    "inventorySlotsAria": "{{used}} of {{capacity}} inventory slots used",
+    "inventoryFullIn": "Inventory full in",
+    "inventoryFull": "Full",
+    "inventoryTurnOn": "Enable an auto-open toggle on the Live tab to estimate"
   },
   "recentDrops": {
     "title": "Recent drops"

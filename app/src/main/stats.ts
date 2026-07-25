@@ -2,12 +2,14 @@
 
 import type { LiveMemorySnapshot, Stats, SaveSnapshot } from "../../shared/types";
 
+import type { LocaleCatalog } from "../core/localeCatalog";
 import type { BoxOpenTracker, BoxOpenPriceResolver } from "../core/boxOpenTracker";
 import type { ChestDropTracker } from "../core/chestDropTracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
 
 import { heroName } from "../core/heroes";
+import { stageName } from "../core/stages";
 import { xpForNextLevel } from "../core/levelCurve";
 
 const IDLE_THRESHOLD_SECONDS = 120;
@@ -49,6 +51,7 @@ export function buildStats(
   liveFrame: LiveMemorySnapshot | null = null,
   boxOpenPriceResolver: BoxOpenPriceResolver = null,
   lootStatus: string | null = null,
+  catalog: LocaleCatalog | null = null,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
@@ -59,7 +62,7 @@ export function buildStats(
         const rate = tracker.heroRate(key);
         return {
           key,
-          name: heroName(key),
+          name: heroName(key, catalog),
           level: h.level,
           rate,
           ...heroLevelEstimate(h.level, h.exp, rate),
@@ -71,7 +74,7 @@ export function buildStats(
           const rate = tracker.heroRate(h.key);
           return {
             key: h.key,
-            name: heroName(h.key),
+            name: heroName(h.key, catalog),
             level: h.level,
             rate,
             ...heroLevelEstimate(h.level, h.exp, rate),
@@ -137,13 +140,18 @@ export function buildStats(
 
     stageKey,
 
+    stageName: stageName(stageKey, catalog),
+
     stageWave,
 
     stageWaveTotal,
 
     heroes,
 
-    history: tracker.getVisibleHistory(HISTORY_VISIBLE),
+    history: tracker.getVisibleHistory(HISTORY_VISIBLE).map((entry) => ({
+      ...entry,
+      stageName: stageName(entry.stageKey, catalog),
+    })),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
     boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
     lootStatus: lootStatus ?? undefined,

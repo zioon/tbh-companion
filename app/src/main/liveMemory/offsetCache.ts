@@ -50,35 +50,25 @@ export function offsetCachePath(cacheDir: string, version: string): string {
 
 /**
  * Load cached offsets for `version` from `cacheDir`.
- * Returns null when the file is missing, corrupt, version-mismatched, OR was
- * written by an older extractor revision (so a buggy prior revision's values
- * can't survive via `mergeOffsets`'s "base non-zero is trusted" rule).
+ * Returns null when the file is missing, corrupt, version-mismatched, OR when
+ * the cache was written by an older extractor revision than `minRev` (so a new
+ * extractor revision that fixes a derivation bug actually re-runs instead of
+ * loading stale offsets). Caches without `_extractorRev` (pre-Rev 11) are
+ * treated as revision 0 → always invalidated when `minRev > 0`.
  */
-export function loadCachedOffsets(cacheDir: string, version: string): LiveOffsets | null {
+export function loadCachedOffsets(
+  cacheDir: string,
+  version: string,
+  minRev: number = 0,
+): LiveOffsets | null {
   try {
     const path = offsetCachePath(cacheDir, version);
     const raw = readFileSync(path, "utf-8");
-    const parsed = JSON.parse(raw, reviver) as CacheEnvelope | LiveOffsets;
-    // Back-compat: older builds wrote a bare LiveOffsets object (no envelope).
-    // Detect by presence of `typeInfoRva` at the top level.
-    if (parsed == null) return null;
-    const isEnvelope = (p: unknown): p is CacheEnvelope =>
-      typeof p === "object" &&
-      p !== null &&
-      "offsets" in p &&
-      "extractorRevision" in p;
-    if (isEnvelope(parsed)) {
-      if (parsed.gameVersion !== version) return null;
-      // Revision mismatch: discard the cache so the extractor re-derives
-      // (and corrects any prior-revision wrong-but-nonzero values).
-      if (parsed.extractorRevision < EXTRACTOR_REVISION) return null;
-      return parsed.offsets;
-    }
-    // Bare-object back-compat: treat as revision 0 (forces re-derivation
-    // under any modern extractor revision). Verify version match regardless.
-    const bare = parsed as LiveOffsets;
-    if (bare.gameVersion !== version) return null;
-    return bare;
+    const parsed = JSON.parse(raw, reviver) as LiveOffsets;
+    if (parsed?.gameVersion !== version) return null;
+    const cacheRev = parsed._extractorRev ?? 0;
+    if (minRev > 0 && cacheRev < minRev) return null;
+    return parsed;
   } catch {
     return null;
   }

@@ -47,6 +47,9 @@
   "windowTray": {
     "sectionTitle": "ウィンドウとトレイ",
     "keepOnTop": "すべてのウィンドウを最前面に固定",
+    "keepOnTopMain": "メインウィンドウを最前面に固定",
+    "keepOnTopOverlay": "ミニオーバーレイを最前面に固定",
+    "keepOnTopBoxTracker": "ステージ宝箱トラッカーを最前面に固定",
     "trayHint": "メインウィンドウを閉じても、TBH コンパニオンはシステムトレイで動き続けます。完全に終了するにはトレイメニューから<strong>終了</strong>を選んでください。"
   },
   "advanced": {
@@ -71,7 +74,13 @@
     "gameVersionSuffix": " · ゲームバージョン: {{version}}",
     "outdatedSuffix": " · 期限切れ",
     "itemsLoaded": "{{source}} からアイテム {{count}} 個を読み込みました。",
-    "sourceBundled": "バンドル"
+    "sourceBundled": "バンドル",
+    "installPathSectionTitle": "ゲームのインストール先",
+    "installPathLabel": "ゲームの TaskbarHero_Data フォルダーのパス",
+    "installPathHint": "既定の Steam ライブラリ以外（別ドライブや仮想マシンなど）にインストールしている場合は設定してください。空欄なら既定のパスを使います。",
+    "installPathPlaceholder": "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data",
+    "installPathSaved": "ゲームのインストール先を保存しました。",
+    "installPathCleared": "ゲームのインストール先をクリアしました — 既定のパスを使います。"
   },
   "cacheAction": {
     "clear": "クリア",

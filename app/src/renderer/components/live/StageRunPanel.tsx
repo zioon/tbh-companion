@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { StageRunStats } from "../../../../shared/types";
 import { fmtClock, fmtCompact, fmtShortDuration } from "../../lib/format";
-import { stageName } from "../../../core/stages";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { ItemLink } from "../ItemLink";
 import { LiveHistoryPanel, LiveHistoryRow, TIME_COLUMN_WIDTH } from "./LiveHistoryPanel";
@@ -32,7 +31,24 @@ export function StageRunPanel({ stageRuns }: { stageRuns: StageRunStats }) {
     <LiveHistoryPanel
       title={t("stageClearTitle")}
       columns={columns}
-      empty={history.length === 0 ? <p className="m-0">{t("stageClearEmpty")}</p> : undefined}
+      empty={
+        history.length === 0 ? (
+          <div className="m-0">
+            <p className="m-0 mb-1">{t("stageClearEmpty")}</p>
+            <p className="m-0 text-muted">
+              {t("stageClearFieldsHint", {
+                fields: [
+                  t("colClearedAt"),
+                  t("colStage"),
+                  t("colClearTime"),
+                  t("colXp"),
+                  t("colGold"),
+                ].join(" · "),
+              })}
+            </p>
+          </div>
+        ) : undefined
+      }
     >
       {history.map((entry, i) => (
         <LiveHistoryRow
@@ -47,7 +63,7 @@ export function StageRunPanel({ stageRuns }: { stageRuns: StageRunStats }) {
               content: (
                 <ItemLink
                   node={{ type: "stage", id: entry.stageKey }}
-                  name={stageName(entry.stageKey)}
+                  name={entry.stageName ?? String(entry.stageKey)}
                   onNavigate={open}
                 />
               ),

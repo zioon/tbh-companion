@@ -9,12 +9,14 @@ import {
   peekBoxOpenLogCount,
   readRuntimeInventory,
   readRuntimePets,
+  readRuntimeMonsterHp,
   resolveStageManager,
   makeGoldPinState,
   makeSmPinState,
   makeChestLogPinState,
   makeStageClearPinState,
   makeBoxOpenPinState,
+  makeMonsterSpawnPinState,
   type GoldPinState,
 } from "../../src/core/liveMemory/runtime";
 import { offsetsForVersion } from "../../src/core/liveMemory/offsets";
@@ -501,8 +503,14 @@ describe("readRuntimeChestLog", () => {
 const STAGE_CLEAR_LIST = 0xd70000n;
 const STAGE_CLEAR_ARR = 0xd80000n;
 
-/** Seed LogManager → logByType dict → StageClear List<StageClearLog> with the given clear times. */
-function seedStageClearChain(m: FakeMemory, clearTimesSec: number[]): FakeMemory {
+/**
+ * Seed LogManager → logByType dict → StageClear List<StageClearLog> with the
+ * given entries. Each entry is `[act, stage, clearTimeSec]`. `act`/`stage` are
+ * written to StageClearLog+0x40 / +0x44; pass `0` for either to simulate a
+ * corrupted / mid-write read (the reader should then surface `act:0`/`stage:0`
+ * so the caller falls back to the current stageKey).
+ */
+function seedStageClearChain(m: FakeMemory, entries: [number, number, number][]): FakeMemory {
   m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
     .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
     .writePtr(LOG_BLOCK, LM_INSTANCE);
@@ -529,15 +537,16 @@ function seedStageClearChain(m: FakeMemory, clearTimesSec: number[]): FakeMemory
 
   m.writePtr(STAGE_CLEAR_LIST + BigInt(O.container.listItems), STAGE_CLEAR_ARR).writeI32(
     STAGE_CLEAR_LIST + BigInt(O.container.listSize),
-    clearTimesSec.length,
+    entries.length,
   );
   const first = STAGE_CLEAR_ARR + BigInt(O.container.arrayFirst);
-  for (let i = 0; i < clearTimesSec.length; i++) {
+  for (let i = 0; i < entries.length; i++) {
     const entry = 0xe10000n + BigInt(i * 0x100);
-    m.writePtr(first + BigInt(i * 8), entry).writeI32(
-      entry + BigInt(O.runtime.stageClearLog.clearTimeSec),
-      clearTimesSec[i],
-    );
+    const [act, stage, clearTimeSec] = entries[i]!;
+    m.writePtr(first + BigInt(i * 8), entry)
+      .writeI32(entry + BigInt(O.runtime.stageClearLog.act), act)
+      .writeI32(entry + BigInt(O.runtime.stageClearLog.stage), stage)
+      .writeI32(entry + BigInt(O.runtime.stageClearLog.clearTimeSec), clearTimeSec);
   }
   return m;
 }
@@ -551,32 +560,69 @@ describe("readRuntimeStageClears", () => {
 
   it("primes to the current log length on first read (backlog not counted)", () => {
     const pin = makeStageClearPinState();
-    const m = seedStageClearChain(new FakeMemory(), [42, 85]); // pre-existing backlog
+    const m = seedStageClearChain(new FakeMemory(), [
+      [3, 1, 42],
+      [3, 1, 85],
+    ]); // pre-existing backlog
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
     expect(pin.lastCount).toBe(2);
   });
 
-  it("returns clear-time seconds for entries appended since the last read", () => {
+  it("returns entries (act/stage/clearTimeSec) appended since the last read", () => {
     const pin = makeStageClearPinState();
-    const m = seedStageClearChain(new FakeMemory(), [85]);
+    const m = seedStageClearChain(new FakeMemory(), [[3, 1, 85]]);
     readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin); // prime at length 1
-    seedStageClearChain(m, [85, 63]); // one new clear appended
-    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([63]);
+    seedStageClearChain(m, [
+      [3, 1, 85],
+      [3, 2, 63],
+    ]); // one new clear appended (stage 3-2)
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 3, stage: 2, clearTimeSec: 63, valid: true },
+    ]);
   });
 
   it("rejects implausible clear times (corrupted / mid-write read)", () => {
     const pin = makeStageClearPinState();
     pin.primed = true;
     pin.lastCount = 0;
-    const m = seedStageClearChain(new FakeMemory(), [0, -1, 999_999, 85]);
-    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([85]);
+    const m = seedStageClearChain(new FakeMemory(), [
+      [3, 1, 0],
+      [3, 1, -1],
+      [3, 1, 999_999],
+      [3, 1, 85],
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 3, stage: 1, clearTimeSec: 85, valid: true },
+    ]);
+  });
+
+  it("marks valid=false when act/stage read out of plausibility range", () => {
+    // Mid-write / corrupted act/stage: each out-of-range field is clamped to 0
+    // independently and `valid` is set to false. The caller (TrackingService)
+    // drops invalid entries instead of falling back to the live stageKey —
+    // the fallback would re-introduce the off-by-one attribution bug.
+    const pin = makeStageClearPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    const m = seedStageClearChain(new FakeMemory(), [
+      [0, 0, 42], // both zero → valid=false
+      [12, 1, 43], // act out of range (1-9) → act clamped to 0, valid=false
+      [3, 200, 44], // stage out of range (1-99) → stage clamped to 0, valid=false
+      [3, 1, 85], // valid
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 0, stage: 0, clearTimeSec: 42, valid: false },
+      { act: 0, stage: 1, clearTimeSec: 43, valid: false },
+      { act: 3, stage: 0, clearTimeSec: 44, valid: false },
+      { act: 3, stage: 1, clearTimeSec: 85, valid: true },
+    ]);
   });
 
   it("realigns the tail and returns no clears when the log shrinks", () => {
     const pin = makeStageClearPinState();
     pin.primed = true;
     pin.lastCount = 5;
-    const m = seedStageClearChain(new FakeMemory(), [12]);
+    const m = seedStageClearChain(new FakeMemory(), [[3, 1, 12]]);
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
     expect(pin.lastCount).toBe(1);
   });
@@ -712,6 +758,70 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(pin.lastCount).toBe(1);
   });
 
+  it("retries a mid-write entry: null itemKey on sample 1, valid on sample 2", () => {
+    // Simulates the game appending a BoxOpenLog entry: the slot pointer is
+    // already written but the itemKey field is still zero on the first read,
+    // then becomes valid on the second read. The multi-sample loop should
+    // retry and surface the entry instead of silently dropping it.
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1, level: 3 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime
+
+    // Append a new entry at slot 1: pointer set, itemKey=0 initially.
+    const newEntry = 0xb70000n;
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+    m.writePtr(first + 8n, newEntry);
+    // Pre-seed itemKey=0: the slot is allocated but the writer hasn't yet
+    // committed the real value. FakeMemory returns null for unseeded addresses,
+    // so we must explicitly seed 0 to model "field exists but is zero".
+    m.writeI32(newEntry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 0);
+    // Bump the list size to 2 — the slot is "allocated" but itemKey not yet
+    // committed. seedBoxOpenChain's I32 write at +itemStringKey hasn't run.
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 2);
+
+    // Track readBytes calls so we can flip the itemKey on the second sample.
+    const origRead = m.readBytes.bind(m);
+    let flipped = false;
+    m.readBytes = (addr: bigint, size: number) => {
+      // After the first itemStringKey read at the new entry, plant the value.
+      // The first read of the new entry's itemKey returns 0 (plausible but
+      // filtered as itemKey<=0). Subsequent reads return the real value.
+      if (addr === newEntry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey)) {
+        // Flip the I32 in the underlying map after the first 4-byte read returns.
+        const v = origRead(addr, size);
+        if (!flipped && v && v.length >= 4 && v.readInt32LE(0) === 0) {
+          // Plant the real itemKey on the first probe; subsequent reads see it.
+          m.writeI32(addr, 530018);
+          flipped = true;
+        }
+        return v;
+      }
+      return origRead(addr, size);
+    };
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(1);
+    expect(result.opens![0].itemKey).toBe(530018);
+  });
+
+  it("drops an entry whose itemKey stays null across all samples", () => {
+    // Slot is allocated but itemKey never becomes valid (e.g. the game's
+    // write was preempted). After BOX_OPEN_LOG_SAMPLES samples, the entry
+    // is dropped — no entry surfaces, but the tail still advances.
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime
+
+    // Append a phantom slot: pointer is null (unreadable). All 3 samples fail.
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+    m.writePtr(first + 8n, 0n); // null pointer
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 2);
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toEqual([]); // phantom slot dropped
+    expect(pin.lastCount).toBe(2); // tail still advances past the bad slot
+  });
+
   // Regression: v1.00.28 stores itemStringKey as a System.String pointer.
   // readI32 on the pointer's low 4 bytes returns a non-negative garbage int
   // (e.g. 0x65909340 = 1703973696) that is NOT a plausible catalog itemKey.
@@ -823,6 +933,62 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(result.opens).toHaveLength(1);
     // Extracted from "ItemName_601171" → 601171 (real catalog id), NOT 600017.
     expect(result.opens![0].itemKey).toBe(601171);
+  });
+
+  // Regression: v1.00.28 String pointer with an UNREADABLE target (string
+  // memory paged out / freed / not yet initialized). The String-pointer path
+  // fails (readIl2CppString returns null), and the pointer's low 32 bits are
+  // a heap-address low dword OUTSIDE the catalog range (e.g. 0x15D95800 =
+  // 367177440). Without the range guard in the allowString branch, the
+  // readI32 fallback would return 367177440, which /1000-normalization
+  // (catalogItemKeyFromSave) maps to 367177 — coincidentally IN [110001,
+  // 939999] — bypassing garbage filters and surfacing a ghost "#367177440"
+  // entry in the loot list (root cause of the user-reported #367177440
+  // drop). With the guard, readBoxOpenLogField returns null and the entry
+  // is dropped (opens stays empty).
+  it("drops the entry when the String pointer is unreadable and the low dword is outside the catalog range", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+
+    const m = new FakeMemory();
+    // Pointer low dword = 0x15D95800 = 367177440 (OUTSIDE [110001, 939999]).
+    // High dword makes the full pointer a plausible heap addr. The String
+    // object at STRING_OBJ is intentionally NOT seeded — readIl2CppString
+    // reads length from uninitialized memory → null → returns null.
+    const STRING_OBJ = 0x0000_0001_15D9_5800n;
+
+    m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+      .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+      .writePtr(LOG_BLOCK, LM_INSTANCE);
+    m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+      .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+      .writeI32(LOG_DICT + BigInt(O.dict.count), 2);
+    const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+    m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+      .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+    m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+      GETBOX_LIST + BigInt(O.container.listSize),
+      0,
+    );
+    const de1 = de0 + BigInt(O.dict.entrySize);
+    m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+      .writeI32(de1 + BigInt(O.dict.entryKey), 99)
+      .writePtr(de1 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+    m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+      BOX_OPEN_LIST + BigInt(O.container.listSize),
+      1,
+    );
+    const entry = 0xeb0000n;
+    m.writePtr(BOX_OPEN_ARR + BigInt(O.container.arrayFirst), entry);
+    // itemStringKey at +0x10 = String pointer whose target is never seeded.
+    m.writePtr(entry + BigInt(0x10), STRING_OBJ);
+
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    // Entry dropped: no valid itemKey could be extracted (range guard
+    // returned null instead of the garbage low dword 367177440).
+    expect(result.opens).toHaveLength(0);
   });
 
   // Plain-int32 layout (v1.00.21/23/27): itemStringKey is a real int32 field.
@@ -1044,6 +1210,48 @@ describe("readRuntimeInventory", () => {
     expect(result.items).toBeNull();
     expect(result.status).toMatch(/CommonSaveData singleton.*static field unreadable/i);
   });
+
+  it("uses the bulk pointer-array read path when the backing array is contiguous", () => {
+    // Seed the pointer array as ONE contiguous buffer (the bulk-read fast path).
+    // Per-entry structs are still seeded per-field (so the per-entry bulk-read
+    // also takes the fast path: 8 bytes covering itemKey@0x10 + isChaotic@0x20).
+    const items = [
+      { itemKey: 930101, isChaotic: false },
+      { itemKey: 930202, isChaotic: true },
+      { itemKey: 930303, isChaotic: false },
+    ];
+    const m = new FakeMemory();
+    // CommonSaveData → player chain
+    m.writePtr(GA_BASE + O.typeInfoRva.commonSaveData, INV_CS_CLASS)
+      .writePtr(INV_CS_CLASS + BigInt(CAND), INV_CS_BLOCK)
+      .writePtr(INV_CS_BLOCK + BigInt(O.player.commonSaveData), INV_PLAYER);
+    m.writePtr(INV_PLAYER + BigInt(O.player.itemSaveDatas), INV_LIST)
+      .writePtr(INV_LIST + BigInt(O.container.listItems), INV_ARR)
+      .writeI32(INV_LIST + BigInt(O.container.listSize), items.length);
+
+    // Bulk pointer array: 3 × 8 bytes at INV_ARR + arrayFirst
+    const first = INV_ARR + BigInt(O.container.arrayFirst);
+    const ptrBuf = Buffer.alloc(items.length * 8);
+    // Per-entry struct buffer: covers itemKey@0x10 → isChaotic+4@0x24 = 0x14 bytes
+    const itemKeyOff = O.inventoryItem.itemKey;
+    const isChaoticOff = O.inventoryItem.isChaotic;
+    const fieldStart = Math.min(itemKeyOff, isChaoticOff);
+    const fieldSpan = Math.max(itemKeyOff + 4, isChaoticOff + 4) - fieldStart;
+    for (let i = 0; i < items.length; i++) {
+      const itemAddr = 0xf50000n + BigInt(i * 0x100);
+      ptrBuf.writeBigUInt64LE(itemAddr, i * 8);
+      // Single bulk struct buffer per entry
+      const structBuf = Buffer.alloc(fieldSpan);
+      structBuf.writeInt32LE(items[i].itemKey, itemKeyOff - fieldStart);
+      structBuf.writeInt32LE(items[i].isChaotic ? 1 : 0, isChaoticOff - fieldStart);
+      m.writeBytes(itemAddr + BigInt(fieldStart), structBuf);
+    }
+    m.writeBytes(first, ptrBuf);
+
+    const result = readRuntimeInventory(m, GA_BASE, GA_SIZE, O);
+    expect(result.items).toHaveLength(3);
+    expect(result.items).toEqual(items);
+  });
 });
 
 // ── readRuntimePets ───────────────────────────────────────────────────────────
@@ -1132,5 +1340,173 @@ describe("readRuntimePets", () => {
     const result = readRuntimePets(m, GA_BASE, GA_SIZE, PET_O);
     expect(result.pets).toBeNull();
     expect(result.status).toMatch(/petSaveDatas count = 0/i);
+  });
+
+  it("uses the bulk pointer-array read path when the backing array is contiguous", () => {
+    const pets = [
+      { petKey: 5001, unlocked: true },
+      { petKey: 5002, unlocked: false },
+      { petKey: 5003, unlocked: true },
+    ];
+    const m = new FakeMemory();
+    // CommonSaveData → player chain
+    m.writePtr(GA_BASE + PET_O.typeInfoRva.commonSaveData, CS_CLASS_P)
+      .writePtr(CS_CLASS_P + BigInt(CAND), CS_BLOCK_P)
+      .writePtr(CS_BLOCK_P + BigInt(PET_O.player.commonSaveData), PLAYER_OBJ);
+    m.writePtr(PLAYER_OBJ + BigInt(PET_PET_SAVEDS_OFFSET), PET_LIST_OBJ)
+      .writePtr(PET_LIST_OBJ + BigInt(O.container.listItems), PET_ITEMS_ARR)
+      .writeI32(PET_LIST_OBJ + BigInt(O.container.listSize), pets.length);
+
+    // Bulk pointer array
+    const first = PET_ITEMS_ARR + BigInt(O.container.arrayFirst);
+    const ptrBuf = Buffer.alloc(pets.length * 8);
+    // Per-entry struct buffer: covers petKey@0x10 + isUnlock@0x14 (span = 0x8 bytes)
+    const petKeyOff = PET_KEY_OFFSET;
+    const isUnlockOff = PET_UNLOCK_OFFSET;
+    const fieldStart = Math.min(petKeyOff, isUnlockOff);
+    const fieldSpan = Math.max(petKeyOff + 4, isUnlockOff + 4) - fieldStart;
+    for (let i = 0; i < pets.length; i++) {
+      const petAddr = 0xc40000n + BigInt(i * 0x100);
+      ptrBuf.writeBigUInt64LE(petAddr, i * 8);
+      const structBuf = Buffer.alloc(fieldSpan);
+      structBuf.writeInt32LE(pets[i].petKey, petKeyOff - fieldStart);
+      structBuf.writeInt32LE(pets[i].unlocked ? 1 : 0, isUnlockOff - fieldStart);
+      m.writeBytes(petAddr + BigInt(fieldStart), structBuf);
+    }
+    m.writeBytes(first, ptrBuf);
+
+    const result = readRuntimePets(m, GA_BASE, GA_SIZE, PET_O);
+    expect(result.pets).toHaveLength(3);
+    expect(result.pets).toEqual(pets);
+  });
+});
+
+// ── readRuntimeMonsterHp (MonsterSpawnManager → monsterList → HP) ─────────────
+
+// GameAssembly base + size don't matter for these tests — we bypass
+// resolveMonsterSpawnManager by pre-seeding pin.ptr with a fake instance.
+// The monster list is laid out at fixed offsets matching v1.00.21 runtime.monster:
+//   monsterList @ 0x28 (List<T>)
+//   monsterHealth @ 0xb0 (Monster → UnitHealthController*)
+// Then the controller struct has HP at HC_PROBE_PAIRS[0] = (0x40, 0x4c).
+
+const MSM_INSTANCE = 0xa00000n;
+const MONSTER_LIST_OBJ = 0xa10000n;
+const MONSTER_ARR = 0xa20000n;
+const HC_PROBE_C = 0x40; // current HP offset within HealthController (tbh-meter verified)
+const HC_PROBE_M = 0x4c; // max HP offset
+
+function seedMonsterList(
+  m: FakeMemory,
+  monsters: Array<{ addr: bigint; current: number; max: number }>,
+): FakeMemory {
+  // MSM_INSTANCE → monsterList List @ 0x28
+  m.writePtr(MSM_INSTANCE + 0x28n, MONSTER_LIST_OBJ)
+    .writePtr(MONSTER_LIST_OBJ + BigInt(O.container.listItems), MONSTER_ARR)
+    .writeI32(MONSTER_LIST_OBJ + BigInt(O.container.listSize), monsters.length);
+  const first = MONSTER_ARR + BigInt(O.container.arrayFirst);
+  for (let i = 0; i < monsters.length; i++) {
+    const { addr, current, max } = monsters[i];
+    m.writePtr(first + BigInt(i * 8), addr)
+      // monster + 0xb0 → HealthController*
+      .writePtr(addr + 0xb0n, addr + 0x100n)
+      .writeF32(addr + 0x100n + BigInt(HC_PROBE_C), current)
+      .writeF32(addr + 0x100n + BigInt(HC_PROBE_M), max);
+  }
+  return m;
+}
+
+describe("readRuntimeMonsterHp HP offset cache", () => {
+  it("probes all pairs on first read and caches the winning pair", () => {
+    const pin = makeMonsterSpawnPinState();
+    pin.ptr = MSM_INSTANCE; // bypass resolveMonsterSpawnManager
+    const m = seedMonsterList(new FakeMemory(), [
+      { addr: 0xd00000n, current: 50.5, max: 100 },
+      { addr: 0xd10000n, current: 75, max: 100 },
+      { addr: 0xd20000n, current: 100, max: 100 },
+    ]);
+
+    const r1 = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    expect(r1).not.toBeNull();
+    expect(r1!.monsterHps).toHaveLength(3);
+    expect(r1!.monsterHps[0]).toEqual([0xd00000, 50.5, 100]);
+
+    // After first read, the cache should hold the winning pair.
+    expect(pin.cachedHpOffsets).toEqual({ cOff: HC_PROBE_C, mOff: HC_PROBE_M });
+  });
+
+  it("uses the cached pair directly on subsequent monsters (skips the probe loop)", () => {
+    const pin = makeMonsterSpawnPinState();
+    pin.ptr = MSM_INSTANCE;
+    // Pre-seed the cache so the first monster hits the fast path.
+    pin.cachedHpOffsets = { cOff: HC_PROBE_C, mOff: HC_PROBE_M };
+    const m = seedMonsterList(new FakeMemory(), [
+      { addr: 0xd00000n, current: 1, max: 2 },
+      { addr: 0xd10000n, current: 3, max: 4 },
+    ]);
+
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    expect(r!.monsterHps).toEqual([
+      [0xd00000, 1, 2],
+      [0xd10000, 3, 4],
+    ]);
+    // Cache should remain valid.
+    expect(pin.cachedHpOffsets).toEqual({ cOff: HC_PROBE_C, mOff: HC_PROBE_M });
+  });
+
+  it("invalidates the cache when validation fails and re-probes to repopulate it", () => {
+    const pin = makeMonsterSpawnPinState();
+    pin.ptr = MSM_INSTANCE;
+    // Seed a STALE cache pointing at offsets that won't validate.
+    pin.cachedHpOffsets = { cOff: 0x30, mOff: 0x3c };
+
+    const m = seedMonsterList(new FakeMemory(), [
+      { addr: 0xd00000n, current: 99, max: 100 },
+    ]);
+    // Seed the stale-offset slots with garbage so the cached-pair read returns
+    // values that fail validHpPair (current > maxHp*1.1).
+    m.writeF32(0xd00000n + 0x100n + 0x30n, 999)
+      .writeF32(0xd00000n + 0x100n + 0x3cn, 1);
+
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    expect(r!.monsterHps).toEqual([[0xd00000, 99, 100]]);
+    // Cache should be updated to the winning pair.
+    expect(pin.cachedHpOffsets).toEqual({ cOff: HC_PROBE_C, mOff: HC_PROBE_M });
+  });
+
+  it("returns null when no probe pair validates (corrupted controller)", () => {
+    const pin = makeMonsterSpawnPinState();
+    pin.ptr = MSM_INSTANCE;
+    // Seed all probe offsets with NaN — none will validate.
+    const m = new FakeMemory();
+    m.writePtr(MSM_INSTANCE + 0x28n, MONSTER_LIST_OBJ)
+      .writePtr(MONSTER_LIST_OBJ + BigInt(O.container.listItems), MONSTER_ARR)
+      .writeI32(MONSTER_LIST_OBJ + BigInt(O.container.listSize), 1);
+    const monsterAddr = 0xd00000n;
+    m.writePtr(MONSTER_ARR + BigInt(O.container.arrayFirst), monsterAddr)
+      .writePtr(monsterAddr + 0xb0n, monsterAddr + 0x100n);
+    for (const [cOff, mOff] of [
+      [0x40, 0x4c],
+      [0x38, 0x44],
+      [0x30, 0x3c],
+      [0x48, 0x54],
+    ] as const) {
+      m.writeF32(monsterAddr + 0x100n + BigInt(cOff), NaN).writeF32(
+        monsterAddr + 0x100n + BigInt(mOff),
+        NaN,
+      );
+    }
+
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    expect(r).not.toBeNull();
+    expect(r!.monsterHps).toEqual([]); // monster skipped — no valid HP
+    expect(pin.cachedHpOffsets).toBeNull(); // cache not populated
+  });
+
+  it("returns null when monsterSpawnManager RVA is 0 and pin is unset", () => {
+    const pin = makeMonsterSpawnPinState();
+    const patched = { ...O, typeInfoRva: { ...O.typeInfoRva, monsterSpawnManager: 0n } };
+    const r = readRuntimeMonsterHp(new FakeMemory(), GA_BASE, GA_SIZE, patched, pin);
+    expect(r).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ function snapshot(stageKey: number): LiveMemorySnapshot {
     gold: null,
     heroes: null,
     chestDrops: null,
+    chestSlots: null,
     inventoryItems: null,
     petData: null,
     stageClears: null,

@@ -13,11 +13,19 @@ interface FieldCheck {
 
 /**
  * Fields the live reader cannot function without. A zero here means core stats
- * (stage, gold, heroes) are unavailable → the reader degrades to save-only.
+ * (stage, heroes) are unavailable → the reader degrades to save-only.
  * These are never legitimately zero when correctly derived.
+ *
+ * `typeInfoRva.currencyManager` is intentionally excluded (same reasoning as
+ * `commonSaveData` below): on v1.00.28 the runtime save-data / currency-manager
+ * class structure was restructured and the gold probe no longer matches, so the
+ * extractor can never derive it. Listing it here would keep the reader
+ * permanently unsupported on v1.00.28 even though stage/hero/heroList anchors
+ * succeed. Live gold degrades to the save-snapshot path (5s latency) when
+ * currencyManager=0; other live stats (XP, stage wave, chest drops, DPS) flow
+ * normally.
  */
 const CRITICAL_FIELDS: readonly FieldCheck[] = [
-  { path: "typeInfoRva.currencyManager", get: (o) => o.typeInfoRva.currencyManager },
   { path: "typeInfoRva.stageCacheManager", get: (o) => o.typeInfoRva.stageCacheManager },
   { path: "typeInfoRva.stageManager", get: (o) => o.typeInfoRva.stageManager },
   { path: "runtime.heroList", get: (o) => o.runtime.heroList },
@@ -53,6 +61,8 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
     get: (o) => o.runtime.log.getItemWithBoxOpenTypeKey,
   },
   { path: "runtime.stageClearLog.clearTimeSec", get: (o) => o.runtime.stageClearLog.clearTimeSec },
+  { path: "runtime.stageClearLog.act", get: (o) => o.runtime.stageClearLog.act },
+  { path: "runtime.stageClearLog.stage", get: (o) => o.runtime.stageClearLog.stage },
   // BoxOpenLog struct fields — class-metadata-derived (real ES3 field names).
   // boxType/level are intentionally excluded: obfuscated field names mean the
   // extractor can never derive them, so listing them would perpetually mark the
@@ -100,27 +110,31 @@ export function isOffsetTableComplete(o: LiveOffsets): boolean {
   return missingOffsetFields(o, "full").length === 0;
 }
 
-function pickN(base: number, derived: number): number {
-  return base !== 0 ? base : derived;
-}
-function pickB(base: bigint, derived: bigint): bigint {
-  return base !== 0n ? base : derived;
-}
-
 /**
  * Fill the base table's missing (zero) fields from the derived table, keeping
  * every already-present base value. Structural constants stay from `base`.
- * Same-version merge: base values are trusted; the extractor only fills gaps.
  *
- * NOTE: every nested runtime sub-object must be merged explicitly. Earlier
- * versions only merged a subset (heroList / log / getBoxLog / boxOpenLog /
- * stageClearLog / monster) and left `runtime.stage`, `runtime.currency`,
- * `runtime.currencyInfoKey` taken wholesale from `base`. That silently
- * discarded extractor-derived values for `runtime.stage.currentCache` (which
- * the extractor can move on versions where StageCache sits at a different
- * offset than the bundled 0x88), `runtime.currency.{list,dict,…}`, etc.
+ * Same-version merge (no `_fallbackFromVersion` on base): base values are
+ * trusted; the extractor only fills gaps. This is the original behavior —
+ * the bundled table is authoritative for its version.
+ *
+ * Fallback merge (`base._fallbackFromVersion` is set): the base table came
+ * from a same-major.minor neighbor (e.g. v1.01.02 → v1.01.01), so its TypeInfo
+ * RVAs may be STALE for the current build. The extractor was forced onto the
+ * critical path (`enrichmentOnly=false`) and re-derived fresh RVAs — those
+ * derived values MUST win over the stale fallback baseline. Without this, the
+ * merged table would keep v1.01.01's RVAs even after successful v1.01.02
+ * extraction, and live reads would resolve to wrong classes (returning null
+ * data) — the symptom is "fallback from v1.01.01" with all live data null.
+ * Fields the extractor couldn't derive (returned 0) keep the base's fallback
+ * value as a baseline, so the reader still degrades gracefully.
  */
 export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffsets {
+  const derivedWins = !!base._fallbackFromVersion;
+  const pickN = (b: number, d: number): number =>
+    derivedWins ? (d !== 0 ? d : b) : (b !== 0 ? b : d);
+  const pickB = (b: bigint, d: bigint): bigint =>
+    derivedWins ? (d !== 0n ? d : b) : (b !== 0n ? b : d);
   return {
     ...base,
     typeInfoRva: {
@@ -220,6 +234,8 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       },
       stageClearLog: {
         ...base.runtime.stageClearLog,
+        act: pickN(base.runtime.stageClearLog.act, derived.runtime.stageClearLog.act),
+        stage: pickN(base.runtime.stageClearLog.stage, derived.runtime.stageClearLog.stage),
         clearTimeSec: pickN(
           base.runtime.stageClearLog.clearTimeSec,
           derived.runtime.stageClearLog.clearTimeSec,

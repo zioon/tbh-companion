@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { CardContent, CardHeader } from "../../design-system/primitives/Card/CardParts";
+import { formatStatRow } from "../../lib/itemLabels";
 import { ItemCardHeader, MaterialGroup, StatGroup } from "./itemCardParts";
 import { LookupPrice } from "./LookupPrice";
 import { lookupItemCardHasBody } from "../../lib/lookupItemCard";
@@ -47,8 +48,16 @@ export const ItemCard = memo(function ItemCard({
         <CardContent>
           {item.stats ? (
             <>
-              <StatGroup title={t("stats.base")} rows={item.stats.base} tone="base" />
-              <StatGroup title={t("stats.inherent")} rows={item.stats.inherent} tone="inherent" />
+              <StatGroup
+                title={t("stats.base")}
+                rows={item.stats.base.map((r) => ({ display: formatStatRow(r, t, "base") }))}
+                tone="base"
+              />
+              <StatGroup
+                title={t("stats.inherent")}
+                rows={item.stats.inherent.map((r) => ({ display: formatStatRow(r, t, "affix") }))}
+                tone="inherent"
+              />
               {item.stats.unique ? (
                 <StatGroup
                   title={t("stats.unique")}

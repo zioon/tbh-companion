@@ -2,18 +2,58 @@
 // 在 TbhProvider 挂载时由 getConfig() 拿到 language（可能含 resolvedLanguage
 // 运行时派生字段）后调用 initRendererI18n()。
 // 复用 core/i18n/factory 的 buildI18nConfig 保证配置与主进程一致。
+//
+// 初始化后尝试从主进程拉取游戏 locale 数据（userData/locale.json），
+// 覆盖 bundled 翻译中 labels 节的品质/类型/属性等字段，使翻译与游戏保持同步。
 
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import { buildI18nConfig } from "../core/i18n/factory";
 import { resolveLanguage, type AppLanguage, type ResolvedLanguage } from "../../shared/language";
 import { LOCALE_RESOURCES } from "../../shared/locales";
+import { flatGameKeysToLabels } from "./lib/gameLocaleLabels";
 
 let initialized = false;
 
 /**
+ * 从主进程拉取游戏提取的 locale 数据，若存在则将 labels 节合并到 i18next
+ * 资源中（游戏值优先于 bundled 值）。仅在已初始化且 window.tbh 可用时调用。
+ */
+async function tryMergeGameLocale(): Promise<void> {
+  try {
+    const localeData = await window.tbh.getLocaleData();
+    if (!localeData) return;
+
+    // Iterate every language present in the game-extracted locale data
+    // (4 or 16, depending on game version). For languages not yet loaded
+    // into i18next, addResourceBundle still stores them for later use.
+    let merged = false;
+    for (const lang of Object.keys(localeData.locales)) {
+      const game = localeData.locales[lang];
+      if (!game || Object.keys(game).length === 0) continue;
+      const labels = flatGameKeysToLabels(game);
+      if (labels) {
+        i18next.addResourceBundle(lang, "common", { labels }, true, true);
+        merged = true;
+      }
+    }
+    // addResourceBundle does NOT emit any event react-i18next subscribes to,
+    // so useTranslation() hooks won't re-render with the newly merged data
+    // (grades/types/statTemplates). Re-trigger the languageChanged event by
+    // calling changeLanguage with the current language — this forces every
+    // useTranslation subscriber to re-read translations.
+    if (merged) {
+      const cur = i18next.language;
+      if (cur) await i18next.changeLanguage(cur);
+    }
+  } catch {
+    // Non-fatal: game bundles not available, no refresh done yet, etc.
+  }
+}
+
+/**
  * 初始化或更新渲染进程 i18next。第一次调用时绑定 react-i18next；后续调用
- * （如语言变更）仅切换语言。`useTranslation()` 默认订阅全局 i18next 实例，
+ *（如语言变更）仅切换语言。`useTranslation()` 默认订阅全局 i18next 实例，
  * 语言切换会自动触发重渲染。
  *
  * @param language 用户配置的语言偏好（"auto" / "game" / 具体语言）
@@ -42,6 +82,10 @@ export async function initRendererI18n(
     }),
   );
   initialized = true;
+
+  // 异步合并游戏 locale 数据（不阻塞渲染）
+  tryMergeGameLocale();
+
   return i18next;
 }
 

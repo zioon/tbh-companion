@@ -48,6 +48,7 @@
     "damageSession": "Damage (session)",
     "dps5s": "DPS (5s window)",
     "offsetSource": "Offset source",
+    "fallbackFromVersion": "Fallback baseline",
     "extractAttempts": "Extract attempts",
     "statusLabel": "Status",
     "offsetsComplete": "Offsets complete",

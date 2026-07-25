@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { InventoryService, mergeLookupNames } from "../../src/main/services/InventoryService";
 import type { GameItem } from "../../src/core/gamedata";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../src/core/localeCatalog";
 import type { InventorySnapshot, LookupItem } from "../../shared/types";
 
 function snap(used: number, capacity: number): InventorySnapshot {
@@ -307,5 +308,251 @@ describe("InventoryService.setLookupCatalog", () => {
     const initArgs = (service["worker"].init as ReturnType<typeof vi.fn>).mock.calls[0];
     const mergedMap = initArgs?.[0] as Map<number, GameItem>;
     expect(mergedMap.get(160006)?.name).toBe("Empire 50th Anniversary Coin");
+  });
+});
+
+describe("InventoryService with LocaleCatalog", () => {
+  function makePlaceholderItem(id: number): GameItem {
+    return {
+      id,
+      name: `ItemName_${id}`,
+      grade: "COMMON",
+      type: "MATERIAL",
+      level: null,
+      marketTradable: true,
+    };
+  }
+
+  /** Inject a stub gameData via reflection — mirrors the setLookupCatalog test. */
+  function injectItem(service: InventoryService, item: GameItem): void {
+    service["gameData"]["index"] = new Map([[item.id, item]]);
+    service["gameData"]["loaded"] = true;
+  }
+
+  it("has setLocaleCatalog method", () => {
+    const service = new InventoryService();
+    expect(typeof service.setLocaleCatalog).toBe("function");
+  });
+
+  it("defaults to emptyLocaleCatalog when no catalog is provided", () => {
+    const service = new InventoryService();
+    injectItem(service, makePlaceholderItem(530017));
+    // No catalog → gameItemName returns the placeholder unchanged; the
+    // lookup catalog is also empty so the placeholder stays.
+    expect(service["getMergedGameItem"](530017)?.name).toBe("ItemName_530017");
+  });
+
+  it("uses catalog to localize item names via gameItemName", () => {
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "530017": "Goblin Hide" },
+    };
+    const service = new InventoryService(catalog);
+    injectItem(service, makePlaceholderItem(530017));
+    expect(service["getMergedGameItem"](530017)?.name).toBe("Goblin Hide");
+  });
+
+  it("setLocaleCatalog swaps the catalog used for item names", () => {
+    const service = new InventoryService();
+    injectItem(service, makePlaceholderItem(530017));
+    // Initially empty catalog → placeholder name passes through.
+    expect(service["getMergedGameItem"](530017)?.name).toBe("ItemName_530017");
+    // Swap in a catalog with the localized name.
+    service.setLocaleCatalog({
+      ...emptyLocaleCatalog(),
+      items: { "530017": "Goblin Hide" },
+    });
+    expect(service["getMergedGameItem"](530017)?.name).toBe("Goblin Hide");
+  });
+
+  it("locale catalog takes precedence over lookup catalog for placeholder names", () => {
+    // Construct with a locale catalog that has the localized name.
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "530017": "Goblin Hide" },
+    };
+    const service = new InventoryService(catalog);
+    injectItem(service, makePlaceholderItem(530017));
+    // Stub worker + market so setLookupCatalog doesn't spawn a utility
+    // process or crash (mirrors the setLookupCatalog test setup).
+    service["worker"].init = vi.fn().mockResolvedValue(undefined);
+    service["worker"].isReady = vi.fn().mockReturnValue(false);
+    service["market"] = { status: () => ({ currency: "USD" }) } as never;
+
+    // Inject a lookup catalog with a different English name. The locale
+    // catalog should win.
+    const lookupItem: LookupItem = {
+      id: 530017,
+      name: "Goblin Hide (English Fallback)",
+      grade: "COMMON",
+      type: "MATERIAL",
+      gearType: null,
+      gearGroup: null,
+      materialType: null,
+      level: null,
+      iconPath: "item-530017",
+      marketTradable: true,
+    };
+    service.setLookupCatalog([lookupItem]);
+
+    expect(service["getMergedGameItem"](530017)?.name).toBe("Goblin Hide");
+  });
+
+  it("localizes hardcoded English names when catalog has the item id", () => {
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "530017": "Goblin Hide" },
+    };
+    const service = new InventoryService(catalog);
+    const englishItem: GameItem = {
+      id: 530017,
+      name: "Iron Ingot",
+      grade: "COMMON",
+      type: "MATERIAL",
+      level: null,
+      marketTradable: true,
+    };
+    injectItem(service, englishItem);
+    // gameItemName looks up catalog.items[String(item.id)] first, so even
+    // hardcoded English names get localized when the catalog has the id.
+    expect(service["getMergedGameItem"](530017)?.name).toBe("Goblin Hide");
+  });
+
+  it("leaves hardcoded English names untouched when catalog lacks the item id", () => {
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "999999": "Should not be used" },
+    };
+    const service = new InventoryService(catalog);
+    const englishItem: GameItem = {
+      id: 530017,
+      name: "Iron Ingot",
+      grade: "COMMON",
+      type: "MATERIAL",
+      level: null,
+      marketTradable: true,
+    };
+    injectItem(service, englishItem);
+    expect(service["getMergedGameItem"](530017)?.name).toBe("Iron Ingot");
+  });
+});
+
+describe("InventoryService price-target English invariant", () => {
+  // Regression: when a LocaleCatalog is set, the display path
+  // (`getMergedGameItem`) returns a localized name. Price targets must NOT
+  // use that localized name — Steam Market requires the English
+  // `market_hash_name`, and `lookupPriceSnapshot.prices[hash]` is keyed by
+  // English names. `currentOwnedPriceTargets` and `refreshItemPrices` must
+  // go through `getEnglishMergedGameItem` instead.
+
+  function makeMaterialItem(id: number, name: string): GameItem {
+    return {
+      id,
+      name,
+      grade: "COMMON",
+      type: "MATERIAL",
+      level: null,
+      marketTradable: true,
+    };
+  }
+
+  function injectItem(service: InventoryService, item: GameItem): void {
+    service["gameData"]["index"] = new Map([[item.id, item]]);
+    service["gameData"]["loaded"] = true;
+  }
+
+  it("getEnglishMergedGameItem ignores the LocaleCatalog (returns English name)", () => {
+    const zhCatalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "530017": "哥布林皮" },
+    };
+    const service = new InventoryService(zhCatalog);
+    injectItem(service, makeMaterialItem(530017, "ItemName_530017"));
+
+    // Display path returns the localized name.
+    expect(service["getMergedGameItem"](530017)?.name).toBe("哥布林皮");
+    // Price-target path returns the English (placeholder) name; the lookup
+    // catalog fallback isn't wired here.
+    expect(service["getEnglishMergedGameItem"](530017)?.name).toBe("ItemName_530017");
+  });
+
+  it("getEnglishMergedGameItem resolves placeholder via lookup catalog (English) even when locale catalog is set", () => {
+    const zhCatalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "530017": "哥布林皮" },
+    };
+    const service = new InventoryService(zhCatalog);
+    injectItem(service, makeMaterialItem(530017, "ItemName_530017"));
+
+    // Wire up the lookup catalog so the placeholder can resolve to English.
+    service["worker"].init = vi.fn().mockResolvedValue(undefined);
+    service["worker"].isReady = vi.fn().mockReturnValue(false);
+    service["market"] = { status: () => ({ currency: "USD" }) } as never;
+    service.setLookupCatalog([
+      {
+        id: 530017,
+        name: "Goblin Hide",
+        grade: "COMMON",
+        type: "MATERIAL",
+        gearType: null,
+        gearGroup: null,
+        materialType: null,
+        level: null,
+        iconPath: "item-530017",
+        marketTradable: true,
+      },
+    ]);
+
+    // Display path: locale catalog wins → localized name.
+    expect(service["getMergedGameItem"](530017)?.name).toBe("哥布林皮");
+    // Price-target path: lookup catalog wins → English name (NOT localized).
+    expect(service["getEnglishMergedGameItem"](530017)?.name).toBe("Goblin Hide");
+  });
+
+  it("currentOwnedPriceTargets returns English hash even when locale catalog localizes the name", () => {
+    const zhCatalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      items: { "530017": "哥布林皮" },
+    };
+    const service = new InventoryService(zhCatalog);
+    injectItem(service, makeMaterialItem(530017, "ItemName_530017"));
+
+    // Inject the lookup catalog so the placeholder resolves to English.
+    service["worker"].init = vi.fn().mockResolvedValue(undefined);
+    service["worker"].isReady = vi.fn().mockReturnValue(false);
+    service["market"] = { status: () => ({ currency: "USD" }) } as never;
+    service.setLookupCatalog([
+      {
+        id: 530017,
+        name: "Goblin Hide",
+        grade: "COMMON",
+        type: "MATERIAL",
+        gearType: null,
+        gearGroup: null,
+        materialType: null,
+        level: null,
+        iconPath: "item-530017",
+        marketTradable: true,
+      },
+    ]);
+
+    // Seed lastInventoryRaw via reflection so currentOwnedPriceTargets can
+    // build targets without going through onInventory's full resolve path.
+    service["lastInventoryRaw"] = {
+      items: [{ itemKey: 530017, isChaotic: false, inUse: false, location: "inventory" }],
+      chests: [],
+      saveMtime: 0,
+      inventoryCapacity: 100,
+      inventoryUsed: 1,
+    };
+
+    const targets = service["currentOwnedPriceTargets"]();
+    expect(targets).toHaveLength(1);
+    expect(targets[0].kind).toBe("material");
+    // The hash MUST be the English market_hash_name — never the localized
+    // display name. Without this invariant, Steam Market API calls fail and
+    // the diagnostic log fills with localized item names (see project
+    // memory: "更新价格强制使用英文").
+    expect((targets[0] as { hash: string }).hash).toBe("Goblin Hide");
   });
 });

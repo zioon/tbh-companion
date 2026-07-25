@@ -23,17 +23,18 @@ import type {
 export type LastDropWallTimeByCategory = Record<BoxCategory, number | null>;
 
 /** Max number of recent-drop entries to surface in the Loot UI. */
-const RECENT_DROPS_LIMIT = 3;
+const RECENT_DROPS_LIMIT = 100;
 
 const EMPTY_STATE: AutoClassifyStatePayload = {
   enabled: false,
   totalQueued: 0,
   byCategory: [
-    { category: "common", count: 0, nextAutoOpenInMs: null },
-    { category: "rare", count: 0, nextAutoOpenInMs: null },
-    { category: "act", count: 0, nextAutoOpenInMs: null },
+    { category: "common", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+    { category: "rare", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+    { category: "act", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
   ],
   items: [],
+  liveSlots: null,
 };
 
 export function useLoot(): {

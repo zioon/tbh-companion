@@ -17,6 +17,7 @@ import type {
   LiveMemoryPrefs,
   LootRingSeconds,
   NotificationPrefs,
+  WindowTopmostPrefs,
 } from "../../shared/types";
 import { DEFAULT_PASSWORD } from "../core/es3";
 
@@ -48,12 +49,21 @@ const DEFAULT_LOOT_RING_SECONDS: LootRingSeconds = {
   stage: 7 * 60,
 };
 
+// Per-window "keep on top" defaults. The main window and both overlay-style
+// windows (mini overlay + stage-boss chest tracker) default to pinned, matching
+// the pre-split behavior of the legacy single `startTopmost: true` toggle.
+const DEFAULT_TOPMOST: WindowTopmostPrefs = {
+  main: true,
+  overlay: true,
+  boxTracker: true,
+};
+
 const DEFAULTS: AppConfig = {
   savePath: DEFAULT_SAVE,
   es3Password: DEFAULT_PASSWORD,
   pollIntervalSeconds: 5,
   rollingWindowMinutes: 5,
-  startTopmost: true,
+  topmost: DEFAULT_TOPMOST,
   logHistoryCsv: true,
   currency: "USD",
   notificationsEnabled: true,
@@ -73,9 +83,17 @@ const DEFAULTS: AppConfig = {
   lootAutoClassifyEnabled: false,
   lootRingSeconds: DEFAULT_LOOT_RING_SECONDS,
   language: DEFAULT_LANGUAGE,
+  gameInstallDir: "",
 };
 
-type RawConfig = Partial<AppConfig> & { chestSoundVariant?: LegacyChestSoundVariant };
+type RawConfig = Omit<Partial<AppConfig>, "topmost"> & {
+  chestSoundVariant?: LegacyChestSoundVariant;
+  /** Legacy single-toggle for "keep on top"; migrated to `topmost` on load. */
+  startTopmost?: boolean;
+  /** Per-window topmost prefs; partial shapes are accepted (missing windows
+   * fall back to the legacy seed or defaults — see {@link sanitizeTopmost}). */
+  topmost?: Partial<WindowTopmostPrefs>;
+};
 
 function sanitizeChestAutoOpenPrefs(
   raw: Partial<ChestAutoOpenPrefs> | undefined,
@@ -90,6 +108,33 @@ function sanitizeLiveMemoryPrefs(raw: Partial<LiveMemoryPrefs> | undefined): Liv
   return {
     enabled: Boolean(raw?.enabled),
     consentAccepted: Boolean(raw?.consentAccepted),
+  };
+}
+
+/**
+ * Resolve the per-window topmost prefs. Each window is picked independently:
+ *   1. `raw.topmost[key]` if it is an explicit boolean
+ *   2. `raw.startTopmost` (legacy single-toggle) when present — seeds all
+ *      three windows with the same value to preserve pre-split behavior
+ *   3. {@link DEFAULT_TOPMOST} otherwise
+ *
+ * The legacy `startTopmost` field is consumed here and never persisted back;
+ * `saveConfig` always writes the new `topmost` object.
+ */
+function sanitizeTopmost(raw: {
+  topmost?: Partial<WindowTopmostPrefs>;
+  startTopmost?: unknown;
+}): WindowTopmostPrefs {
+  const legacy = typeof raw.startTopmost === "boolean" ? raw.startTopmost : null;
+  const pick = (key: keyof WindowTopmostPrefs, fallback: boolean): boolean => {
+    const explicit = raw.topmost?.[key];
+    if (typeof explicit === "boolean") return explicit;
+    return legacy ?? fallback;
+  };
+  return {
+    main: pick("main", DEFAULT_TOPMOST.main),
+    overlay: pick("overlay", DEFAULT_TOPMOST.overlay),
+    boxTracker: pick("boxTracker", DEFAULT_TOPMOST.boxTracker),
   };
 }
 
@@ -123,15 +168,29 @@ function sanitizeMarketLowValueThresholdUsd(raw: unknown): number {
 }
 
 /**
- * Coerce the UI language preference to a supported value. Accepts "auto" or
- * any entry in APP_LANGUAGES; anything else falls back to the default ("auto").
+ * Coerce the UI language preference to a supported value. Accepts "auto",
+ * "game" (follow the game's registry-set language), or any entry in
+ * APP_LANGUAGES; anything else falls back to the default ("auto").
  */
 function sanitizeLanguage(raw: unknown): AppLanguage {
-  if (raw === "auto") return "auto";
+  if (raw === "auto" || raw === "game") return raw;
   if (typeof raw === "string" && (APP_LANGUAGES as readonly string[]).includes(raw)) {
     return raw as AppLanguage;
   }
   return DEFAULT_LANGUAGE;
+}
+
+/**
+ * Coerce the game install dir override to a trimmed string. Empty string
+ * means "use the Steam default + env var fallback" (see catalogRefreshService).
+ * Forward slashes are normalized to backslashes for consistency with Windows
+ * paths (the only platform this app runs on).
+ */
+function sanitizeGameInstallDir(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed.replace(/\//g, "\\");
 }
 
 function normalizeConfig(raw: RawConfig): AppConfig {
@@ -147,6 +206,9 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     lootAutoClassifyEnabled: _ac,
     lootRingSeconds: _ring,
     language: _language,
+    gameInstallDir: _gameInstallDir,
+    topmost: _topmost,
+    startTopmost: _legacyTopmost,
     ...rest
   } = raw;
   const notificationPrefs: NotificationPrefs = migrateNotificationPrefs(raw);
@@ -163,6 +225,8 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   const lootAutoClassifyEnabled = raw.lootAutoClassifyEnabled === true;
   const lootRingSeconds = sanitizeLootRingSeconds(raw.lootRingSeconds);
   const language = sanitizeLanguage(raw.language);
+  const gameInstallDir = sanitizeGameInstallDir(raw.gameInstallDir);
+  const topmost = sanitizeTopmost(raw);
   return {
     ...DEFAULTS,
     ...rest,
@@ -176,6 +240,8 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     lootAutoClassifyEnabled,
     lootRingSeconds,
     language,
+    gameInstallDir,
+    topmost,
   };
 }
 

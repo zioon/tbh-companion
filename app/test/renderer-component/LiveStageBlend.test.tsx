@@ -15,6 +15,7 @@ const baseStats = {
   goldGained: 0,
   elapsed: 0,
   stageKey: 1010,
+  stageName: "MAP:1010",
   stageWave: 1,
   secondsSinceGain: 10,
   status: "Tracking",
@@ -24,6 +25,10 @@ const baseStats = {
     combinedTotal: 0,
     commonPerHour: 0,
     rarePerHour: 0,
+    commonSession: 0,
+    rareSession: 0,
+    actSession: 0,
+    combinedSession: 0,
     readerRequired: true,
     breakdown: [],
     history: [],
@@ -38,6 +43,15 @@ vi.mock("../../src/renderer/lib/useChests", () => ({ useChests: () => null }));
 vi.mock("../../src/renderer/lib/useStageRuns", () => ({ useStageRuns: () => null }));
 vi.mock("../../src/renderer/lib/useLiveMemory", () => ({
   useLiveMemory: () => ({ snapshot: state.live, status: null }),
+  useLiveMemoryScalars: () => {
+    const live = state.live;
+    return {
+      connected: live?.connected === true,
+      hasChestDrops: live?.chestDrops != null,
+      stageKey: live?.stageKey ?? null,
+      stageWave: live?.stageWave ?? null,
+    };
+  },
 }));
 // Echo stageName so we can assert exactly which stage key was rendered.
 vi.mock("../../src/core/stages", () => ({
@@ -52,6 +66,7 @@ function liveSnapshot(stageKey: number, stageWave: number): LiveMemorySnapshot {
     gold: null,
     heroes: null,
     chestDrops: null,
+    chestSlots: null,
     inventoryItems: null,
     petData: null,
     stageClears: null,
@@ -79,12 +94,12 @@ describe("Live.tsx stage blend", () => {
     expect(screen.getByText("MAP:1010")).toBeInTheDocument();
   });
 
-  it("prefers the live stage over the save stage when a snapshot is present", async () => {
+  it("shows stats.stageName even when a live snapshot is present (no live blending)", async () => {
     state.live = liveSnapshot(3020, 5);
     const { Live } = await import("../../src/renderer/tabs/Live");
     renderLive(<Live />);
-    expect(screen.getByText("MAP:3020")).toBeInTheDocument();
-    expect(screen.queryByText("MAP:1010")).not.toBeInTheDocument();
+    expect(screen.getByText("MAP:1010")).toBeInTheDocument();
+    expect(screen.queryByText("MAP:3020")).not.toBeInTheDocument();
   });
 
   it("hides XP updated text when live memory is connected", async () => {

@@ -114,7 +114,8 @@ jobs:
             "box_types.json",
             "rune_box_cap.json",
             "gamedata.json",
-            "stage_boxes.json"
+            "stage_boxes.json",
+            "_game_locale_dump.json"
           )
           foreach ($file in $required) {
             $path = Join-Path $resourcesData $file

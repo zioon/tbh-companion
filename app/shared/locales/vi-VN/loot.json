@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Rương Kho Báu Thường",
+    "rare": "Rương Kho Báu Màn",
+    "act": "Rương Kho Báu Trùm Hồi",
+    "unclassified": "Chưa phân loại"
+  },
+  "levelSuffix": "{{base}} Cấp {{level}}"
+}

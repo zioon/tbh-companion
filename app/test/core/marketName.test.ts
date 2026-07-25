@@ -109,6 +109,57 @@ describe("marketHashName", () => {
   });
 });
 
+describe("sourceName (English hash under localized UI)", () => {
+  it("prefers sourceName over name for MATERIAL hash", () => {
+    // Simulate a coin rendered in Chinese: display name is "铜币" but the
+    // English source name "Copper Coin" is preserved via sourceName.
+    // The snapshot is keyed by "Copper Coin", so the hash must be English.
+    const localizedMat: GameItem & { sourceName?: string } = {
+      ...mat,
+      name: "铜币",
+      sourceName: "Iron Ingot",
+    };
+    expect(marketHashName(localizedMat)).toBe("Iron Ingot");
+    expect(marketHashMatch(localizedMat)?.name).toBe("Iron Ingot");
+    expect(marketHashCandidates(localizedMat)).toEqual(["Iron Ingot"]);
+  });
+
+  it("prefers sourceName over name for GEAR hash", () => {
+    const localizedGear: GameItem & { sourceName?: string } = {
+      ...gearLeg,
+      name: "骑士之剑",
+      sourceName: "Knight Sword",
+    };
+    expect(marketHashName(localizedGear)).toBe("Knight Sword (Legendary) A");
+    expect(marketHashCandidates(localizedGear)).toEqual(["Knight Sword (Legendary) A"]);
+  });
+
+  it("falls back to name when sourceName is absent", () => {
+    // GameItem from the bundled catalog has no sourceName — hash falls back
+    // to name (English). This is the path used by snapshot builders and
+    // inventory/TrackingService, which all work with English source data.
+    expect(marketHashName(mat)).toBe("Iron Ingot");
+    expect(marketHashName(gearLeg)).toBe("Knight Sword (Legendary) A");
+  });
+
+  it("treats sourceName placeholder as non-priceable even when name is localized", () => {
+    // Edge case: bundled item whose English source name is an unresolved
+    // ItemName_ placeholder. The localized name might look real, but Steam
+    // has no listing for placeholders — guard on sourceName wins.
+    const placeholderLocalized: GameItem & { sourceName?: string } = {
+      id: 145002,
+      name: "铜币",
+      grade: "ARCANA",
+      type: "MATERIAL",
+      level: null,
+      marketTradable: true,
+      sourceName: "ItemName_145002",
+    };
+    expect(marketHashName(placeholderLocalized)).toBeNull();
+    expect(marketHashCandidates(placeholderLocalized)).toEqual([]);
+  });
+});
+
 describe("isPlaceholderItemName", () => {
   it("flags unresolved ItemName_ keys from build_catalog.py fallback", () => {
     expect(isPlaceholderItemName("ItemName_145002")).toBe(true);

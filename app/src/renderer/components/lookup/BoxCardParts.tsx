@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { gradeLabel } from "../../../core/labels";
+import { gradeLabel } from "../../lib/itemLabels";
 import { boxDropViaSummaries, splitDropStageRangeLines } from "../../../core/lookup/boxDisplay";
 import { boxIconPath } from "../../lib/boxIconPath";
 import { fmtDropPct } from "../../lib/lookupDisplay";
@@ -58,7 +58,7 @@ export function BoxCardHeader({
           className={cn("m-0 truncate", isDetail ? "text-xs" : "text-[11px]")}
           style={color ? { color } : undefined}
         >
-          {box.grade ? `${gradeLabel(box.grade)} · ` : ""}
+          {box.grade ? `${gradeLabel(box.grade, t)} · ` : ""}
           {translateBoxCategoryLabel(t, box.category)}
         </p>
         {box.firstDropOnly ? (

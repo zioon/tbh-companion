@@ -1,5 +1,12 @@
 import { useTranslation } from "react-i18next";
-import type { AutoClassifyStatePayload, BoxSlotStatus, ChestState } from "../../../../shared/types";
+import type {
+  AutoClassifyStatePayload,
+  BoxSlotStatus,
+  ChestAutoOpenPrefs,
+  ChestState,
+} from "../../../../shared/types";
+import type { PredictFillTimeResult } from "../../../core/inventory/predictFillTime";
+import { fmtFillEta, fmtHoursUntilFull } from "../../lib/format";
 import { Badge } from "../../design-system/primitives/Badge/Badge";
 import { CapacityBar } from "../../design-system/primitives/CapacityBar/CapacityBar";
 import { Card } from "../../design-system/primitives/Card/Card";
@@ -80,38 +87,65 @@ interface LootQueueSlotsProps {
    * drop rate so it should be `null`.
    */
   dropsPerHour: { [K in QueueCategory]: number | null };
+  /**
+   * Inventory capacity/used from `useInventory()`. When `null` (no save yet)
+   * the inventory row is hidden. The auto-open setting is shared with the
+   * Live tab (`config.chestAutoOpenEnabled`) — the Loot tab does not expose
+   * its own toggle, it just reads the Live tab's result.
+   */
+  inventory: { inventoryCapacity: number; inventoryUsed: number } | null;
+  /** Auto-open prefs mirrored from `config.chestAutoOpenEnabled` (Live tab). */
+  autoOpenEnabled: ChestAutoOpenPrefs;
+  /** Output of `predictFillTime()` for the inventory. `null` while data missing. */
+  fillPrediction: PredictFillTimeResult | null;
 }
 
-export function LootQueueSlots({ queue, chests, dropsPerHour }: LootQueueSlotsProps) {
+export function LootQueueSlots({
+  queue,
+  chests,
+  dropsPerHour,
+  inventory,
+  autoOpenEnabled,
+  fillPrediction,
+}: LootQueueSlotsProps) {
   const { t } = useTranslation("loot");
 
   return (
-    <Card padding="default" className="flex h-full flex-col gap-1.5">
+    <Card padding="default" className="flex flex-col gap-1.5">
       <div className="text-xs font-semibold uppercase tracking-wide text-muted">
         {t("queueSlots.title")}
       </div>
       <div className="flex flex-col gap-1.5">
         {SLOT_ROWS.map((row) => {
           const queueEntry = queue.byCategory.find((c) => c.category === row.queueCategory);
-          const queuedCount = queueEntry?.count ?? 0;
           const nextAutoOpenInMs = queueEntry?.nextAutoOpenInMs ?? null;
+          const lastAutoOpenInMs = queueEntry?.lastAutoOpenInMs ?? null;
 
           const slot: BoxSlotStatus | null = chests?.[row.slotKey] ?? null;
-          const autoOpenSeconds = chests?.autoOpen?.[row.slotKey] ?? null;
 
-          const quantity = slot?.quantity ?? 0;
+          // Live quantity (from AutoClassifyService.liveSlots) takes precedence
+          // when available — it's recalibrated on every save parse, then
+          // adjusted in real-time: +1 on chest drop, -1 on auto-open timer
+          // elapse, -1 on detected manual open via unclassified burst. Falls
+          // back to save-derived `slot.quantity` when liveSlots is null (before
+          // the first save parse completes).
+          // `capacity` always comes from save (rune-purchased cap is
+          // low-frequency, save path is authoritative).
+          const saveQuantity = slot?.quantity ?? 0;
+          const liveQuantity = queue.liveSlots?.[row.queueCategory];
+          const quantity = liveQuantity ?? saveQuantity;
           const capacity = slot?.capacity ?? 0;
-          const isFull = slot?.isFull ?? false;
+          // `isFull` re-derived from the merged quantity + save capacity so the
+          // "Full" badge reflects the live state, not the stale save state.
+          const isFull = capacity > 0 ? quantity >= capacity : false;
           const pct = capacity > 0 ? Math.min(100, (quantity / capacity) * 100) : 0;
 
-          // Queue clears-in: time for every queued chest of this category to
-          // auto-open. Head opens in `nextAutoOpenInMs`; each subsequent chest
-          // opens `autoOpenSeconds` later (serial per-category auto-open).
-          // `null` when the queue is empty or auto-open seconds are unknown.
-          let clearsInMs: number | null = null;
-          if (queuedCount > 0 && nextAutoOpenInMs != null && autoOpenSeconds != null) {
-            clearsInMs = nextAutoOpenInMs + (queuedCount - 1) * autoOpenSeconds * 1000;
-          }
+          // Queue clears-in: under the slot-parallel model every queued chest
+          // has its own independent timer. The queue is fully cleared when
+          // the latest-opening (tail) chest auto-opens, so `clearsInMs` is
+          // simply the tail item's remaining time. `null` when the queue is
+          // empty.
+          const clearsInMs = lastAutoOpenInMs;
 
           // Slots fill-in: time for `quantity` to reach `capacity` based on
           // the observed drop rate. `null` when already full, no rate, or
@@ -175,6 +209,87 @@ export function LootQueueSlots({ queue, chests, dropsPerHour }: LootQueueSlotsPr
           );
         })}
       </div>
+
+      {inventory && inventory.inventoryCapacity > 0 && (
+        <InventoryRow
+          capacity={inventory.inventoryCapacity}
+          used={inventory.inventoryUsed}
+          autoOpenEnabled={autoOpenEnabled}
+          fillPrediction={fillPrediction}
+        />
+      )}
     </Card>
+  );
+}
+
+/**
+ * Inventory slot summary row. Mirrors the Live tab's "inventory fill
+ * prediction" but in the Loot tab's compact slot-row style. The auto-open
+ * setting is shared with the Live tab — there's no toggle here, we just
+ * reflect whatever the user picked on the Live tab.
+ */
+function InventoryRow({
+  capacity,
+  used,
+  autoOpenEnabled,
+  fillPrediction,
+}: {
+  capacity: number;
+  used: number;
+  autoOpenEnabled: ChestAutoOpenPrefs;
+  fillPrediction: PredictFillTimeResult | null;
+}) {
+  const { t } = useTranslation("loot");
+  const isFull = capacity > 0 && used >= capacity;
+  const pct = capacity > 0 ? Math.min(100, (used / capacity) * 100) : 0;
+
+  // Hours-until-full text + ETA. Four states:
+  // 1. Already full → "—" (the Full badge already conveys this).
+  // 2. Auto-open is off for both chest types → tell the user to enable on Live tab.
+  // 3. Prediction returned null (will never fill) → "—".
+  // 4. Prediction returned a positive number → "<duration> — <clock time>".
+  let fillText: string;
+  if (isFull) {
+    fillText = "—";
+  } else if (!autoOpenEnabled.common && !autoOpenEnabled.stageBoss) {
+    fillText = t("queueSlots.inventoryTurnOn");
+  } else if (fillPrediction?.hoursUntilFull == null) {
+    fillText = "—";
+  } else {
+    fillText = `${fmtHoursUntilFull(fillPrediction.hoursUntilFull)} — ${fmtFillEta(fillPrediction.hoursUntilFull)}`;
+  }
+
+  return (
+    <div className="mt-1 flex flex-col gap-1 border-t border-border/60 pt-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-medium text-text">
+            {t("queueSlots.inventoryLabel")}
+          </span>
+          {isFull && <Badge>{t("queueSlots.inventoryFull")}</Badge>}
+        </div>
+        <span
+          className="text-[13px] font-semibold tabular-nums text-text"
+          aria-label={t("queueSlots.inventorySlotsAria", { used, capacity })}
+        >
+          {used} / {capacity}
+        </span>
+      </div>
+      <CapacityBar
+        percent={pct}
+        variant="gray"
+        compact
+        role="progressbar"
+        aria-valuenow={used}
+        aria-valuemin={0}
+        aria-valuemax={capacity}
+      />
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted">
+        <span>
+          {t("queueSlots.inventoryFullIn")}{" "}
+          <span className="font-medium tabular-nums text-text">{fillText}</span>
+        </span>
+      </div>
+    </div>
   );
 }

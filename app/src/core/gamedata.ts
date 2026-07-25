@@ -2,6 +2,8 @@
 //
 // Bundled in data/gamedata.json (updated via tbh-data release workflow).
 
+import type { LocaleCatalog } from "./localeCatalog";
+
 export interface GameItem {
   id: number; // == save itemSaveDatas[].ItemKey
   name: string;
@@ -76,4 +78,29 @@ export function normalizeGameItem(raw: Record<string, unknown>): GameItem | null
           : null,
     marketTradable: Boolean(raw.marketTradable ?? raw.is_market_tradable),
   };
+}
+
+/**
+ * Resolve a GameItem's display name. Looks up `catalog.items[String(item.id)]`
+ * first — this covers both `ItemName_<id>` placeholders AND items whose
+ * gamedata.name was already resolved to English from the EN stringtable
+ * (e.g. "Long Sword" → catalog.items["300001"] = "长剑"). Falls back to
+ * `item.name` (which is either the raw `ItemName_<id>` key, a hardcoded
+ * English name, or an English name resolved from the EN stringtable).
+ *
+ * Pass `catalog = null` to skip localization (returns `item.name` as-is).
+ *
+ * Accepts any object with `{ id, name }` so it works with both `GameItem`
+ * (gamedata.json rows) and `LookupItem` (lookup_items.json rows) without
+ * forcing callers to coerce.
+ */
+export function gameItemName(
+  item: { id: number; name: string },
+  catalog: LocaleCatalog | null = null,
+): string {
+  if (catalog) {
+    const localized = catalog.items[String(item.id)];
+    if (localized) return localized;
+  }
+  return item.name;
 }

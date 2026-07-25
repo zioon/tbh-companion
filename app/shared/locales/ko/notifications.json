@@ -7,12 +7,12 @@
   "slots_other": "{{count}}개 슬롯 사용 중",
   "kinds": {
     "chestDrop": {
-      "label": "보관함 드롭",
-      "description": "추적 중인 스테이지 보스가 보관함을 드롭할 때 트리거됩니다."
+      "label": "보물 상자 드롭",
+      "description": "추적 중인 스테이지 보스가 보물 상자을 드롭할 때 트리거됩니다."
     },
     "chestReady": {
-      "label": "보관함 준비 완료",
-      "description": "추적 중인 보관함의 재사용 대기시간이 끝나면 트리거됩니다."
+      "label": "보물 상자 준비 완료",
+      "description": "추적 중인 보물 상자의 재사용 대기시간이 끝나면 트리거됩니다."
     },
     "heroLevelUp": {
       "label": "영웅 레벨 업",
@@ -38,7 +38,7 @@
     "happyPing": "행복한 핑",
     "magicSpark": "마법 스파크",
     "levelTriumph": "레벨 업 팡파레",
-    "treasureFanfare": "보관함 팡파레",
+    "treasureFanfare": "보물 상자 팡파레",
     "gentleAlert": "부드러운 알림"
   },
   "soundFieldLabel": "소리",

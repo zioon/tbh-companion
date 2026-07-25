@@ -1,207 +1,1403 @@
 {
-  "source": "localization-assets-shared_assets_all.bundle",
-  "count": 50,
+  "source": "localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle",
+  "count": 349,
   "item_range_count": 0,
   "strings": [
     {
-      "key_id": 71,
-      "value": "INSCRIPTION"
+      "key_id": 32,
+      "value": "An AoE dealer who channels mana through staff<br>and orb to ignite the battlefield."
     },
     {
-      "key_id": 83,
-      "value": "DECORATION"
+      "key_id": 37,
+      "value": "Critical Damage +{0}%"
+    },
+    {
+      "key_id": 41,
+      "value": "Settings"
+    },
+    {
+      "key_id": 43,
+      "value": ": Lock"
+    },
+    {
+      "key_id": 45,
+      "value": "-"
+    },
+    {
+      "key_id": 46,
+      "value": "Basic engraving material. Used to engrave an item, randomly granting one of two stat boosts preset by equipment type."
+    },
+    {
+      "key_id": 48,
+      "value": "Lv.80~90"
+    },
+    {
+      "key_id": 49,
+      "value": "2"
+    },
+    {
+      "key_id": 50,
+      "value": "3"
+    },
+    {
+      "key_id": 51,
+      "value": "4"
+    },
+    {
+      "key_id": 52,
+      "value": "Max Level"
+    },
+    {
+      "key_id": 58,
+      "value": "Save data tampering detected. Attempting backup."
+    },
+    {
+      "key_id": 61,
+      "value": "An update is required.\\n\\n ※ Steam > Library > TBH > Properties > Installed Files > Verify integrity of game files"
+    },
+    {
+      "key_id": 62,
+      "value": "Stage {0}-{1}"
+    },
+    {
+      "key_id": 63,
+      "value": "Bug Report (Steam Discussion)"
+    },
+    {
+      "key_id": 80,
+      "value": "{0}% Increased Movement Speed"
+    },
+    {
+      "key_id": 93,
+      "value": "Items not held on the server have been cleaned up."
+    },
+    {
+      "key_id": 97,
+      "value": "Venom Insect"
+    },
+    {
+      "key_id": 98,
+      "value": "Elder Orb"
+    },
+    {
+      "key_id": 99,
+      "value": "Skeleton"
+    },
+    {
+      "key_id": 100,
+      "value": "Great Sword"
     },
     {
       "key_id": 101,
-      "value": "LaunchAtStartup"
+      "value": "Wolf Fang"
     },
     {
       "key_id": 102,
-      "value": "DefaultStageRepeatOn"
+      "value": "Void Staff"
     },
     {
       "key_id": 103,
-      "value": "Chaos"
+      "value": "Spider Silk"
+    },
+    {
+      "key_id": 104,
+      "value": "Status"
+    },
+    {
+      "key_id": 107,
+      "value": "Courage Stack Chance"
     },
     {
       "key_id": 108,
-      "value": "Exp"
+      "value": "Turquoise"
     },
     {
       "key_id": 109,
-      "value": "Pet_Collected "
+      "value": "Ruby"
+    },
+    {
+      "key_id": 110,
+      "value": "Griffin Beak"
     },
     {
       "key_id": 111,
-      "value": "Setting"
+      "value": "Controls"
+    },
+    {
+      "key_id": 112,
+      "value": "ALT +"
     },
     {
       "key_id": 114,
-      "value": "Control"
+      "value": "Sacred Scepter"
     },
     {
       "key_id": 115,
-      "value": "Price"
+      "value": "Iron Gloves"
     },
     {
       "key_id": 116,
-      "value": "Report"
+      "value": "Empire Helmet"
+    },
+    {
+      "key_id": 119,
+      "value": "Hunting Bow"
+    },
+    {
+      "key_id": 120,
+      "value": "Materials"
     },
     {
       "key_id": 121,
-      "value": "Market"
+      "value": "Formation"
     },
     {
-      "key_id": 17228,
-      "value": "DLC"
+      "key_id": 122,
+      "value": "Emerald"
     },
     {
-      "key_id": 20047,
-      "value": "ENGRAVING"
+      "key_id": 125,
+      "value": "Buy"
+    },
+    {
+      "key_id": 8238,
+      "value": "A tactical hunter wielding crossbow and traps. "
+    },
+    {
+      "key_id": 9504,
+      "value": "Critical Dmg."
+    },
+    {
+      "key_id": 9597,
+      "value": "Stage Boss Chest Drop Chance +{0}%"
+    },
+    {
+      "key_id": 10542,
+      "value": "Reverting to previous scale shortly."
+    },
+    {
+      "key_id": 10545,
+      "value": "Not enough Soulstones."
+    },
+    {
+      "key_id": 10573,
+      "value": "Ambient Sound"
+    },
+    {
+      "key_id": 10598,
+      "value": "Store"
+    },
+    {
+      "key_id": 10604,
+      "value": "Lock Position (On)"
+    },
+    {
+      "key_id": 10606,
+      "value": "General"
+    },
+    {
+      "key_id": 10608,
+      "value": "Unlock"
+    },
+    {
+      "key_id": 10611,
+      "value": "Slayer (Class)"
+    },
+    {
+      "key_id": 10621,
+      "value": "Consumed {0} grade, obtained {1} grade"
+    },
+    {
+      "key_id": 11040,
+      "value": "Always show in front of taskbar"
+    },
+    {
+      "key_id": 11824,
+      "value": "Immortal grade synthesis is available from Cube Level 10."
+    },
+    {
+      "key_id": 11825,
+      "value": "While under Wrath of Heaven buff, attacking enemies also casts Heal on allies."
+    },
+    {
+      "key_id": 11838,
+      "value": "Empty Skill Slot\\n(Click: Open skill equip screen)"
+    },
+    {
+      "key_id": 11844,
+      "value": "Error code {0}\\nInvalid request."
+    },
+    {
+      "key_id": 11856,
+      "value": "Once per stage, when near-death, focus your mind to rise again with {0}% HP."
+    },
+    {
+      "key_id": 11873,
+      "value": "Choose Your Character"
+    },
+    {
+      "key_id": 11876,
+      "value": "Drag or right-click to equip."
+    },
+    {
+      "key_id": 11877,
+      "value": "Common basic engraving material. Used to engrave an item, randomly granting one of two minor stat boosts preset by equipment type."
+    },
+    {
+      "key_id": 11879,
+      "value": "A common material used to create something."
+    },
+    {
+      "key_id": 11880,
+      "value": "A commemorative coin. Toss it into the Cube with a heartfelt wish."
+    },
+    {
+      "key_id": 11883,
+      "value": "The item is currently being moved."
+    },
+    {
+      "key_id": 11884,
+      "value": "Organizing items carried away by the trade ship."
+    },
+    {
+      "key_id": 11885,
+      "value": "The reset panel is open."
+    },
+    {
+      "key_id": 11886,
+      "value": "Add to Wishlist"
+    },
+    {
+      "key_id": 11888,
+      "value": "Bundle"
+    },
+    {
+      "key_id": 11890,
+      "value": "View Details"
+    },
+    {
+      "key_id": 11891,
+      "value": "Storm Sword"
+    },
+    {
+      "key_id": 11892,
+      "value": "Resetting window position."
+    },
+    {
+      "key_id": 11895,
+      "value": "Required item level: Lv.{0} or higher"
+    },
+    {
+      "key_id": 11896,
+      "value": "Reclaim upper group points and try again."
+    },
+    {
+      "key_id": 11897,
+      "value": "Skill Duration Increase +{0}%"
+    },
+    {
+      "key_id": 11901,
+      "value": "Cannot receive rewards due to lack of soulstones."
+    },
+    {
+      "key_id": 12576,
+      "value": "Coin 2"
+    },
+    {
+      "key_id": 12832,
+      "value": "Coin 3"
+    },
+    {
+      "key_id": 13088,
+      "value": "Coin 4"
+    },
+    {
+      "key_id": 13344,
+      "value": "Coin 5"
+    },
+    {
+      "key_id": 13600,
+      "value": "Coin 6"
+    },
+    {
+      "key_id": 13856,
+      "value": "Coin 7"
+    },
+    {
+      "key_id": 14112,
+      "value": "Coin 8"
+    },
+    {
+      "key_id": 14368,
+      "value": "Coin 9"
+    },
+    {
+      "key_id": 14624,
+      "value": "Coin 10"
+    },
+    {
+      "key_id": 15973,
+      "value": "Mute (On)"
+    },
+    {
+      "key_id": 15986,
+      "value": "Please try again in a moment."
+    },
+    {
+      "key_id": 16228,
+      "value": "Content unavailable yet."
+    },
+    {
+      "key_id": 20552,
+      "value": "Armor"
+    },
+    {
+      "key_id": 23906,
+      "value": "Stash"
+    },
+    {
+      "key_id": 23924,
+      "value": "1.25x scale may cause pixel distortion and is not recommended.\\nApply anyway?"
+    },
+    {
+      "key_id": 24942,
+      "value": "Beyond"
+    },
+    {
+      "key_id": 24948,
+      "value": "※ Warning: Data is being deleted.\nDo not close the game."
+    },
+    {
+      "key_id": 25202,
+      "value": "Prophecy Orb"
+    },
+    {
+      "key_id": 25445,
+      "value": "{0}% More Cast Speed"
+    },
+    {
+      "key_id": 25449,
+      "value": "Main Weapon"
+    },
+    {
+      "key_id": 25697,
+      "value": "Sandstorm Valley"
+    },
+    {
+      "key_id": 25701,
+      "value": "Torment"
+    },
+    {
+      "key_id": 25705,
+      "value": "Fallen Angel's Helm"
+    },
+    {
+      "key_id": 25708,
+      "value": "Barrier Shield"
+    },
+    {
+      "key_id": 25710,
+      "value": "Phantom Emerald"
+    },
+    {
+      "key_id": 25711,
+      "value": "Mushroom Spore"
+    },
+    {
+      "key_id": 25714,
+      "value": "Cutlas"
+    },
+    {
+      "key_id": 25955,
+      "value": "Kraken Ink"
+    },
+    {
+      "key_id": 25956,
+      "value": "Crystal Blade"
+    },
+    {
+      "key_id": 25959,
+      "value": "Add to Wishlist"
+    },
+    {
+      "key_id": 25963,
+      "value": "Rapid Fire"
     },
     {
       "key_id": 25964,
-      "value": "SYNTHESIS"
+      "value": "Wyvern Claw"
+    },
+    {
+      "key_id": 25965,
+      "value": "Rune Tome"
+    },
+    {
+      "key_id": 25966,
+      "value": "Amber Gem"
+    },
+    {
+      "key_id": 25970,
+      "value": "Ancient Tree Sap"
+    },
+    {
+      "key_id": 25971,
+      "value": "Rune of Hoarding"
+    },
+    {
+      "key_id": 25972,
+      "value": "Chain Mail"
+    },
+    {
+      "key_id": 25976,
+      "value": "Iron Axe"
     },
     {
       "key_id": 26214,
-      "value": "AutoOpenBoxCooltime"
+      "value": "Witch Staff"
+    },
+    {
+      "key_id": 26478,
+      "value": "Bronze Earring"
+    },
+    {
+      "key_id": 26479,
+      "value": "Show Loot Box on Mouse Over"
+    },
+    {
+      "key_id": 26740,
+      "value": "Chest Obtained"
+    },
+    {
+      "key_id": 27491,
+      "value": "Defense"
+    },
+    {
+      "key_id": 27502,
+      "value": "Titan Marrow"
     },
     {
       "key_id": 27745,
-      "value": "Mailbox"
+      "value": "Soulstone - Nightmare"
+    },
+    {
+      "key_id": 27749,
+      "value": "Always on Top (Off)"
+    },
+    {
+      "key_id": 27753,
+      "value": "Knight's Armor"
+    },
+    {
+      "key_id": 28005,
+      "value": "Burning Hell Priest"
+    },
+    {
+      "key_id": 28015,
+      "value": "Chaso Dice"
+    },
+    {
+      "key_id": 28239,
+      "value": "Auto-retry while holding Soulstone: Off"
+    },
+    {
+      "key_id": 28265,
+      "value": "Empire 100th Anniversary Coin"
+    },
+    {
+      "key_id": 28271,
+      "value": "Wood"
+    },
+    {
+      "key_id": 28530,
+      "value": "TBH: Task Bar Hero (Demo)"
+    },
+    {
+      "key_id": 28769,
+      "value": "Eldritch Venom"
     },
     {
       "key_id": 28777,
-      "value": "Bag"
+      "value": "The cube is in operation."
+    },
+    {
+      "key_id": 28781,
+      "value": "Common Treasure Chest"
+    },
+    {
+      "key_id": 28792,
+      "value": "Common Chest Drop Chance"
     },
     {
       "key_id": 29285,
-      "value": "CompleteObtain"
+      "value": "Bastard Sword"
+    },
+    {
+      "key_id": 29295,
+      "value": "Fate Armor"
+    },
+    {
+      "key_id": 29537,
+      "value": "Rapier"
+    },
+    {
+      "key_id": 29540,
+      "value": "Sacred Tomb"
+    },
+    {
+      "key_id": 29541,
+      "value": "Empire Gloves"
+    },
+    {
+      "key_id": 29549,
+      "value": "Soulstone"
+    },
+    {
+      "key_id": 29550,
+      "value": "Please keep Steam Cloud Save enabled so that your save file stays up to date."
+    },
+    {
+      "key_id": 29554,
+      "value": "Region Level {0}"
+    },
+    {
+      "key_id": 29555,
+      "value": "Oasis Road"
+    },
+    {
+      "key_id": 29556,
+      "value": "Knight Boots"
     },
     {
       "key_id": 29557,
       "value": "Cube"
     },
     {
+      "key_id": 29565,
+      "value": "This item cannot be listed on the Trade Ship for now."
+    },
+    {
+      "key_id": 29793,
+      "value": "Ratfolk Berserker"
+    },
+    {
+      "key_id": 29795,
+      "value": "Basilisk Scale"
+    },
+    {
       "key_id": 29797,
-      "value": "BattleRecords"
+      "value": "Emperor Helmet"
+    },
+    {
+      "key_id": 29798,
+      "value": "Combat Screen Top"
+    },
+    {
+      "key_id": 29800,
+      "value": "Ranger"
+    },
+    {
+      "key_id": 29801,
+      "value": "Defeat Hell Golem"
+    },
+    {
+      "key_id": 29804,
+      "value": "Fear Bolt"
     },
     {
       "key_id": 29806,
-      "value": "Agree"
+      "value": "Armor Enhancement"
+    },
+    {
+      "key_id": 29807,
+      "value": "Gold Ingot"
     },
     {
       "key_id": 29810,
-      "value": "Open"
+      "value": "Start Game"
     },
     {
-      "key_id": 31090,
-      "value": "SteamMarket"
+      "key_id": 29811,
+      "value": "Obsidian Shard"
     },
     {
-      "key_id": 2707023,
-      "value": "Mute_On"
+      "key_id": 30575,
+      "value": "Swift Bow"
     },
     {
-      "key_id": 3485744,
+      "key_id": 31074,
+      "value": "Minor Sapphire"
+    },
+    {
+      "key_id": 31085,
+      "value": "Common Chest Max Capacity"
+    },
+    {
+      "key_id": 31087,
+      "value": "Cooldown"
+    },
+    {
+      "key_id": 31098,
       "value": "Claim"
     },
     {
-      "key_id": 5132105,
-      "value": "ALCHEMY"
+      "key_id": 31348,
+      "value": "Pearl"
     },
     {
-      "key_id": 5852485,
-      "value": "CRAFTING"
+      "key_id": 32048,
+      "value": "Attack Speed +{0}"
+    },
+    {
+      "key_id": 32049,
+      "value": "Attack Speed +{0}~{1}"
+    },
+    {
+      "key_id": 48000,
+      "value": "Sorry.\n\nLinux is not currently supported.\nYou may experience issues such as a black background that prevent normal gameplay.\n\nDo you still want to continue playing?"
+    },
+    {
+      "key_id": 2109043,
+      "value": "A berserker who cleaves everything with an axe."
+    },
+    {
+      "key_id": 2456880,
+      "value": "Fire Damage Reduction +{0}%"
+    },
+    {
+      "key_id": 2456881,
+      "value": "Fire Damage Reduction +{0}~{1}%"
+    },
+    {
+      "key_id": 2704212,
+      "value": "{0}d{1}h{2}m left"
+    },
+    {
+      "key_id": 2712673,
+      "value": "Auto (Unload)"
+    },
+    {
+      "key_id": 2712930,
+      "value": "Auto (Stash)"
+    },
+    {
+      "key_id": 2712942,
+      "value": "Offline Reward Gold +{0}%"
+    },
+    {
+      "key_id": 2713190,
+      "value": "Always on Top (On)"
+    },
+    {
+      "key_id": 2714467,
+      "value": "Please restart the game<br>after changing the language.<br><br>Without a restart, some changes<br>may not apply correctly."
+    },
+    {
+      "key_id": 2715255,
+      "value": "Shoot multiple arrows into the sky, dealing {0}% damage to enemies in a wide area. (Applies cooldown)"
+    },
+    {
+      "key_id": 2716517,
+      "value": "All Hero Attack Damage +{0}"
+    },
+    {
+      "key_id": 2716541,
+      "value": "Obtained {0}."
+    },
+    {
+      "key_id": 2716789,
+      "value": "Decorated / Engraved / Inscribed items cannot be traded."
+    },
+    {
+      "key_id": 2719025,
+      "value": "{0} has been defeated. ({1})"
+    },
+    {
+      "key_id": 2826356,
+      "value": "[F3] Fold"
+    },
+    {
+      "key_id": 3024176,
+      "value": "Explosive Bolt damage and attack count decrease by 50%."
+    },
+    {
+      "key_id": 3024253,
+      "value": "Imbue your scepter with divine lightning. For the duration, attacks deal {0}% lightning area damage."
+    },
+    {
+      "key_id": 3026478,
+      "value": "Gold from Alchemy: {0}"
+    },
+    {
+      "key_id": 3035208,
+      "value": "Fire a crossbow bolt that explodes on impact, dealing {0}% area fire damage."
+    },
+    {
+      "key_id": 3039589,
+      "value": "Imbue your sword with holy power. While buffed, attack damage increases by 50% and attacks restore {0} HP."
+    },
+    {
+      "key_id": 3039604,
+      "value": "Resetting Data"
+    },
+    {
+      "key_id": 3040357,
+      "value": "Equipment and decoration materials are required."
+    },
+    {
+      "key_id": 3040364,
+      "value": "A supporter who heals and protects allies<br>with holy power. "
+    },
+    {
+      "key_id": 3040368,
+      "value": "Critical %"
+    },
+    {
+      "key_id": 3040370,
+      "value": "※ If you have rewards, press the 'Claim' button<br>to receive them."
+    },
+    {
+      "key_id": 3040615,
+      "value": "Raise your shield and charge forward. Deal {0}% physical damage to enemies you collide with."
+    },
+    {
+      "key_id": 3040620,
+      "value": "Synthesize 9 items to obtain new ones."
+    },
+    {
+      "key_id": 3040624,
+      "value": "Intermediate decoration material. Used to decorate an item, granting a special stat boost preset by equipment type."
+    },
+    {
+      "key_id": 3040627,
+      "value": "2.Click the 'Mailbox' button at the top of the menu → press the 'Refresh' button at the bottom to receive your purchased items."
+    },
+    {
+      "key_id": 3040629,
+      "value": "Reduces final damage by a fixed amount."
+    },
+    {
+      "key_id": 3040630,
+      "value": "I agree to delete all data."
+    },
+    {
+      "key_id": 3040632,
+      "value": "Item is locked."
+    },
+    {
+      "key_id": 3041133,
+      "value": "Max HP"
+    },
+    {
+      "key_id": 3041134,
+      "value": "A common material that can be used to craft something."
+    },
+    {
+      "key_id": 3042409,
+      "value": "Terms of Service"
+    },
+    {
+      "key_id": 3042412,
+      "value": "Physical damage reduction applies based on Armor value."
+    },
+    {
+      "key_id": 3042921,
+      "value": "Locked"
+    },
+    {
+      "key_id": 3043433,
+      "value": "Level Up"
+    },
+    {
+      "key_id": 3043941,
+      "value": "Equipped skill's cooldown is reduced."
+    },
+    {
+      "key_id": 3044196,
+      "value": "Ending stage. Please wait."
+    },
+    {
+      "key_id": 3044197,
+      "value": "Material required to summon Torment difficulty bosses."
+    },
+    {
+      "key_id": 3044204,
+      "value": "Offer commemorative coins to<br>obtain random items."
+    },
+    {
+      "key_id": 3044205,
+      "value": "Window scale has been changed. Apply these changes?<br>(If issues occur, press <color=#F49E2C>Shift + F11</color> to reset to the previous scale.)"
+    },
+    {
+      "key_id": 3044453,
+      "value": "SteamTradeShip"
+    },
+    {
+      "key_id": 3044457,
+      "value": "9 equipment of the same grade are required."
+    },
+    {
+      "key_id": 3044462,
+      "value": "Reduces Fire damage.\\nA penalty applies based on stage difficulty.\\nCurrent penalty: {0}%"
+    },
+    {
+      "key_id": 3044467,
+      "value": "Chest opened."
+    },
+    {
+      "key_id": 3045231,
+      "value": "A fireball that explodes on impact, dealing {0}% AoE fire damage."
+    },
+    {
+      "key_id": 3045487,
+      "value": "For any other unexpected issues, please contact us on the official Discord or at help@nugemstudio.com."
+    },
+    {
+      "key_id": 3045748,
+      "value": "Does not match the current Synthesis recipe's item type."
+    },
+    {
+      "key_id": 3046705,
+      "value": "Engraved {0} with {1}."
+    },
+    {
+      "key_id": 3053952,
+      "value": "※ Can be repositioned anytime with drag & drop."
+    },
+    {
+      "key_id": 3158304,
+      "value": "Coin 11"
+    },
+    {
+      "key_id": 3158398,
+      "value": "Lv.10~20"
+    },
+    {
+      "key_id": 3219577,
+      "value": "Outage Compensation - Day 2"
+    },
+    {
+      "key_id": 3223840,
+      "value": "-"
+    },
+    {
+      "key_id": 3285113,
+      "value": "Outage Compensation - Day 3"
+    },
+    {
+      "key_id": 3350649,
+      "value": "Outage Compensation - Day 4"
+    },
+    {
+      "key_id": 3416185,
+      "value": "Outage Compensation - Day 5"
+    },
+    {
+      "key_id": 3481721,
+      "value": "Outage Compensation - Day 6"
+    },
+    {
+      "key_id": 3547257,
+      "value": "Outage Compensation - Day 7"
+    },
+    {
+      "key_id": 3612793,
+      "value": "We apologize for the inconvenience caused by the server outage.<br>Outage compensation will be sent daily by mail for 7 days."
+    },
+    {
+      "key_id": 3829353,
+      "value": "ㆍ Offline Time:"
+    },
+    {
+      "key_id": 4159841,
+      "value": "Current HP"
+    },
+    {
+      "key_id": 4410436,
+      "value": "Obtain"
+    },
+    {
+      "key_id": 5460038,
+      "value": "Window Scale"
+    },
+    {
+      "key_id": 6386276,
+      "value": "Snowstorm"
+    },
+    {
+      "key_id": 6386785,
+      "value": "Open Log Folder (For Bug Report)"
+    },
+    {
+      "key_id": 6450543,
+      "value": "Pharaoh's Crypt"
+    },
+    {
+      "key_id": 6451791,
+      "value": "Arcane Orb"
+    },
+    {
+      "key_id": 6514003,
+      "value": "{0}% Increased Cast Speed"
     },
     {
       "key_id": 6515048,
       "value": "Audio"
     },
     {
-      "key_id": 6515053,
-      "value": "Character"
+      "key_id": 6517327,
+      "value": "Orc Warrior"
+    },
+    {
+      "key_id": 6579557,
+      "value": "{0}% Increased Critical Chance Multiplier"
+    },
+    {
+      "key_id": 6581345,
+      "value": "Amethyst"
+    },
+    {
+      "key_id": 6581349,
+      "value": "Heater Shield"
+    },
+    {
+      "key_id": 6581359,
+      "value": "Increased Chest Quantity"
+    },
+    {
+      "key_id": 6581857,
+      "value": "Throne of Darkness"
+    },
+    {
+      "key_id": 6581871,
+      "value": "Opal"
+    },
+    {
+      "key_id": 6582127,
+      "value": "Minotaur Horn"
+    },
+    {
+      "key_id": 6582881,
+      "value": "Arcane Ore"
+    },
+    {
+      "key_id": 6582895,
+      "value": "Heavy Blade"
+    },
+    {
+      "key_id": 6644581,
+      "value": "Jade Stone"
+    },
+    {
+      "key_id": 6644585,
+      "value": "I agree to the Privacy Policy"
+    },
+    {
+      "key_id": 6644590,
+      "value": "Critical Damage"
     },
     {
       "key_id": 6644833,
-      "value": "SynthesisResultPreviewTextUpGrade"
+      "value": "Knight Sword"
+    },
+    {
+      "key_id": 6644841,
+      "value": "Skeleton Bone"
+    },
+    {
+      "key_id": 6645601,
+      "value": "Basic Attack Requirement Reduction"
     },
     {
       "key_id": 6645614,
-      "value": "Menu"
+      "value": "Max HP"
     },
     {
-      "key_id": 6647145,
-      "value": "BackendMailExpirationDateTime"
+      "key_id": 6645618,
+      "value": "Piercing Arrow"
+    },
+    {
+      "key_id": 6646884,
+      "value": "Class Bundle"
+    },
+    {
+      "key_id": 6646889,
+      "value": "Wraith Essence"
+    },
+    {
+      "key_id": 6646900,
+      "value": "Cannot Deploy"
+    },
+    {
+      "key_id": 6647151,
+      "value": "Empire Tome"
+    },
+    {
+      "key_id": 6648399,
+      "value": "Ethereal Ingot"
     },
     {
       "key_id": 6648431,
-      "value": "Reset"
+      "value": "Primordial Sap"
     },
     {
-      "key_id": 6775106,
-      "value": "Arrange"
+      "key_id": 6648437,
+      "value": "Shadow Meadow"
+    },
+    {
+      "key_id": 6648673,
+      "value": "Add Hp Per Kill"
+    },
+    {
+      "key_id": 6648686,
+      "value": "Others"
+    },
+    {
+      "key_id": 6649441,
+      "value": "Bug Nest"
+    },
+    {
+      "key_id": 6649921,
+      "value": "Knight's Axe"
+    },
+    {
+      "key_id": 6710863,
+      "value": "{0} times"
+    },
+    {
+      "key_id": 6710881,
+      "value": "Azure Staff"
     },
     {
       "key_id": 6778473,
-      "value": "Language"
+      "value": "Emerald Earring"
     },
     {
-      "key_id": 7102821,
-      "value": "NeedSelectExtractionTarget"
+      "key_id": 6845249,
+      "value": "Dragon Bile"
+    },
+    {
+      "key_id": 6845285,
+      "value": "Select a slot to equip."
+    },
+    {
+      "key_id": 6845537,
+      "value": "Archon Morkar"
+    },
+    {
+      "key_id": 7037793,
+      "value": "Feral Stack Chance"
+    },
+    {
+      "key_id": 7040105,
+      "value": "Bat Wing Membrane"
+    },
+    {
+      "key_id": 7102825,
+      "value": "Inventory"
     },
     {
       "key_id": 7102834,
       "value": "Graphic"
     },
     {
+      "key_id": 7102838,
+      "value": "Cast Speed"
+    },
+    {
       "key_id": 7103862,
-      "value": "SynthesisWarningHighLevelItemIn"
+      "value": "<rotate=90>Quick Menu</rotate>"
+    },
+    {
+      "key_id": 7105601,
+      "value": "Refresh"
+    },
+    {
+      "key_id": 7105641,
+      "value": "Scatter Shot"
+    },
+    {
+      "key_id": 7107169,
+      "value": "Arcane Crystal"
+    },
+    {
+      "key_id": 7168364,
+      "value": "Axe Spin"
+    },
+    {
+      "key_id": 7171173,
+      "value": "Yeti"
     },
     {
       "key_id": 7172713,
-      "value": "ExitGame"
+      "value": "Exit Game"
     },
     {
-      "key_id": 7227757,
-      "value": "CraftingTitleDescription"
+      "key_id": 7229216,
+      "value": "Auto-retry while holding Soulstone: On"
     },
     {
-      "key_id": 7229279,
-      "value": "Mute_Off"
+      "key_id": 7234934,
+      "value": "Sanctuary"
+    },
+    {
+      "key_id": 7235920,
+      "value": "Unpin"
+    },
+    {
+      "key_id": 7235937,
+      "value": "Additional Exp +{0}"
+    },
+    {
+      "key_id": 7235948,
+      "value": "Geonid"
+    },
+    {
+      "key_id": 7235951,
+      "value": "Kingdom 10th Anniversary Coin"
+    },
+    {
+      "key_id": 7235957,
+      "value": "Core of the Abyss"
     },
     {
       "key_id": 7237481,
-      "value": "General"
+      "value": "Scroll of Immortal Inscription"
     },
     {
-      "key_id": 7239535,
-      "value": "BackendRewardExpirationDateTime"
+      "key_id": 7237488,
+      "value": "Sub Weapon"
     },
     {
-      "key_id": 7368532,
-      "value": "AlwaysOnTop(Off)"
+      "key_id": 7364978,
+      "value": "Crossbow Turret"
     },
     {
-      "key_id": 7370100,
-      "value": "Version"
+      "key_id": 7367029,
+      "value": "Required Points : {0}"
+    },
+    {
+      "key_id": 7370821,
+      "value": "Skill Points: {0}"
+    },
+    {
+      "key_id": 7496023,
+      "value": "Rune of Wealth"
+    },
+    {
+      "key_id": 7496034,
+      "value": "Enabling 'Always show in front of taskbar' may cause issues with other games in fullscreen.\nProceed anyway?"
+    },
+    {
+      "key_id": 7496037,
+      "value": "Show Message"
+    },
+    {
+      "key_id": 7497059,
+      "value": "Platinum Bracer"
+    },
+    {
+      "key_id": 7497063,
+      "value": "Include Stash Items"
+    },
+    {
+      "key_id": 7497064,
+      "value": "Copper Nugget"
+    },
+    {
+      "key_id": 7497068,
+      "value": "Wooden Shield"
+    },
+    {
+      "key_id": 7497076,
+      "value": "Steel Scepter"
+    },
+    {
+      "key_id": 7497078,
+      "value": "Click : Buy"
+    },
+    {
+      "key_id": 7499625,
+      "value": "Elite Orc"
+    },
+    {
+      "key_id": 7499629,
+      "value": "Rune Plate"
+    },
+    {
+      "key_id": 7562601,
+      "value": "Materials"
+    },
+    {
+      "key_id": 7562606,
+      "value": "Sunset Ruins"
+    },
+    {
+      "key_id": 7562610,
+      "value": "※ Linux OS Not Supported ※"
+    },
+    {
+      "key_id": 7562614,
+      "value": "Knight Gloves"
     },
     {
       "key_id": 7564393,
       "value": "Class"
     },
     {
-      "key_id": 7628112,
-      "value": "HowToObtain"
+      "key_id": 7564645,
+      "value": "Hell"
     },
     {
-      "key_id": 7628139,
-      "value": "Inventory"
+      "key_id": 7566191,
+      "value": "Exp From Act Boss"
+    },
+    {
+      "key_id": 7566435,
+      "value": "Detailed Stats"
+    },
+    {
+      "key_id": 7566441,
+      "value": "Max FPS"
+    },
+    {
+      "key_id": 7566447,
+      "value": "Fate Boots"
+    },
+    {
+      "key_id": 7568688,
+      "value": " Aura"
+    },
+    {
+      "key_id": 7627074,
+      "value": "Orc"
+    },
+    {
+      "key_id": 7627621,
+      "value": "Accessory Decoration Effect"
+    },
+    {
+      "key_id": 7628112,
+      "value": "How to Obtain"
+    },
+    {
+      "key_id": 7628136,
+      "value": "Long Hatchet"
+    },
+    {
+      "key_id": 7628140,
+      "value": "Platinum Amulet"
+    },
+    {
+      "key_id": 7628141,
+      "value": "Knight Helmet"
+    },
+    {
+      "key_id": 7628146,
+      "value": "Shock Bolt"
+    },
+    {
+      "key_id": 7628903,
+      "value": "Combat Screen Bottom Left"
+    },
+    {
+      "key_id": 7629170,
+      "value": "Sword"
+    },
+    {
+      "key_id": 7629935,
+      "value": "Beast Bolt"
+    },
+    {
+      "key_id": 7629941,
+      "value": "Stage Failure"
+    },
+    {
+      "key_id": 7630437,
+      "value": "Long Sword"
+    },
+    {
+      "key_id": 7630453,
+      "value": "Additional Exp"
+    },
+    {
+      "key_id": 7630695,
+      "value": "Orichalcum Ore"
+    },
+    {
+      "key_id": 7630696,
+      "value": "Flame Hydra"
+    },
+    {
+      "key_id": 7630700,
+      "value": "Engraving Slot"
+    },
+    {
+      "key_id": 7630969,
+      "value": "Pharaoh's Underchannel"
+    },
+    {
+      "key_id": 7631717,
+      "value": "Crossbow"
+    },
+    {
+      "key_id": 7631721,
+      "value": "Do you want to exit the game?"
+    },
+    {
+      "key_id": 7631733,
+      "value": "Shield Charge"
+    },
+    {
+      "key_id": 7823724,
+      "value": "Dice"
+    },
+    {
+      "key_id": 7827266,
+      "value": "Long Bow"
+    },
+    {
+      "key_id": 7827298,
+      "value": "Iron Crossbow"
+    },
+    {
+      "key_id": 7827314,
+      "value": "Brutal Arrow"
     },
     {
       "key_id": 7892834,
-      "value": "SteamInventory"
+      "value": "Battle Record"
+    },
+    {
+      "key_id": 7957612,
+      "value": "Poisonous Herb"
+    },
+    {
+      "key_id": 7957861,
+      "value": "Crafting"
+    },
+    {
+      "key_id": 7959151,
+      "value": "Steam Market"
+    },
+    {
+      "key_id": 7959657,
+      "value": "Gold From Stage Boss"
+    },
+    {
+      "key_id": 7959874,
+      "value": "Class"
+    },
+    {
+      "key_id": 8020336,
+      "value": "Minor Emerald"
+    },
+    {
+      "key_id": 8204411,
+      "value": "Auto Fill"
+    },
+    {
+      "key_id": 8204667,
+      "value": "Cooldown Reduction +{0}~{1}%"
     }
   ]
 }

@@ -58,6 +58,14 @@ const HISTORY_VISIBLE = 50;
  * unaffected (a 1-hour session uses 3600s, not 60s).
  */
 const MIN_RATE_WINDOW_SEC = 60;
+/**
+ * Rolling window for `*RecentPerHour` rates. Recent drops inside this window
+ * are divided by the window size (clamped to {@link MIN_RATE_WINDOW_SEC} when
+ * the first recent drop is younger than the window). 1 hour matches the
+ * "near-term pace" intuition — short enough to reflect current farming
+ * intensity, long enough to smooth out 5-second-burst noise.
+ */
+const ROLLING_HOUR_SEC = 3600;
 
 function nowSeconds(): number {
   return Date.now() / 1000;
@@ -332,12 +340,10 @@ export class ChestDropTracker {
   private sessionBaselineByKey = new Map<string, number>();
 
   /**
-   * Wall time of the first new drop recorded after the last baseline reset
-   * (via {@link reset} or {@link applySnapshot}). Used as the time anchor
-   * for perHour calculation instead of `tracker.elapsed` — which may span
-   * hours of idle time after an app restart (session_state.json restore).
-   * `null` means no drops have been recorded since the baseline was set;
-   * perHour returns 0 in that case regardless of elapsed time.
+   * Wall time anchoring the perHour rate window. Set to the earliest drop
+   * in `history` by `applySnapshot` (so restored history contributes to the
+   * rate window), or to the first new drop's wallTime after `reset`. `null`
+   * means no drops have been recorded; perHour returns 0 in that case.
    */
   private sessionDropStart: number | null = null;
 
@@ -496,6 +502,7 @@ export class ChestDropTracker {
     const commonPerHour = sessionCommon / hours;
     const rarePerHour = sessionRare / hours;
     const actPerHour = sessionAct / hours;
+    const combinedSession = sessionCommon + sessionRare + sessionAct;
 
     // Mini overlay's boss-chest ring + "Box" countdown only track stage boss
     // (rare) drops — common chests drop too frequently to make a 7-min lap
@@ -509,6 +516,36 @@ export class ChestDropTracker {
       }
     }
 
+    // Rolling 1-hour rate: scan full history for entries inside the window.
+    // History is append-only and bounded at HISTORY_LIMIT, so this stays cheap
+    // even at 5 Hz polling. We track the earliest in-window wallTime to size
+    // the denominator: when the first recent drop is younger than the window
+    // (e.g. session just started), use (now - earliest) so the rate doesn't
+    // get divided by a full hour and look artificially low.
+    const nowSec = nowSeconds();
+    const recentCutoff = nowSec - ROLLING_HOUR_SEC;
+    let commonRecent = 0;
+    let rareRecent = 0;
+    let actRecent = 0;
+    let earliestRecentWallTime: number | null = null;
+    for (const entry of this.history) {
+      if (entry.wallTime < recentCutoff) continue;
+      if (earliestRecentWallTime === null || entry.wallTime < earliestRecentWallTime) {
+        earliestRecentWallTime = entry.wallTime;
+      }
+      if (entry.category === "common") commonRecent++;
+      else if (entry.category === "rare") rareRecent++;
+      else if (entry.category === "act") actRecent++;
+    }
+    const recentWindowSec =
+      earliestRecentWallTime !== null
+        ? Math.max(MIN_RATE_WINDOW_SEC, Math.min(ROLLING_HOUR_SEC, nowSec - earliestRecentWallTime))
+        : ROLLING_HOUR_SEC;
+    const recentHours = recentWindowSec / 3600;
+    const commonRecentPerHour = commonRecent / recentHours;
+    const rareRecentPerHour = rareRecent / recentHours;
+    const actRecentPerHour = actRecent / recentHours;
+
     return {
       commonTotal,
       rareTotal,
@@ -517,6 +554,13 @@ export class ChestDropTracker {
       commonPerHour,
       rarePerHour,
       actPerHour,
+      commonRecentPerHour,
+      rareRecentPerHour,
+      actRecentPerHour,
+      commonSession: sessionCommon,
+      rareSession: sessionRare,
+      actSession: sessionAct,
+      combinedSession,
       breakdown,
       history,
       lastRareDropWallTime,
@@ -553,9 +597,15 @@ export class ChestDropTracker {
     this.history = restored.length > HISTORY_LIMIT ? restored.slice(-HISTORY_LIMIT) : restored;
     this.breakdownCache = null;
     this.historyCache = null;
-    // Restored counts are pre-existing history — they should not inflate the
-    // session perHour rates. Snapshot them as the baseline.
-    this.sessionBaselineByKey = new Map(this.countsByKey);
-    this.sessionDropStart = null;
+    // Restored counts are part of the ongoing session — keep baseline empty
+    // so all restored + future drops count toward session totals and rates.
+    // This keeps commonSession/commonPerHour consistent with the displayed
+    // totals: a 22h restored session with N drops shows N chests at N/22 hr,
+    // not "1 chest at 6/hr" (the old baseline behavior that hid restored
+    // counts and anchored perHour to only the post-restore drops).
+    this.sessionBaselineByKey = new Map();
+    // Anchor perHour to the earliest restored drop so the rate window spans
+    // the full session history, not just post-restore drops.
+    this.sessionDropStart = this.history.length > 0 ? this.history[0].wallTime : null;
   }
 }

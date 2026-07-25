@@ -48,6 +48,7 @@
     "damageSession": "伤害（会话）",
     "dps5s": "DPS（5 秒窗口）",
     "offsetSource": "偏移来源",
+    "fallbackFromVersion": "回退基线版本",
     "extractAttempts": "提取尝试次数",
     "statusLabel": "状态",
     "offsetsComplete": "偏移完整",

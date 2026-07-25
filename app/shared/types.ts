@@ -41,6 +41,8 @@ export interface HistoryEntry {
   totalXp: number;
   stageKey: number;
   stageWave: number;
+  /** Localized stage name; populated by main via stageName(stageKey, catalog). Absent on cached entries from before this field was added. */
+  stageName?: string;
 }
 
 export interface HeroRate {
@@ -76,6 +78,28 @@ export interface ChestDropStats {
   commonPerHour: number;
   rarePerHour: number;
   actPerHour: number;
+  /**
+   * Rolling 1-hour drop rates: drops in the last `ROLLING_HOUR_SEC` seconds
+   * (or since the first recent drop when the window is shorter), divided by
+   * the window size in hours. Independent of `*PerHour` (which spans the full
+   * session from `sessionDropStart`). Surfaced in the Live tab alongside the
+   * session rate so short-term trends are visible during long sessions.
+   */
+  commonRecentPerHour: number;
+  rareRecentPerHour: number;
+  actRecentPerHour: number;
+  /**
+   * Session-scoped drop counts. After `reset` these start at 0; after
+   * `applySnapshot` (app restart) these include the restored history so
+   * the displayed count matches the cumulative session totals. These share
+   * the same time window as `*PerHour` (`sessionDropStart` → now), so
+   * `commonSession` / `commonPerHour` are always consistent. Surfaced in
+   * the Live tab so the displayed count and rate agree.
+   */
+  commonSession: number;
+  rareSession: number;
+  actSession: number;
+  combinedSession: number;
   breakdown: ChestDropBreakdownRow[];
   history: ChestDropHistoryEntry[];
   /**
@@ -225,11 +249,19 @@ export interface AutoClassifyStatePayload {
     category: BoxCategory;
     count: number;
     /**
-     * Remaining ms until the head item of this category auto-opens
-     * (`droppedAtMs + autoOpenSeconds*1000 - now`, clamped to >= 0).
-     * `null` when the category has no queued items.
+     * Remaining ms until the head (soonest-opening) item of this category
+     * auto-opens (`autoOpenAtMs - now`, clamped to >= 0). `null` when the
+     * category has no queued items.
      */
     nextAutoOpenInMs: number | null;
+    /**
+     * Remaining ms until the tail (latest-opening) item of this category
+     * auto-opens. Under the slot-parallel model every queued chest has its
+     * own independent timer, so this is the time until all queued chests of
+     * this category have auto-opened (i.e. the queue clears). `null` when
+     * the category has no queued items.
+     */
+    lastAutoOpenInMs: number | null;
   }>;
   /**
    * Per-item view of the queue, oldest-first. Each entry corresponds to one
@@ -237,6 +269,18 @@ export interface AutoClassifyStatePayload {
    * detailed queue list; `byCategory` remains for the compact summary.
    */
   items: ReadonlyArray<AutoClassifyQueueItem>;
+  /**
+   * Real-time per-category chest slot counts. Initialized from save data on
+   * every save parse (recalibration), then adjusted between saves by chest
+   * drops (+1), chest opens via unclassified burst (-1), and chest auto-open
+   * timer elapse (-1). Null before the first save parse completes.
+   *
+   * The renderer uses this for the "current/capacity" display — it gives
+   * second-level responsiveness even on game versions where live memory
+   * reading of `PlayerSaveData.BoxData` is unavailable (e.g. v1.00.28).
+   * `capacity` always comes from the save path (`ChestState`).
+   */
+  liveSlots: { common: number; rare: number; act: number } | null;
 }
 
 /** One queued chest drop in {@link AutoClassifyStatePayload.items}. */
@@ -247,12 +291,13 @@ export interface AutoClassifyQueueItem {
   droppedAtMs: number;
   stageKey: number;
   /**
-   * Remaining ms until this chest's auto-open fires (clamped to >= 0), or
-   * `null` when this chest is waiting behind another chest of the same
-   * boxKey (serial per-slot auto-open — its timer starts only when its
-   * predecessor is actually opened).
+   * Remaining ms until this chest's auto-open fires
+   * (`autoOpenAtMs - now`, clamped to >= 0). Under the slot-parallel model
+   * every queued chest has a concrete auto-open time computed at drop
+   * time, so this is always a number — manual opens of other chests do
+   * not move this timestamp.
    */
-  autoOpenInMs: number | null;
+  autoOpenInMs: number;
   /** Remaining ms until this queue entry expires and is pruned (clamped to >= 0). */
   expiresInMs: number;
 }
@@ -287,6 +332,7 @@ export interface Stats {
   secondsSinceGain: number | null;
   secondsSinceRead: number | null;
   stageKey: number;
+  stageName: string; // localized stage name (e.g. "Pasture"), computed by main via stageName(stageKey, catalog)
   stageWave: number;
   /** Total waves in the current stage (from live memory, 0 if unavailable). */
   stageWaveTotal: number;
@@ -596,6 +642,18 @@ export interface WindowLayoutPrefs {
   boxTracker?: WindowLayoutEntry;
 }
 
+/**
+ * Per-window "keep on top" preferences. Each of the three windows
+ * (main, mini overlay, stage-boss chest tracker) can be pinned independently.
+ * Migrated from the legacy single `startTopmost: boolean` field; when loading
+ * an old config the legacy value seeds all three windows.
+ */
+export interface WindowTopmostPrefs {
+  main: boolean;
+  overlay: boolean;
+  boxTracker: boolean;
+}
+
 export type InventoryColumnId =
   | "grade"
   | "level"
@@ -642,7 +700,12 @@ export interface AppConfig {
   es3Password: string;
   pollIntervalSeconds: number;
   rollingWindowMinutes: number;
-  startTopmost: boolean;
+  /**
+   * Per-window "keep on top" preference (main / overlay / boxTracker).
+   * Replaces the legacy single `startTopmost: boolean` field; migrated by
+   * `normalizeConfigFromRaw` when an old config lacks `topmost`.
+   */
+  topmost: WindowTopmostPrefs;
   logHistoryCsv: boolean;
   currency: string;
   notificationsEnabled: boolean;
@@ -681,12 +744,31 @@ export interface AppConfig {
   /** UI language; "auto" follows the system locale. Default "auto". */
   language: AppLanguage;
   /**
+   * Game install directory override for catalog refresh. When non-empty, this
+   * path's `TaskbarHero_Data` parent is used as the game install root. When
+   * empty, the service falls back to the Steam default path
+   * (`D:\SteamLibrary\steamapps\common\TaskbarHero\TaskbarHero_Data`) and the
+   * `TBH_GAME_INSTALL_DATA_DIR` env var (for headless/test overrides). Users
+   * on non-standard installs (e.g. a secondary Steam library, a different
+   * drive, or a VM sharing a host install) set this once via Settings → Item
+   * Catalog so the catalog can be refreshed without code changes.
+   */
+  gameInstallDir?: string;
+  /**
    * Runtime-only resolved language (never persisted to config.json). The main
    * process fills this on every `getConfig()` call so the renderer can boot
    * i18next directly without re-reading the registry. Omitted when the
    * persisted `language` is not "game".
    */
   resolvedLanguage?: ResolvedLanguage;
+  /**
+   * Runtime-only stageKey -> localized name map (never persisted to
+   * config.json). The main process fills this on every `getConfig()` call so
+   * the renderer's `boxLootFilters` text matching can resolve stage names
+   * without re-reading the catalog. ~30 entries. Omitted when no catalog is
+   * loaded.
+   */
+  stageMetadata?: Record<number, string>;
 }
 
 /** Scoped targets for Settings → Data & cache clear actions. */
@@ -751,6 +833,7 @@ export interface ClearAppDataResult {
 export interface StageRunHistoryEntry {
   wallTime: number;
   stageKey: number;
+  stageName?: string; // localized stage name; absent on entries cached before v1.19.x
   clearTimeSec: number;
   /** XP/gold gained since the previous recorded clear (this run's take). */
   xpGained: number;
@@ -912,6 +995,7 @@ export interface BoxTimerState {
   cooldownCount: number;
   sortOrder: BoxTrackerSortOrder;
   currentStageKey: number;
+  currentStageLabel: string; // localized current stage name, computed by main via stageName(currentStageKey, catalog)
   defaultCooldownSeconds: number;
 }
 
@@ -976,6 +1060,15 @@ export interface LookupMaterialGearGroup {
 export interface LookupItem {
   id: number;
   name: string;
+  /**
+   * English source name preserved across localization. Set by
+   * `LookupService.getCatalog()` when the display `name` is localized, so
+   * `marketHashName()` can still derive the English Steam
+   * `market_hash_name` (Steam hashes are always English; using a localized
+   * name would break price lookups). Undefined for bundled items before
+   * any localization has been applied.
+   */
+  sourceName?: string;
   grade: string;
   type: "GEAR" | "MATERIAL";
   gearType: string | null;
@@ -1214,6 +1307,7 @@ export interface LiveHeroData {
   heroKey: number;
   level: number;
   exp: number;
+  name?: string; // localized hero name; populated by main when catalog is available
 }
 
 /** A single inventory item from LocalInventoryManager bag dicts. */
@@ -1222,10 +1316,50 @@ export interface LiveInventoryItem {
   isChaotic: boolean;
 }
 
+/**
+ * Live per-category chest slot counts (unopened chests) read from
+ * `PlayerSaveData.BoxData` runtime. Categories mirror {@link BoxCategory}
+ * minus `unclassified` (which is tracker-side only and never counted as a slot).
+ */
+export interface LiveChestSlots {
+  common: number;
+  /** Stage boss chests (auto-classify "rare" category). */
+  rare: number;
+  act: number;
+}
+
 /** Pet unlock state read from save-layer heap (PetSaveData). */
 export interface LivePetData {
   petKey: number;
   unlocked: boolean;
+}
+
+/**
+ * A single StageClearLog entry observed since the previous tick. `act` and
+ * `stage` identify the **cleared** stage (the log entry is appended on clear,
+ * before StageManager advances). Difficulty is NOT carried by the log entry —
+ * the caller combines `act`/`stage` with the difficulty digit of the current
+ * live/save stageKey to form a full stageKey. When `act`/`stage` are 0
+ * (corrupted / mid-write read), `valid` is false and the entry MUST be dropped
+ * by the caller (see `valid` field for the rationale).
+ */
+export interface StageClearEntry {
+  /** Cleared stage's act (1-digit, from StageClearLog+0x40). 0 = unreadable. */
+  act: number;
+  /** Cleared stage's stage (1-99, from StageClearLog+0x44). 0 = unreadable. */
+  stage: number;
+  /** Clear time in whole seconds, as recorded by the game itself. */
+  clearTimeSec: number;
+  /**
+   * Whether act/stage were both read in plausible range (act 1-9, stage 1-99).
+   * false ⇒ the entry is a "clear event observed but target stage unreadable"
+   * sample (mid-write race / corrupted memory). Callers MUST drop invalid
+   * entries instead of falling back to the live stageKey: by the time the
+   * reader polls the next tick, the live stageKey has already advanced past
+   * the cleared stage, so the fallback would attribute the clear to the
+   * wrong (next) stage — re-introducing the off-by-one attribution bug.
+   */
+  valid: boolean;
 }
 
 /**
@@ -1265,18 +1399,35 @@ export interface LiveMemorySnapshot {
    * new and can cause duplicate recordings.
    */
   chestLogDebug?: { count: number; lastCountBefore: number; start: number; entriesRead: number };
+  /**
+   * Live per-category chest slot quantities (current count of unopened chests
+   * of each type), read from `PlayerSaveData.BoxData` runtime. `null` = reader
+   * active but offsets unavailable / pointer walk failed this tick — fall back
+   * to save-derived slot counts. Used by AutoClassifyService for high-frequency
+   * reconcile and by the renderer's `LootQueueSlots` for live quantity display.
+   */
+  chestSlots: LiveChestSlots | null;
+  /** Diagnostics: why `chestSlots` is null this tick. Dev-only. */
+  chestSlotsStatus?: string;
   /** Live inventory items from PlayerSaveData.itemSaveDatas snapshot (null ⇒ unavailable). */
   inventoryItems: LiveInventoryItem[] | null;
   /** Diagnostics: why `inventoryItems` is null this tick. Dev-only. */
   inventoryItemsStatus?: string;
   /**
-   * Stage clear times (whole seconds, as recorded by the game) observed since
-   * the previous tick, read from the StageClear battle log. `[]` = reader
-   * active, no new clears; `null` = unavailable (offset not derived / no
-   * battle). Attribution to a stage key happens in `main/` using the current
-   * live/save stageKey — the log entry itself doesn't carry difficulty.
+   * Stage clears observed since the previous tick, read from the StageClear
+   * battle log. `[]` = reader active, no new clears; `null` = unavailable
+   * (offset not derived / no battle). Each entry carries the **cleared**
+   * stage's act/stage (from StageClearLog+0x40 / +0x44) plus the clear time
+   * in whole seconds. The log entry does NOT carry difficulty — `main/`
+   * combines `act`/`stage` with the difficulty digit of the current
+   * live/save stageKey to form a full stageKey
+   * (`difficulty*1000 + act*100 + stage`). This avoids the off-by-one stage
+   * attribution bug where a clear of 3-1 was recorded as 3-2 because
+   * `stageKey` had already advanced by the time the reader polled the next
+   * tick. If `act`/`stage` are 0 (corrupted / mid-write read), the caller
+   * falls back to the current stageKey.
    */
-  stageClears: number[] | null;
+  stageClears: StageClearEntry[] | null;
   /**
    * Box opens observed since the previous tick, read from the
    * GetItemWithBoxOpen battle log. `[]` = reader active, no new opens;
@@ -1331,6 +1482,18 @@ export interface LiveMemoryStatus {
     source?: "bundled" | "cache" | "extracted" | "merged" | "none";
     /** Extraction attempts used for this game version under the current app build. */
     extractionAttempts?: number;
+    /**
+     * When the requested game version is not in the bundled table, the reader
+     * falls back to the nearest same-major.minor version's RVA table as a
+     * working baseline. This field records the source version of that fallback
+     * (e.g. `"1.00.28"` when the user is on `1.00.29`). Absent when the bundled
+     * table matched exactly or when no fallback candidate was found.
+     *
+     * Provenance marker — preserved across merge/cache, never cleared by the
+     * extractor. Combine with `source` to know whether the extractor has
+     * re-derived critical RVAs (`"merged"`/`"extracted"` ⇒ ran successfully).
+     */
+    fallbackFromVersion?: string;
   };
 }
 
@@ -1407,6 +1570,7 @@ export interface TbhApi {
   // Catalog refresh
   getCatalogStatus(): Promise<CatalogStatus | null>;
   refreshCatalog(): Promise<CatalogRefreshResult>;
+  getLocaleData(): Promise<GameLocaleData | null>;
   onCatalogStatus(cb: (status: CatalogStatus) => void): () => void;
 }
 
@@ -1426,4 +1590,20 @@ export interface CatalogRefreshResult {
   itemCount: number;
   resolvedNames: number;
   error?: string;
+}
+
+/**
+ * Game locale data extracted from the game's localization bundles.
+ *
+ * `locales` is a dynamic map: keys are BCP-47 language codes (e.g. "en",
+ * "zh-CN", "zh-Hant", "fr-FR", ...), values are flat key→value translation
+ * maps (e.g. `{ "Grade_COMMON": "Common", ... }`).
+ *
+ * Only languages successfully extracted and non-empty are included; missing
+ * languages are handled by the renderer via i18next fallback.
+ */
+export interface GameLocaleData {
+  /** Game version at extraction time (same as CatalogStatus.gameVersion). */
+  version: string | null;
+  locales: Record<string, Record<string, string>>;
 }

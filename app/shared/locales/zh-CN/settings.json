@@ -47,6 +47,9 @@
   "windowTray": {
     "sectionTitle": "窗口与托盘",
     "keepOnTop": "所有窗口置顶",
+    "keepOnTopMain": "主窗口置顶",
+    "keepOnTopOverlay": "Mini 浮窗置顶",
+    "keepOnTopBoxTracker": "关卡宝箱追踪窗口置顶",
     "trayHint": "关闭主窗口后，TBH 助手会继续在系统托盘运行。请使用托盘菜单中的 <strong>退出</strong> 完全退出。"
   },
   "advanced": {
@@ -71,7 +74,13 @@
     "gameVersionSuffix": " · 游戏版本：{{version}}",
     "outdatedSuffix": " · 已过期",
     "itemsLoaded": "已从 {{source}} 加载 {{count}} 个物品。",
-    "sourceBundled": "内置"
+    "sourceBundled": "内置",
+    "installPathSectionTitle": "游戏安装路径",
+    "installPathLabel": "游戏的 TaskbarHero_Data 文件夹路径",
+    "installPathHint": "若游戏未装在默认 Steam 库（如装在其他盘符或虚拟机里），请在此设置。留空则使用默认路径。",
+    "installPathPlaceholder": "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data",
+    "installPathSaved": "游戏安装路径已保存。",
+    "installPathCleared": "已清空游戏安装路径 — 使用默认路径。"
   },
   "cacheAction": {
     "clear": "清除",

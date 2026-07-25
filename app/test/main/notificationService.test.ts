@@ -37,7 +37,7 @@ const baseConfig: AppConfig = {
   es3Password: "",
   pollIntervalSeconds: 5,
   rollingWindowMinutes: 5,
-  startTopmost: true,
+  topmost: { main: true, overlay: true, boxTracker: true },
   logHistoryCsv: true,
   currency: "USD",
   notificationsEnabled: true,

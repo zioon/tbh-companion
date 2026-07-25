@@ -8,8 +8,31 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 - The companion UI is now translated into **English, Simplified Chinese (简体中文), Japanese (日本語), and Korean (한국어)**. Pick a language explicitly in **Settings**, or use **Auto** (follows your operating system locale).
 - New **Follow game** option syncs the companion's language with the game's in-app language preference — change the language inside TBH and the companion follows on its next config read, no extra IPC.
+- **Extended language support to all 16 game-supported locales**: German (Deutsch), Spanish (Español), French (Français), Polish (Polski), Portuguese (Português), Russian (Русский), Turkish (Türkçe), Ukrainian (Українська), Traditional Chinese (繁體中文), Thai (ไทย), Vietnamese (Tiếng Việt), and Indonesian (Bahasa Indonesia). Settings now lists each language by its native name. UI strings for these 12 additional languages currently fall back to English; in-game content (item names, grades, types, stats, hero classes, gear groups) is synced per-language from the game's localization bundles on every catalog refresh, so loot labels and grade names read naturally in the player's language.
 - Item names pulled from the bundled game catalogs (Lookup, Inventory, Chests, etc.) honor the selected language so market valuations and drop labels read naturally in every supported locale.
 - All tabs, the mini overlay, tooltips, notifications, and error toasts use the translated strings; missing keys fall back to English.
+
+### 新增
+
+- **游戏数据本地化**：地图名 / 英雄名 / 物品名现在跟随 UI 语言切换。
+  - 新增 `LocaleCatalog` 数据结构与 4 语言的 `data/locale_strings_*.json`
+    （从游戏 Unity Localization bundle 离线提取，覆盖 511 件物品 + 30 张地图
+    + 6 位英雄 + 4 个难度）。
+  - 5 个 main 服务（Tracking / BoxTimer / StageRun / Inventory / LiveMemory）
+    通过 `setLocaleCatalog()` 在语言切换时热更新，无需重启窗口。
+  - IPC payload 新增字段：`Stats.stageName`、`StageRunHistoryEntry.stageName`、
+    `HistoryEntry.stageName`、`BoxTimerState.currentStageLabel`、
+    `LiveHeroData.name`、`AppConfig.stageMetadata`（120 条 stageKey → 名称
+    映射）——不新增 IPC 通道。
+  - 渲染层不再 import `core/stages` / `core/heroes`，所有本地化名从 IPC 字段
+    读取；`boxLootFilters` 通过 `stageMetadata` 做文本匹配。
+  - 硬编码英文名的装备物品（无 `ItemName_` key，约 5,224 件）保持英文；
+    `marketHashName` 始终保留英文以兼容 Steam 市场查价与链接。
+
+### 修复
+
+- 修复 XP 历史表显示原始 stageKey 而非本地化名的回归（`HistoryEntry.stageName`
+  现由 main 端 `buildStats` 填充）。
 
 ## [1.18.0] - 2026-06-30
 

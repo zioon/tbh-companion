@@ -67,10 +67,12 @@ const stubs = vi.hoisted(() => ({
   recordCalls: 0,
   enrichmentRecordCalls: 0,
   enrichmentResetCalls: 0,
+  criticalResetCalls: 0,
+  version: "9.99.99" as string,
 }));
 
 vi.mock("../../src/main/liveMemory/offsetCache", () => ({
-  loadCachedOffsets: () => stubs.cached,
+  loadCachedOffsets: (_dir: string, _version: string, _minRev: number = 0) => stubs.cached,
   saveCachedOffsets: (_dir: string, offsets: LiveOffsets) => {
     stubs.saved = offsets;
   },
@@ -78,6 +80,7 @@ vi.mock("../../src/main/liveMemory/offsetCache", () => ({
 }));
 
 vi.mock("../../src/main/liveMemory/offsetExtractor", () => ({
+  EXTRACTOR_REVISION: 11,
   extractOffsets: () => {
     stubs.extractCalls += 1;
     // extractOffsets now returns { offsets, classIndex }; wrap the stubbed
@@ -104,11 +107,14 @@ vi.mock("../../src/main/liveMemory/offsetHealing", () => ({
   resetEnrichmentAttempts: () => {
     stubs.enrichmentResetCalls += 1;
   },
+  resetExtractionAttempts: () => {
+    stubs.criticalResetCalls += 1;
+  },
 }));
 
 vi.mock("node:fs", () => ({
   existsSync: () => true,
-  readFileSync: () => VERSION,
+  readFileSync: () => stubs.version,
 }));
 
 vi.mock("node:path", async () => {
@@ -159,6 +165,8 @@ beforeEach(() => {
   stubs.recordCalls = 0;
   stubs.enrichmentRecordCalls = 0;
   stubs.enrichmentResetCalls = 0;
+  stubs.criticalResetCalls = 0;
+  stubs.version = "9.99.99";
 });
 
 describe("LiveMemoryReader self-healing resolution", () => {
@@ -227,5 +235,244 @@ describe("LiveMemoryReader self-healing resolution", () => {
     const reader = await attachFresh();
     expect(reader.supported).toBe(false);
     expect(reader.attached).toBe(true);
+  });
+});
+
+describe("LiveMemoryReader fallback version handling", () => {
+  // A version that falls back to v1.00.21 (same major.minor 1.00).
+  // v1.00.21's table has non-zero critical RVAs (stageManager, stageCacheManager)
+  // but is a fallback. Per Rev 10+fix strategy, the fallback RVAs are KEPT as a
+  // working baseline (so isSupported=true → reader stays supported), AND the
+  // extractor is forced to run the FULL critical path (enrichmentOnly=false) so
+  // it re-derives StageManager/StageCacheManager from live memory and overwrites
+  // the stale baseline via mergeOffsets. Without forcing the critical path, the
+  // extractor would take the enrichment-only path (because isSupported=true)
+  // and never re-derive critical anchors — the reader would stay "supported"
+  // but return null for every live read (no DPS/XP/stage-clears).
+  const FALLBACK_VERSION = "1.00.20"; // not in TABLE, falls back to 1.00.21
+
+  it("keeps fallback RVAs as baseline but forces critical-path extraction", async () => {
+    stubs.version = FALLBACK_VERSION;
+    stubs.cached = null;
+    stubs.extracted = DERIVED;
+
+    const reader = await attachFresh();
+
+    // Fallback table's critical RVAs are present → isSupported=true, BUT
+    // isFallbackTable=true forces the extractor to run with enrichmentOnly=false
+    // (critical path) so it re-derives StageManager/StageCacheManager. The
+    // critical budget (recordExtractionAttempt) is consumed, not enrichment.
+    expect(stubs.extractCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(1); // critical budget, not enrichment
+    expect(stubs.enrichmentRecordCalls).toBe(0);
+    expect(reader.supported).toBe(true); // fallback RVAs keep reader supported
+  });
+
+  it("stays supported even when critical extraction fails (fallback RVAs keep working)", async () => {
+    // This is the v1.01.02 scenario: fallback table present, extractor runs
+    // critical path but fails (e.g. StageManager not yet instantiated at
+    // attach time). Old Rev 9 behavior:
+    //   fallback RVAs zeroed → critical missing → 3 failures → permanently
+    //   unsupported.
+    // Rev 10 bug:
+    //   fallback RVAs kept → isSupported=true → enrichment-only path → never
+    //   re-derives critical anchors → "supported" but no data.
+    // Rev 10 + this fix:
+    //   fallback RVAs kept → isSupported=true → critical path forced → fails
+    //   → budget exhausted, but reader stays SUPPORTED because fallback RVAs
+    //   are still in the table (may return null data, but not "unsupported").
+    stubs.version = FALLBACK_VERSION;
+    stubs.cached = null;
+    stubs.extracted = null; // extractor fails
+    stubs.mayAttempt = true; // critical budget available
+
+    const reader = await attachFresh();
+
+    expect(stubs.extractCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(1); // critical budget consumed
+    expect(stubs.enrichmentRecordCalls).toBe(0);
+    expect(reader.supported).toBe(true); // ← key assertion: stays supported
+  });
+
+  it("does NOT force critical path for an exact-match bundled version", async () => {
+    // v1.00.21 is in the table → exact match, no fallback. Extractor runs in
+    // enrichment mode (enrichmentOnly=true) because the bundled RVAs are
+    // trusted for the exact version.
+    stubs.version = "1.00.21";
+    stubs.cached = null;
+    // Extractor returns null — we only care that it ran in enrichment mode.
+    stubs.extracted = null;
+
+    await attachFresh();
+
+    // Exact-match bundled table has critical offsets → isSupported=true, no
+    // fallback → extractor runs in enrichment mode (enrichment attempt
+    // recorded, not critical).
+    expect(stubs.enrichmentRecordCalls).toBe(1);
+    expect(stubs.recordCalls).toBe(0);
+  });
+
+  // ── mergeOffsets fallback semantics (end-to-end) ────────────────────────
+  // The fix for "实时数据都是回退" on v1.01.02: when the base table is a
+  // same-major.minor fallback (v1.01.02 → v1.01.01), the extractor re-derives
+  // fresh v1.01.02 RVAs. mergeOffsets MUST let the derived RVAs WIN over the
+  // stale fallback baseline — otherwise the persisted merged table keeps
+  // v1.01.01's RVAs and every live read resolves to a wrong class (returning
+  // null). Pre-fix this test would fail: saved.stageManager would equal
+  // v1.01.01's RVA (the fallback baseline), not the derived RVA.
+  it("persists derived RVAs (not stale fallback baseline) after merge", async () => {
+    stubs.version = "1.01.02"; // falls back to 1.01.01 bundled table
+    stubs.cached = null;
+
+    // v1.01.01's stageManager RVA (the fallback baseline we expect to override)
+    const fallbackStageMgr = offsetsForVersion("1.01.01")!.typeInfoRva.stageManager;
+    // Extractor re-derives a DIFFERENT RVA for v1.01.02 (hypothetical fresh value)
+    const derivedStageMgr = fallbackStageMgr + 0x1000n;
+    expect(derivedStageMgr).not.toBe(fallbackStageMgr); // sanity
+
+    stubs.extracted = {
+      ...DERIVED,
+      gameVersion: "1.01.02",
+      typeInfoRva: {
+        ...DERIVED.typeInfoRva,
+        stageManager: derivedStageMgr,
+        stageCacheManager: derivedStageMgr + 0x100n,
+      },
+    };
+
+    await attachFresh();
+
+    // Persisted merged table uses the DERIVED v1.01.02 RVA, not the v1.01.01
+    // fallback baseline. Pre-fix this assertion would fail.
+    expect(stubs.saved?.typeInfoRva.stageManager).toBe(derivedStageMgr);
+    expect(stubs.saved?.typeInfoRva.stageCacheManager).toBe(derivedStageMgr + 0x100n);
+    // _fallbackFromVersion is preserved (provenance marker for diagnostics).
+    expect(stubs.saved?._fallbackFromVersion).toBe("1.01.01");
+  });
+
+  it("keeps fallback baseline for fields the extractor couldn't derive", async () => {
+    // When extractor returns 0 for some RVAs (e.g. logManager — the box isn't
+    // open yet, so the LogManager anchor isn't static-reachable), the merged
+    // table keeps the fallback baseline for those fields. The reader stays
+    // supported (has critical anchors) and degrades gracefully on enrichment.
+    stubs.version = "1.01.02";
+    stubs.cached = null;
+
+    const fallbackLogMgr = offsetsForVersion("1.01.01")!.typeInfoRva.logManager;
+
+    stubs.extracted = {
+      ...DERIVED,
+      gameVersion: "1.01.02",
+      typeInfoRva: {
+        ...DERIVED.typeInfoRva,
+        // logManager left as 0 (extractor couldn't derive)
+        logManager: 0n,
+        monsterSpawnManager: 0n,
+      },
+    };
+
+    await attachFresh();
+
+    // Fallback baseline preserved for fields extractor returned 0.
+    expect(stubs.saved?.typeInfoRva.logManager).toBe(fallbackLogMgr);
+    expect(stubs.saved?.typeInfoRva.monsterSpawnManager).toBe(
+      offsetsForVersion("1.01.01")!.typeInfoRva.monsterSpawnManager,
+    );
+  });
+
+  // ── Critical-stale-on-fallback deadlock break ──────────────────────────
+  // Reproduces the "本地全部都没有" bug: attach while the player is in the
+  // main menu → StageManager singleton not instantiated → extractor fails →
+  // 3 critical failures → critical budget permanently exhausted → reader
+  // stays on stale v1.01.01 baseline RVAs → all live reads return null.
+  // The fix: healOffsets detects isCriticalStaleOnFallback and resets the
+  // critical budget BEFORE resolving, so the next heal tick retries the
+  // extractor (and once the player enters a stage, the singleton instantiates
+  // and derivation succeeds — derived RVAs overwrite the stale baseline).
+  it("healOffsets resets critical budget when stale on fallback", async () => {
+    stubs.version = "1.01.02";
+    stubs.cached = null;
+    // First attach: extractor fails (StageManager singleton not up yet).
+    // resolveOffsets records 1 critical attempt and stays on fallback baseline.
+    stubs.extracted = null;
+
+    const reader = await attachFresh();
+    // Sanity: reader is supported (fallback baseline has critical fields) but
+    // still on stale v1.01.01 RVAs.
+    expect(reader.supported).toBe(true);
+    expect(reader.isCriticalStaleOnFallback).toBe(true);
+
+    // Simulate the player entering a stage: next extractor run succeeds and
+    // re-derives fresh v1.01.02 RVAs.
+    const derivedStageMgr =
+      offsetsForVersion("1.01.01")!.typeInfoRva.stageManager + 0x1000n;
+    stubs.extracted = {
+      ...DERIVED,
+      gameVersion: "1.01.02",
+      typeInfoRva: {
+        ...DERIVED.typeInfoRva,
+        stageManager: derivedStageMgr,
+        stageCacheManager: derivedStageMgr + 0x100n,
+      },
+    };
+
+    // Worker calls healOffsets — should reset critical budget first, then
+    // run the extractor, which now succeeds and overwrites the baseline.
+    const beforeRecordCalls = stubs.recordCalls;
+    const beforeCriticalResets = stubs.criticalResetCalls;
+    reader.healOffsets();
+
+    // Critical budget was reset (the key assertion — pre-fix this was 0).
+    expect(stubs.criticalResetCalls).toBe(beforeCriticalResets + 1);
+    // Extractor ran (after the reset unblocked it).
+    expect(stubs.recordCalls).toBe(beforeRecordCalls + 1);
+    // Persisted table now has the derived v1.01.02 RVA, not v1.01.01's.
+    expect(stubs.saved?.typeInfoRva.stageManager).toBe(derivedStageMgr);
+    // Reader is no longer "stale on fallback" — derived has overwritten.
+    expect(reader.isCriticalStaleOnFallback).toBe(false);
+  });
+
+  it("healOffsets does NOT reset critical budget when derived already overwrote", async () => {
+    // Once the extractor has successfully re-derived critical RVAs (StageManager
+    // singleton was up at attach time), isCriticalStaleOnFallback=false and
+    // healOffsets must NOT needlessly reset the critical budget — that would
+    // cause the extractor to re-run on every heal tick (CPU waste).
+    stubs.version = "1.01.02";
+    stubs.cached = null;
+    const derivedStageMgr =
+      offsetsForVersion("1.01.01")!.typeInfoRva.stageManager + 0x1000n;
+    stubs.extracted = {
+      ...DERIVED,
+      gameVersion: "1.01.02",
+      typeInfoRva: {
+        ...DERIVED.typeInfoRva,
+        stageManager: derivedStageMgr,
+        stageCacheManager: derivedStageMgr + 0x100n,
+      },
+    };
+
+    const reader = await attachFresh();
+    expect(reader.isCriticalStaleOnFallback).toBe(false);
+
+    const beforeCriticalResets = stubs.criticalResetCalls;
+    reader.healOffsets();
+    // No reset needed — derived already overwrote the baseline.
+    expect(stubs.criticalResetCalls).toBe(beforeCriticalResets);
+  });
+
+  it("healOffsets does NOT reset critical budget for exact-match bundled version", async () => {
+    // v1.00.21 is in the table → exact match, no fallback. Even if the
+    // extractor runs (enrichment mode), isCriticalStaleOnFallback=false and
+    // the critical budget is never touched.
+    stubs.version = "1.00.21";
+    stubs.cached = null;
+    stubs.extracted = null;
+
+    const reader = await attachFresh();
+    expect(reader.isCriticalStaleOnFallback).toBe(false);
+
+    const beforeCriticalResets = stubs.criticalResetCalls;
+    reader.healOffsets();
+    expect(stubs.criticalResetCalls).toBe(beforeCriticalResets);
   });
 });

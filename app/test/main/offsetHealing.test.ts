@@ -12,6 +12,7 @@ import {
   recordEnrichmentAttempt,
   recordExtractionAttempt,
   resetEnrichmentAttempts,
+  resetExtractionAttempts,
 } from "../../src/main/liveMemory/offsetHealing";
 
 const DIR = join(process.env["TEMP"] ?? "/tmp", `tbh-offset-healing-${process.pid}`);
@@ -137,6 +138,34 @@ describe("resetEnrichmentAttempts", () => {
     resetEnrichmentAttempts(DIR, VERSION, BUILD);
     expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(0);
     expect(mayAttemptEnrichment(DIR, VERSION, BUILD)).toBe(true);
+  });
+});
+
+describe("resetExtractionAttempts", () => {
+  it("clears the critical budget so extraction may run again", () => {
+    // Exhaust the critical budget — simulates the "3 failures" deadlock when
+    // StageManager singleton is not instantiated at attach time.
+    for (let i = 0; i < MAX_EXTRACTION_ATTEMPTS; i++) recordExtractionAttempt(DIR, VERSION, BUILD);
+    expect(mayAttemptExtraction(DIR, VERSION, BUILD)).toBe(false);
+    expect(extractionAttempts(DIR, VERSION, BUILD)).toBe(MAX_EXTRACTION_ATTEMPTS);
+
+    // Worker calls resetExtractionAttempts (via healOffsets) once it detects
+    // isCriticalStaleOnFallback — this clears the budget so the next heal
+    // tick can retry the extractor.
+    resetExtractionAttempts(DIR, VERSION, BUILD);
+    expect(extractionAttempts(DIR, VERSION, BUILD)).toBe(0);
+    expect(mayAttemptExtraction(DIR, VERSION, BUILD)).toBe(true);
+  });
+
+  it("does not affect the enrichment budget (budgets are independent)", () => {
+    // Pre-condition: enrichment budget is partially used.
+    recordEnrichmentAttempt(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(1);
+
+    // Resetting critical budget must NOT clear enrichment — they are tracked
+    // in separate marker files for independent budget control.
+    resetExtractionAttempts(DIR, VERSION, BUILD);
+    expect(enrichmentAttempts(DIR, VERSION, BUILD)).toBe(1);
   });
 });
 

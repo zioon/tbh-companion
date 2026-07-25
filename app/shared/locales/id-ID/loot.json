@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Peti Harta Karun Biasa",
+    "rare": "Peti Harta Karun Tahap",
+    "act": "Peti Harta Karun Bos Babak",
+    "unclassified": "Tidak Terklasifikasi"
+  },
+  "levelSuffix": "{{base}} Lv.{{level}}"
+}

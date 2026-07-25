@@ -37,6 +37,11 @@ function makeOffsets(version = VERSION): LiveOffsets {
       petSaveDatas: 0x68,
       itemSaveDatas: 0xa0,
       aggregates: 0,
+      boxData: 0,
+    },
+    boxData: {
+      boxTypes: 0,
+      boxQuantity: 0,
     },
     common: {
       playTime: 0x20,
@@ -78,7 +83,7 @@ function makeOffsets(version = VERSION): LiveOffsets {
         boxType: 0,
         level: 0,
       },
-      stageClearLog: { clearTimeSec: 0 },
+      stageClearLog: { act: 0, stage: 0, clearTimeSec: 0 },
       monster: {
         monsterList: 0,
         summonedList: 0,

@@ -74,16 +74,32 @@ function decompressBlock(src: Buffer, uncompressedSize: number, compression: num
     throw new Error("LZMA compression not supported (TBH bundles use lz4)");
   }
   if (compression === COMPRESSION_LZ4 || compression === COMPRESSION_LZ4HC) {
-    const out = Buffer.alloc(uncompressedSize);
+    // Allocate headroom beyond the declared uncompressedSize. UnityFS blocks
+    // sometimes declare an aligned uncompressedSize while the LZ4 stream
+    // actually produces a few extra bytes (padding to the next compression
+    // boundary). lz4js decompresses until the input is consumed, so the
+    // returned byte count may exceed the declared size — we allocate
+    // headroom, require at least the declared size, and return the ACTUAL
+    // decompressed bytes (not truncated). Truncating would discard payload
+    // data and cause downstream parsers to read out of bounds.
+    const allocSize = uncompressedSize + 4096;
+    const out = Buffer.alloc(allocSize);
     // lz4js.decompressBlock is the synchronous raw-block primitive.
     // Signature: (src, dst, sIndex, sLength, dIndex) -> new dIndex (= bytes written).
     // Note: lz4js has NO 2-arg decodeBlock and NO stream API; decompress() is for
     // whole lz4 frames (with magic 0x184D2204), which UnityFS blocks are NOT.
     const n = lz4.decompressBlock(src, out, 0, src.length, 0);
-    if (n !== uncompressedSize) {
-      throw new Error(`lz4 decompression size mismatch: expected ${uncompressedSize}, got ${n}`);
+    if (n < uncompressedSize) {
+      throw new Error(
+        `lz4 decompression incomplete: expected at least ${uncompressedSize}, got ${n}`,
+      );
     }
-    return out;
+    // Return the ACTUAL decompressed bytes. Trailing bytes beyond
+    // uncompressedSize are NOT padding to discard — they may be legitimate
+    // payload that the declared size under-reports. Downstream consumers
+    // (SerializedFile parser) use offsets relative to the concatenated
+    // data stream, so returning the true size keeps offsets valid.
+    return out.subarray(0, n);
   }
   throw new Error(`unknown block compression: ${compression}`);
 }
@@ -199,18 +215,28 @@ export function parseBundle(raw: Buffer): ParsedBundle {
     dataStart = paddingAtStart ? align16(blocksInfoEnd + 16) : blocksInfoEnd;
   }
 
-  // Decompress and concatenate all blocks.
-  const totalUncompressed = blocks.reduce((sum, b) => sum + b.uncompressedSize, 0);
-  const data = Buffer.alloc(totalUncompressed);
-  let writeOff = 0;
+  // Decompress and concatenate all blocks. Use the ACTUAL decompressed size
+  // of each block (not the declared uncompressedSize) when computing offsets
+  // and the total — UnityFS may declare an aligned size while the LZ4 stream
+  // produces extra bytes that are part of the payload. The SerializedFile
+  // parser reads objects at offsets relative to this concatenated stream,
+  // so the total must reflect the true byte count.
+  const decompressedBlocks: Buffer[] = [];
+  let totalActual = 0;
   let readOff = dataStart;
   for (const block of blocks) {
     const src = raw.subarray(readOff, readOff + block.compressedSize);
     const blockCompression = block.flags & FLAG_COMPRESSION_MASK;
     const decompressed = decompressBlock(src, block.uncompressedSize, blockCompression);
-    decompressed.copy(data, writeOff);
-    writeOff += block.uncompressedSize;
+    decompressedBlocks.push(decompressed);
+    totalActual += decompressed.length;
     readOff += block.compressedSize;
+  }
+  const data = Buffer.alloc(totalActual);
+  let writeOff = 0;
+  for (const buf of decompressedBlocks) {
+    buf.copy(data, writeOff);
+    writeOff += buf.length;
   }
 
   return {
@@ -223,6 +249,6 @@ export function parseBundle(raw: Buffer): ParsedBundle {
     blocks,
     storageEntries,
     data,
-    dataLength: totalUncompressed,
+    dataLength: totalActual,
   };
 }

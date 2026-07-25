@@ -48,6 +48,7 @@
     "damageSession": "ダメージ（セッション）",
     "dps5s": "DPS（5 秒ウィンドウ）",
     "offsetSource": "オフセットソース",
+    "fallbackFromVersion": "フォールバック基準バージョン",
     "extractAttempts": "抽出試行回数",
     "statusLabel": "ステータス",
     "offsetsComplete": "オフセット完了",

@@ -27,12 +27,14 @@ import {
   type LootFilterState,
 } from "../../lib/lootFilters";
 import { gradeColor } from "../../lib/gradeColor";
+import { gradeLabel } from "../../lib/itemLabels";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { useTbhContext } from "../../context/tbhContext";
 import { ItemLink } from "../ItemLink";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../../core/steamPrice";
 import { LootRing } from "./LootRing";
+import { translateBoxLabel } from "../../lib/boxLabel";
 
 function fmtPct(pct: number): string {
   return `${(pct * 100).toFixed(1)}%`;
@@ -128,6 +130,7 @@ export const LootBoxSection = memo(function LootBoxSection({
   ringSeconds,
   onUpdateRingSeconds,
   className,
+  language: _language,
 }: {
   stats: BoxOpenStats;
   currentStageKey: number | null;
@@ -139,6 +142,8 @@ export const LootBoxSection = memo(function LootBoxSection({
   ringSeconds: LootRingSeconds;
   onUpdateRingSeconds: (next: LootRingSeconds) => void;
   className?: string;
+  /** Forces React.memo to re-render on language change (i18n from useTranslation alone isn't enough). */
+  language?: string;
 }) {
   const { t } = useTranslation("loot");
   const [filter, setFilter] = useState<LootFilterState>(DEFAULT_LOOT_FILTER_STATE);
@@ -146,6 +151,12 @@ export const LootBoxSection = memo(function LootBoxSection({
   const [reclassifyState, setReclassifyState] = useState<Record<number, ReclassifyRowState>>({});
   const [editingRing, setEditingRing] = useState(false);
   const [ringDraft, setRingDraft] = useState<string>("");
+
+  // Re-translate boxKey via i18next so the chest category and level honor the
+  // active locale. The main-process `stats.label` is English-only (core layer
+  // can't import i18next); this renderer-side translation is the source of
+  // truth for display.
+  const localizedLabel = translateBoxLabel(t, stats.boxKey);
 
   const { open: openEntity } = useEntityPanel();
   const { inventory } = useTbhContext();
@@ -198,8 +209,13 @@ export const LootBoxSection = memo(function LootBoxSection({
 
   const rows = useMemo(() => filterAndSortLoot(stats.breakdown, filter), [stats.breakdown, filter]);
   const gradeSelectOptions: MultiSelectOption[] = useMemo(
-    () => gradeOptionsFromLoot(stats.breakdown).map((g) => ({ value: g, label: g })),
-    [stats.breakdown],
+    () =>
+      gradeOptionsFromLoot(stats.breakdown).map((g) => ({
+        value: g,
+        label: gradeLabel(g, t),
+        color: gradeColor(g),
+      })),
+    [stats.breakdown, t],
   );
   const isUnclassified = stats.category === "unclassified" && onReclassify;
 
@@ -209,11 +225,11 @@ export const LootBoxSection = memo(function LootBoxSection({
     () =>
       isUnclassified
         ? [
-            { label: t("boxSection.columnItem"), width: "30%" },
+            { label: t("boxSection.columnItem"), width: "26%" },
             { label: t("boxSection.columnCount"), align: "right" as const, width: "12%" },
             { label: t("boxSection.columnDropPct"), align: "right" as const, width: "14%" },
-            { label: t("boxSection.columnBuyout"), align: "right" as const, width: "16%" },
-            { label: t("boxSection.columnAssignTo"), align: "center" as const, width: "28%" },
+            { label: t("boxSection.columnBuyout"), align: "right" as const, width: "14%" },
+            { label: t("boxSection.columnAssignTo"), align: "center" as const, width: "34%" },
           ]
         : [
             { label: t("boxSection.columnItem"), width: "38%" },
@@ -303,7 +319,7 @@ export const LootBoxSection = memo(function LootBoxSection({
       )}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="m-0 text-sm font-semibold">{stats.label}</h2>
+          <h2 className="m-0 text-sm font-semibold">{localizedLabel}</h2>
           <Badge variant="muted">{t("boxSection.opensBadge", { count: stats.totalOpens })}</Badge>
           {stats.hourlyValue != null && (
             <Badge variant="info">{fmtMoneyPerHour(stats.hourlyValue, currency)}</Badge>
@@ -318,7 +334,7 @@ export const LootBoxSection = memo(function LootBoxSection({
               variant="ghost"
               size="sm"
               onClick={openRingEditor}
-              aria-label={t("boxSection.ringAriaLabel", { label: stats.label })}
+              aria-label={t("boxSection.ringAriaLabel", { label: localizedLabel })}
               title={t("boxSection.ringLapTitle", { minutes: Math.round(ringLapSeconds / 60) })}
             >
               {"\u2699"}
@@ -328,7 +344,7 @@ export const LootBoxSection = memo(function LootBoxSection({
             variant="ghost"
             size="sm"
             onClick={() => setConfirming(true)}
-            aria-label={t("boxSection.resetAriaLabel", { label: stats.label })}
+            aria-label={t("boxSection.resetAriaLabel", { label: localizedLabel })}
           >
             {t("boxSection.reset")}
           </Button>
@@ -398,7 +414,7 @@ export const LootBoxSection = memo(function LootBoxSection({
                             ariaLabel={t("boxSection.assignCategoryAriaLabel", { name: row.name })}
                           />
                           <Select
-                            className="w-20 shrink-0"
+                            className="w-28 shrink-0"
                             triggerClassName="py-1 text-xs"
                             options={reclassifyLevelOptions}
                             value={getReclassifyRow(row.itemKey).level}
@@ -445,7 +461,7 @@ export const LootBoxSection = memo(function LootBoxSection({
         >
           <div className="flex flex-col gap-3">
             <DialogTitle className="m-0 text-base font-semibold">
-              {t("boxSection.resetTitle", { label: stats.label })}
+              {t("boxSection.resetTitle", { label: localizedLabel })}
             </DialogTitle>
             <p className="m-0 text-sm text-muted">{t("boxSection.resetBody")}</p>
             <div className="mt-1 flex flex-wrap justify-end gap-2">
@@ -479,7 +495,7 @@ export const LootBoxSection = memo(function LootBoxSection({
         >
           <div className="flex flex-col gap-3">
             <DialogTitle className="m-0 text-base font-semibold">
-              {t("boxSection.ringDialogTitle", { label: stats.label })}
+              {t("boxSection.ringDialogTitle", { label: localizedLabel })}
             </DialogTitle>
             <p className="m-0 text-sm text-muted">{t("boxSection.ringDialogBody")}</p>
             <label className="flex items-center gap-2 text-sm">

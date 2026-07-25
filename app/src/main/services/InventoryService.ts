@@ -5,8 +5,9 @@ import { flattenOwnedHashes } from "../../core/inventory/ownedPriceTargets";
 import { getTbhMarketFeeRates } from "../../core/steamMarketFeeBundled";
 import { isPlaceholderItemName } from "../../core/marketName";
 import { lookupItemIndex } from "../../core/lookup/catalog";
+import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
+import { gameItemName, type GameItem } from "../../core/gamedata";
 import type { OwnedPriceTarget } from "../../core/inventory/ownedPriceTargets";
-import type { GameItem } from "../../core/gamedata";
 import type {
   InventorySnapshot,
   ResolvedInventory,
@@ -89,6 +90,14 @@ export class InventoryService {
   private lookupCatalog: Map<number, LookupItem> = new Map();
   /** Last array reference passed to `setLookupCatalog` — used to short-circuit no-op calls. */
   private lookupCatalogSource: LookupItem[] | null = null;
+  /**
+   * LocaleCatalog used for item display name localization in
+   * {@link getMergedGameItem}. Set once at construction (defaults to
+   * {@link emptyLocaleCatalog}) and swapped via {@link setLocaleCatalog}
+   * when the user changes language. Kept as a field (not threaded through
+   * every call) so {@link getMergedGameItem} stays parameterless.
+   */
+  private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
   private onAlmostFull?: (payload: { used: number; capacity: number }) => void;
   private getAlmostFullThresholdPercent: () => number = () => 90;
   private wasAboveAlmostFullThreshold = false;
@@ -101,6 +110,16 @@ export class InventoryService {
    * the service's lifetime.
    */
   private readonly worker = new InventoryWorker(getTbhMarketFeeRates());
+
+  /**
+   * @param initialCatalog LocaleCatalog for item display name localization.
+   *   Defaults to {@link emptyLocaleCatalog} (no localization — `ItemName_<id>`
+   *   placeholders fall through to {@link lookupCatalog}'s English name). Swap
+   *   at runtime via {@link setLocaleCatalog} when the user changes language.
+   */
+  constructor(initialCatalog: LocaleCatalog = emptyLocaleCatalog()) {
+    this.localeCatalog = initialCatalog;
+  }
 
   initMarket(currency: string): void {
     this.market = new SteamMarketProvider(currency);
@@ -207,6 +226,16 @@ export class InventoryService {
   }
 
   /**
+   * Swap the LocaleCatalog used for item display name localization. Called by
+   * appState when the user changes language. Does NOT re-broadcast — callers
+   * should re-emit inventory afterwards (e.g. via `resolveAndPushInventory`
+   * once a save snapshot is available) so the new names propagate to rows.
+   */
+  setLocaleCatalog(catalog: LocaleCatalog): void {
+    this.localeCatalog = catalog;
+  }
+
+  /**
    * Build the catalog map handed to the inventory worker. Identical to
    * `gameData.asMap()` except placeholder names (`ItemName_<id>`) are
    * replaced with real names from {@link lookupCatalog}. The merge is what
@@ -307,27 +336,60 @@ export class InventoryService {
 
   private currentOwnedPriceTargets(): OwnedPriceTarget[] {
     if (!this.lastInventoryRaw) return [];
+    // Price targets MUST use the English market_hash_name — Steam Market
+    // rejects localized names. The display-only `getMergedGameItem` would
+    // return a localized name when a LocaleCatalog is set, breaking both
+    // the API call and the `lookupPriceSnapshot.prices[hash]` lookup (which
+    // is keyed by English names). See getEnglishMergedGameItem for details.
     return ownedPriceTargets(
       this.lastInventoryRaw,
-      (key) => this.getMergedGameItem(key),
+      (key) => this.getEnglishMergedGameItem(key),
       (key) => this.excludeFromInventoryListing(key),
     );
   }
 
   /**
    * Fetch a single `GameItem` with placeholder name replaced by the real
-   * name from {@link lookupCatalog}. Mirrors the merge applied by
-   * {@link buildMergedGameDataLookup} for the worker payload, so per-row
+   * **English** name from {@link lookupCatalog}. Mirrors the merge applied
+   * by {@link buildMergedGameDataLookup} for the worker payload, so per-row
    * price refresh targets resolve the same `market_hash_name` the worker
    * resolved for the table row.
+   *
+   * This is the **non-localized** variant — used for Steam Market lookups
+   * (which require the English `market_hash_name`) and for diagnostic logs.
+   * For display name resolution, use {@link getMergedGameItem} instead.
    */
-  private getMergedGameItem(itemKey: number): GameItem | undefined {
+  private getEnglishMergedGameItem(itemKey: number): GameItem | undefined {
     const item = this.gameData.get(itemKey);
     if (!item) return undefined;
     if (!isPlaceholderItemName(item.name)) return item;
     const lookupItem = this.lookupCatalog.get(item.id);
     if (!lookupItem?.name) return item;
     return { ...item, name: lookupItem.name };
+  }
+
+  /**
+   * Fetch a single `GameItem` with placeholder name replaced by the real
+   * name from {@link lookupCatalog}, then localized to the user's language
+   * via {@link gameItemName}. Used for the display `row.name` in
+   * {@link publishResolved}; never used for Steam Market lookups (those
+   * require the English `market_hash_name` — see
+   * {@link getEnglishMergedGameItem}).
+   *
+   * Localization: when a {@link localeCatalog} is set, `ItemName_<id>`
+   * placeholders (and even hardcoded English names) are replaced with the
+   * localized name. If the catalog lacks the entry, the placeholder falls
+   * through to the lookup catalog's English name (same as the
+   * pre-locale-catalog behavior).
+   */
+  private getMergedGameItem(itemKey: number): GameItem | undefined {
+    const item = this.getEnglishMergedGameItem(itemKey);
+    if (!item) return undefined;
+    const localizedName = gameItemName(item, this.localeCatalog);
+    if (localizedName !== item.name) {
+      return { ...item, name: localizedName };
+    }
+    return item;
   }
 
   private targetKey(target: OwnedPriceTarget): string {
@@ -431,7 +493,11 @@ export class InventoryService {
       };
     }
 
-    const item = this.getMergedGameItem(itemKey);
+    // Price targets MUST use the English market_hash_name (Steam Market
+    // rejects localized names). The display-only `getMergedGameItem` would
+    // return a localized name when a LocaleCatalog is set, breaking the
+    // API call. See getEnglishMergedGameItem for details.
+    const item = this.getEnglishMergedGameItem(itemKey);
     if (!item) {
       return {
         ok: false,
@@ -565,6 +631,18 @@ export class InventoryService {
     const currency = this.market.status().currency;
     resolved.currency = currency;
     resolved.composition.currency = currency;
+    // Post-process: re-resolve row.name with the current LocaleCatalog. The
+    // inventory worker (utility process) builds rows from a merged catalog
+    // (gamedata.json + lookup_items.json) and can't swap catalogs at runtime,
+    // so without this step the IPC payload carries English/placeholder names
+    // even after a language switch. `marketHashName` is preserved (English,
+    // required for Steam market lookups). `getMergedGameItem` already
+    // encapsulates the locale-vs-lookup fallback order, so we reuse it
+    // instead of duplicating the logic.
+    for (const row of resolved.rows) {
+      const merged = this.getMergedGameItem(row.itemKey);
+      if (merged) row.name = merged.name;
+    }
     this.lastInventory = resolved;
     broadcast(IPC.INVENTORY, resolved);
     this.onInventoryUpdated?.(resolved);

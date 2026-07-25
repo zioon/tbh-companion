@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Zwykła skrzynia",
+    "rare": "Skrzynia etapu",
+    "act": "Skrzynia bossa aktu",
+    "unclassified": "Niesklasyfikowana"
+  },
+  "levelSuffix": "{{base}} Poz.{{level}}"
+}

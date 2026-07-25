@@ -85,9 +85,9 @@
   "box": {
     "firstDropOnly": "First clear only",
     "firstDropOnlySuffix": "· {{label}}",
-    "categoryCommon": "Common chest",
-    "categoryStageBoss": "Stage boss chest",
-    "categoryActBoss": "Act boss chest",
+    "categoryCommon": "Common Treasure Chest",
+    "categoryStageBoss": "Stage Treasure Chest",
+    "categoryActBoss": "Act Boss Treasure Chest",
     "categoryDefault": "Chest",
     "stageRanges": "Stage ranges",
     "dropSources": "Drop sources",
@@ -110,6 +110,7 @@
     "noLootMatchFilters": "No loot matches these filters.",
     "viaMonsterKill": "Monster kill",
     "viaStageBossKill": "Stage boss kill",
-    "viaActBossKill": "Act boss kill"
+    "viaActBossKill": "Act boss kill",
+    "levelSuffix": "{{base}} Lv{{level}}"
   }
 }

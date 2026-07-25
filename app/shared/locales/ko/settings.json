@@ -47,6 +47,9 @@
   "windowTray": {
     "sectionTitle": "창 및 트레이",
     "keepOnTop": "모든 창을 맨 위에 유지",
+    "keepOnTopMain": "메인 창을 맨 위에 유지",
+    "keepOnTopOverlay": "미니 오버레이를 맨 위에 유지",
+    "keepOnTopBoxTracker": "스테이지 보석 상자 추적 창을 맨 위에 유지",
     "trayHint": "메인 창을 닫아도 TBH Companion는 시스템 트레이에서 계속 실행됩니다. 완전히 종료하려면 트레이 메뉴에서 <strong>종료</strong>를 사용하세요."
   },
   "advanced": {
@@ -71,7 +74,13 @@
     "gameVersionSuffix": " · 게임 버전: {{version}}",
     "outdatedSuffix": " · 오래됨",
     "itemsLoaded": "{{source}}에서 {{count}}개 아이템을 불러왔습니다.",
-    "sourceBundled": "번들"
+    "sourceBundled": "번들",
+    "installPathSectionTitle": "게임 설치 경로",
+    "installPathLabel": "게임의 TaskbarHero_Data 폴더 경로",
+    "installPathHint": "기본 Steam 라이브러리 외부(예: 다른 드라이브나 가상 머신)에 설치된 경우 설정하세요. 비워두면 기본 경로를 사용합니다.",
+    "installPathPlaceholder": "D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskbarHero_Data",
+    "installPathSaved": "게임 설치 경로가 저장되었습니다.",
+    "installPathCleared": "게임 설치 경로가 삭제되었습니다 — 기본 경로를 사용합니다."
   },
   "cacheAction": {
     "clear": "지우기",
@@ -89,9 +98,9 @@
       "confirm": "캐시된 도감 가격 스냅샷을 삭제하시겠습니까? 다음 확인 시 다시 다운로드됩니다."
     },
     "box-timers": {
-      "label": "스테이지 보스 보관함 추적기 초기화",
+      "label": "스테이지 보스 보물 상자 추적기 초기화",
       "detail": "box_timers.json",
-      "confirm": "스테이지 보스 보관함 추적기 타이머와 활성화된 루트를 기본값으로 초기화하시겠습니까? 진행 중인 재사용 대기시간이 지워집니다."
+      "confirm": "스테이지 보스 보물 상자 추적기 타이머와 활성화된 루트를 기본값으로 초기화하시겠습니까? 진행 중인 재사용 대기시간이 지워집니다."
     },
     "session": {
       "label": "세션 스냅샷 지우기",
@@ -101,7 +110,7 @@
     "all-except-config": {
       "label": "설정을 제외한 모든 데이터 지우기",
       "detail": "위의 모든 캐시; config.json은 유지",
-      "confirm": "config.json을 제외한 모든 캐시된 데이터를 지우시겠습니까? 카탈로그, 가격, 보관함 타이머, 라이브 세션 통계가 초기화됩니다."
+      "confirm": "config.json을 제외한 모든 캐시된 데이터를 지우시겠습니까? 카탈로그, 가격, 보물 상자 타이머, 라이브 세션 통계가 초기화됩니다."
     }
   },
   "messages": {

@@ -22,7 +22,7 @@ const config: AppConfig = {
   es3Password: "x",
   pollIntervalSeconds: 5,
   rollingWindowMinutes: 5,
-  startTopmost: true,
+  topmost: { main: true, overlay: true, boxTracker: true },
   logHistoryCsv: false,
   currency: "USD",
   notificationsEnabled: true,

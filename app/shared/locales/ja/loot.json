@@ -13,8 +13,8 @@
   "cancel": "キャンセル",
   "category": {
     "common": "一般宝箱",
-    "rare": "ステージボス宝箱",
-    "act": "章ボス宝箱",
+    "rare": "ステージ宝箱",
+    "act": "アクトボス宝箱",
     "unclassified": "未分類"
   },
   "levelSuffix": "{{base}} レベル {{level}}",
@@ -60,7 +60,12 @@
     "slotsAria": "{{used}} / {{capacity}} スロット使用中",
     "opensIn": "次の開封",
     "clearsIn": "キュー消化",
-    "fillsIn": "満杯まで"
+    "fillsIn": "満杯まで",
+    "inventoryLabel": "インベントリ物品",
+    "inventorySlotsAria": "{{used}} / {{capacity}} インベントリスロット使用中",
+    "inventoryFullIn": "インベントリ満杯まで",
+    "inventoryFull": "満杯",
+    "inventoryTurnOn": "「リアルデータ」タブで自動開封スイッチをオンにしてから推測します"
   },
   "recentDrops": {
     "title": "直近のドロップ"

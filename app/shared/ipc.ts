@@ -65,6 +65,7 @@ export const IPC = {
   LOOT_PROMPT_RESOLVE: "loot:prompt:resolve",
   GET_CATALOG_STATUS: "get-catalog-status",
   CATALOG_REFRESH: "catalog-refresh",
+  GET_LOCALE_DATA: "get-locale-data",
 
   // Send (renderer → main, no response)
   RESET: "reset",
@@ -126,6 +127,7 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.LOOT_AUTO_CLASSIFY_STATE,
   IPC.GET_CATALOG_STATUS,
   IPC.CATALOG_REFRESH,
+  IPC.GET_LOCALE_DATA,
 ] as const;
 
 export const IPC_SEND_CHANNELS = [

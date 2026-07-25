@@ -1,0 +1,9 @@
+{
+  "category": {
+    "common": "Baú Comum",
+    "rare": "Baú de Fase",
+    "act": "Baú de Chefe de Ato",
+    "unclassified": "Não classificado"
+  },
+  "levelSuffix": "{{base}} Nv.{{level}}"
+}

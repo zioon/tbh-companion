@@ -5,7 +5,7 @@ import type { LiveMemoryStatus } from "../../shared/types";
 const state = vi.hoisted(() => ({ status: null as LiveMemoryStatus | null }));
 
 vi.mock("../../src/renderer/lib/useLiveMemory", () => ({
-  useLiveMemory: () => ({ snapshot: null, status: state.status }),
+  useLiveMemoryStatus: () => state.status,
 }));
 
 function status(overrides: Partial<LiveMemoryStatus> = {}): LiveMemoryStatus {

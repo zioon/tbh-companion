@@ -101,40 +101,62 @@ function maybeHealUnsupported(): void {
  * opened a box). Once the player opens one, the dictionary becomes non-empty
  * and a re-extraction can derive the key.
  *
- * Two paths trigger a heal:
+ * Three paths trigger a heal:
  *  1. Event-driven: `LiveMemoryReader` watches the BoxOpenLog list length on
  *     every read tick. A 0→>0 transition (player opened a box) sets
  *     `boxOpenEventPending`. This function consumes that flag, resets the
  *     enrichment attempt budget, and triggers an immediate heal.
- *  2. Fallback timer: when `getItemWithBoxOpenTypeKey` itself is 0 (not yet
- *     derived), `peekBoxOpenLogCount` returns null and no event is ever
- *     raised — so path 1 is deadlocked. The fallback resets the budget and
- *     re-runs the extractor every `HEAL_ENRICHMENT_FALLBACK_MS` until
+ *  2. Enrichment fallback timer: when `getItemWithBoxOpenTypeKey` itself is 0
+ *     (not yet derived), `peekBoxOpenLogCount` returns null and no event is
+ *     ever raised — so path 1 is deadlocked. The fallback resets the budget
+ *     and re-runs the extractor every `HEAL_ENRICHMENT_FALLBACK_MS` until
  *     enrichment completes.
+ *  3. Critical-stale-on-fallback timer: when the reader is on a fallback
+ *     table (e.g. v1.01.02 → v1.01.01) whose critical RVAs have NOT been
+ *     re-derived by the extractor, all live reads resolve to wrong classes
+ *     → null data. `LiveMemoryReader.healOffsets` resets the critical budget
+ *     in this state, but the worker must still drive the periodic heal —
+ *     `maybeHealUnsupported` skips because `supported=true` (fallback baseline
+ *     has critical fields). This path reuses the 30s cadence to keep retrying
+ *     until the player enters a stage and StageManager instantiates, at
+ *     which point the extractor succeeds and derived RVAs overwrite baseline.
  *
  * The attach-time extraction (MAX_ENRICHMENT_ATTEMPTS=1) covers the "log
  * already has BoxOpenLog entries from a prior session" case; further retries
- * happen via path 1 (immediate, after the player opens a box) or path 2
- * (every 30s while enrichment is incomplete).
+ * happen via path 1 (immediate, after the player opens a box), path 2
+ * (every 30s while enrichment is incomplete), or path 3 (every 30s while
+ * critical RVAs are still on the fallback baseline).
  */
 function maybeHealEnrichment(): void {
-  if (!reader?.attached || !reader.supported || reader.enrichmentComplete) {
+  if (!reader?.attached || !reader.supported) {
     enrichmentHealDueAt = 0;
     return;
   }
-  // Path 1: event-driven immediate heal.
-  if (reader.consumeBoxOpenEvent()) {
+  // Path 1: event-driven immediate heal (only relevant while enrichment is
+  // still incomplete — boxOpenLog struct offsets pending first box-open).
+  if (!reader.enrichmentComplete && reader.consumeBoxOpenEvent()) {
     reader.resetEnrichmentBudget();
     reader.healOffsets();
     postStatusIfChanged();
     enrichmentHealDueAt = 0;
     return;
   }
-  // Path 2: fallback timer to break the event-detector deadlock when
-  // `getItemWithBoxOpenTypeKey` itself is the missing offset.
+  // Path 2 & 3 share the same cadence. Path 2 covers enrichment gaps;
+  // path 3 covers critical RVAs pending StageManager instantiation on
+  // fallback tables (independent of enrichment completion — a reader can
+  // have all enrichment offsets filled yet still be on stale baseline RVAs).
+  // healOffsets internally resets the right budget based on
+  // isCriticalStaleOnFallback.
+  const needsFallbackHeal = !reader.enrichmentComplete || reader.isCriticalStaleOnFallback;
+  if (!needsFallbackHeal) {
+    enrichmentHealDueAt = 0;
+    return;
+  }
   const now = Date.now();
   if (enrichmentHealDueAt === 0) enrichmentHealDueAt = now + HEAL_ENRICHMENT_FALLBACK_MS;
   if (now >= enrichmentHealDueAt) {
+    // healOffsets decides which budget to reset (critical vs enrichment)
+    // based on isCriticalStaleOnFallback; both can be reset safely.
     reader.resetEnrichmentBudget();
     reader.healOffsets();
     postStatusIfChanged();
@@ -157,6 +179,18 @@ function loop(): void {
       maybeHealEnrichment();
     }
     if (reader.attached && reader.supported) {
+      // Run any pending name-scan fallbacks (MonsterSpawnManager / PlayerSaveData)
+      // BEFORE the read tick. These scans take 30–60s when the GA index misses
+      // and would block the 25 Hz loop if run inline inside read(). Running them
+      // here lets the worker keep emitting pre-scan snapshots during the scan
+      // itself, and the read path stays pure (no FFI inside the hot loop).
+      // Returns true when a scan ran — skip this tick's read (the next tick
+      // picks up the new pin).
+      if (reader.runPendingNameScans()) {
+        postStatusIfChanged();
+        schedule(POLL_ATTACHED_MS);
+        return;
+      }
       const snap = reader.read();
       postStatusIfChanged();
       if (snap) {

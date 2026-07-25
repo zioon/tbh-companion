@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { gradeLabel, typeLabel } from "../../../core/labels";
+import { gradeLabel, typeLabel } from "../../lib/itemLabels";
 import type { LocationFilter, SortKey } from "../../lib/inventoryFilters";
 import { Input } from "../../design-system/primitives/Input/Input";
 import { Checkbox } from "../../design-system/primitives/Checkbox/Checkbox";
@@ -9,6 +9,9 @@ import {
   type MultiSelectOption,
 } from "../../design-system/primitives/MultiSelect/MultiSelect";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
+import { gradeColor } from "../../lib/gradeColor";
+
+const FILTER_LABEL = "text-[10px] font-medium uppercase tracking-wide text-muted";
 
 export interface InventoryFiltersProps {
   query: string;
@@ -49,6 +52,12 @@ export function InventoryFilters({
 }: InventoryFiltersProps) {
   const { t } = useTranslation("inventory");
 
+  function toggleType(value: string, checked: boolean) {
+    onTypeFilterChange(
+      checked ? [...typeFilter, value] : typeFilter.filter((tp) => tp !== value),
+    );
+  }
+
   const locationOptions: MultiSelectOption[] = useMemo(
     () => [
       { value: "inventory", label: t("location.inventory") },
@@ -69,17 +78,25 @@ export function InventoryFilters({
           allLabel={t("filters.allGrades")}
           value={gradeFilter}
           onValueChange={onGradeFilterChange}
-          options={gradeOptions.map((g) => ({ value: g, label: gradeLabel(g) }))}
+          options={gradeOptions.map((g) => ({
+            value: g,
+            label: gradeLabel(g, t),
+            color: gradeColor(g),
+          }))}
         />
-        <MultiSelect
-          className="w-40"
-          label={t("filters.itemType")}
-          allLabel={t("filters.allItemTypes")}
-          searchable={false}
-          value={typeFilter}
-          onValueChange={onTypeFilterChange}
-          options={typeOptions.map((tp) => ({ value: tp, label: typeLabel(tp) }))}
-        />
+        <div className="flex flex-col gap-1">
+          <span className={FILTER_LABEL}>{t("filters.itemType")}</span>
+          <div className="flex items-center gap-3 py-1.5">
+            {typeOptions.map((type) => (
+              <Checkbox
+                key={type}
+                label={typeLabel(type, t)}
+                checked={typeFilter.includes(type)}
+                onCheckedChange={(checked) => toggleType(type, checked)}
+              />
+            ))}
+          </div>
+        </div>
         <MultiSelect
           className="w-40"
           label={t("filters.location")}

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { LiveMemorySnapshot, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
+import type { LocaleCatalog } from "../../src/core/localeCatalog";
+import type { GameItem } from "../../src/core/gamedata";
 
 vi.mock("../../src/main/saveWatcher", () => ({
   SaveWatcher: class {
@@ -37,7 +39,7 @@ const baseConfig = {
   es3Password: "x",
   pollIntervalSeconds: 5,
   rollingWindowMinutes: 5,
-  startTopmost: true,
+  topmost: { main: true, overlay: true, boxTracker: true },
   logHistoryCsv: false,
   currency: "USD",
   notificationsEnabled: true,
@@ -196,6 +198,7 @@ describe("TrackingService.resolveBoxOpenEntry grade", () => {
       gold: null,
       heroes: null,
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -234,6 +237,7 @@ describe("TrackingService.resolveBoxOpenEntry grade", () => {
       gold: null,
       heroes: null,
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -294,6 +298,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: 1000,
       heroes: [{ heroKey: 101, level: 5, exp: 500 }],
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -328,6 +333,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: null,
       heroes: null,
       chestDrops: ["common", "rare"],
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -341,6 +347,10 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     };
     svc.ingestLiveFrame(frame);
     svc.ingestLiveFrame({ ...frame, chestDrops: ["common"], at: 3000 });
+    // Flush the second tick's pending buffer (aggregator collapses bursts
+    // after a 0.5s silence — without this empty tick the second ["common"]
+    // would still be buffered and not yet recorded).
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 3700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(2);
@@ -368,6 +378,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: null,
       heroes: null,
       chestDrops: ["common", "rare"],
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -408,6 +419,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       heroes: null,
       // A single common drop emits a burst of common entries.
       chestDrops: ["common", "common", "common"],
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -420,6 +432,9 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 2000,
     };
     svc.ingestLiveFrame(frame);
+    // Empty tick >0.5s later flushes the burst (aggregator collapses bursts
+    // only after a silence gap — without this the buffer stays pending).
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(1);
@@ -448,6 +463,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       heroes: null,
       // One common drop, but the burst carries a stray "rare" entry.
       chestDrops: ["common", "rare", "common", "common"],
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -460,6 +476,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 2000,
     };
     svc.ingestLiveFrame(frame);
+    // Empty tick >0.5s later flushes the burst so collapse runs.
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(1);
@@ -487,6 +505,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: null,
       heroes: null,
       chestDrops: ["rare", "rare", "rare"],
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -499,6 +518,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 2000,
     };
     svc.ingestLiveFrame(frame);
+    // Empty tick >0.5s later flushes the burst so collapse runs.
+    svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
     const stats = svc.getStats().chestDrops;
     expect(stats.rareTotal).toBe(1);
@@ -507,7 +528,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     expect(onLiveStageBossDrop).toHaveBeenCalledWith(4103);
   });
 
-  it("seeds the baseline on the first clear (unknown true start) without firing onLiveStageClear", () => {
+  it("fires onLiveStageClear on the first clear with 0 XP/gold when the baseline is primed in the same frame", () => {
+    // Edge case: the very first live frame already carries a clear (e.g. the
+    // StageClearLog had a backlog entry that survived pin-priming). The baseline
+    // is primed from the current xp/gold BEFORE the clear is diffed, so the
+    // diff is 0. The clear is still recorded (stageKey + clearTimeSec) — this
+    // is the fix for "启动 app 后打了一关，记录一直不出现" (first clear was
+    // silently dropped before the baseline-priming fix).
     const onLiveStageClear = vi.fn();
     const svc = new TrackingService(
       vi.fn(),
@@ -528,8 +555,9 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: 1000,
       heroes: [{ heroKey: 101, level: 5, exp: 500 }],
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
-      stageClears: [42],
+      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42, valid: true }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -541,11 +569,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     };
     svc.ingestLiveFrame(frame);
 
-    expect(onLiveStageClear).not.toHaveBeenCalled();
+    // Baseline primed in the same frame → diff = 0, but the clear is recorded.
+    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
+    expect(onLiveStageClear).toHaveBeenCalledWith(4103, 42, 0, 0);
     svc.stop();
   });
 
-  it("fires onLiveStageClear from the second clear onward with XP/gold gained since the previous clear", () => {
+  it("fires onLiveStageClear on every clear with XP/gold gained since the previous clear", () => {
     const onLiveStageClear = vi.fn();
     const svc = new TrackingService(
       vi.fn(),
@@ -566,8 +596,9 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: 1000,
       heroes: [{ heroKey: 101, level: 5, exp: 500 }],
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
-      stageClears: [42],
+      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42, valid: true }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -585,8 +616,12 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: 1400,
       heroes: [{ heroKey: 101, level: 5, exp: 900 }],
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
-      stageClears: [85, 63],
+      stageClears: [
+        { act: 1, stage: 3, clearTimeSec: 85, valid: true },
+        { act: 1, stage: 3, clearTimeSec: 63, valid: true },
+      ],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -597,10 +632,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 3000,
     });
 
-    // Two clears in one frame split the frame's XP/gold delta evenly (one sample per tick).
-    expect(onLiveStageClear).toHaveBeenCalledTimes(2);
-    expect(onLiveStageClear).toHaveBeenNthCalledWith(1, 4103, 85, 200, 200);
-    expect(onLiveStageClear).toHaveBeenNthCalledWith(2, 4103, 63, 200, 200);
+    // First clear: baseline primed in the same frame → diff = 0.
+    // Two more clears in the next frame: diff = (900-500, 1400-1000) = (400, 400),
+    // split evenly (one sample per tick).
+    expect(onLiveStageClear).toHaveBeenCalledTimes(3);
+    expect(onLiveStageClear).toHaveBeenNthCalledWith(1, 4103, 42, 0, 0);
+    expect(onLiveStageClear).toHaveBeenNthCalledWith(2, 4103, 85, 200, 200);
+    expect(onLiveStageClear).toHaveBeenNthCalledWith(3, 4103, 63, 200, 200);
     svc.stop();
   });
 
@@ -624,8 +662,9 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       gold: null,
       heroes: null,
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
-      stageClears: [85],
+      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85, valid: false }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -637,6 +676,140 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     };
     svc.ingestLiveFrame(frame);
 
+    expect(onLiveStageClear).not.toHaveBeenCalled();
+    svc.stop();
+  });
+
+  it("attributes a clear to the log entry's act/stage, not the already-advanced live stageKey", () => {
+    // Regression test for the off-by-one stage attribution bug: when a clear
+    // of Hell 3-1 (stageKey=3301) arrived, the reader's next tick already saw
+    // stageKey=3302 (the next stage) and recorded the clear against Hell 3-2.
+    // The fix reads act/stage from the StageClearLog entry itself and
+    // combines them with the difficulty digit of the live stageKey.
+    const onLiveStageClear = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageClear,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    // First frame: prime the baseline (no clear, no callback fires).
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3301, // Hell 3-1 — the stage being cleared
+      stageWave: 1,
+      gold: 1000,
+      heroes: [{ heroKey: 101, level: 5, exp: 500 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    });
+
+    // Second frame: the reader now sees stageKey=3302 (Hell 3-2, already
+    // advanced), but the new StageClearLog entry still carries act=3/stage=1
+    // (the stage that was actually cleared). The recorded stageKey must be
+    // 3301, NOT 3302.
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3302, // Hell 3-2 — stage has already advanced
+      stageWave: 1,
+      gold: 1400,
+      heroes: [{ heroKey: 101, level: 5, exp: 900 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: [{ act: 3, stage: 1, clearTimeSec: 85, valid: true }],
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 3000,
+    });
+
+    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
+    expect(onLiveStageClear).toHaveBeenCalledWith(3301, 85, 400, 400);
+    svc.stop();
+  });
+
+  it("drops a clear whose log entry's act/stage are 0 (corrupted read) instead of falling back to the live stageKey", () => {
+    const onLiveStageClear = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageClear,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 0));
+
+    // First frame: prime the baseline (no clear).
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3301,
+      stageWave: 1,
+      gold: 1000,
+      heroes: [{ heroKey: 101, level: 5, exp: 500 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    });
+
+    svc.ingestLiveFrame({
+      connected: true,
+      stageKey: 3301,
+      stageWave: 1,
+      gold: 1400,
+      heroes: [{ heroKey: 101, level: 5, exp: 900 }],
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85, valid: false }],
+      stageWaveTotal: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 3000,
+    });
+
+    // Invalid entries (act/stage unreadable — mid-write race / corrupted
+    // memory) are dropped by the filter in TrackingService. Attributing them
+    // to the live stageKey would re-introduce the off-by-one attribution bug:
+    // by the time we poll the next tick, stageKey has already advanced past
+    // the cleared stage, so the fallback would attribute the clear to the
+    // wrong (next) stage. Better to lose one event than misattribute it.
     expect(onLiveStageClear).not.toHaveBeenCalled();
     svc.stop();
   });
@@ -661,6 +834,7 @@ describe("TrackingService live-frame broadcast throttling", () => {
       gold: 1000,
       heroes: [{ heroKey: 101, level: 5, exp: 500 }],
       chestDrops: null,
+      chestSlots: null,
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
@@ -703,6 +877,142 @@ describe("TrackingService live-frame broadcast throttling", () => {
     svc.ingestLiveFrame(liveFrame(1200));
 
     expect(broadcast).toHaveBeenCalledTimes(2);
+    svc.stop();
+  });
+});
+
+describe("TrackingService with LocaleCatalog", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  // stageKey 3205 -> Hell 2-5; catalog key "1205" (1 + act + stage w/ leading zero)
+  // heroKey "101" -> Knight (default English fallback)
+  const zhCatalog: LocaleCatalog = {
+    items: {},
+    stages: { "1205": "牧场" },
+    heroes: { "101": "骑士" },
+    difficulties: {},
+  };
+
+  it("defaults to emptyLocaleCatalog when no catalog is provided", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+
+    // English fallbacks: stage "Hell 2-5", hero "Knight"
+    const stats = svc.getStats();
+    expect(stats.stageName).toBe("Hell 2-5");
+    expect(stats.heroes.find((h) => h.key === "101")?.name).toBe("Knight");
+    svc.stop();
+  });
+
+  it("uses initialCatalog passed to the constructor to localize names", () => {
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      zhCatalog,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+
+    const stats = svc.getStats();
+    expect(stats.stageName).toBe("牧场");
+    expect(stats.heroes.find((h) => h.key === "101")?.name).toBe("骑士");
+    svc.stop();
+  });
+
+  it("setLocaleCatalog swaps the catalog used by getStats", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+
+    // Before swap: English fallbacks
+    expect(svc.getStats().stageName).toBe("Hell 2-5");
+
+    svc.setLocaleCatalog(zhCatalog);
+
+    // After swap: localized names without needing a new snapshot
+    const stats = svc.getStats();
+    expect(stats.stageName).toBe("牧场");
+    expect(stats.heroes.find((h) => h.key === "101")?.name).toBe("骑士");
+    svc.stop();
+  });
+
+  it("has setLocaleCatalog method", () => {
+    const svc = new TrackingService(vi.fn());
+    expect(typeof svc.setLocaleCatalog).toBe("function");
+  });
+
+  it("localizes box-open history/breakdown names when setLocaleCatalog is called", () => {
+    // gamedata has the English name; catalog provides the zh-CN translation
+    // keyed by String(item.id). The Loot tab reads boxOpenStats.history[i].itemName
+    // and breakdown[i].name — both must reflect the current LocaleCatalog.
+    const gameDataLookup = new Map<number, GameItem>([
+      [
+        530017,
+        {
+          id: 530017,
+          name: "Goblin Hide",
+          grade: "COMMON",
+          type: "MATERIAL",
+          level: null,
+          marketTradable: true,
+        },
+      ],
+    ]);
+    const zhItemsCatalog: LocaleCatalog = {
+      items: { "530017": "哥布林兽皮" },
+      stages: {},
+      heroes: {},
+      difficulties: {},
+    };
+
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 100, 100));
+    svc.setGameDataLookup(gameDataLookup);
+
+    // Emit a box-open drop. Without a catalog, name should be English.
+    const frame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      boxOpens: [{ itemKey: 530017, boxType: 0, level: 5, gradeType: 0 }],
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at: 2000,
+    };
+    svc.ingestLiveFrame(frame);
+
+    // Before catalog swap: English name.
+    let stats = svc.getStats().boxOpens;
+    expect(stats[0].breakdown[0].name).toBe("Goblin Hide");
+    expect(stats[0].history[0].itemName).toBe("Goblin Hide");
+
+    // Swap to zh-CN catalog — runReResolveNames should re-localize the
+    // existing history/breakdown without needing a new drop.
+    svc.setLocaleCatalog(zhItemsCatalog);
+    stats = svc.getStats().boxOpens;
+    expect(stats[0].breakdown[0].name).toBe("哥布林兽皮");
+    expect(stats[0].history[0].itemName).toBe("哥布林兽皮");
     svc.stop();
   });
 });

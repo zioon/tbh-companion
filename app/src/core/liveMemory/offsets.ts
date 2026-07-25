@@ -12,6 +12,31 @@
 
 export interface LiveOffsets {
   gameVersion: string;
+  /**
+   * Extractor revision that produced this table. Used by the disk-cache loader
+   * to invalidate caches from older extractor revisions (so a new revision that
+   * fixes a derivation bug actually re-runs instead of loading stale offsets).
+   * Absent on bundled tables and pre-Rev 11 caches (treated as 0 → always
+   * re-derive when a new revision ships).
+   */
+  _extractorRev?: number;
+  /**
+   * Provenance marker: when the requested game version is not in the bundled
+   * table, the reader falls back to the nearest same-major.minor version's RVA
+   * table as a working baseline. This field records the source version of that
+   * fallback (e.g. `"1.00.28"` when the user is on `1.00.29`).
+   *
+   * The marker is **provenance**, not a liveness flag: it is preserved across
+   * `mergeOffsets` (so a healed-then-cached table still records where the
+   * baseline came from) and never cleared by the extractor. Callers that need
+   * to know whether critical RVAs have been re-derived should check
+   * `offsetHealth.source` (`"merged"`/`"extracted"` ⇒ extractor ran) in
+   * combination with this field.
+   *
+   * Absent on exact-match bundled tables and on tables that never went through
+   * the fallback path.
+   */
+  _fallbackFromVersion?: string;
   /** ScriptMetadata TypeInfo RVA whose slot holds `Il2CppClass*`. */
   typeInfoRva: {
     /** TaskbarHero.CommonSaveData — save-layer anchor for hero/party discovery. */
@@ -41,6 +66,23 @@ export interface LiveOffsets {
      * Used by combat gold reader (GoldEarn[SubKey=1]). 0 = known fallback to wallet balance.
      */
     aggregates: number;
+    /**
+     * PlayerSaveData.BoxData — BoxData instance field offset. Holds the runtime
+     * equivalent of the save `BoxData` struct (BoxTypes[] + BoxQuantity[]).
+     * 0 = not derived; reader falls back to save path for slot quantities.
+     */
+    boxData: number;
+  };
+  /**
+   * BoxData struct field offsets. BoxData is held by PlayerSaveData and contains
+   * two parallel int arrays: BoxTypes (chest type IDs) and BoxQuantity (per-type
+   * counts). Used by readRuntimeChestSlots for live slot-quantity reading.
+   */
+  boxData: {
+    /** BoxData.BoxTypes — List<int> field offset. 0 = not derived. */
+    boxTypes: number;
+    /** BoxData.BoxQuantity — List<int> field offset. 0 = not derived. */
+    boxQuantity: number;
   };
   common: {
     playTime: number;
@@ -139,10 +181,22 @@ export interface LiveOffsets {
     /**
      * StageClearLog struct offset (real class name, dump.cs-confirmed; obfuscated
      * private field). Live-verified against a real clear on v1.00.23: a run's
-     * `+0x40 act, +0x44 stage, +0x48 clearTimeSec (int), +0x4c isBoss` layout — we
-     * only need clearTimeSec (stage attribution uses the already-live stageKey).
+     * `+0x40 act, +0x44 stage, +0x48 clearTimeSec (int), +0x4c isBoss` layout.
+     *
+     * `act` and `stage` carry the **cleared** stage's act/stage (the log entry
+     * is appended on clear, before StageManager advances to the next stage).
+     * The log entry does NOT carry difficulty — callers must combine act/stage
+     * with the difficulty digit of the current live/save stageKey to form a
+     * full stageKey (`difficulty*1000 + act*100 + stage`). This is the fix for
+     * the off-by-one stage attribution bug where a clear of 3-1 was recorded
+     * as 3-2 because `snap.stageKey` had already advanced by the time the
+     * reader polled the next tick.
      */
     stageClearLog: {
+      /** Cleared stage's act (1-digit, from StageClearLog+0x40). */
+      act: number;
+      /** Cleared stage's stage (1-99, from StageClearLog+0x44). */
+      stage: number;
       /** Clear time in whole seconds, as recorded by the game itself. */
       clearTimeSec: number;
     };
@@ -209,7 +263,9 @@ const RUNTIME_V1_00_21 = {
     level: 0,
   },
   stageClearLog: {
-    clearTimeSec: 0x48, // StageClearLog — live-verified on v1.00.23 (see phase-4-stage-times/design.md)
+    act: 0x40, // StageClearLog.act — live-verified on v1.00.23 (see phase-4-stage-times/design.md)
+    stage: 0x44, // StageClearLog.stage
+    clearTimeSec: 0x48, // StageClearLog.clearTimeSec
   },
   monster: {
     monsterList: 0x28,
@@ -251,6 +307,11 @@ const V1_00_23: LiveOffsets = {
     petSaveDatas: 0x70, // PlayerSaveData.PetSaveData (was 0x68 in v1.00.21)
     itemSaveDatas: 0xa8, // PlayerSaveData.itemSaveDatas (was 0xa0 in v1.00.21)
     aggregates: 0xb8, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+    boxData: 0, // PlayerSaveData.BoxData — derived at runtime via findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0, // BoxData.BoxTypes — derived at runtime
+    boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime
   },
   common: {
     playTime: 0x20,
@@ -298,6 +359,11 @@ const V1_00_21: LiveOffsets = {
     petSaveDatas: 0x68, // PlayerSaveData.PetSaveData (List<PetSaveData>)
     itemSaveDatas: 0xa0, // PlayerSaveData.itemSaveDatas (List<ItemSaveData>)
     aggregates: 0xb0, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+    boxData: 0, // PlayerSaveData.BoxData — derived at runtime via findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0, // BoxData.BoxTypes — derived at runtime
+    boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime
   },
   common: {
     playTime: 0x20,
@@ -350,6 +416,11 @@ const V1_00_27: LiveOffsets = {
     petSaveDatas: 0x70, // PlayerSaveData.PetSaveData (same layout as v1.00.23)
     itemSaveDatas: 0xa8, // PlayerSaveData.itemSaveDatas
     aggregates: 0xb8, // PlayerSaveData.aggregateSaveDatas (GoldEarn combat gold fallback)
+    boxData: 0, // PlayerSaveData.BoxData — derived at runtime via findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0, // BoxData.BoxTypes — derived at runtime
+    boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime
   },
   common: {
     playTime: 0x20,
@@ -379,16 +450,300 @@ const V1_00_27: LiveOffsets = {
   goldKey: 100001,
 };
 
+// v1.00.28 — derived from a successful runtime extraction (extractor Rev 8)
+// captured on a working machine and frozen as the bundled table. The runtime
+// extractor's currencyManager gold probe regressed on some v1.00.28 builds
+// (class restructuring broke the shape match), so without this bundled table
+// fresh installs degrade to "unsupported" until a lucky extraction succeeds
+// and writes a disk cache. Fields verified live: stageManager / stageCacheManager
+// RVAs match a fresh VM extraction; currencyManager / logManager / monsterSpawnManager
+// RVAs come from a prior successful extraction on the dev machine.
+//
+// Known gaps (0): commonSaveData (not static-reachable; pets/inventory/chest-slots
+// degrade to save-snapshot path), boxData.boxTypes/boxQuantity (obfuscated field
+// names — runtime chest slots unsupported on v1.00.28), boxOpenLog.boxType/level
+// (obfuscated field names).
+//
+// unit.cache and heroRuntime.* follow the v1.00.27+ layout (ObscuredDouble for
+// exp). v1.00.28 inherited the same widened exp fields as v1.00.27.
+const V1_00_28: LiveOffsets = {
+  gameVersion: "1.00.28",
+  typeInfoRva: {
+    commonSaveData: 0n, // not derivable (save restructure) — pets/inventory degrade to save
+    currencyManager: 0x5db6210n,
+    stageCacheManager: 0x5db6db0n,
+    stageManager: 0x5db4458n,
+    localInventoryManager: 0n,
+    logManager: 0x5db2178n,
+    monsterSpawnManager: 0x732658n,
+  },
+  player: {
+    commonSaveData: 0x10,
+    currency: 0x48,
+    heroSaveDatas: 0x50,
+    petSaveDatas: 0x70,
+    itemSaveDatas: 0xa8,
+    aggregates: 0xb8,
+    boxData: 0, // not derived — runtime chest slots unsupported on v1.00.28
+  },
+  boxData: {
+    boxTypes: 0,
+    boxQuantity: 0,
+  },
+  common: {
+    playTime: 0x20,
+    arrangedHeroKey: 0x48,
+    maxCompletedStage: 0x54,
+    currentStageKey: 0x58,
+    currentStageWave: 0x5c,
+  },
+  hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+  unit: { cache: 0x3b0 }, // v1.00.27+ layout (+0x08 from v1.00.21)
+  heroRuntime: {
+    info: 0x30,
+    levelHidden: 0xd0,
+    levelKey: 0xd4,
+    // v1.00.28 widened exp to ObscuredDouble like v1.00.27
+    expHidden: 0x118, // ObscuredDouble hiddenValue (ru64)
+    expKey: 0x120, // ObscuredDouble currentCryptoKey (ru64)
+  },
+  heroInfoData: { heroKey: 0x30 },
+  currency: { key: 0x10, quantity: 0x18 },
+  petSaveData: { petKey: 0x10, isUnlock: 0x14 },
+  inventoryItem: { itemKey: 0x10, isChaotic: 0x20 },
+  runtime: {
+    currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
+    stage: {
+      currentCache: 0x88,
+      cacheInfoData: 0x10,
+      stageKey: 0x30,
+      waveAmount: 0x54,
+      runtimeWave: 0x138,
+    },
+    currencyInfoKey: 0x30,
+    heroList: 0x30,
+    log: {
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      stageClearTypeKey: 1,
+      getItemWithBoxOpenTypeKey: 2,
+    },
+    getBoxLog: {
+      monsterType: 0x50,
+    },
+    boxOpenLog: {
+      itemStringKey: 0x40, // v1.00.28: System.String pointer (localization key)
+      itemGradeType: 0x48, // preserved (non-obfuscated) — also accessible via gradeSO
+      gradeSO: 0x50, // v1.00.28: GradeSO* reference
+      gradeSOGrade: 0x10, // GradeSO.eGRADE int field
+      boxType: 0, // obfuscated field name — not derivable
+      level: 0, // obfuscated field name — not derivable
+    },
+    stageClearLog: {
+      act: 0x40,
+      stage: 0x44,
+      clearTimeSec: 0x48,
+    },
+    monster: {
+      monsterList: 0,
+      summonedList: 0,
+      deadMonsterList: 0,
+      monsterHealth: 0,
+      hpCurrent: 0,
+      hpMax: 0,
+    },
+  },
+  container: CONTAINER,
+  dict: DICT,
+  il2cppClass: IL2CPP_CLASS,
+  goldKey: 100001,
+};
+
+// v1.01.01 — inherits the v1.00.27+ struct layout (ObscuredDouble exp, unit.cache=0x3b0).
+// TypeInfo RVAs extracted from a live run; struct offsets match v1.00.28.
+const V1_01_01: LiveOffsets = {
+  gameVersion: "1.01.01",
+  typeInfoRva: {
+    commonSaveData: 0n, // not derivable — pets/inventory degrade to save
+    currencyManager: 0n, // gold probe regressed on v1.00.28+; live gold falls back to save
+    stageCacheManager: 0x5ddb3c0n,
+    stageManager: 0x5dd8878n,
+    localInventoryManager: 0n,
+    logManager: 0x5dd65a0n,
+    monsterSpawnManager: 0x5dba4e8n,
+  },
+  player: {
+    commonSaveData: 0x10,
+    currency: 0x48,
+    heroSaveDatas: 0x50,
+    petSaveDatas: 0x70,
+    itemSaveDatas: 0xa8,
+    aggregates: 0xb8,
+    boxData: 0,
+  },
+  boxData: {
+    boxTypes: 0,
+    boxQuantity: 0,
+  },
+  common: {
+    playTime: 0x20,
+    arrangedHeroKey: 0x48,
+    maxCompletedStage: 0x54,
+    currentStageKey: 0x58,
+    currentStageWave: 0x5c,
+  },
+  hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+  unit: { cache: 0x3b0 },
+  heroRuntime: {
+    info: 0x30,
+    levelHidden: 0xd0,
+    levelKey: 0xd4,
+    expHidden: 0x118,
+    expKey: 0x120,
+  },
+  heroInfoData: { heroKey: 0x30 },
+  currency: { key: 0x10, quantity: 0x18 },
+  petSaveData: { petKey: 0x10, isUnlock: 0x14 },
+  inventoryItem: { itemKey: 0x10, isChaotic: 0x20 },
+  runtime: {
+    currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
+    stage: {
+      currentCache: 0x88,
+      cacheInfoData: 0x10,
+      stageKey: 0x30,
+      waveAmount: 0x54,
+      runtimeWave: 0x138,
+    },
+    currencyInfoKey: 0x30,
+    heroList: 0x30,
+    log: {
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      stageClearTypeKey: 1,
+      getItemWithBoxOpenTypeKey: 2,
+    },
+    getBoxLog: {
+      monsterType: 0x50,
+    },
+    boxOpenLog: {
+      itemStringKey: 0,
+      itemGradeType: 0,
+      gradeSO: 0,
+      gradeSOGrade: 0,
+      boxType: 0,
+      level: 0,
+    },
+    stageClearLog: {
+      act: 0x40,
+      stage: 0x44,
+      clearTimeSec: 0x48,
+    },
+    monster: {
+      monsterList: 0,
+      summonedList: 0,
+      deadMonsterList: 0,
+      monsterHealth: 0,
+      hpCurrent: 0,
+      hpMax: 0,
+    },
+  },
+  container: CONTAINER,
+  dict: DICT,
+  il2cppClass: IL2CPP_CLASS,
+  goldKey: 100001,
+};
+
 const TABLE: Record<string, LiveOffsets> = {
   "1.00.21": V1_00_21,
   "1.00.23": V1_00_23,
   "1.00.27": V1_00_27,
+  "1.00.28": V1_00_28,
+  "1.01.01": V1_01_01,
 };
 
-/** Returns the offset table for a detected game version, or null (degraded mode). */
+/** Parse a "MAJOR.MINOR.PATCH" version string into a numeric tuple. */
+function parseVersion(v: string): [number, number, number] | null {
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v);
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+}
+
+/**
+ * Returns the offset table for a detected game version, or null (degraded mode).
+ *
+ * Exact match first. When no exact match exists, falls back to the nearest
+ * known version sharing the same major.minor components — minor game patches
+ * typically inherit the memory layout from the prior version, and the runtime
+ * extractor + plausibility filters catch any offsets that actually changed.
+ * The returned table's `gameVersion` is set to the requested version string
+ * so the extractor and disk-cache key by the real version.
+ */
 export function offsetsForVersion(version: string | null | undefined): LiveOffsets | null {
   if (!version) return null;
-  return TABLE[version] ?? null;
+  const exact = TABLE[version];
+  if (exact) return exact;
+
+  const parsed = parseVersion(version);
+  if (!parsed) return null;
+
+  let bestVersion: string | null = null;
+  let bestDiff = Infinity;
+  for (const known of Object.keys(TABLE)) {
+    const pk = parseVersion(known);
+    if (!pk) continue;
+    // Only fall back within the same major.minor (e.g. 1.00.29 → 1.00.28).
+    if (pk[0] !== parsed[0] || pk[1] !== parsed[1]) continue;
+    const diff = Math.abs(pk[2] - parsed[2]);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestVersion = known;
+    }
+  }
+
+  if (bestVersion) {
+    return { ...TABLE[bestVersion], gameVersion: version, _fallbackFromVersion: bestVersion };
+  }
+  return null;
+}
+
+/**
+ * Like {@link offsetsForVersion} but also reports whether the result came from a
+ * same-major.minor fallback. Callers that need to decide whether to trust
+ * bundled RVAs (which drift across game patches even within the same minor)
+ * use this to force a full extractor run instead of enrichment-only mode.
+ *
+ * Returns `{ table, fallback: false }` on exact match, `{ table, fallback: true }`
+ * on fallback, or `null` when no same-major.minor candidate exists.
+ */
+export function offsetsForVersionMeta(
+  version: string | null | undefined,
+): { table: LiveOffsets; fallback: boolean } | null {
+  if (!version) return null;
+  const exact = TABLE[version];
+  if (exact) return { table: exact, fallback: false };
+
+  const parsed = parseVersion(version);
+  if (!parsed) return null;
+
+  let bestVersion: string | null = null;
+  let bestDiff = Infinity;
+  for (const known of Object.keys(TABLE)) {
+    const pk = parseVersion(known);
+    if (!pk) continue;
+    if (pk[0] !== parsed[0] || pk[1] !== parsed[1]) continue;
+    const diff = Math.abs(pk[2] - parsed[2]);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestVersion = known;
+    }
+  }
+  if (bestVersion) {
+    return {
+      table: { ...TABLE[bestVersion], gameVersion: version, _fallbackFromVersion: bestVersion },
+      fallback: true,
+    };
+  }
+  return null;
 }
 
 export function supportedVersions(): string[] {
