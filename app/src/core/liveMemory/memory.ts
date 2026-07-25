@@ -18,6 +18,48 @@ export function readPtr(reader: MemoryReader, addr: bigint): bigint | null {
   return v < 0x10000n ? null : v;
 }
 
+/**
+ * Read `count` contiguous 64-bit pointers starting at `base`. Returns the same
+ * `(bigint | null)[]` shape as calling `readPtr` per slot, but uses a SINGLE
+ * `readBytes` call for the whole backing array when possible — this is the
+ * hot path for IL2CPP `T[]` arrays (inventory item pointers, pet pointers,
+ * hero party pointers) where per-slot `readPtr` would issue N separate
+ * `ReadProcessMemory` kernel calls.
+ *
+ * Falls back to per-slot `readPtr` when:
+ *   - the bulk read returns null (e.g. the array spans a region boundary that
+ *     `ReadProcessMemory` can't cross in a single call), or
+ *   - the bulk read returns fewer than `count * 8` bytes (short read).
+ *
+ * Both fallbacks match the previous per-slot behavior exactly, so existing
+ * tests over exact-address-keyed `FakeMemory` keep working unchanged.
+ *
+ * Returns `null` only when `count <= 0` (caller should treat as empty input).
+ */
+export function readPtrArray(
+  reader: MemoryReader,
+  base: bigint,
+  count: number,
+): (bigint | null)[] | null {
+  if (count <= 0) return [];
+  const total = count * 8;
+  const buf = reader.readBytes(base, total);
+  if (buf && buf.length === total) {
+    const out: (bigint | null)[] = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const v = buf.readBigUInt64LE(i * 8);
+      out[i] = v < 0x10000n ? null : v;
+    }
+    return out;
+  }
+  // Bulk read failed or partial — fall back to per-slot readPtr.
+  const out: (bigint | null)[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    out[i] = readPtr(reader, base + BigInt(i * 8));
+  }
+  return out;
+}
+
 /** Read a signed 32-bit int; null for short reads. */
 export function readI32(reader: MemoryReader, addr: bigint): number | null {
   const b = reader.readBytes(addr, 4);

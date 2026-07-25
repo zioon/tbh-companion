@@ -230,6 +230,12 @@ export function LiveMemoryDiagnostics() {
             {t("diagnostics.sectionOffsetExtractor")}
           </p>
           <Row label={t("diagnostics.offsetSource")} value={status?.offsetHealth?.source ?? dash} />
+          {status?.offsetHealth?.fallbackFromVersion ? (
+            <Row
+              label={t("diagnostics.fallbackFromVersion")}
+              value={`v${status.offsetHealth.fallbackFromVersion}`}
+            />
+          ) : null}
           <Row
             label={t("diagnostics.extractAttempts")}
             value={

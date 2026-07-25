@@ -148,3 +148,26 @@ export function resetEnrichmentAttempts(dir: string, version: string, appBuild: 
     // Non-fatal — worst case the budget stays exhausted for this session.
   }
 }
+
+/**
+ * Reset the critical extraction attempt counter to 0. Called when the reader
+ * is on a fallback table whose critical RVAs have not yet been re-derived by
+ * the extractor (e.g. attach happened while the player was in the main menu
+ * and StageManager singleton was not instantiated). Without this reset, the
+ * 3-failure critical budget would permanently block re-derivation, leaving
+ * the reader "supported" but reading from stale baseline RVAs → all live
+ * data null. The worker triggers this on the 30s fallback heal cadence while
+ * `isCriticalStaleOnFallback` remains true, so the extractor keeps retrying
+ * until the player enters a game stage and the singleton instantiates.
+ */
+export function resetExtractionAttempts(dir: string, version: string, appBuild: string): void {
+  try {
+    writeMarkerFile(attemptMarkerPath(dir, version), {
+      appBuild,
+      attempts: 0,
+      extractorRevision: EXTRACTOR_REVISION,
+    });
+  } catch {
+    // Non-fatal — worst case the budget stays exhausted for this session.
+  }
+}

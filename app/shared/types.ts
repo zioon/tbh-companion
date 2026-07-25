@@ -1340,7 +1340,8 @@ export interface LivePetData {
  * before StageManager advances). Difficulty is NOT carried by the log entry —
  * the caller combines `act`/`stage` with the difficulty digit of the current
  * live/save stageKey to form a full stageKey. When `act`/`stage` are 0
- * (corrupted / mid-write read), the caller falls back to the current stageKey.
+ * (corrupted / mid-write read), `valid` is false and the entry MUST be dropped
+ * by the caller (see `valid` field for the rationale).
  */
 export interface StageClearEntry {
   /** Cleared stage's act (1-digit, from StageClearLog+0x40). 0 = unreadable. */
@@ -1349,6 +1350,16 @@ export interface StageClearEntry {
   stage: number;
   /** Clear time in whole seconds, as recorded by the game itself. */
   clearTimeSec: number;
+  /**
+   * Whether act/stage were both read in plausible range (act 1-9, stage 1-99).
+   * false ⇒ the entry is a "clear event observed but target stage unreadable"
+   * sample (mid-write race / corrupted memory). Callers MUST drop invalid
+   * entries instead of falling back to the live stageKey: by the time the
+   * reader polls the next tick, the live stageKey has already advanced past
+   * the cleared stage, so the fallback would attribute the clear to the
+   * wrong (next) stage — re-introducing the off-by-one attribution bug.
+   */
+  valid: boolean;
 }
 
 /**
@@ -1471,6 +1482,18 @@ export interface LiveMemoryStatus {
     source?: "bundled" | "cache" | "extracted" | "merged" | "none";
     /** Extraction attempts used for this game version under the current app build. */
     extractionAttempts?: number;
+    /**
+     * When the requested game version is not in the bundled table, the reader
+     * falls back to the nearest same-major.minor version's RVA table as a
+     * working baseline. This field records the source version of that fallback
+     * (e.g. `"1.00.28"` when the user is on `1.00.29`). Absent when the bundled
+     * table matched exactly or when no fallback candidate was found.
+     *
+     * Provenance marker — preserved across merge/cache, never cleared by the
+     * extractor. Combine with `source` to know whether the extractor has
+     * re-derived critical RVAs (`"merged"`/`"extracted"` ⇒ ran successfully).
+     */
+    fallbackFromVersion?: string;
   };
 }
 

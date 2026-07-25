@@ -195,4 +195,98 @@ describe("mergeOffsets", () => {
     expect(merged.runtime.stageClearLog.clearTimeSec).toBe(BASE.runtime.stageClearLog.clearTimeSec);
     expect(isOffsetTableComplete(merged)).toBe(true);
   });
+
+  // ── Fallback merge semantics ────────────────────────────────────────────
+  // When base is a same-major.minor fallback (e.g. v1.01.02 → v1.01.01),
+  // the extractor is forced onto the critical path to re-derive fresh RVAs.
+  // Derived values MUST win over the stale fallback baseline, otherwise the
+  // merged table keeps the wrong RVAs and live reads return null data —
+  // the symptom reported as "实时数据都是回退" on v1.01.02.
+  describe("fallback table merge (derived wins over stale baseline)", () => {
+    const FALLBACK_STAGE_MGR = 0x5dd8878n; // v1.01.01's stageManager RVA
+    const DERIVED_STAGE_MGR = 0x5dd9999n; // freshly re-derived for v1.01.02
+    const DERIVED_HERO_LIST = 0x40; // hypothetical shift in v1.01.02
+
+    function makeFallbackBase(): LiveOffsets {
+      // Simulate the table returned by offsetsForVersionMeta("1.01.02"):
+      // v1.01.01's structure with gameVersion overwritten and the fallback
+      // provenance marker set.
+      return {
+        ...offsetsForVersion("1.01.01")!,
+        gameVersion: "1.01.02",
+        _fallbackFromVersion: "1.01.01",
+      };
+    }
+
+    function makeDerived(): LiveOffsets {
+      // Extractor succeeded: derived has fresh v1.01.02 RVAs for the critical
+      // anchors (stageManager, stageCacheManager). Other fields are 0 (not
+      // derived) — those should keep the fallback baseline.
+      const fb = makeFallbackBase();
+      return {
+        ...fb,
+        _fallbackFromVersion: undefined,
+        typeInfoRva: {
+          ...fb.typeInfoRva,
+          stageManager: DERIVED_STAGE_MGR,
+          stageCacheManager: 0x5ddaaaan,
+          // logManager / monsterSpawnManager left as 0 (extractor couldn't derive)
+          logManager: 0n,
+          monsterSpawnManager: 0n,
+        },
+        runtime: {
+          ...fb.runtime,
+          heroList: DERIVED_HERO_LIST,
+        },
+      };
+    }
+
+    it("derived RVAs win over stale fallback RVAs when base is a fallback table", () => {
+      const base = makeFallbackBase();
+      const derived = makeDerived();
+      // Sanity: base has the fallback RVA, derived has the fresh one.
+      expect(base.typeInfoRva.stageManager).toBe(FALLBACK_STAGE_MGR);
+      expect(derived.typeInfoRva.stageManager).toBe(DERIVED_STAGE_MGR);
+
+      const merged = mergeOffsets(base, derived);
+
+      // Derived wins for critical RVAs.
+      expect(merged.typeInfoRva.stageManager).toBe(DERIVED_STAGE_MGR);
+      expect(merged.typeInfoRva.stageCacheManager).toBe(0x5ddaaaan);
+      // heroList (runtime field) also derived-wins.
+      expect(merged.runtime.heroList).toBe(DERIVED_HERO_LIST);
+    });
+
+    it("derived zero values keep the fallback baseline (graceful degrade)", () => {
+      const base = makeFallbackBase();
+      const derived = makeDerived();
+      // logManager/monsterSpawnManager are 0 in derived — fallback baseline
+      // must be preserved so the reader still has a working RVA to try.
+      expect(derived.typeInfoRva.logManager).toBe(0n);
+      expect(derived.typeInfoRva.monsterSpawnManager).toBe(0n);
+
+      const merged = mergeOffsets(base, derived);
+
+      expect(merged.typeInfoRva.logManager).toBe(base.typeInfoRva.logManager);
+      expect(merged.typeInfoRva.monsterSpawnManager).toBe(
+        base.typeInfoRva.monsterSpawnManager,
+      );
+    });
+
+    it("non-fallback base still uses base-wins semantics (regression guard)", () => {
+      // Same version (no _fallbackFromVersion) — base wins, derived fills gaps.
+      // This is the original behavior; the fallback fix must not regress it.
+      const base = BASE; // offsetsForVersion("1.00.21") — no fallback marker
+      const derived: LiveOffsets = {
+        ...BASE,
+        runtime: { ...BASE.runtime, heroList: 0x999 }, // DIFFERENT from base
+        typeInfoRva: { ...BASE.typeInfoRva, logManager: 0x5e40000n },
+      };
+      const merged = mergeOffsets(base, derived);
+      // base wins (not a fallback table)
+      expect(merged.runtime.heroList).toBe(BASE.runtime.heroList);
+      // gap filled
+      expect(merged.typeInfoRva.logManager).toBe(0x5e40000n);
+    });
+  });
 });

@@ -110,19 +110,31 @@ export function isOffsetTableComplete(o: LiveOffsets): boolean {
   return missingOffsetFields(o, "full").length === 0;
 }
 
-function pickN(base: number, derived: number): number {
-  return base !== 0 ? base : derived;
-}
-function pickB(base: bigint, derived: bigint): bigint {
-  return base !== 0n ? base : derived;
-}
-
 /**
  * Fill the base table's missing (zero) fields from the derived table, keeping
  * every already-present base value. Structural constants stay from `base`.
- * Same-version merge: base values are trusted; the extractor only fills gaps.
+ *
+ * Same-version merge (no `_fallbackFromVersion` on base): base values are
+ * trusted; the extractor only fills gaps. This is the original behavior —
+ * the bundled table is authoritative for its version.
+ *
+ * Fallback merge (`base._fallbackFromVersion` is set): the base table came
+ * from a same-major.minor neighbor (e.g. v1.01.02 → v1.01.01), so its TypeInfo
+ * RVAs may be STALE for the current build. The extractor was forced onto the
+ * critical path (`enrichmentOnly=false`) and re-derived fresh RVAs — those
+ * derived values MUST win over the stale fallback baseline. Without this, the
+ * merged table would keep v1.01.01's RVAs even after successful v1.01.02
+ * extraction, and live reads would resolve to wrong classes (returning null
+ * data) — the symptom is "fallback from v1.01.01" with all live data null.
+ * Fields the extractor couldn't derive (returned 0) keep the base's fallback
+ * value as a baseline, so the reader still degrades gracefully.
  */
 export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffsets {
+  const derivedWins = !!base._fallbackFromVersion;
+  const pickN = (b: number, d: number): number =>
+    derivedWins ? (d !== 0 ? d : b) : (b !== 0 ? b : d);
+  const pickB = (b: bigint, d: bigint): bigint =>
+    derivedWins ? (d !== 0n ? d : b) : (b !== 0n ? b : d);
   return {
     ...base,
     typeInfoRva: {

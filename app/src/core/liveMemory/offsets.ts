@@ -20,6 +20,23 @@ export interface LiveOffsets {
    * re-derive when a new revision ships).
    */
   _extractorRev?: number;
+  /**
+   * Provenance marker: when the requested game version is not in the bundled
+   * table, the reader falls back to the nearest same-major.minor version's RVA
+   * table as a working baseline. This field records the source version of that
+   * fallback (e.g. `"1.00.28"` when the user is on `1.00.29`).
+   *
+   * The marker is **provenance**, not a liveness flag: it is preserved across
+   * `mergeOffsets` (so a healed-then-cached table still records where the
+   * baseline came from) and never cleared by the extractor. Callers that need
+   * to know whether critical RVAs have been re-derived should check
+   * `offsetHealth.source` (`"merged"`/`"extracted"` ⇒ extractor ran) in
+   * combination with this field.
+   *
+   * Absent on exact-match bundled tables and on tables that never went through
+   * the fallback path.
+   */
+  _fallbackFromVersion?: string;
   /** ScriptMetadata TypeInfo RVA whose slot holds `Il2CppClass*`. */
   typeInfoRva: {
     /** TaskbarHero.CommonSaveData — save-layer anchor for hero/party discovery. */
@@ -684,7 +701,7 @@ export function offsetsForVersion(version: string | null | undefined): LiveOffse
   }
 
   if (bestVersion) {
-    return { ...TABLE[bestVersion], gameVersion: version };
+    return { ...TABLE[bestVersion], gameVersion: version, _fallbackFromVersion: bestVersion };
   }
   return null;
 }
@@ -721,7 +738,10 @@ export function offsetsForVersionMeta(
     }
   }
   if (bestVersion) {
-    return { table: { ...TABLE[bestVersion], gameVersion: version }, fallback: true };
+    return {
+      table: { ...TABLE[bestVersion], gameVersion: version, _fallbackFromVersion: bestVersion },
+      fallback: true,
+    };
   }
   return null;
 }

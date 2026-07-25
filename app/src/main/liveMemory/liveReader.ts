@@ -4,7 +4,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { offsetsForVersionMeta, type LiveOffsets } from "../../core/liveMemory/offsets";
+import { offsetsForVersion, offsetsForVersionMeta, type LiveOffsets } from "../../core/liveMemory/offsets";
 import {
   hasCriticalOffsets,
   isOffsetTableComplete,
@@ -23,6 +23,7 @@ import {
   recordEnrichmentAttempt,
   recordExtractionAttempt,
   resetEnrichmentAttempts,
+  resetExtractionAttempts,
 } from "./offsetHealing";
 import {
   resolveLiveMemoryOffsetCacheDir,
@@ -130,6 +131,17 @@ export class LiveMemoryReader {
   private monsterNameScanAttempted = false;
   /** True once we've attempted name-based PlayerSaveData resolution (avoid re-scan). */
   private playerNameScanAttempted = false;
+  /**
+   * Set by `read()` when MonsterSpawnManager RVA produced no monsters and the
+   * expensive name-scan fallback should run. Consumed by
+   * {@link runPendingNameScans}, which the worker calls BEFORE the next read
+   * tick — this keeps the read path pure (no 30–60s blocking FFI inside the
+   * 25 Hz loop) and lets the worker continue emitting snapshots at the
+   * pre-scan rate during the scan itself.
+   */
+  private monsterNameScanPending = false;
+  /** Same as {@link monsterNameScanPending} but for PlayerSaveData resolution. */
+  private playerNameScanPending = false;
   /** Resolved PlayerSaveData instance pointer (name-scan fallback cache). */
   private playerPtr: bigint | null = null;
   /**
@@ -247,6 +259,48 @@ export class LiveMemoryReader {
     }
   }
 
+  /**
+   * Reset the critical extraction attempt counter to 0 so the next heal tick
+   * is allowed to retry critical anchor derivation. Called by the worker while
+   * the reader is on a fallback table whose critical RVAs have not yet been
+   * re-derived by the extractor — breaks the "3 critical failures → permanently
+   * stuck on stale baseline" deadlock when attach happened before the
+   * StageManager singleton was instantiated (e.g. player in main menu).
+   */
+  resetCriticalExtractionBudget(): void {
+    const cacheDir = this.offsetCacheDir();
+    const version = this.gameVersion;
+    if (cacheDir && version) {
+      resetExtractionAttempts(cacheDir, version, resolveAppBuild());
+    }
+  }
+
+  /**
+   * True when the current offset table is a same-major.minor fallback whose
+   * critical RVAs (stageManager / stageCacheManager) have NOT yet been
+   * re-derived by the extractor. Detection: compare current RVAs against the
+   * original bundled fallback table's RVAs. When they match the baseline,
+   * derived has not overwritten yet — the reader is reading from stale RVAs
+   * that may resolve to wrong classes (returning null data).
+   *
+   * Used by the worker to drive a periodic critical-budget reset + heal while
+   * the player remains in main menu, so the extractor retries the moment the
+   * player enters a stage and StageManager instantiates. Without this, the
+   * 3-failure critical budget would permanently block re-derivation.
+   */
+  get isCriticalStaleOnFallback(): boolean {
+    if (!this.offsets?._fallbackFromVersion) return false;
+    const baseline = offsetsForVersion(this.offsets._fallbackFromVersion);
+    if (!baseline) return false;
+    // Compare critical RVAs — if any differs from the baseline, derived has
+    // overwritten at least one critical anchor, so we're no longer "stale
+    // on baseline". Both must match baseline to count as stale.
+    return (
+      this.offsets.typeInfoRva.stageManager === baseline.typeInfoRva.stageManager &&
+      this.offsets.typeInfoRva.stageCacheManager === baseline.typeInfoRva.stageCacheManager
+    );
+  }
+
   get pid(): number | null {
     return this.proc?.pid ?? null;
   }
@@ -281,10 +335,27 @@ export class LiveMemoryReader {
    * Re-run offset resolution while already attached — used when the first attempt
    * happened too early (menu / singletons not up) or the extractor shipped an
    * improvement and the attempt budget reopened.
+   *
+   * When the reader is on a fallback table whose critical RVAs have NOT been
+   * re-derived yet (StageManager singleton was not instantiated at attach
+   * time), the critical extraction budget is reset before resolving. This
+   * breaks the "3 critical failures → permanently stuck on stale baseline"
+   * deadlock when the player later enters a stage. Without the reset, the
+   * extractor would never retry, the reader would stay "supported" (fallback
+   * baseline has critical fields) but all live reads would resolve to wrong
+   * classes → null data — the symptom reported as "全部都没有" on v1.01.02
+   * when attach happened from the main menu.
    */
   healOffsets(appBuild: string = resolveAppBuild()): void {
     const proc = this.proc;
     if (!proc?.isAlive()) return;
+
+    if (this.isCriticalStaleOnFallback) {
+      this.log(
+        `heal: fallback table critical RVAs still on baseline (v${this.offsets?._fallbackFromVersion}); resetting critical budget to retry`,
+      );
+      this.resetCriticalExtractionBudget();
+    }
 
     const wasSupported = this.supported;
     this.refreshGameContext();
@@ -303,6 +374,13 @@ export class LiveMemoryReader {
         ? missingOffsetFields(this.offsets, "critical").join(", ")
         : "no table";
       this.log(`heal: still unsupported — source=${this.offsetSource} critical=${missing}`);
+    } else if (this.isCriticalStaleOnFallback) {
+      // Still stale after heal — extractor either failed (singleton not up
+      // yet) or returned derived RVAs that happened to match the baseline.
+      // The worker's fallback heal timer will retry on the 30s cadence.
+      this.log(
+        `heal: still on stale baseline RVAs for v${this.gameVersion} (fallback from v${this.offsets?._fallbackFromVersion})`,
+      );
     }
   }
 
@@ -552,6 +630,8 @@ export class LiveMemoryReader {
     this.gameInstallDir = null;
     this.monsterNameScanAttempted = false;
     this.playerNameScanAttempted = false;
+    this.monsterNameScanPending = false;
+    this.playerNameScanPending = false;
     this.playerPtr = null;
     this.classIndex = null;
     this.goldPin = makeGoldPinState();
@@ -599,37 +679,18 @@ export class LiveMemoryReader {
     }
 
     // Resolve MonsterSpawnManager: bundled RVA may point to wrong class in some versions.
-    // Try RVA first; if no monsters found, fall back to name-string scan (meter approach).
-    // Name scan is expensive (~30–60s) — only run once, cache pin for subsequent ticks.
-    let monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
+    // Try RVA first; if no monsters found, request the name-scan fallback (meter approach).
+    // The scan is expensive (~30–60s) and runs in `runPendingNameScans` BEFORE the
+    // next read tick — not inline here — so this read path stays pure and the
+    // worker can keep emitting pre-scan snapshots during the scan itself.
+    const monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
     if (
       !this.monsterNameScanAttempted &&
       (this.monsterPin.ptr == null || (monsterData?.monsterHps?.length ?? 0) === 0)
     ) {
       this.monsterNameScanAttempted = true;
-      this.log("MonsterSpawnManager: RVA resolution produced no monsters, resolving class...");
-      try {
-        this.setScanning(true);
-        // Fast path: the GA-derived class index usually has MonsterSpawnManager
-        // already (its TypeInfo sits in a GA static slot). Only fall back to the
-        // ~30–60s whole-address-space scan when the index misses.
-        this.ensureClassIndex();
-        const msClassFromIndex = this.classIndex?.get("MonsterSpawnManager") ?? null;
-        const msClass = msClassFromIndex ?? resolveClassByName(p, "MonsterSpawnManager", ga);
-        if (msClassFromIndex) {
-          this.log("MonsterSpawnManager: class resolved via GA index (skipped name scan)");
-        }
-        if (msClass) {
-          const inst = singletonFromClass(p, msClass);
-          if (inst) {
-            this.monsterPin.ptr = inst;
-            this.log(`MonsterSpawnManager: resolved at 0x${inst.toString(16)}`);
-            monsterData = readRuntimeMonsterHp(p, ga.base, ga.size, o, this.monsterPin);
-          }
-        }
-      } finally {
-        this.setScanning(false);
-      }
+      this.monsterNameScanPending = true;
+      this.log("MonsterSpawnManager: RVA resolution produced no monsters, name-scan requested");
     }
     const monsterHp = monsterData?.monsterHps ?? null;
     const deadMonsterCount = monsterData?.deadCount ?? null;
@@ -678,10 +739,14 @@ export class LiveMemoryReader {
       this.cachedPets = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
 
       // PlayerSaveData name-scan fallback: when RVA resolution produced no player
-      // instance (CommonSaveData static field unreadable), fall back to scanning
-      // memory for the singleton class. The save-layer anchor is
-      // `TaskbarHero.CommonSaveData` (a static singleton holding the player's
-      // PetSaveData / itemSaveDatas / BoxData fields). `PlayerSaveData` is a
+      // instance (CommonSaveData static field unreadable), request the
+      // expensive class-name scan. The scan runs in `runPendingNameScans`
+      // BEFORE the next read tick — not inline here — so this read path stays
+      // pure. After the scan writes `this.playerPtr`, the next low-freq tick
+      // re-reads inventory/pets with the resolved pointer.
+      //
+      // Anchor notes: `TaskbarHero.CommonSaveData` is the save-layer singleton
+      // holding PetSaveData / itemSaveDatas / BoxData. `PlayerSaveData` is a
       // distinct class that is NOT singleton-held — searching for it directly
       // finds the class but no instance. Try CommonSaveData first; if that
       // fails, fall back to PlayerSaveData for legacy versions where the
@@ -695,40 +760,8 @@ export class LiveMemoryReader {
           /\bCommonSaveData singleton.*static field unreadable/i.test(this.cachedPets.status))
       ) {
         this.playerNameScanAttempted = true;
-        this.log("PlayerSaveData: RVA resolution produced no player instance, resolving class...");
-        try {
-          this.setScanning(true);
-          // Fast path: GA-derived class index (see MonsterSpawnManager above).
-          this.ensureClassIndex();
-          // Candidate singleton class names in priority order. CommonSaveData
-          // is the real anchor (per LiveOffsets.typeInfoRva.commonSaveData
-          // comment); PlayerSaveData is a legacy fallback.
-          const candidates = ["CommonSaveData", "PlayerSaveData"];
-          for (const name of candidates) {
-            const classFromIndex = this.classIndex?.get(name) ?? null;
-            const cls = classFromIndex ?? resolveClassByName(p, name, ga);
-            if (cls == null) continue;
-            if (classFromIndex) {
-              this.log(`${name}: class resolved via GA index (skipped name scan)`);
-            }
-            let inst = this.findPlayerInstanceByClass(p, cls);
-            if (inst == null) {
-              // TEMPORARY DIAGNOSTIC: wider scan with class layout dump.
-              inst = this.probeClassLayout(p, name, cls);
-            }
-            if (inst) {
-              this.playerPtr = inst;
-              this.log(`${name}: singleton resolved at 0x${inst.toString(16)}`);
-              this.cachedInventory = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
-              this.cachedPets = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
-              break;
-            } else {
-              this.log(`${name}: class found but no static-held instance`);
-            }
-          }
-        } finally {
-          this.setScanning(false);
-        }
+        this.playerNameScanPending = true;
+        this.log("PlayerSaveData: RVA resolution produced no player instance, name-scan requested");
       }
     }
 
@@ -773,6 +806,105 @@ export class LiveMemoryReader {
       readMs: Date.now() - t0,
       at: Date.now(),
     };
+  }
+
+  /**
+   * Run any pending name-scan fallbacks (MonsterSpawnManager / PlayerSaveData)
+   * requested by the previous `read()`. Returns true if a scan ran — the
+   * worker should skip that tick's `read()` call (the scan itself takes
+   * 30–60s when the GA index misses, so re-reading immediately is pointless;
+   * the next tick will pick up the new pin). Returns false when no scan is
+   * pending, leaving the worker free to call `read()` normally.
+   *
+   * This method is the only place that performs the expensive
+   * `resolveClassByName` whole-address-space scan, keeping `read()` pure.
+   * The worker calls it BEFORE `read()` so the read path never blocks.
+   */
+  runPendingNameScans(): boolean {
+    if (!this.monsterNameScanPending && !this.playerNameScanPending) return false;
+    const p = this.proc;
+    const o = this.offsets;
+    const ga = this.ga;
+    if (!p || !o || !ga) {
+      this.monsterNameScanPending = false;
+      this.playerNameScanPending = false;
+      return false;
+    }
+    try {
+      this.setScanning(true);
+      // Build the GA class index once and reuse it for both scans.
+      if (this.monsterNameScanPending || this.playerNameScanPending) {
+        this.ensureClassIndex();
+      }
+      if (this.monsterNameScanPending) {
+        this.monsterNameScanPending = false;
+        this.runMonsterNameScan(p, ga);
+      }
+      if (this.playerNameScanPending) {
+        this.playerNameScanPending = false;
+        this.runPlayerNameScan(p, ga, o);
+      }
+    } finally {
+      this.setScanning(false);
+    }
+    return true;
+  }
+
+  /** Name-scan fallback for MonsterSpawnManager when RVA produced no monsters. */
+  private runMonsterNameScan(p: WinProcess, ga: { base: bigint; size: number }): void {
+    this.log("MonsterSpawnManager: running name-scan fallback...");
+    // Fast path: the GA-derived class index usually has MonsterSpawnManager
+    // already (its TypeInfo sits in a GA static slot). Only fall back to the
+    // ~30–60s whole-address-space scan when the index misses.
+    const msClassFromIndex = this.classIndex?.get("MonsterSpawnManager") ?? null;
+    const msClass = msClassFromIndex ?? resolveClassByName(p, "MonsterSpawnManager", ga);
+    if (msClassFromIndex) {
+      this.log("MonsterSpawnManager: class resolved via GA index (skipped name scan)");
+    }
+    if (msClass) {
+      const inst = singletonFromClass(p, msClass);
+      if (inst) {
+        this.monsterPin.ptr = inst;
+        this.log(`MonsterSpawnManager: resolved at 0x${inst.toString(16)}`);
+      } else {
+        this.log("MonsterSpawnManager: class found but no static-held instance");
+      }
+    } else {
+      this.log("MonsterSpawnManager: class not found by name scan");
+    }
+  }
+
+  /** Name-scan fallback for PlayerSaveData when RVA produced no player instance. */
+  private runPlayerNameScan(p: WinProcess, ga: { base: bigint; size: number }, o: LiveOffsets): void {
+    this.log("PlayerSaveData: running name-scan fallback...");
+    // Candidate singleton class names in priority order. CommonSaveData is the
+    // real anchor (per LiveOffsets.typeInfoRva.commonSaveData comment);
+    // PlayerSaveData is a legacy fallback.
+    const candidates = ["CommonSaveData", "PlayerSaveData"];
+    for (const name of candidates) {
+      const classFromIndex = this.classIndex?.get(name) ?? null;
+      const cls = classFromIndex ?? resolveClassByName(p, name, ga);
+      if (cls == null) continue;
+      if (classFromIndex) {
+        this.log(`${name}: class resolved via GA index (skipped name scan)`);
+      }
+      let inst = this.findPlayerInstanceByClass(p, cls);
+      if (inst == null) {
+        // TEMPORARY DIAGNOSTIC: wider scan with class layout dump.
+        inst = this.probeClassLayout(p, name, cls);
+      }
+      if (inst) {
+        this.playerPtr = inst;
+        this.log(`${name}: singleton resolved at 0x${inst.toString(16)}`);
+        // Re-read inventory/pets immediately so the next read tick has them
+        // cached without waiting for the low-freq cadence.
+        this.cachedInventory = readRuntimeInventory(p, ga.base, ga.size, o, this.playerPtr);
+        this.cachedPets = readRuntimePets(p, ga.base, ga.size, o, this.playerPtr);
+        break;
+      } else {
+        this.log(`${name}: class found but no static-held instance`);
+      }
+    }
   }
 
   /** Lazy-init the boxType → BoxCategory map from the bundled catalog. */
@@ -976,6 +1108,7 @@ export class LiveMemoryReader {
             missing: missingOffsetFields(this.offsets),
             source: this.offsetSource,
             extractionAttempts: attempts,
+            fallbackFromVersion: this.offsets._fallbackFromVersion,
           }
         : this.attached
           ? {

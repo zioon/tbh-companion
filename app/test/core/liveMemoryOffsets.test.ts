@@ -103,23 +103,35 @@ describe("offsetsForVersion", () => {
   });
 
   it("exposes fallback flag via offsetsForVersionMeta", () => {
-    // Exact match → fallback=false
+    // Exact match → fallback=false, no provenance marker
     const exact = offsetsForVersionMeta("1.00.21")!;
     expect(exact.table.gameVersion).toBe("1.00.21");
     expect(exact.fallback).toBe(false);
+    expect(exact.table._fallbackFromVersion).toBeUndefined();
 
-    // Same-major.minor fallback (1.00.29 → 1.00.28) → fallback=true
+    // Same-major.minor fallback (1.00.29 → 1.00.28) → fallback=true, marker set
     const fb = offsetsForVersionMeta("1.00.29")!;
     expect(fb.table.gameVersion).toBe("1.00.29");
     expect(fb.fallback).toBe(true);
+    expect(fb.table._fallbackFromVersion).toBe("1.00.28");
 
-    // v1.01.02 (not in table) falls back to v1.01.01 → fallback=true
+    // v1.01.02 (not in table) falls back to v1.01.01 → fallback=true, marker set
     const v102 = offsetsForVersionMeta("1.01.02")!;
     expect(v102.table.gameVersion).toBe("1.01.02");
     expect(v102.fallback).toBe(true);
+    expect(v102.table._fallbackFromVersion).toBe("1.01.01");
 
     // Different major.minor → null (no fallback available)
     expect(offsetsForVersionMeta("9.99.99")).toBeNull();
+  });
+
+  it("offsetsForVersion also sets _fallbackFromVersion on fallback paths", () => {
+    // Exact match → no marker
+    expect(offsetsForVersion("1.00.21")?._fallbackFromVersion).toBeUndefined();
+
+    // Fallback → marker records the source version
+    expect(offsetsForVersion("1.00.29")?._fallbackFromVersion).toBe("1.00.28");
+    expect(offsetsForVersion("1.00.20")?._fallbackFromVersion).toBe("1.00.21");
   });
 });
 

@@ -48,6 +48,7 @@
     "damageSession": "피해(세션)",
     "dps5s": "DPS(5초 윈도우)",
     "offsetSource": "오프셋 소스",
+    "fallbackFromVersion": "폴백 기준 버전",
     "extractAttempts": "추출 시도 횟수",
     "statusLabel": "상태",
     "offsetsComplete": "오프셋 완료",

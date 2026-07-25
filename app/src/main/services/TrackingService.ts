@@ -765,7 +765,11 @@ export class TrackingService {
         // stays constant — no phantom XP attributed to stage clears.
         const xp = this.tracker.cumulativeGained;
         const gold = this.tracker.currentGold;
-        const clears = snap.stageClears;
+        // Drop invalid entries (act/stage unreadable — mid-write race /
+        // corrupted memory). Attributing them to the live stageKey would
+        // re-introduce the off-by-one bug: by the time we poll the next tick,
+        // stageKey has already advanced past the cleared stage.
+        const clears = snap.stageClears.filter((c) => c.valid);
         if (this.stageEventBaseline) {
           const totalXpGained = xp - this.stageEventBaseline.xp;
           const totalGoldGained = gold - this.stageEventBaseline.gold;
@@ -784,8 +788,7 @@ export class TrackingService {
             // entry (act/stage), NOT the current live stageKey — by the time
             // we poll the next tick, stageKey has already advanced to the
             // next stage (e.g. clear of 3-1 arrived with stageKey=3-2).
-            // Difficulty is recovered from the fallback stageKey; if act/stage
-            // are 0 (corrupted read), fall back to the live stageKey.
+            // Difficulty is recovered from the fallback stageKey.
             const clearedStageKey = resolveClearedStageKey(
               clears[i].act,
               clears[i].stage,

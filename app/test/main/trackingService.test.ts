@@ -557,7 +557,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42 }],
+      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42, valid: true }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -598,7 +598,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42 }],
+      stageClears: [{ act: 1, stage: 3, clearTimeSec: 42, valid: true }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -619,8 +619,8 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestSlots: null,
       inventoryItems: null,
       stageClears: [
-        { act: 1, stage: 3, clearTimeSec: 85 },
-        { act: 1, stage: 3, clearTimeSec: 63 },
+        { act: 1, stage: 3, clearTimeSec: 85, valid: true },
+        { act: 1, stage: 3, clearTimeSec: 63, valid: true },
       ],
       stageWaveTotal: null,
       boxOpens: null,
@@ -664,7 +664,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85 }],
+      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85, valid: false }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -733,7 +733,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [{ act: 3, stage: 1, clearTimeSec: 85 }],
+      stageClears: [{ act: 3, stage: 1, clearTimeSec: 85, valid: true }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -749,7 +749,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     svc.stop();
   });
 
-  it("falls back to the live stageKey when the log entry's act/stage are 0 (corrupted read)", () => {
+  it("drops a clear whose log entry's act/stage are 0 (corrupted read) instead of falling back to the live stageKey", () => {
     const onLiveStageClear = vi.fn();
     const svc = new TrackingService(
       vi.fn(),
@@ -793,7 +793,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       chestDrops: null,
       chestSlots: null,
       inventoryItems: null,
-      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85 }],
+      stageClears: [{ act: 0, stage: 0, clearTimeSec: 85, valid: false }],
       stageWaveTotal: null,
       boxOpens: null,
       petData: null,
@@ -804,9 +804,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       at: 3000,
     });
 
-    // act/stage=0 ⇒ fall back to the live stageKey (3301).
-    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
-    expect(onLiveStageClear).toHaveBeenCalledWith(3301, 85, 400, 400);
+    // Invalid entries (act/stage unreadable — mid-write race / corrupted
+    // memory) are dropped by the filter in TrackingService. Attributing them
+    // to the live stageKey would re-introduce the off-by-one attribution bug:
+    // by the time we poll the next tick, stageKey has already advanced past
+    // the cleared stage, so the fallback would attribute the clear to the
+    // wrong (next) stage. Better to lose one event than misattribute it.
+    expect(onLiveStageClear).not.toHaveBeenCalled();
     svc.stop();
   });
 });
