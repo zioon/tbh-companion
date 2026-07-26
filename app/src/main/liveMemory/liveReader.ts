@@ -143,11 +143,31 @@ function detectGameVersion(p: WinProcess): { version: string; installDir: string
  * already overwrote the stale baseline via mergeOffsets, so the table is
  * safe to use without forcing the critical path again.
  *
+ * Extractor-ran exception: if `offsets._extractorRev` is present, the
+ * extractor already ran in a prior session. Two outcomes are possible:
+ *  (a) derived critical RVAs were non-zero → mergeOffsets overwrote the
+ *      baseline → the RVA-equality check above returns false anyway;
+ *  (b) derived critical RVAs were zero (StageManager singleton not
+ *      instantiated, e.g. user was at the main menu) → mergeOffsets kept
+ *      the baseline → RVA-equality check returns true, but re-running the
+ *      extractor will produce the same outcome (StageManager still not
+ *      instantiated, or the game genuinely didn't change so derived == 0
+ *      again). Without this exception, the reader enters an infinite loop:
+ *      every 30s Path 3 triggers healOffsets → extractor runs ~8-10s →
+ *      same result → cache saved → next 30s same trigger. User-visible
+ *      symptom: live page flips to "scanning" for ~10s every ~30s.
+ * The extractor-ran marker lets the reader trust that the baseline is
+ * either confirmed-correct or unrecoverable (the user must enter a stage
+ * for StageManager to instantiate; the reader can't force that). The user
+ * can still manually clear the cache to force a fresh extraction.
+ *
  * Pure (no `this`), so it can be called from `resolveOffsets` before
  * `this.offsets` is updated.
  */
 function isCriticalStaleOnBaseline(offsets: LiveOffsets | null): boolean {
   if (!offsets?._fallbackFromVersion) return false;
+  // Extractor already ran — trust its outcome (see comment above).
+  if (offsets._extractorRev != null) return false;
   const baseline = offsetsForVersion(offsets._fallbackFromVersion);
   if (!baseline) return false;
   return (

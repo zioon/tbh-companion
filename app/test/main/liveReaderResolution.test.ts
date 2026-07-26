@@ -588,6 +588,52 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
     expect(stubs.recordCalls).toBe(1);
     expect(stubs.enrichmentRecordCalls).toBe(0);
   });
+
+  it("does NOT force critical path when cache has _extractorRev even if critical RVAs match baseline", async () => {
+    // Bug: when a fallback version's extractor ran in a prior session but
+    // could not derive critical RVAs (e.g. StageManager singleton not
+    // instantiated because the user was at the main menu), mergeOffsets
+    // keeps the baseline RVAs (derived=0 → base wins) and the cache is
+    // saved with _extractorRev set. On the next launch, the cache loads
+    // with _fallbackFromVersion + baseline-matching critical RVAs, so
+    // isCriticalStaleOnBaseline() returns true → Path 3 (worker) triggers
+    // healOffsets every 30s → extractor re-runs (~8-10s of scanning) →
+    // same outcome (StageManager still not instantiated OR derived RVA
+    // genuinely equals baseline because the game didn't change) → cache
+    // saved again → infinite loop. User-visible symptom: live page flips
+    // to "scanning" for ~10s every ~30s.
+    //
+    // Fix: isCriticalStaleOnBaseline() checks _extractorRev — if the
+    // extractor already ran (cache carries the rev marker), trust that
+    // the baseline is either confirmed-correct or unrecoverable (user
+    // needs to enter a stage for StageManager to instantiate; the reader
+    // can't force that). The user can still manually clear the cache.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    // Complete cache (enrichment filled) + baseline-matching critical RVAs
+    // + _extractorRev marker. This is the post-extractor cache state when
+    // the extractor ran but StageManager wasn't instantiated (critical RVAs
+    // kept as baseline) and enrichment succeeded.
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      _extractorRev: 11, // prior session's extractor already ran
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        stageManager: baseline.typeInfoRva.stageManager,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager,
+      },
+    };
+
+    const reader = await attachFresh();
+
+    // Cache is complete + extractor already ran → extractor NOT re-run.
+    expect(stubs.extractCalls).toBe(0);
+    expect(reader.supported).toBe(true);
+    // Not stale — _extractorRev present means extractor already validated.
+    expect(reader.isCriticalStaleOnFallback).toBe(false);
+  });
 });
 
 // ── Cache-pollution self-heal (forced re-extraction) ────────────────────
