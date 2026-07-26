@@ -634,6 +634,87 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
     // Not stale — _extractorRev present means extractor already validated.
     expect(reader.isCriticalStaleOnFallback).toBe(false);
   });
+
+  it("enrichmentAlreadyAttempted is true when cache has _extractorRev but enrichment still incomplete", async () => {
+    // Bug: when the extractor ran in a prior session but failed to derive
+    // some enrichment fields (e.g. BoxOpenLog struct offsets — scanner
+    // can't identify v1.01.02's obscured field layout), the cache is
+    // saved with _extractorRev set but boxOpenLog.itemStringKey=0. On the
+    // next launch, enrichmentComplete=false (fields still 0) and the
+    // worker's Path 2 (fallback enrichment heal) sees this and every 30s
+    // calls resetEnrichmentBudget + healOffsets → extractor re-runs ~9s
+    // → same validation failure → cache saved → next 30s same trigger.
+    // User-visible symptom: live page flips to "scanning" for ~9s every
+    // ~30s, forever.
+    //
+    // Fix: reader exposes `enrichmentAlreadyAttempted` — true when the
+    // cache carries _extractorRev (extractor ran at least once). Worker
+    // Path 2 uses this to skip resetEnrichmentBudget when the extractor
+    // already had its turn, so the budget stays exhausted and
+    // resolveOffsets' mayAttemptEnrichment check short-circuits the
+    // extractor. Path 1 (box-open event) and Path 1.5 (cache-pollution)
+    // still reset the budget because they carry new signals.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      _extractorRev: 12, // extractor already ran
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        stageManager: baseline.typeInfoRva.stageManager,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager,
+      },
+      // boxOpenLog fields still 0 — extractor ran but validation failed.
+      runtime: {
+        ...COMPLETE.runtime,
+        boxOpenLog: {
+          itemStringKey: 0,
+          itemGradeType: 0,
+          gradeSO: 0,
+          gradeSOGrade: 0,
+          boxType: 0,
+          level: 0,
+        },
+      },
+    };
+    // Budget exhausted — extractor already ran in the prior session that
+    // wrote this cache. mayAttemptEnrichment=false → resolveOffsets skips
+    // the extractor call entirely on this attach.
+    stubs.mayAttemptEnrichment = false;
+
+    const reader = await attachFresh();
+
+    // Extractor already ran (budget exhausted) → not re-run on this attach.
+    expect(stubs.extractCalls).toBe(0);
+    expect(reader.supported).toBe(true);
+    expect(reader.enrichmentComplete).toBe(false);
+    // Key assertion: extractor already attempted for this version.
+    expect(reader.enrichmentAlreadyAttempted).toBe(true);
+  });
+
+  it("enrichmentAlreadyAttempted is false when cache has no _extractorRev (first launch)", async () => {
+    // First launch for a fallback version — no prior extractor run.
+    // Path 2 SHOULD resetEnrichmentBudget and let the extractor try.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      // No _extractorRev — first launch.
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        stageManager: baseline.typeInfoRva.stageManager,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager,
+      },
+    };
+
+    const reader = await attachFresh();
+
+    expect(reader.enrichmentAlreadyAttempted).toBe(false);
+  });
 });
 
 // ── Cache-pollution self-heal (forced re-extraction) ────────────────────

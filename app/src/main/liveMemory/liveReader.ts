@@ -318,6 +318,35 @@ export class LiveMemoryReader {
   }
 
   /**
+   * True when the offset table carries an `_extractorRev` marker, indicating
+   * the extractor already ran at least once for this game version (either in
+   * a prior session and persisted to cache, or earlier this session). Used by
+   * the worker's Path 2 (fallback enrichment heal) to decide whether to
+   * `resetEnrichmentBudget` before calling `healOffsets`:
+   *
+   *  - false (first launch, no prior extractor run): Path 2 resets the
+   *    enrichment budget so the extractor gets its first turn.
+   *  - true (extractor already ran): Path 2 does NOT reset the budget. If
+   *    enrichment succeeded, `enrichmentComplete` is true and Path 2 skips
+   *    entirely. If enrichment failed (e.g. scanner can't identify the
+   *    version's BoxOpenLog field layout — see v1.01.02 obscured field bug),
+   *    `enrichmentComplete` is false but `mayAttemptEnrichment` returns false
+   *    (budget exhausted) → `resolveOffsets` short-circuits the extractor →
+   *    `healOffsets` returns in milliseconds instead of ~9s. Without this
+   *    guard, Path 2 would reset the budget every 30s, re-running the ~9s
+   *    extractor with the same validation failure forever — user-visible
+   *    symptom: live page flips to "scanning" for ~9s every ~30s.
+   *
+   * Path 1 (box-open event) and Path 1.5 (cache-pollution) still call
+   * `resetEnrichmentBudget` unconditionally because they carry new signals
+   * (player opened a box / cache values confirmed invalid) that warrant a
+   * fresh extractor run regardless of prior attempts.
+   */
+  get enrichmentAlreadyAttempted(): boolean {
+    return this.offsets?._extractorRev != null;
+  }
+
+  /**
    * True when the enrichment extraction budget is not exhausted for this game
    * version under the current app build. When false, the periodic heal
    * scheduler stops hammering the extractor — but a detected box-open event

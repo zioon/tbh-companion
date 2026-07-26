@@ -168,8 +168,6 @@ function maybeHealEnrichment(): void {
   // path 3 covers critical RVAs pending StageManager instantiation on
   // fallback tables (independent of enrichment completion — a reader can
   // have all enrichment offsets filled yet still be on stale baseline RVAs).
-  // healOffsets internally resets the right budget based on
-  // isCriticalStaleOnFallback.
   const needsFallbackHeal = !reader.enrichmentComplete || reader.isCriticalStaleOnFallback;
   if (!needsFallbackHeal) {
     enrichmentHealDueAt = 0;
@@ -178,9 +176,23 @@ function maybeHealEnrichment(): void {
   const now = Date.now();
   if (enrichmentHealDueAt === 0) enrichmentHealDueAt = now + HEAL_ENRICHMENT_FALLBACK_MS;
   if (now >= enrichmentHealDueAt) {
-    // healOffsets decides which budget to reset (critical vs enrichment)
-    // based on isCriticalStaleOnFallback; both can be reset safely.
-    reader.resetEnrichmentBudget();
+    // Reset the budget ONLY when the extractor has not yet had its turn for
+    // this version. When `enrichmentAlreadyAttempted` is true (cache carries
+    // `_extractorRev`), the extractor already ran — if enrichment is still
+    // incomplete, it means validation failed (e.g. scanner can't identify
+    // the version's BoxOpenLog field layout — see v1.01.02 obscured field
+    // bug). Re-running with the same scanner would produce the same failure,
+    // so we do NOT reset the budget. `resolveOffsets` sees the exhausted
+    // budget (`mayAttemptEnrichment=false`) and short-circuits the
+    // extractor, making `healOffsets` return in milliseconds instead of
+    // ~9s. Without this guard, Path 2 would reset the budget every 30s,
+    // re-running the ~9s extractor with the same validation failure forever
+    // — user-visible symptom: live page flips to "scanning" for ~9s every
+    // ~30s. Path 1 (box-open event) and Path 1.5 (cache-pollution) still
+    // reset the budget unconditionally because they carry new signals.
+    if (!reader.enrichmentAlreadyAttempted) {
+      reader.resetEnrichmentBudget();
+    }
     reader.healOffsets();
     postStatusIfChanged();
     enrichmentHealDueAt = now + HEAL_ENRICHMENT_FALLBACK_MS;
