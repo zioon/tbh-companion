@@ -68,9 +68,34 @@ import { WinProcess } from "./winProcess";
 import { readRuntimeChestSlots, type ReadChestSlotsResult } from "../../core/liveMemory/chestSlots";
 import { readClassFields } from "../../core/liveMemory/il2cppScanner";
 import { loadBoxTypeCatalog, boxTypeIndex } from "../../core/boxes/catalog";
-import type { BoxCategory, LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type {
+  BoxCategory,
+  BoxOpenEntry,
+  LiveMemorySnapshot,
+  LiveMemoryStatus,
+} from "../../../shared/types";
+import type { LiveChestCategory } from "../../core/liveMemory/runtime";
 
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
+
+/**
+ * Throttle window for the per-status failure diagnostic log. When chest drops
+ * / box opens / chest slots return a non-empty status, the worker emits a
+ * log line at most once per window so silent degradation is visible in
+ * main.log without spamming the 25 Hz tick loop.
+ */
+const STATUS_FAIL_LOG_THROTTLE_MS = 30_000;
+
+/**
+ * How long `readRuntimeBoxOpenLog` must continuously return "list not
+ * walkable" / "dict lookup failed" while chest drops resolve normally
+ * (LogManager itself is fine) before the reader concludes the cached
+ * `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
+ * unvalidated baseline copies (cache pollution) and forces the extractor
+ * to re-derive them. 60 s balances "give the game time to actually open a
+ * box" against "don't make the user wait too long after a bad cache".
+ */
+const BOX_OPEN_FAIL_HEAL_MS = 60_000;
 
 export type LiveMemoryLogFn = (message: string) => void;
 export type OffsetResolutionSource = "bundled" | "cache" | "extracted" | "merged" | "none";
@@ -153,6 +178,32 @@ export class LiveMemoryReader {
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
   /** Throttle for the "read: stage null" diagnostic log (avoid spamming every tick). */
   private lastSmFailLogAt: number | null = null;
+  /**
+   * Throttle for the per-status failure diagnostic log. When any of
+   * chestDrops / boxOpens / chestSlots returns a non-empty status (offset
+   * derived but runtime lookup failed, etc.), the worker emits a throttled
+   * log line every ~30s so silent degradation is visible in main.log.
+   */
+  private lastStatusFailLogAt: number | null = null;
+  /**
+   * Cache-pollution self-heal detector. When `readRuntimeBoxOpenLog` keeps
+   * returning "list not walkable" / "dict lookup failed" while chest drops
+   * resolve normally (LogManager itself is fine), the cached
+   * `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
+   * unvalidated baseline copies — not real extractor output. Track the
+   * failure start time; after `BOX_OPEN_FAIL_HEAL_MS` of continuous failure,
+   * set `forceExtractorNextHeal` so the worker bypasses the
+   * `isOffsetTableComplete` short-circuit and re-runs the extractor.
+   */
+  private boxOpenDictFailSince: number | null = null;
+  /**
+   * One-shot flag consumed by `resolveOffsets`. When true, the next
+   * `resolveOffsets` call skips the `isOffsetTableComplete` short-circuit
+   * AND bypasses the per-budget attempt cap, forcing the extractor to run
+   * even on a "complete" cached/bundled table. Cleared after the extractor
+   * runs (success or failure) so we don't loop forever.
+   */
+  private forceExtractorNextHeal = false;
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
@@ -262,6 +313,19 @@ export class LiveMemoryReader {
   /** True when a "player just opened a box" event is pending consumption. */
   get hasBoxOpenEventPending(): boolean {
     return this.boxOpenEventPending;
+  }
+
+  /**
+   * True when the reader has detected a likely cache-pollution condition
+   * (box-open dict lookup failing continuously while chest drops resolve)
+   * and the next `healOffsets` should force the extractor to re-derive
+   * enrichment fields, bypassing the `isOffsetTableComplete` short-circuit
+   * and the per-budget attempt cap. Consumed by the worker's
+   * `maybeHealEnrichment` to trigger an immediate heal, and by
+   * `resolveOffsets` to bypass the complete-table short-circuit.
+   */
+  get needsForcedReextract(): boolean {
+    return this.forceExtractorNextHeal;
   }
 
   /**
@@ -530,14 +594,24 @@ export class LiveMemoryReader {
     // live tracking.
     const forceExtractForCatalogDump =
       process.env.TBH_DUMP_CATALOG_CANDIDATES === "1" && !catalogDumpDone;
-    if (complete && !forceExtractForCatalogDump) {
+    // Cache-pollution self-heal: when `readRuntimeBoxOpenLog` has been failing
+    // "dict lookup failed" for >60s while chest drops resolve normally, the
+    // cached `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values
+    // are unvalidated baseline copies. The complete-table short-circuit below
+    // would otherwise trust them forever. Snapshot the flag here so the rest
+    // of this function sees a stable value (it is cleared after the extractor
+    // runs, see below).
+    const forceReextract = this.forceExtractorNextHeal;
+    if (complete && !forceExtractForCatalogDump && !forceReextract) {
       this.log(`resolve: table complete (source=${source})`);
       return { table: base, source, classIndex: null };
     }
 
-    if (complete && forceExtractForCatalogDump) {
+    if (complete && (forceExtractForCatalogDump || forceReextract)) {
       this.log(
-        `resolve: table complete (source=${source}) — re-running extractor for catalog dump`,
+        forceReextract
+          ? `resolve: table complete (source=${source}) — re-running extractor (cache pollution detected: boxOpenLog dict lookup failing)`
+          : `resolve: table complete (source=${source}) — re-running extractor for catalog dump`,
       );
     } else {
       const missing = base ? missingOffsetFields(base).join(", ") : "entire table";
@@ -562,24 +636,32 @@ export class LiveMemoryReader {
       // a version where BoxOpenLog is genuinely underivable until the player
       // opens a box does not get re-scanned every heal tick forever. A detected
       // box-open event resets the enrichment budget (see consumeBoxOpenEvent).
-      // Catalog-dump mode bypasses the budget so the user can collect diagnostics
-      // even after prior attempts exhausted the cap.
+      // Catalog-dump mode AND cache-pollution forced re-extraction both bypass
+      // the budget — the former is a diagnostic run, the latter is a one-shot
+      // signal-driven run whose flag is cleared after the extractor runs (so
+      // it cannot loop forever even if the extractor fails to fix the issue).
       const mayExtract =
+        forceReextract ||
         forceExtractForCatalogDump ||
         (useCriticalBudget
           ? mayAttemptExtraction(cacheDir, version, appBuild)
           : mayAttemptEnrichment(cacheDir, version, appBuild));
       if (mayExtract) {
-        // Catalog-dump mode does not consume the attempt budget — it is a
-        // diagnostic run, not a real extraction attempt.
-        if (!forceExtractForCatalogDump) {
+        // Neither catalog-dump nor forced-reextract consumes the attempt
+        // budget — both are diagnostic / signal-driven runs that should not
+        // exhaust the permanent budget. Forced re-extract is a one-shot flag
+        // cleared below after the extractor runs (success or failure), so it
+        // can't loop.
+        if (!forceExtractForCatalogDump && !forceReextract) {
           if (useCriticalBudget) recordExtractionAttempt(cacheDir, version, appBuild);
           else recordEnrichmentAttempt(cacheDir, version, appBuild);
         }
         this.log(
-          useCriticalBudget
-            ? `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})${forceCriticalPath ? " — fallback table, re-deriving critical anchors" : ""}`
-            : `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`,
+          forceReextract
+            ? `resolve: running extractor (forced — cache pollution)`
+            : useCriticalBudget
+              ? `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})${forceCriticalPath ? " — fallback table, re-deriving critical anchors" : ""}`
+              : `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`,
         );
         const derived = extractOffsets(
           proc,
@@ -592,6 +674,16 @@ export class LiveMemoryReader {
         // Catalog dump completes after one extractor run regardless of outcome
         // (the dump fires inside extractOffsets when the env var is set).
         if (forceExtractForCatalogDump) catalogDumpDone = true;
+        // Consume the cache-pollution flag — one extractor run per detection
+        // event. Whether the extractor succeeded or failed, we don't re-arm
+        // until the next 60s failure streak (see detectCachePollution). On
+        // success the merged table overwrites the bad cache; on failure the
+        // reader stays degraded but the user sees the status-failure log and
+        // can manually delete the cache directory.
+        if (forceReextract) {
+          this.forceExtractorNextHeal = false;
+          this.boxOpenDictFailSince = null;
+        }
         if (derived) {
           // Note: the attempt budget was already recorded above (before the
           // extractor ran). Both successful AND failed extractions consume one
@@ -601,15 +693,48 @@ export class LiveMemoryReader {
           // fallback critical-stale) resets the budget via the dedicated
           // reset functions; do NOT record a second time here on success or
           // every productive run would count as 2 attempts.
-          const merged = base ? mergeOffsets(base, derived.offsets) : derived.offsets;
+          //
+          // Cache-pollution exception: `mergeOffsets` keeps non-zero base
+          // values (the standard "base is trusted" rule). But in
+          // force-reextract mode the base's BoxOpen enrichment fields are
+          // explicitly suspected invalid — that's why we're here. Clear
+          // them before merge so derived values can fill the gaps. Critical
+          // RVAs and other enrichment fields stay intact (only BoxOpen is
+          // the suspected culprit per `detectCachePollution`).
+          let baseForMerge = base;
+          if (forceReextract && base) {
+            baseForMerge = {
+              ...base,
+              runtime: {
+                ...base.runtime,
+                log: {
+                  ...base.runtime.log,
+                  getItemWithBoxOpenTypeKey: 0,
+                },
+                boxOpenLog: {
+                  itemStringKey: 0,
+                  itemGradeType: 0,
+                  gradeSO: 0,
+                  gradeSOGrade: 0,
+                  boxType: 0,
+                  level: 0,
+                },
+              },
+            };
+          }
+          const merged = baseForMerge
+            ? mergeOffsets(baseForMerge, derived.offsets)
+            : derived.offsets;
           // Tag the persisted cache with the extractor revision so a future
           // reader launch with a newer revision knows to re-derive instead of
           // loading this stale cache.
           merged._extractorRev = EXTRACTOR_REVISION;
           saveCachedOffsets(cacheDir, merged);
-          const mergedSource: OffsetResolutionSource = base ? "merged" : "extracted";
+          const mergedSource: OffsetResolutionSource = baseForMerge ? "merged" : "extracted";
           this.log(
-            `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION})`,
+            forceReextract
+              ? `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION}) — cache pollution fields overwritten`
+              : `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION})`,
           );
           return { table: merged, source: mergedSource, classIndex: derived.classIndex };
         }
@@ -681,6 +806,11 @@ export class LiveMemoryReader {
     this.boxTypeCatalogMap = null;
     this.boxOpenCountPrev = null;
     this.boxOpenEventPending = false;
+    // Reset cache-pollution detector state — a fresh attach should not
+    // inherit the previous session's failure streak or forced-reextract flag.
+    this.boxOpenDictFailSince = null;
+    this.forceExtractorNextHeal = false;
+    this.lastStatusFailLogAt = null;
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
@@ -812,6 +942,15 @@ export class LiveMemoryReader {
       this.playerPtr,
     );
 
+    // Per-status failure diagnostics + cache-pollution self-heal trigger.
+    // Without this block, a derived-but-invalid offset (e.g. a baseline
+    // `getItemWithBoxOpenTypeKey` value that doesn't match the live dict)
+    // fails silently — `readRuntimeBoxOpenLog` returns null with a status
+    // string, but nothing logs it and nothing triggers re-derivation. The
+    // user sees "chest drops work but box opens never fire" with no clue.
+    this.emitStatusFailLog(chestResult.status, boxOpenResult.status, chestSlotsResult.status);
+    this.detectCachePollution(boxOpenResult, chestResult);
+
     return {
       connected: true,
       stageKey: stage.stageKey,
@@ -842,6 +981,93 @@ export class LiveMemoryReader {
       readMs: Date.now() - t0,
       at: Date.now(),
     };
+  }
+
+  /**
+   * Emit a throttled diagnostic log when any of the per-feature read paths
+   * returns a non-empty status (chest drops / box opens / chest slots). The
+   * status strings come from `runtime.ts` and pinpoint the failure mode
+   * (e.g. "typeInfoRva.logManager RVA = 0", "BoxOpenLog list not walkable
+   * (dict lookup failed)"). Without this log, derived-but-invalid offsets
+   * fail completely silently — the snapshot just carries `null` and the user
+   * sees "no data" with no clue in main.log. Throttled to once per
+   * `STATUS_FAIL_LOG_THROTTLE_MS` window to avoid spamming the 25 Hz tick.
+   */
+  private emitStatusFailLog(
+    chestStatus: string,
+    boxOpenStatus: string,
+    chestSlotsStatus: string,
+  ): void {
+    if (!chestStatus && !boxOpenStatus && !chestSlotsStatus) {
+      this.lastStatusFailLogAt = null;
+      return;
+    }
+    const now = Date.now();
+    if (this.lastStatusFailLogAt != null && now - this.lastStatusFailLogAt < STATUS_FAIL_LOG_THROTTLE_MS) {
+      return;
+    }
+    this.lastStatusFailLogAt = now;
+    const parts: string[] = [];
+    if (chestStatus) parts.push(`chest="${chestStatus}"`);
+    if (boxOpenStatus) parts.push(`boxOpen="${boxOpenStatus}"`);
+    if (chestSlotsStatus) parts.push(`chestSlots="${chestSlotsStatus}"`);
+    this.log(`read: status failures — ${parts.join(", ")}`);
+  }
+
+  /**
+   * Detect the cache-pollution signature: `readRuntimeBoxOpenLog` keeps
+   * returning "list not walkable" / "dict lookup failed" (offsets are
+   * non-zero but the live dict lookup fails) while chest drops resolve
+   * normally (LogManager itself is fine). This means the cached
+   * `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
+   * unvalidated baseline copies, not real extractor output — set
+   * `forceExtractorNextHeal` so the worker triggers an immediate forced
+   * re-extraction that bypasses the `isOffsetTableComplete` short-circuit.
+   *
+   * The check is conservative: it only fires when chest drops are non-null
+   * (LogManager resolved successfully), so a genuinely missing LogManager
+   * doesn't trigger a pointless extractor run.
+   */
+  private detectCachePollution(
+    boxOpenResult: { opens: BoxOpenEntry[] | null; status: string },
+    chestResult: { drops: LiveChestCategory[] | null; status: string },
+  ): void {
+    // Only "list not walkable" / "dict lookup failed" qualifies — earlier
+    // failure modes (logManager RVA = 0, getItemWithBoxOpenTypeKey = 0,
+    // boxOpenLog.itemStringKey = 0) mean the offsets ARE zero, so the
+    // existing enrichment budget / heal timer already handles them.
+    const isDictLookupFail =
+      boxOpenResult.opens == null &&
+      /dict lookup failed|list not walkable/i.test(boxOpenResult.status);
+    const chestDropsOk = chestResult.drops != null;
+
+    if (isDictLookupFail && chestDropsOk) {
+      if (this.boxOpenDictFailSince == null) {
+        this.boxOpenDictFailSince = Date.now();
+        return;
+      }
+      // Already triggered — wait for the worker to consume the flag and
+      // re-derive. Don't re-arm to avoid hammering the 8 s extractor.
+      if (this.forceExtractorNextHeal) return;
+      if (Date.now() - this.boxOpenDictFailSince >= BOX_OPEN_FAIL_HEAL_MS) {
+        this.forceExtractorNextHeal = true;
+        this.log(
+          `read: boxOpenLog dict lookup failed for ${BOX_OPEN_FAIL_HEAL_MS}ms despite valid LogManager — cache pollution suspected; forcing extractor re-run on next heal`,
+        );
+      }
+      return;
+    }
+    // Box opens recovered (or chest drops also failed, meaning LogManager
+    // itself is the problem — not cache pollution). Reset the tracker so
+    // the next failure streak starts a fresh timer.
+    if (this.boxOpenDictFailSince != null && boxOpenResult.opens != null) {
+      this.log("read: boxOpenLog recovered — clearing cache-pollution tracker");
+    }
+    this.boxOpenDictFailSince = null;
+    // NOTE: forceExtractorNextHeal is NOT cleared here — it is consumed by
+    // resolveOffsets after the extractor runs. Clearing it here would let a
+    // single successful tick (e.g. mid-extraction) cancel a forced heal
+    // that hasn't actually run yet.
   }
 
   /**

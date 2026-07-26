@@ -589,3 +589,108 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
     expect(stubs.enrichmentRecordCalls).toBe(0);
   });
 });
+
+// ── Cache-pollution self-heal (forced re-extraction) ────────────────────
+// Reproduces the VM bug where a cached `getItemWithBoxOpenTypeKey` /
+// `boxOpenLog.itemStringKey` value is non-zero but invalid (an unvalidated
+// baseline copy from a fallback table). Pre-fix: `isOffsetTableComplete`
+// only checks non-zero, so the bad cache is trusted forever, the extractor
+// is never re-run, and `readRuntimeBoxOpenLog` silently fails with
+// "dict lookup failed" while chest drops work normally (LogManager itself
+// is fine). Post-fix: `detectCachePollution` (called from read()) watches
+// for >60s of continuous boxOpen "dict lookup failed" while chest drops
+// resolve, and sets `forceExtractorNextHeal`. The worker's Path 1.5
+// triggers an immediate heal; `resolveOffsets` sees the flag, bypasses the
+// complete-table short-circuit AND the per-budget attempt cap, runs the
+// extractor, then clears the flag (one-shot).
+describe("LiveMemoryReader cache-pollution self-heal", () => {
+  it("forces extractor re-run even when cache is complete and budget is exhausted", async () => {
+    // Setup: a complete cache (all fields non-zero) — this is the polluted
+    // state. The values look valid but `getItemWithBoxOpenTypeKey=42` won't
+    // match any live dict bucket at runtime.
+    stubs.cached = COMPLETE;
+    // Enrichment budget exhausted — pre-fix this would block any extractor
+    // run. Post-fix the forced path bypasses the budget.
+    stubs.mayAttemptEnrichment = false;
+    // Extractor will succeed this time and return corrected values.
+    stubs.extracted = {
+      ...COMPLETE,
+      runtime: {
+        ...COMPLETE.runtime,
+        log: { ...COMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 99 },
+      },
+    };
+
+    const reader = await attachFresh();
+
+    // Sanity: at attach time the cache is complete → extractor skipped.
+    expect(stubs.extractCalls).toBe(0);
+    expect(reader.supported).toBe(true);
+    expect(reader.needsForcedReextract).toBe(false);
+
+    // Simulate detectCachePollution firing: 60s of continuous boxOpen
+    // "dict lookup failed" while chest drops resolve. We set the internal
+    // flag directly (the read() path that drives the detector needs a fully
+    // mocked process / memory map — exercised via integration tests).
+    (reader as unknown as { forceExtractorNextHeal: boolean }).forceExtractorNextHeal = true;
+    expect(reader.needsForcedReextract).toBe(true);
+
+    const beforeExtractCalls = stubs.extractCalls;
+    const beforeEnrichmentRecordCalls = stubs.enrichmentRecordCalls;
+
+    // Worker's Path 1.5 calls healOffsets() — resolveOffsets sees the flag,
+    // bypasses the complete-table short-circuit AND the budget cap, runs
+    // the extractor.
+    reader.healOffsets();
+
+    // Extractor ran exactly once despite complete cache + exhausted budget.
+    expect(stubs.extractCalls).toBe(beforeExtractCalls + 1);
+    // Forced re-extract does NOT consume the enrichment budget — it is a
+    // signal-driven diagnostic run, not a permanent budget unit.
+    expect(stubs.enrichmentRecordCalls).toBe(beforeEnrichmentRecordCalls);
+    // Persisted merged table now carries the corrected getItemWithBoxOpenTypeKey.
+    expect(stubs.saved?.runtime.log.getItemWithBoxOpenTypeKey).toBe(99);
+    // Flag consumed — one extractor run per detection event.
+    expect(reader.needsForcedReextract).toBe(false);
+  });
+
+  it("clears the flag even when forced extractor fails (no infinite loop)", async () => {
+    // If the extractor fails to derive valid boxOpenLog fields (e.g. dict
+    // really is empty because the player hasn't opened a box yet), the flag
+    // must still be cleared so we don't hammer the 8s extractor on every
+    // tick. The next detectCachePollution cycle starts a fresh 60s timer.
+    stubs.cached = COMPLETE;
+    stubs.mayAttemptEnrichment = false;
+    stubs.extracted = null; // extractor fails
+
+    const reader = await attachFresh();
+    expect(stubs.extractCalls).toBe(0);
+
+    (reader as unknown as { forceExtractorNextHeal: boolean }).forceExtractorNextHeal = true;
+
+    reader.healOffsets();
+
+    // Extractor ran once.
+    expect(stubs.extractCalls).toBe(1);
+    // Flag cleared despite failure — no infinite loop on next heal tick.
+    expect(reader.needsForcedReextract).toBe(false);
+  });
+
+  it("does not run extractor when cache is complete and no pollution signal", async () => {
+    // Sanity: the forced path is opt-in via the flag. A normal complete cache
+    // must still skip the extractor entirely.
+    stubs.cached = COMPLETE;
+    stubs.mayAttemptEnrichment = true;
+
+    const reader = await attachFresh();
+
+    expect(stubs.extractCalls).toBe(0);
+    expect(reader.needsForcedReextract).toBe(false);
+
+    // A normal healOffsets (no pollution flag) must not run the extractor
+    // when the cache is complete.
+    const before = stubs.extractCalls;
+    reader.healOffsets();
+    expect(stubs.extractCalls).toBe(before);
+  });
+});
