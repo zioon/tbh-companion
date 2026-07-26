@@ -97,6 +97,38 @@ const GetExitCodeProcess = kernel32.func("GetExitCodeProcess", "bool", [
   "_Out_ uint32 *",
 ]);
 
+// psapi.dll — PSAPI module enumeration, used as a fallback when ToolHelp's
+// CreateToolhelp32Snapshot(TH32CS_SNAPMODULE) is blocked by sandbox software
+// (e.g. Sandboxie-Plus) and returns an empty module list. PSAPI calls
+// EnumProcessModulesEx directly on the process handle we already opened with
+// PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, so it does not need any extra
+// privileges and does not shell out to a child process (unlike the PowerShell
+// fallback). On Win64, HMODULE is an 8-byte pointer.
+const psapi = koffi.load("psapi.dll");
+const LIST_MODULES_ALL = 0x03;
+const EnumProcessModulesEx = psapi.func("EnumProcessModulesEx", "bool", [
+  "void *", // hProcess
+  "void *", // lphModule (HMODULE[] — pass null to query size, Buffer to receive)
+  "uint32", // cb (size in bytes)
+  "_Out_ uint32 *", // lpcbNeeded
+  "uint32", // dwFilterFlag
+]);
+const GetModuleFileNameExW = psapi.func("GetModuleFileNameExW", "uint32", [
+  "void *", // hProcess
+  "uintptr", // hModule (HMODULE as uintptr — accepts bigint read from buffer)
+  "void *", // lpFilename (wchar_t buffer — Buffer accepted as void *)
+  "uint32", // cch
+]);
+// MODULEINFO layout (Win64): lpBaseOfDll(8) + SizeOfImage(4) + 4-byte pad + EntryPoint(8) = 24 bytes.
+// Read via Buffer rather than a koffi struct to avoid alignment surprises.
+const MODULEINFO_SIZE = 24;
+const GetModuleInformation = psapi.func("GetModuleInformation", "bool", [
+  "void *", // hProcess
+  "uintptr", // hModule
+  "void *", // lpmodinfo (MODULEINFO buffer)
+  "uint32", // cb
+]);
+
 const STILL_ACTIVE = 259;
 
 /**
@@ -109,6 +141,44 @@ export const winProcessStats = {
   readBytesCalls: 0,
   readBytesBytes: 0,
 };
+
+/**
+ * Optional logger for the module-enumeration fallback paths. When set, each
+ * path (ToolHelp / PSAPI / PowerShell) records its failure reason so the
+ * worker's main.log can attribute "version=? ga=missing" on attach to a
+ * specific cause (e.g. sandbox blocking CreateToolhelp32Snapshot). Set by
+ * the worker via {@link setWinProcessLogger}.
+ */
+let winProcessLogger: ((message: string) => void) | null = null;
+export function setWinProcessLogger(fn: ((message: string) => void) | null): void {
+  winProcessLogger = fn;
+}
+
+/**
+ * Parse an HMODULE array buffer returned by EnumProcessModulesEx into a list
+ * of bigint handles. Each HMODULE is 8 bytes on Win64. Trailing bytes that do
+ * not form a complete 8-byte handle are dropped.
+ *
+ * Exported for unit testing — the native EnumProcessModulesEx call itself
+ * cannot be unit-tested, but this byte-layout parsing can.
+ */
+export function parseHModulesBuffer(buf: Buffer, bytesValid: number): bigint[] {
+  const count = Math.floor(bytesValid / 8);
+  const out: bigint[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(buf.readBigUInt64LE(i * 8));
+  }
+  return out;
+}
+
+/**
+ * Extract the basename (e.g. "GameAssembly.dll") from a Windows module path.
+ * Exported for unit testing alongside {@link parseHModulesBuffer}.
+ */
+export function extractBasename(path: string): string {
+  const parts = path.split("\\");
+  return parts[parts.length - 1] ?? "";
+}
 
 function isInvalidHandle(handle: unknown): boolean {
   if (handle == null) return true;
@@ -268,7 +338,33 @@ export class WinProcess implements MemoryReader {
 
   listModules(): ModuleInfo[] {
     const viaToolhelp = this.listModulesViaToolhelp();
-    return viaToolhelp.length > 0 ? viaToolhelp : this.listModulesViaPowerShell();
+    if (viaToolhelp.length > 0) return viaToolhelp;
+
+    // ToolHelp returned empty — on Sandboxie-Plus and similar sandboxes,
+    // CreateToolhelp32Snapshot(TH32CS_SNAPMODULE) is blocked even for
+    // processes inside the same sandbox. Fall through to PSAPI, which calls
+    // EnumProcessModulesEx on the handle we already opened and is not
+    // intercepted by sandbox tools that block ToolHelp's snapshot creation.
+    const viaPsapi = this.listModulesViaPsapi();
+    if (viaPsapi.length > 0) {
+      winProcessLogger?.(
+        `listModules: ToolHelp returned empty for pid=${this.pid}; PSAPI fallback found ${viaPsapi.length} modules`,
+      );
+      return viaPsapi;
+    }
+
+    const viaPowerShell = this.listModulesViaPowerShell();
+    if (viaPowerShell.length > 0) {
+      winProcessLogger?.(
+        `listModules: ToolHelp and PSAPI both empty for pid=${this.pid}; PowerShell fallback found ${viaPowerShell.length} modules`,
+      );
+      return viaPowerShell;
+    }
+
+    winProcessLogger?.(
+      `listModules: all 3 paths returned empty for pid=${this.pid} (toolhelp=0, psapi=0, powershell=0)`,
+    );
+    return [];
   }
 
   private listModulesViaToolhelp(): ModuleInfo[] {
@@ -291,6 +387,51 @@ export class WinProcess implements MemoryReader {
       }
     } finally {
       CloseHandle(snap);
+    }
+    return out;
+  }
+
+  /**
+   * PSAPI fallback for module enumeration. Called when ToolHelp's
+   * CreateToolhelp32Snapshot returns an empty list (blocked by sandbox
+   * software). Uses EnumProcessModulesEx on the already-opened process
+   * handle — same privileges as ReadProcessMemory, no child process spawn.
+   *
+   * Two-phase query: first call with cb=0 to learn the required buffer size,
+   * second call to fill the buffer. Then for each HMODULE, fetch its file
+   * name and base/size via GetModuleFileNameExW + GetModuleInformation.
+   */
+  private listModulesViaPsapi(): ModuleInfo[] {
+    if (isInvalidHandle(this.handle)) return [];
+    const needed = [0];
+    // Phase 1: query required size. lphModule=null, cb=0.
+    if (!EnumProcessModulesEx(this.handle, null, 0, needed, LIST_MODULES_ALL)) {
+      return [];
+    }
+    const bytesNeeded = needed[0];
+    if (bytesNeeded === 0) return [];
+
+    // Phase 2: allocate HMODULE array buffer and enumerate.
+    const hModsBuf = Buffer.alloc(bytesNeeded);
+    if (!EnumProcessModulesEx(this.handle, hModsBuf, bytesNeeded, needed, LIST_MODULES_ALL)) {
+      return [];
+    }
+    const actualBytes = needed[0];
+    const handles = parseHModulesBuffer(hModsBuf, actualBytes);
+
+    // Phase 3: per-module file name + base/size.
+    const out: ModuleInfo[] = [];
+    const nameBuf = Buffer.alloc(260 * 2); // MAX_PATH * sizeof(wchar_t)
+    const modInfoBuf = Buffer.alloc(MODULEINFO_SIZE);
+    for (const hMod of handles) {
+      const nameLen = GetModuleFileNameExW(this.handle, hMod, nameBuf, 260);
+      if (nameLen === 0) continue;
+      const path = nameBuf.toString("utf16le", 0, nameLen * 2);
+      const name = extractBasename(path);
+      if (!GetModuleInformation(this.handle, hMod, modInfoBuf, MODULEINFO_SIZE)) continue;
+      const base = modInfoBuf.readBigUInt64LE(0); // lpBaseOfDll (uintptr, 8 bytes)
+      const size = modInfoBuf.readUInt32LE(8); // SizeOfImage (uint32, 4 bytes after base)
+      out.push({ name, path, baseAddress: base, size });
     }
     return out;
   }
@@ -331,7 +472,10 @@ export class WinProcess implements MemoryReader {
           },
         ];
       });
-    } catch {
+    } catch (err) {
+      winProcessLogger?.(
+        `listModulesViaPowerShell failed for pid=${this.pid}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
   }

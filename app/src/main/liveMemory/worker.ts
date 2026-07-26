@@ -6,6 +6,7 @@
 
 import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 import { LiveMemoryReader } from "./liveReader";
+import { setWinProcessLogger } from "./winProcess";
 
 // utilityProcess exposes parentPort on the global process object.
 const parentPort = (
@@ -40,7 +41,12 @@ let enrichmentHealDueAt = 0;
 
 try {
   reader = new LiveMemoryReader();
-  reader.setLogger((message) => post({ type: "log", message }));
+  const forward = (message: string) => post({ type: "log", message });
+  reader.setLogger(forward);
+  // WinProcess emits module-enumeration fallback diagnostics (ToolHelp/PSAPI/
+  // PowerShell) through this logger so they surface in main.log alongside
+  // the reader's own logs — essential for diagnosing sandbox-blocked attach.
+  setWinProcessLogger(forward);
   reader.onScanningChange = () => postStatusIfChanged();
 } catch (err) {
   loadError = err instanceof Error ? err.message : String(err);
@@ -136,6 +142,23 @@ function maybeHealEnrichment(): void {
   // still incomplete — boxOpenLog struct offsets pending first box-open).
   if (!reader.enrichmentComplete && reader.consumeBoxOpenEvent()) {
     reader.resetEnrichmentBudget();
+    reader.healOffsets();
+    postStatusIfChanged();
+    enrichmentHealDueAt = 0;
+    return;
+  }
+  // Path 1.5: cache-pollution self-heal. When `readRuntimeBoxOpenLog` has
+  // been failing "dict lookup failed" for >60s while chest drops resolve
+  // normally (LogManager itself is fine), the cached
+  // `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
+  // unvalidated baseline copies. The reader's `detectCachePollution` sets
+  // `needsForcedReextract` — trigger an immediate heal here. `resolveOffsets`
+  // sees the flag and bypasses the complete-table short-circuit AND the
+  // per-budget attempt cap, then clears the flag (one-shot, see
+  // resolveOffsets). This path runs BEFORE Path 2/3's 30s timer because the
+  // reader is already `enrichmentComplete=true` (the bad cache claims all
+  // fields are filled) — Path 2/3 would otherwise never fire.
+  if (reader.needsForcedReextract) {
     reader.healOffsets();
     postStatusIfChanged();
     enrichmentHealDueAt = 0;
