@@ -89,6 +89,16 @@ export interface AutoClassifyServiceDeps {
    * RARE Lv4/5/7), so they need their own route table. */
   commonRoutes: () => ReadonlyArray<StageBoxTrackerRoute>;
   getCurrentStageKey: () => number | null;
+  /**
+   * Latest inventory (item bag) used/capacity from the save. When `used >=
+   * capacity` the game pauses all chest auto-open timers (it cannot drop
+   * loot into a full bag). AutoClassifyService freezes `effectiveNow` at
+   * the moment the inventory becomes full, and on resume shifts queued
+   * items' `autoOpenAtMs` / `expiresAtMs` forward by the paused duration.
+   * `null` when no save has been parsed yet (pause detection disabled
+   * until inventory state is known).
+   */
+  getInventoryStatus: () => { used: number; capacity: number } | null;
   broadcast: (channel: string, payload: unknown) => void;
 }
 
@@ -164,9 +174,90 @@ export class AutoClassifyService {
    * down the tail). Null before the first successful read.
    */
   private lastAutoOpenSeconds: { common: number; stageBoss: number; actBoss: number } | null = null;
+  /**
+   * Wall-clock ms when the inventory (item bag) became full, or `null` when
+   * the inventory is not full (or has never been observed). While non-null,
+   * {@link getEffectiveNow} returns this value instead of `Date.now()`, so
+   * `autoOpenAtMs - effectiveNow` (the displayed countdown) freezes. `tick`
+   * also skips slot decrement and prune while paused — the game's auto-open
+   * timer is not advancing, so no item should be treated as elapsed.
+   *
+   * On transition from full → not-full, {@link shiftQueueTimes} shifts every
+   * non-slot-decremented item's `autoOpenAtMs` / `expiresAtMs` forward by
+   * the paused duration. Items already slot-decremented (their auto-open
+   * moment was reached before the pause) keep their original timestamps —
+   * they are awaiting their unclassified burst or TTL prune, and shifting
+   * them would risk a double-decrement of `liveSlots` when the WeakSet is
+   * not reset.
+   */
+  private inventoryFullSinceMs: number | null = null;
 
   constructor(deps: AutoClassifyServiceDeps) {
     this.deps = deps;
+  }
+
+  /**
+   * Effective "now" for auto-open timing. When the inventory is full
+   * (`inventoryFullSinceMs != null`), returns the pause moment so countdowns
+   * freeze and `tick`'s elapsed check sees no time progress. Otherwise
+   * returns `Date.now()`.
+   */
+  private getEffectiveNow(): number {
+    return this.inventoryFullSinceMs ?? Date.now();
+  }
+
+  /**
+   * Detect inventory full / not-full transitions and apply pause/resume
+   * effects. Called from `tick` (1 Hz) and `reconcileWithChestSlots` (save
+   * parse). When the inventory transitions to full, records the moment
+   * (`inventoryFullSinceMs`). When it transitions back to not-full, shifts
+   * queued items' timestamps forward by the paused duration and clears
+   * `inventoryFullSinceMs`.
+   *
+   * No-op when `getInventoryStatus` is not injected or returns `null`
+   * (no save parsed yet — pause detection stays disabled).
+   */
+  private updateInventoryPauseState(): void {
+    const inv = this.deps.getInventoryStatus?.();
+    const isFull = inv != null && inv.capacity > 0 && inv.used >= inv.capacity;
+    const wallNow = Date.now();
+    if (isFull && this.inventoryFullSinceMs == null) {
+      this.inventoryFullSinceMs = wallNow;
+      log.info(`inventory full; auto-open timers paused`);
+    } else if (!isFull && this.inventoryFullSinceMs != null) {
+      const pausedMs = wallNow - this.inventoryFullSinceMs;
+      this.inventoryFullSinceMs = null;
+      if (pausedMs > 0 && this.queue.length > 0) {
+        this.shiftQueueTimes(pausedMs);
+        log.info(`inventory no longer full; resumed after ${pausedMs}ms pause`);
+      }
+    }
+  }
+
+  /**
+   * Shift every non-slot-decremented queued item's `autoOpenAtMs` and
+   * `expiresAtMs` forward by `pausedMs`. Called on inventory full → not-full
+   * transition. Items already slot-decremented (their auto-open moment was
+   * reached before the pause, and they are awaiting burst / prune) keep
+   * their original timestamps — shifting them would either push them into
+   * the future (suppressing a needed prune) or leave them in the past and
+   * risk a double-decrement of `liveSlots` after the WeakSet is rebuilt.
+   *
+   * The `slotDecrementedItems` WeakSet is NOT reset here: the kept (already
+   * decremented) items retain their old object identity so the WeakSet
+   * still recognizes them; the shifted (new object) items were not in the
+   * WeakSet and correctly become eligible for future tick decrement.
+   */
+  private shiftQueueTimes(pausedMs: number): void {
+    if (pausedMs <= 0 || this.queue.length === 0) return;
+    this.queue = this.queue.map((item) => {
+      if (this.slotDecrementedItems.has(item)) return item;
+      return {
+        ...item,
+        autoOpenAtMs: item.autoOpenAtMs + pausedMs,
+        expiresAtMs: item.expiresAtMs + pausedMs,
+      };
+    });
   }
 
   setEnabled(enabled: boolean): void {
@@ -178,6 +269,7 @@ export class AutoClassifyService {
       this.liveSlots = null;
       this.lastReconcileSlots = null;
       this.lastAutoOpenSeconds = null;
+      this.inventoryFullSinceMs = null;
     } else {
       // Re-enable: probe autoOpen immediately so any queue built up while
       // disabled (shouldn't happen, but defensive) is calibrated. First
@@ -203,17 +295,38 @@ export class AutoClassifyService {
    * (tail) are always non-null when the category has queued items.
    */
   getQueueSnapshot(): AutoClassifyStatePayload {
-    const now = Date.now();
+    // Use effectiveNow so countdowns freeze while the inventory is full
+    // (game pauses auto-open timers). On resume, shiftQueueTimes will have
+    // already pushed autoOpenAtMs forward, so effectiveNow falls back to
+    // Date.now() and countdowns resume from where they left off.
+    const now = this.getEffectiveNow();
     const order = ["common", "rare", "act"] as const;
     const byCategory = order.map((category) => {
       const items = this.queue.filter((item) => categoryFromBoxKey(item.boxKey) === category);
       let nextAutoOpenInMs: number | null = null;
       let lastAutoOpenInMs: number | null = null;
       if (items.length > 0) {
-        // Queue is sorted by autoOpenAtMs ascending, so head is the soonest
-        // and tail is the latest.
-        nextAutoOpenInMs = Math.max(0, items[0]!.autoOpenAtMs - now);
-        lastAutoOpenInMs = Math.max(0, items[items.length - 1]!.autoOpenAtMs - now);
+        // Head's remaining time. Clamped to 0 when the head's auto-open
+        // moment has already passed (the chest should have opened but its
+        // burst hasn't arrived yet, or the inventory is full and the timer
+        // is paused — in the latter case `paused: true` signals the UI to
+        // show "paused" instead of the clamped 0).
+        const headRemain = items[0]!.autoOpenAtMs - now;
+        nextAutoOpenInMs = Math.max(0, headRemain);
+        // Queue-clear time = next-open time + (depth-1) * single chest
+        // auto-open duration. Under the serial-queue model every queued
+        // chest chains onto the previous same-category tail, so the tail's
+        // auto-open moment is exactly head + (depth-1) * autoOpenSeconds.
+        // Computing from the head (rather than reading tail.autoOpenAtMs
+        // directly) is robust against any partial-shift drift introduced
+        // by shiftQueueTimes skipping already-decremented items on
+        // inventory resume, and matches the player's mental model: "after
+        // the next chest opens, each subsequent chest takes one autoOpen
+        // cycle." When depth == 1, this collapses to nextAutoOpenInMs
+        // (the single chest's countdown), which is correct.
+        const depth = items.length;
+        const singleSec = items[0]!.autoOpenSeconds;
+        lastAutoOpenInMs = Math.max(0, headRemain + (depth - 1) * singleSec * 1000);
       }
       return { category, count: items.length, nextAutoOpenInMs, lastAutoOpenInMs };
     });
@@ -238,6 +351,7 @@ export class AutoClassifyService {
       byCategory,
       items,
       liveSlots: this.liveSlots ? { ...this.liveSlots } : null,
+      paused: this.inventoryFullSinceMs != null,
     };
   }
 
@@ -261,9 +375,24 @@ export class AutoClassifyService {
     // Serial-queue model: each category has one shared timer. `enqueue`
     // computes this chest's `autoOpenAtMs` relative to the previous
     // same-category tail (or `droppedAtMs` if the category queue is empty).
+    //
+    // When the inventory is full, the game's auto-open timer is paused.
+    // A chest dropped during the pause (slots are still available — the
+    // game only blocks auto-OPEN, not drops) should start its countdown at
+    // `autoOpenSeconds` from the pause moment, not from the real drop time.
+    // Anchoring `droppedAtMs` to `getEffectiveNow()` (= pauseStart) makes
+    // `autoOpenAtMs = pauseStart + autoOpen*1000`, so the countdown reads
+    // `autoOpen*1000` (full duration) while paused. On resume,
+    // `shiftQueueTimes` pushes this item forward by `pausedMs`, landing at
+    // `resumeTime + autoOpen*1000` — the correct moment the timer reaches
+    // this chest after un-pausing. Without this anchoring, the countdown
+    // would read `autoOpen*1000 + (droppedAtMs - pauseStart)`, overstating
+    // the remaining time by the offset between the drop and the pause start.
+    const droppedAtMs =
+      this.inventoryFullSinceMs != null ? this.getEffectiveNow() : event.wallTime * 1000;
     this.queue = enqueue(this.queue, {
       boxKey,
-      droppedAtMs: event.wallTime * 1000,
+      droppedAtMs,
       stageKey,
       autoOpenSeconds: this.autoOpenForBoxKey(boxKey, autoOpen),
     });
@@ -402,6 +531,28 @@ export class AutoClassifyService {
   /** 1Hz tick: prune expired queue items and pending prompt. Called by TrackingService. */
   tick(): void {
     if (!this.enabled) return;
+    // Detect inventory full / not-full transitions first, so pause/resume
+    // effects (effectiveNow freeze, shiftQueueTimes on resume) are applied
+    // before any elapsed/expired checks below. This is the primary trigger
+    // for pause detection — reconcileWithChestSlots also calls it as a
+    // secondary trigger on save parse.
+    this.updateInventoryPauseState();
+    if (this.inventoryFullSinceMs != null) {
+      // Inventory full: the game paused all chest auto-open timers (it
+      // cannot drop loot into a full bag). Skip slot decrement and prune —
+      // `effectiveNow` is frozen at the pause moment, so no item should be
+      // treated as elapsed or expired while the timer is frozen. Pending
+      // prompt timeout still uses wall-clock: user interaction is
+      // independent of the game's auto-open pause.
+      const wallNow = Date.now();
+      if (this.pending && wallNow - this.pending.createdAtMs > PROMPT_TIMEOUT_MS) {
+        log.info(
+          `prompt ${this.pending.promptId} timed out, ${this.pending.itemKeys.length} items left unclassified`,
+        );
+        this.pending = null;
+      }
+      return;
+    }
     const now = Date.now();
     // Real-time slot tracking under the serial-queue model: each category
     // has its own independent timer, so multiple categories' current targets

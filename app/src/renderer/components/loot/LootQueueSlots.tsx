@@ -140,12 +140,15 @@ export function LootQueueSlots({
           const isFull = capacity > 0 ? quantity >= capacity : false;
           const pct = capacity > 0 ? Math.min(100, (quantity / capacity) * 100) : 0;
 
-          // Queue clears-in: under the slot-parallel model every queued chest
-          // has its own independent timer. The queue is fully cleared when
-          // the latest-opening (tail) chest auto-opens, so `clearsInMs` is
-          // simply the tail item's remaining time. `null` when the queue is
-          // empty.
+          // Queue clears-in: under the serial-queue model the tail's auto-open
+          // moment is head + (depth-1) * autoOpenSeconds, so `clearsInMs` is
+          // the time until the last queued chest opens (queue fully drains).
+          // `null` when the queue is empty. When `queue.paused` is true the
+          // game's auto-open timer is frozen (inventory full); the main process
+          // still reports the frozen countdown, but we surface "Paused" instead
+          // of a stale 0:00 / clamped value to make the state obvious.
           const clearsInMs = lastAutoOpenInMs;
+          const pausedLabel = queue.paused ? t("queueSlots.paused") : null;
 
           // Slots fill-in: time for `quantity` to reach `capacity` based on
           // the observed drop rate. `null` when already full, no rate, or
@@ -189,13 +192,13 @@ export function LootQueueSlots({
                 <span>
                   {t("queueSlots.opensIn")}{" "}
                   <span className="font-medium tabular-nums text-text">
-                    {formatCountdown(nextAutoOpenInMs)}
+                    {pausedLabel ?? formatCountdown(nextAutoOpenInMs)}
                   </span>
                 </span>
                 <span>
                   {t("queueSlots.clearsIn")}{" "}
                   <span className="font-medium tabular-nums text-text">
-                    {formatCountdown(clearsInMs)}
+                    {pausedLabel ?? formatCountdown(clearsInMs)}
                   </span>
                 </span>
                 <span>

@@ -39,6 +39,19 @@ function makeService(
     commonRoutes?: StageBoxTrackerRoute[];
     currentStageKey?: number | null;
     broadcast?: (channel: string, payload: unknown) => void;
+    /**
+     * Inventory (item bag) used/capacity injected into AutoClassifyService
+     * for pause detection. When `used >= capacity`, the service pauses
+     * auto-open timers (freezes effectiveNow, skips tick decrement/prune).
+     * Static value; use `inventoryStatusRef` for mid-test mutations.
+     */
+    inventoryStatus?: { used: number; capacity: number } | null;
+    /**
+     * Mutable ref for inventory status, allowing tests to flip the
+     * inventory full/not-full state mid-session to trigger pause/resume
+     * transitions. Takes precedence over `inventoryStatus`.
+     */
+    inventoryStatusRef?: { value: { used: number; capacity: number } | null };
   } = {},
 ) {
   const broadcasts: Array<{ channel: string; payload: unknown }> = [];
@@ -66,6 +79,10 @@ function makeService(
     actBossRoutes: () => opts.actBossRoutes ?? ACT_BOSS_ROUTES,
     commonRoutes: () => opts.commonRoutes ?? COMMON_ROUTES,
     getCurrentStageKey: () => opts.currentStageKey ?? null,
+    getInventoryStatus: () => {
+      if (opts.inventoryStatusRef) return opts.inventoryStatusRef.value;
+      return opts.inventoryStatus ?? null;
+    },
     broadcast: (channel, payload) => {
       broadcasts.push({ channel, payload });
       opts.broadcast?.(channel, payload);
@@ -1675,5 +1692,188 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
     const snap = service.getQueueSnapshot();
     expect(snap.items).toHaveLength(1);
     expect(snap.items[0]!.autoOpenInMs).toBe(91_000); // 101000 - 10000
+  });
+
+  // ---------------------------------------------------------------------------
+  // P 系列：背包满暂停 / 恢复（诉求 1）+ lastAutoOpenInMs 公式（诉求 2）
+  // ---------------------------------------------------------------------------
+
+  it("P1: lastAutoOpenInMs === nextAutoOpenInMs when depth=1 (single chest)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop one common chest: autoOpenAtMs = 1000 + 300*1000 = 301000
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    const common = snap.byCategory.find((c) => c.category === "common")!;
+    expect(common.count).toBe(1);
+    // nextAutoOpenInMs = 301000 - 10000 = 291000
+    // lastAutoOpenInMs = 291000 + (1-1)*300*1000 = 291000 (collapses to next)
+    expect(common.nextAutoOpenInMs).toBe(291_000);
+    expect(common.lastAutoOpenInMs).toBe(291_000);
+  });
+
+  it("P2: lastAutoOpenInMs = nextAutoOpenInMs + (depth-1)*autoOpenSec*1000 (serial queue)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop three common chests. Serial-queue model chains them:
+    //   chest1: autoOpenAtMs = 1000 + 300*1000 = 301000
+    //   chest2: autoOpenAtMs = 301000 + 300*1000 = 601000
+    //   chest3: autoOpenAtMs = 601000 + 300*1000 = 901000
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    const common = snap.byCategory.find((c) => c.category === "common")!;
+    expect(common.count).toBe(3);
+    // nextAutoOpenInMs = 301000 - 10000 = 291000 (head)
+    // lastAutoOpenInMs = 291000 + (3-1)*300*1000 = 291000 + 600000 = 891000
+    // Verifies the queue-clear time is strictly greater than the next-open
+    // time when depth > 1 (the bug reported was both being equal).
+    expect(common.nextAutoOpenInMs).toBe(291_000);
+    expect(common.lastAutoOpenInMs).toBe(891_000);
+    expect(common.lastAutoOpenInMs).toBeGreaterThan(common.nextAutoOpenInMs!);
+  });
+
+  it("P3: lastAutoOpenInMs reflects remaining tail time when head is slightly past", () => {
+    // head 过期 10s，tail 在未来。公式给出 lastAutoOpenInMs > 0（不与
+    // nextAutoOpenInMs=0 相等），验证"两者一样"的 bug 已修复。
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Drop two common chests:
+    //   chest1: autoOpenAtMs = 301000
+    //   chest2: autoOpenAtMs = 601000
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    // Advance to t=311000 (head past by 10s, tail still 290s in the future).
+    // Do NOT call tick — we want to inspect the raw countdown math without
+    // tick decrementing slots or pruning.
+    vi.setSystemTime(311_000);
+    const snap = service.getQueueSnapshot();
+    const common = snap.byCategory.find((c) => c.category === "common")!;
+    // headRemain = 301000 - 311000 = -10000 → nextAutoOpenInMs = 0
+    // lastAutoOpenInMs = max(0, -10000 + (2-1)*300*1000) = max(0, 290000) = 290000
+    expect(common.nextAutoOpenInMs).toBe(0);
+    expect(common.lastAutoOpenInMs).toBe(290_000);
+    // Crucially, they are NOT equal — the bug was both clamping to 0.
+    expect(common.lastAutoOpenInMs).toBeGreaterThan(common.nextAutoOpenInMs!);
+  });
+
+  it("P4: inventory full → paused=true, tick skips slot decrement and prune", () => {
+    const inventoryRef = {
+      value: { used: 0, capacity: 100 } as { used: number; capacity: number } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+      inventoryStatusRef: inventoryRef,
+    });
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    // Drop a common chest at wallTime=1.0 → autoOpenAtMs=301000, liveSlots=3
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+
+    // Inventory becomes full. tick detects the transition and pauses.
+    inventoryRef.value = { used: 100, capacity: 100 };
+    // Advance wall-clock past autoOpenAtMs. Without pause, tick would
+    // decrement liveSlots (chest auto-opened) and the item would be a
+    // candidate for prune once its TTL lapses.
+    vi.setSystemTime(302_000);
+    service.tick();
+    const snap = service.getQueueSnapshot();
+    expect(snap.paused).toBe(true);
+    // liveSlots NOT decremented — timer is frozen, no slot freed.
+    expect(snap.liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    // Queue item NOT pruned despite autoOpenAtMs being in the past.
+    expect(snap.totalQueued).toBe(1);
+  });
+
+  it("P5: inventory resume shifts autoOpenAtMs forward by paused duration", () => {
+    const inventoryRef = {
+      value: { used: 0, capacity: 100 } as { used: number; capacity: number } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+      inventoryStatusRef: inventoryRef,
+    });
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    // Drop a common chest at wallTime=1.0 → autoOpenAtMs = 301000
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+
+    // Pause at t=100000 (before autoOpenAtMs=301000).
+    inventoryRef.value = { used: 100, capacity: 100 };
+    vi.setSystemTime(100_000);
+    service.tick();
+    expect(service.getQueueSnapshot().paused).toBe(true);
+
+    // During pause, countdown freezes at 301000 - 100000 = 201000.
+    let snap = service.getQueueSnapshot();
+    expect(snap.byCategory.find((c) => c.category === "common")!.nextAutoOpenInMs).toBe(201_000);
+
+    // Advance wall-clock by 50000 during pause. Countdown should NOT change
+    // (effectiveNow frozen at pauseStart=100000).
+    vi.setSystemTime(150_000);
+    service.tick();
+    snap = service.getQueueSnapshot();
+    expect(snap.byCategory.find((c) => c.category === "common")!.nextAutoOpenInMs).toBe(201_000);
+    expect(snap.paused).toBe(true);
+
+    // Resume at t=150000. pausedMs = 150000 - 100000 = 50000.
+    // shiftQueueTimes: autoOpenAtMs = 301000 + 50000 = 351000.
+    inventoryRef.value = { used: 50, capacity: 100 };
+    service.tick();
+    snap = service.getQueueSnapshot();
+    expect(snap.paused).toBe(false);
+    // nextAutoOpenInMs = 351000 - 150000 = 201000 — same as before the pause,
+    // confirming the timer resumed exactly where it left off.
+    expect(snap.byCategory.find((c) => c.category === "common")!.nextAutoOpenInMs).toBe(201_000);
+  });
+
+  it("P6: chest dropped during pause anchors to pauseStart (countdown = autoOpenSec)", () => {
+    const inventoryRef = {
+      value: { used: 0, capacity: 100 } as { used: number; capacity: number } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+      inventoryStatusRef: inventoryRef,
+    });
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+
+    // Pause at t=100000.
+    inventoryRef.value = { used: 100, capacity: 100 };
+    vi.setSystemTime(100_000);
+    service.tick();
+    expect(service.getQueueSnapshot().paused).toBe(true);
+
+    // Drop a chest during pause at wallTime=120.0 (120000ms wall-clock).
+    // Without anchoring: droppedAtMs=120000, autoOpenAtMs=120000+300000=420000,
+    //   countdown = 420000 - 100000 (effectiveNow) = 320000 (overstated by 20000).
+    // With anchoring: droppedAtMs=100000 (effectiveNow=pauseStart),
+    //   autoOpenAtMs=100000+300000=400000,
+    //   countdown = 400000 - 100000 = 300000 (= autoOpenSec*1000, correct).
+    chestDropTracker.recordLiveChestDrop("common", 120.0);
+    const snap = service.getQueueSnapshot();
+    const common = snap.byCategory.find((c) => c.category === "common")!;
+    expect(common.count).toBe(1);
+    expect(common.nextAutoOpenInMs).toBe(300_000); // autoOpenSec*1000, not 320000
   });
 });

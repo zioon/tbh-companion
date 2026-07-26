@@ -61,6 +61,7 @@
     "opensIn": "Next open",
     "clearsIn": "Queue clears",
     "fillsIn": "Slots fill",
+    "paused": "Paused",
     "inventoryLabel": "Inventory items",
     "inventorySlotsAria": "{{used}} of {{capacity}} inventory slots used",
     "inventoryFullIn": "Inventory full in",

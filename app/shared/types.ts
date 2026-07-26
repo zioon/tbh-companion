@@ -281,6 +281,17 @@ export interface AutoClassifyStatePayload {
    * `capacity` always comes from the save path (`ChestState`).
    */
   liveSlots: { common: number; rare: number; act: number } | null;
+  /**
+   * Whether auto-open timers are currently paused because the player's
+   * inventory (item bag) is full. The game pauses all chest auto-open
+   * timers when the inventory is full (it cannot drop loot into a full
+   * bag), and resumes them when the player clears space. While paused,
+   * `nextAutoOpenInMs` / `lastAutoOpenInMs` freeze at their values as of
+   * the pause moment (they do not count down), and `tick` skips slot
+   * decrement and prune. On resume, queued items' `autoOpenAtMs` /
+   * `expiresAtMs` are shifted forward by the paused duration.
+   */
+  paused: boolean;
 }
 
 /** One queued chest drop in {@link AutoClassifyStatePayload.items}. */

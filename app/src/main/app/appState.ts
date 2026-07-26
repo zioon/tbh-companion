@@ -310,6 +310,17 @@ export function startTracking(): SessionUiSnapshot {
     actBossRoutes: () => loadActBossTrackerRoutes(),
     commonRoutes: () => loadCommonChestTrackerRoutes(),
     getCurrentStageKey: () => tracking.getCurrentStageKey(),
+    // Inventory (item bag) used/capacity from the save. When `used >=
+    // capacity` the game pauses all chest auto-open timers (it cannot drop
+    // loot into a full bag); AutoClassifyService freezes effectiveNow at
+    // that moment and resumes by shifting queued items' autoOpenAtMs
+    // forward once the inventory is no longer full. Returns null before
+    // the first save parse — pause detection stays disabled until then.
+    getInventoryStatus: () => {
+      const inv = inventory.getInventory();
+      if (!inv) return null;
+      return { used: inv.inventoryUsed, capacity: inv.inventoryCapacity };
+    },
     broadcast,
   });
   // On every save parse, ChestService reports the current per-category slot
@@ -670,6 +681,7 @@ export function getAppServices() {
         ],
         items: [],
         liveSlots: null,
+        paused: false,
       },
   };
 }

@@ -61,6 +61,7 @@
     "opensIn": "다음 개봉",
     "clearsIn": "대기열 소화",
     "fillsIn": "가득 찰 때까지",
+    "paused": "일시정지",
     "inventoryLabel": "인벤토리 아이템",
     "inventorySlotsAria": "{{used}} / {{capacity}} 인벤토리 슬롯 사용 중",
     "inventoryFullIn": "인벤토리 가득 차기까지",

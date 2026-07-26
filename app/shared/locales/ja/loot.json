@@ -61,6 +61,7 @@
     "opensIn": "次の開封",
     "clearsIn": "キュー消化",
     "fillsIn": "満杯まで",
+    "paused": "一時停止",
     "inventoryLabel": "インベントリ物品",
     "inventorySlotsAria": "{{used}} / {{capacity}} インベントリスロット使用中",
     "inventoryFullIn": "インベントリ満杯まで",

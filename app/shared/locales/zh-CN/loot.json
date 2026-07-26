@@ -61,6 +61,7 @@
     "opensIn": "下个开启",
     "clearsIn": "队列清空",
     "fillsIn": "满仓预计",
+    "paused": "计时暂停",
     "inventoryLabel": "背包物品",
     "inventorySlotsAria": "{{used}} / {{capacity}} 个物品栏格子已用",
     "inventoryFullIn": "背包满预计",
