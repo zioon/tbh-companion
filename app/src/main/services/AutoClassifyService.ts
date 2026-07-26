@@ -39,6 +39,17 @@ const PROMPT_TIMEOUT_MS = 60_000;
 const AUTO_OPEN_DRIFT_THRESHOLD = 0.01;
 
 /**
+ * Absolute-change floor (seconds) for drift detection. Changes below this
+ * magnitude are ignored even if the relative change exceeds
+ * {@link AUTO_OPEN_DRIFT_THRESHOLD} — defends against tiny absolute deltas
+ * (sub-second float noise or save-parse rounding) producing large relative
+ * ratios when `prev` is small. In practice autoOpenSeconds is always ≥ 60s,
+ * so this floor never masks a real rune-purchase change (which is tens of
+ * seconds), but it keeps the drift detector well-behaved at the boundary.
+ */
+const AUTO_OPEN_ABSOLUTE_THRESHOLD = 1;
+
+/**
  * Half-width of the burst-matching window (ms). When an unclassified burst
  * arrives, `processEvent` looks for a queue item whose `autoOpenAtMs` is
  * within `±BURST_MATCH_GRACE_MS` of the burst's wall time. This defends
@@ -47,8 +58,15 @@ const AUTO_OPEN_DRIFT_THRESHOLD = 0.01;
  * due to rune changes or wall-clock skew, or (c) the head's auto-open was
  * detected by `tick` but the burst arrived slightly late. If no item falls
  * within the window, `processEvent` falls back to dequeuing the head.
+ *
+ * 15s (not 30s) keeps the window tight enough that two queue items from
+ * different categories rarely both fall in-window simultaneously — that
+ * would force a cross-category guess. 15s still comfortably covers the
+ * live-reader tick interval (200ms) plus burst propagation latency (≈2s),
+ * and is well under the shortest auto-open period (act=60s, so 15s is a
+ * quarter period). See audit M2/M5.
  */
-const BURST_MATCH_GRACE_MS = 30_000;
+const BURST_MATCH_GRACE_MS = 15_000;
 
 interface PendingPrompt {
   promptId: number;
@@ -123,8 +141,12 @@ export class AutoClassifyService {
    * has already been applied in `tick()`. Prevents double-decrement when
    * `processEvent` later dequeues the same item. WeakSet auto-cleans when
    * items are GC'd after leaving the queue.
+   *
+   * Not `readonly`: `recomputeQueueAutoOpenAtMs` rebuilds queue items as new
+   * objects (immutability contract — see audit M3/Q7), so the WeakSet is
+   * reset there to drop stale references to the pre-recompute items.
    */
-  private readonly autoOpenedItems = new WeakSet<QueueItem>();
+  private slotDecrementedItems = new WeakSet<QueueItem>();
   /**
    * Last slot counts seen by `reconcileWithChestSlots`. Used to suppress the
    * "queue < slots" info log when slots are unchanged across high-frequency
@@ -381,23 +403,26 @@ export class AutoClassifyService {
   tick(): void {
     if (!this.enabled) return;
     const now = Date.now();
-    // Real-time slot tracking under the serial-queue model: only the head's
-    // `autoOpenAtMs` is the per-category timer's current target. When it
-    // elapses, the chest is expected to have auto-opened and its slot is
-    // freed. Tail items' `autoOpenAtMs` is a precomputed future moment and
-    // must NOT trigger a decrement here — they will only become the timer
-    // target after the current head is consumed (via this tick or via
-    // `processEvent`). WeakSet tracks counted items so `processEvent` won't
+    // Real-time slot tracking under the serial-queue model: each category
+    // has its own independent timer, so multiple categories' current targets
+    // may have elapsed since the last tick. Walk the queue prefix (sorted by
+    // `autoOpenAtMs` ascending) and process every elapsed, unprocessed item
+    // — not just the global head. Tail items whose `autoOpenAtMs` is still
+    // in the future are skipped via the `break` (queue is sorted, so once
+    // one item is in the future, all subsequent ones are too). WeakSet
+    // tracks items already decremented so `processEvent` won't
     // double-decrement when the same item is later dequeued by an
     // unclassified burst.
     if (this.liveSlots && this.queue.length > 0) {
-      const head = this.queue[0]!;
-      if (head.autoOpenAtMs <= now && !this.autoOpenedItems.has(head)) {
-        const cat = categoryFromBoxKey(head.boxKey);
+      for (let i = 0; i < this.queue.length; i++) {
+        const item = this.queue[i]!;
+        if (item.autoOpenAtMs > now) break; // queue sorted asc — rest are future
+        if (this.slotDecrementedItems.has(item)) continue;
+        const cat = categoryFromBoxKey(item.boxKey);
         if (cat && cat !== "unclassified" && this.liveSlots[cat] > 0) {
           this.liveSlots[cat]--;
         }
-        this.autoOpenedItems.add(head);
+        this.slotDecrementedItems.add(item);
       }
     }
     const before = this.queue.length;
@@ -421,43 +446,21 @@ export class AutoClassifyService {
     }
     const now = Date.now();
     const burstMs = burstWallTimeSec * 1000;
-    // Burst-time window matching (serial-queue drift defense):
-    // Instead of always dequeuing the head, find the queue item whose
-    // `autoOpenAtMs` is closest to the burst's wall time and within the grace
-    // window. This correctly handles:
-    //   (a) manual opens of a non-head chest (head's autoOpenAtMs is far in
-    //       the future; the manually-opened chest's autoOpenAtMs is closest
-    //       to the burst time),
-    //   (b) `autoOpenAtMs` drift after a rune change (old head's autoOpenAtMs
-    //       no longer matches the real auto-open moment; recalibration should
-    //       have fixed it, but this is the safety net),
-    //   (c) normal auto-open of the head (head's autoOpenAtMs ≈ burst time,
-    //       falls within the window → matched).
-    // If no item is within the window, fall back to dequeuing the head so
-    // that a burst with no good match still consumes a queue slot (matching
-    // the pre-window-matching behavior) rather than spinning up a prompt
-    // when the queue is non-empty.
-    let matchedIdx = -1;
-    let matchedDelta = Infinity;
-    for (let i = 0; i < this.queue.length; i++) {
-      const candidate = this.queue[i]!;
-      const delta = Math.abs(candidate.autoOpenAtMs - burstMs);
-      if (delta <= BURST_MATCH_GRACE_MS && delta < matchedDelta) {
-        matchedDelta = delta;
-        matchedIdx = i;
-      }
-    }
+    const match = this.findBurstMatch(burstMs);
     let item: QueueItem | null;
-    if (matchedIdx >= 0) {
+    let matchedDelta: number | null;
+    if (match) {
       // Dequeue the matched item (not necessarily the head).
-      item = this.queue[matchedIdx]!;
-      this.queue = this.queue.filter((_, i) => i !== matchedIdx);
+      item = this.queue[match.idx]!;
+      this.queue = this.queue.filter((_, i) => i !== match.idx);
+      matchedDelta = match.delta;
     } else {
       // No item within the grace window — fall back to head (skipping
       // expired items as `dequeue` does). If head is also gone, prompt.
       const result = dequeue(this.queue, now);
       this.queue = result.queue;
       item = result.item;
+      matchedDelta = null;
       if (item) {
         log.warn(
           `no queue item within ±${BURST_MATCH_GRACE_MS}ms of burst=${burstMs}; ` +
@@ -474,15 +477,15 @@ export class AutoClassifyService {
       // (WeakSet) to avoid double-decrement. This covers manual opens and
       // auto-opens whose burst arrived before the 1Hz tick.
       const cat = categoryFromBoxKey(item.boxKey);
-      if (this.liveSlots && cat && cat !== "unclassified" && !this.autoOpenedItems.has(item)) {
+      if (this.liveSlots && cat && cat !== "unclassified" && !this.slotDecrementedItems.has(item)) {
         if (this.liveSlots[cat] > 0) {
           this.liveSlots[cat]--;
         }
-        this.autoOpenedItems.add(item);
+        this.slotDecrementedItems.add(item);
       }
       log.info(
         `matched ${itemKeys.length} items to queued boxKey=${item.boxKey} ` +
-          `(burstMs=${burstMs}, autoOpenAtMs=${item.autoOpenAtMs}, delta=${matchedDelta === Infinity ? "fallback" : `${matchedDelta}ms`})`,
+          `(burstMs=${burstMs}, autoOpenAtMs=${item.autoOpenAtMs}, delta=${matchedDelta === null ? "fallback" : `${matchedDelta}ms`})`,
       );
       return;
     }
@@ -491,6 +494,55 @@ export class AutoClassifyService {
     this.pending = { promptId, itemKeys: [...itemKeys], createdAtMs: now };
     this.deps.broadcast(IPC.LOOT_PROMPT_CLASSIFY, { promptId, itemKeys: [...itemKeys] });
     log.info(`broadcast LOOT_PROMPT_CLASSIFY promptId=${promptId} items=${itemKeys.length}`);
+  }
+
+  /**
+   * Find the queue item whose `autoOpenAtMs` is closest to `burstMs` and
+   * within the ±{@link BURST_MATCH_GRACE_MS} grace window. Two-stage match
+   * to avoid cross-category misclassification (audit M2):
+   *
+   *   Stage 1 — if the global head is within the grace window, match it.
+   *     The head is the per-category timer's current target under the
+   *     serial-queue model, so consuming it first preserves FIFO order and
+   *     avoids a near-simultaneous tail item from a different category
+   *     "stealing" the burst. Covers case (c) normal auto-open of head.
+   *
+   *   Stage 2 — head is NOT in window, expand search to the full queue and
+   *     pick the closest item within the grace window. Covers:
+   *     (a) manual opens of a non-head chest (head's autoOpenAtMs is far
+   *         in the future; the manually-opened chest's autoOpenAtMs is
+   *         closest to the burst time),
+   *     (b) `autoOpenAtMs` drift after a rune change (old head's
+   *         autoOpenAtMs no longer matches the real auto-open moment;
+   *         recalibration should have fixed it, but this is the safety net).
+   *
+   * Returns `{ idx, delta }` for the matched item, or `null` if no item is
+   * within the grace window. The caller (`processEvent`) falls back to
+   * dequeuing the head when `null` is returned, so that a burst with no
+   * good match still consumes a queue slot rather than spinning up a prompt
+   * when the queue is non-empty.
+   */
+  private findBurstMatch(burstMs: number): { idx: number; delta: number } | null {
+    // Stage 1: head-first match.
+    if (this.queue.length > 0) {
+      const head = this.queue[0]!;
+      const headDelta = Math.abs(head.autoOpenAtMs - burstMs);
+      if (headDelta <= BURST_MATCH_GRACE_MS) {
+        return { idx: 0, delta: headDelta };
+      }
+    }
+    // Stage 2: head not in window — search the full queue for the closest.
+    let matchedIdx = -1;
+    let matchedDelta = Infinity;
+    for (let i = 0; i < this.queue.length; i++) {
+      const candidate = this.queue[i]!;
+      const delta = Math.abs(candidate.autoOpenAtMs - burstMs);
+      if (delta <= BURST_MATCH_GRACE_MS && delta < matchedDelta) {
+        matchedDelta = delta;
+        matchedIdx = i;
+      }
+    }
+    return matchedIdx >= 0 ? { idx: matchedIdx, delta: matchedDelta } : null;
   }
 
   /**
@@ -510,11 +562,24 @@ export class AutoClassifyService {
     this.lastAutoOpenSeconds = current;
     if (this.queue.length === 0) return;
     if (prev) {
-      const drift = (a: number, b: number) => Math.abs(a - b) / Math.max(b, 1);
+      // A category is "below threshold" when EITHER the absolute delta is
+      // negligible (< AUTO_OPEN_ABSOLUTE_THRESHOLD, e.g. sub-second float
+      // noise) OR the relative drift is small (< AUTO_OPEN_DRIFT_THRESHOLD).
+      // Recompute only when ALL categories exceed the threshold. The
+      // absolute floor prevents tiny deltas on small `prev` values from
+      // producing large relative ratios that would trigger spurious
+      // recomputation.
+      const isBelowThreshold = (a: number, b: number) => {
+        const absDelta = Math.abs(a - b);
+        return (
+          absDelta < AUTO_OPEN_ABSOLUTE_THRESHOLD ||
+          absDelta / Math.max(b, 1) < AUTO_OPEN_DRIFT_THRESHOLD
+        );
+      };
       if (
-        drift(current.common, prev.common) < AUTO_OPEN_DRIFT_THRESHOLD &&
-        drift(current.stageBoss, prev.stageBoss) < AUTO_OPEN_DRIFT_THRESHOLD &&
-        drift(current.actBoss, prev.actBoss) < AUTO_OPEN_DRIFT_THRESHOLD
+        isBelowThreshold(current.common, prev.common) &&
+        isBelowThreshold(current.stageBoss, prev.stageBoss) &&
+        isBelowThreshold(current.actBoss, prev.actBoss)
       ) {
         return; // No significant drift.
       }
@@ -546,21 +611,34 @@ export class AutoClassifyService {
     // Sort by droppedAtMs ascending so we can chain tails in drop order.
     const sorted = [...this.queue].sort((a, b) => a.droppedAtMs - b.droppedAtMs);
     const tailsByCat: Partial<Record<BoxCategory, number>> = {};
-    for (const item of sorted) {
+    // Build new item objects (immutability contract — audit M3/Q7): mutating
+    // existing items in place would break the `slotDecrementedItems` WeakSet,
+    // which tracks item references to prevent double-decrement. By creating
+    // new objects we force a clean WeakSet reset below.
+    const newItems: QueueItem[] = sorted.map((item) => {
       const cat = categoryFromBoxKey(item.boxKey) ?? "unclassified";
       const seconds = this.autoOpenForBoxKey(item.boxKey, autoOpen);
       const prevTail = tailsByCat[cat];
-      item.autoOpenAtMs =
+      const autoOpenAtMs =
         prevTail != null ? prevTail + seconds * 1000 : item.droppedAtMs + seconds * 1000;
-      item.autoOpenSeconds = seconds;
-      item.expiresAtMs = item.autoOpenAtMs + computeTtlMs(seconds);
-      tailsByCat[cat] = item.autoOpenAtMs;
-    }
+      tailsByCat[cat] = autoOpenAtMs;
+      return {
+        ...item,
+        autoOpenAtMs,
+        autoOpenSeconds: seconds,
+        expiresAtMs: autoOpenAtMs + computeTtlMs(seconds),
+      };
+    });
     // Re-sort the queue by the new autoOpenAtMs (ties broken by droppedAtMs).
-    this.queue = sorted.sort((a, b) => {
+    this.queue = newItems.sort((a, b) => {
       if (a.autoOpenAtMs !== b.autoOpenAtMs) return a.autoOpenAtMs - b.autoOpenAtMs;
       return a.droppedAtMs - b.droppedAtMs;
     });
+    // Reset WeakSet: new item objects have no history. Old entries pointed
+    // at pre-recompute items that are no longer in the queue, and retaining
+    // them would suppress tick's slot decrement for the new items whose
+    // autoOpenAtMs may have moved from past to future (or vice versa).
+    this.slotDecrementedItems = new WeakSet();
     log.info(
       `recalibrated queue (${this.queue.length} items): ` +
         `autoOpen common=${autoOpen.common} stageBoss=${autoOpen.stageBoss} actBoss=${autoOpen.actBoss}`,

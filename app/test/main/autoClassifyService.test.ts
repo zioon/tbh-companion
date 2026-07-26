@@ -929,13 +929,13 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
 
     // Advance time past autoOpenAtMs and tick — auto-open detected,
-    // liveSlots.common decrements to 2. Item is added to autoOpenedItems WeakSet.
+    // liveSlots.common decrements to 2. Item is added to slotDecrementedItems WeakSet.
     vi.setSystemTime(302_000);
     service.tick();
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
 
     // Now the unclassified burst from the auto-open arrives — processEvent
-    // dequeues the same item, but it's in autoOpenedItems, so no decrement.
+    // dequeues the same item, but it's in slotDecrementedItems, so no decrement.
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 302.5);
     boxOpenTracker.flushUnclassified();
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
@@ -973,7 +973,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
   });
 
-  it("tick only decrements liveSlots for the head item, not for tail items (serial-queue)", () => {
+  it("tick decrements liveSlots for every elapsed item, not just the global head (audit M1)", () => {
     const { service, chestDropTracker } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -994,37 +994,32 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     // Advance time past head's autoOpenAtMs (301000) but before tail's (601000).
     vi.setSystemTime(302_000);
     service.tick();
-    // Only the head's auto-open is detected → liveSlots.common decrements to 3.
-    // The tail's autoOpenAtMs (601000) is a precomputed future moment and must
-    // NOT trigger a decrement yet.
+    // Head elapsed → liveSlots.common decrements to 3. Tail (601000) is still
+    // in the future, so the loop breaks at it.
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
 
-    // Advance time past tail's autoOpenAtMs (601000). tick only checks queue[0];
-    // the original head is still in queue (in WeakSet) and is still queue[0].
-    // tick sees it's in WeakSet → no decrement. The tail (queue[1]) is NOT
-    // checked by tick (serial-queue model: only head is checked).
-    // Head's expiresAtMs = 301000 + 330000 = 631000, still > 602000, so
-    // pruneExpired does NOT remove it. liveSlots stays at 3.
+    // Advance time past tail's autoOpenAtMs (601000). Both items are now
+    // elapsed. Head is in WeakSet (skip), tail is NOT in WeakSet → decrement.
+    // This is the audit M1 fix: previously only the global head was checked,
+    // so the tail's slot was never freed until a burst arrived or a save
+    // parse reconciled. Now tick walks the elapsed prefix.
     vi.setSystemTime(602_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
 
-    // Advance time past the head's TTL so pruneExpired removes it, making the
-    // tail the new head. Head's expiresAtMs = 301000 + 330000 = 631000.
+    // Advance time past the head's TTL so pruneExpired removes it.
+    // Head's expiresAtMs = 301000 + 330000 = 631000.
     vi.setSystemTime(632_000);
     service.tick();
-    // This tick: head (common@1.0s) is in WeakSet → no decrement. Then
-    // pruneExpired removes it (expiresAtMs=631000 <= 632000). Queue is now
-    // [common@2.0s]. liveSlots.common still 3 — the new head is checked on
-    // the NEXT tick, not in the same call (tick checks head before pruning).
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
-    // The next tick sees the new head (common@2.0s, autoOpenAtMs=601000 <=
-    // 632000), not in WeakSet → decrement liveSlots.common to 2.
+    // Both items are in WeakSet → no decrement. pruneExpired removes the
+    // expired head (expiresAtMs=631000 <= 632000). Queue is now [common@2.0s].
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    // Next tick: new head (common@2.0s) is already in WeakSet → no decrement.
     service.tick();
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
   });
 
-  it("tail item's autoOpenAtMs is not decremented by tick even when head is auto-opened (serial-queue)", () => {
+  it("tick does not decrement tail before its autoOpenAtMs elapses (serial-queue)", () => {
     const { service, chestDropTracker } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -1041,15 +1036,16 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     // Advance to 302000ms — head's autoOpenAtMs (301000) has elapsed.
     vi.setSystemTime(302_000);
     service.tick();
-    // Head auto-opened → liveSlots.common = 2. Tail NOT yet checked.
+    // Head auto-opened → liveSlots.common = 2. Tail (601000) is still in the
+    // future, so the loop breaks before reaching it — no decrement for tail.
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
 
-    // Advance to 602000ms — tail's autoOpenAtMs (601000) has elapsed, but
-    // tick only checks queue[0]. The original head is still in queue (in
-    // WeakSet). tick sees it's in WeakSet → no decrement.
+    // Advance to 602000ms — tail's autoOpenAtMs (601000) has now elapsed.
+    // tick walks the elapsed prefix: head is in WeakSet (skip), tail is
+    // elapsed and not in WeakSet → decrement to 1.
     vi.setSystemTime(602_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // Verify the tail is still in queue (waiting for processEvent or TTL).
     const snap = service.getQueueSnapshot();
@@ -1181,7 +1177,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
   // ---------------------------------------------------------------------------
   // Plan C: burst-time window matching in processEvent.
   // When an unclassified burst arrives, find the queue item whose
-  // autoOpenAtMs is closest to the burst's wall time and within ±30s grace.
+  // autoOpenAtMs is closest to the burst's wall time and within ±15s grace.
   // Defends against: (a) manual opens of non-head chests, (b) autoOpenAtMs
   // drift after rune changes, (c) head auto-open detected by tick but burst
   // arriving slightly late. Falls back to head when no item is in-window.
@@ -1212,7 +1208,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
 
   it("falls back to head when no queue item is within the burst grace window", () => {
     // Queue: [common@1.0s (autoOpenAtMs=301000)]. Burst at wallTime=2.0s →
-    // burstMs=2000. Head's delta=299000ms (>> 30000ms grace) → no match.
+    // burstMs=2000. Head's delta=299000ms (>> 15000ms grace) → no match.
     // processEvent falls back to dequeueing the head and emits a warn log.
     const { chestDropTracker, boxOpenTracker, service } = makeService({
       enabled: true,
@@ -1222,7 +1218,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     // Burst arrives ~299s before the head's autoOpenAtMs — way outside the
-    // ±30s grace window. processEvent should fall back to the head.
+    // ±15s grace window. processEvent should fall back to the head.
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
     boxOpenTracker.flushUnclassified();
     // Head consumed (fallback path), queue empty.
@@ -1252,5 +1248,432 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       ([msg]) => typeof msg === "string" && msg.includes("no queue item within"),
     );
     expect(fallbackCalls).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // H1: Plan A drift threshold boundary (audit gap).
+  // Threshold check is `drift < AUTO_OPEN_DRIFT_THRESHOLD` (strict <), so
+  // exactly 1.00% drift triggers recompute; 0.99% does not.
+  // ---------------------------------------------------------------------------
+
+  it("Plan A: triggers recompute at exactly 1.00% drift (boundary, strict <)", () => {
+    // 300 → 303 = exactly 1.00%. drift = 3/300 = 0.01; `0.01 < 0.01` is false
+    // → not "all below threshold" → recompute fires.
+    const autoOpenRef = {
+      value: { common: 300, stageBoss: 600, actBoss: 60 } as {
+        common: number;
+        stageBoss: number;
+        actBoss: number;
+      } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    autoOpenRef.value = { common: 303, stageBoss: 600, actBoss: 60 };
+    chestDropTracker.recordLiveChestDrop("common", 2.0); // triggers recalibration
+    // Recomputed with autoOpen=303: 1st item autoOpenAtMs = 1000 + 303000 = 304000
+    // now=10000 → autoOpenInMs = 294000 (not 291000 which would be the no-recompute value)
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]!.autoOpenInMs).toBe(294_000);
+  });
+
+  it("Plan A: does NOT trigger recompute at 0.99% drift (below threshold)", () => {
+    // 300 → 302.97 = 0.99% drift. 0.0099 < 0.01 = true → no recompute.
+    const autoOpenRef = {
+      value: { common: 300, stageBoss: 600, actBoss: 60 } as {
+        common: number;
+        stageBoss: number;
+        actBoss: number;
+      } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    autoOpenRef.value = { common: 302.97, stageBoss: 600, actBoss: 60 };
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    // 1st item NOT recomputed: autoOpenAtMs still 301000 → autoOpenInMs=291000
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]!.autoOpenInMs).toBe(291_000);
+  });
+
+  it("Plan A: triggers recompute at 1.01% drift (above threshold)", () => {
+    // 300 → 303.03 = 1.01% drift. 0.0101 < 0.01 = false → recompute fires.
+    const autoOpenRef = {
+      value: { common: 300, stageBoss: 600, actBoss: 60 } as {
+        common: number;
+        stageBoss: number;
+        actBoss: number;
+      } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    autoOpenRef.value = { common: 303.03, stageBoss: 600, actBoss: 60 };
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    // Recomputed: 1000 + 303.03*1000 = 304030 → autoOpenInMs = 294030
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]!.autoOpenInMs).toBe(294_030);
+  });
+
+  // ---------------------------------------------------------------------------
+  // H2: Plan C burst window boundary (audit gap).
+  // Match check is `delta <= BURST_MATCH_GRACE_MS` (inclusive), so exactly
+  // 15000ms matches; 15001ms falls back to head.
+  // ---------------------------------------------------------------------------
+
+  it("Plan C: matches head at exactly 15000ms delta (boundary, inclusive <=)", () => {
+    // autoOpenAtMs=301000. burstMs = 301000 - 15000 = 286000 → wallTime=286.0s.
+    // delta = 15000 → `15000 <= 15000` = true → match (stage 1 head).
+    const { chestDropTracker, boxOpenTracker, service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 286.0);
+    boxOpenTracker.flushUnclassified();
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(0); // head consumed via match
+    const fallbackCalls = logMocks.warn.mock.calls.filter(
+      ([msg]) => typeof msg === "string" && msg.includes("no queue item within"),
+    );
+    expect(fallbackCalls).toHaveLength(0);
+  });
+
+  it("Plan C: matches head at 14999ms delta (just inside window)", () => {
+    // burstMs = 301000 - 14999 = 286001 → wallTime=286.001s. delta=14999 → match.
+    const { chestDropTracker, boxOpenTracker, service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 286.001);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
+  });
+
+  it("Plan C: falls back to head at 15001ms delta (just outside window)", () => {
+    // burstMs = 301000 - 15001 = 285999 → wallTime=285.999s. delta=15001
+    // → `15001 <= 15000` = false → no match → fallback to head (consumes
+    // head via dequeue, emits warn log).
+    const { chestDropTracker, boxOpenTracker, service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 285.999);
+    boxOpenTracker.flushUnclassified();
+    // Head still consumed (fallback path), but via dequeue not match.
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
+    expect(logMocks.warn).toHaveBeenCalledWith(expect.stringContaining("no queue item within"));
+  });
+
+  // ---------------------------------------------------------------------------
+  // M2: cross-category head-priority match (audit fix verification).
+  // Two queue items from different categories both fall in-window; stage 1
+  // must match the head (FIFO) rather than the closer tail, preventing
+  // cross-category misclassification.
+  // ---------------------------------------------------------------------------
+
+  it("M2 fix: prefers head over a closer tail item from a different category", () => {
+    // Queue: [common@1.0s (autoOpenAtMs=301000), act@241.5s (autoOpenAtMs=301500)]
+    // Burst at wallTime=301.7s → burstMs=301700.
+    //   head (common) delta = |301000-301700| = 700ms (in 15s window)
+    //   tail (act)    delta = |301500-301700| = 200ms (in window, smaller)
+    // Stage 1 matches head (common) even though tail has smaller delta.
+    const { chestDropTracker, boxOpenTracker, service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105, // common→level 5 (routes), act→level 1 (fallback)
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    chestDropTracker.recordLiveChestDrop("act", 241.5); // autoOpenAtMs=301500
+    // Verify queue order: head is common (autoOpenAtMs=301000 < 301500)
+    let snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(2);
+    expect(snap.items[0]!.boxKey).toBe("common:5");
+    expect(snap.items[1]!.boxKey).toBe("act:1");
+    // Burst at wallTime=301.7s — both items in window, but stage 1 matches
+    // the head (common), not the closer tail (act).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.7);
+    boxOpenTracker.flushUnclassified();
+    // Head (common) consumed; tail (act) remains.
+    snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.boxKey).toBe("act:1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H3: FALLBACK → 真实值首次过渡（prev=null 路径）。
+// 启动时 ChestService 还没有 save，返回 null → 使用 FALLBACK_AUTO_OPEN。
+// 首次 save 解析后 ChestService 返回真实值，maybeRecalibrateQueue 看到
+// prev=null → 走 "first calibration" 分支，触发 recompute。这是 Plan A
+// 在会话生命周期起点必须覆盖的关键场景：玩家装了减少冷却的符文，实际
+// autoOpenSeconds 与 FALLBACK 显著不同，若不 recompute 会造成整条队列
+// autoOpenAtMs 偏移 N × δ。
+// ---------------------------------------------------------------------------
+
+describe("AutoClassifyService session lifecycle (H3/H4)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("H3: FALLBACK→真实值首次过渡触发 recompute (prev=null 路径)", () => {
+    // 启动时 ChestService 还没有 save，返回 null → 使用 FALLBACK_AUTO_OPEN
+    // (common=300, stageBoss=600, actBoss=60)。
+    const autoOpenRef = {
+      value: null as { common: number; stageBoss: number; actBoss: number } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // 掉落两个 common 宝箱，按 FALLBACK (300s) 计算 autoOpenAtMs：
+    //   1st: queue empty → 1000 + 300*1000 = 301000
+    //   2nd: tail=301000 → 301000 + 300*1000 = 601000 (chained)
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    let snap = service.getQueueSnapshot();
+    expect(snap.items[0]!.autoOpenInMs).toBe(291_000); // 301000 - 10000
+    expect(snap.items[1]!.autoOpenInMs).toBe(591_000); // 601000 - 10000
+
+    // 首次 save 解析：ChestService 返回真实值 common=120s（玩家装了减少冷却的符文）。
+    // maybeRecalibrateQueue 看到 prev=null → "first calibration" 分支触发 recompute。
+    // Recomputed (autoOpen.common=120):
+    //   1st (dropped@1.0s): autoOpenAtMs = 1000 + 120*1000 = 121000
+    //   2nd (dropped@2.0s): autoOpenAtMs = 121000 + 120*1000 = 241000 (chained)
+    autoOpenRef.value = { common: 120, stageBoss: 600, actBoss: 60 };
+    // 通过 reconcileWithChestSlots 触发（这是 save 解析的入口）。
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    snap = service.getQueueSnapshot();
+    expect(snap.items).toHaveLength(2);
+    expect(snap.items[0]!.droppedAtMs).toBe(1000);
+    expect(snap.items[0]!.autoOpenInMs).toBe(111_000); // 121000 - 10000
+    expect(snap.items[1]!.droppedAtMs).toBe(2000);
+    expect(snap.items[1]!.autoOpenInMs).toBe(231_000); // 241000 - 10000
+  });
+
+  it("H3: FALLBACK→真实值过渡后 WeakSet 重置，tick 重新处理 elapsed item", () => {
+    // 验证 recomputeQueueAutoOpenAtMs 在 H3 场景下也重置 slotDecrementedItems WeakSet
+    // （M3 fix 在 H3 上的体现）。场景：FALLBACK 阶段 drop + tick 让 item 进入
+    // WeakSet；首次 save 解析后 autoOpen 从 300s → 100s，recompute 后 item 的
+    // autoOpenAtMs 从 301000 变为 101000（已过去）。WeakSet 必须重置，否则
+    // tick 会跳过这个 item（旧引用仍命中 WeakSet），导致 liveSlots 不一致。
+    const autoOpenRef = {
+      value: null as { common: number; stageBoss: number; actBoss: number } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // 掉落并 tick 越过 FALLBACK autoOpenAtMs，让 item 进入 WeakSet。
+    // liveSlots: 2 (save) + 1 (drop) - 1 (tick auto-open) = 2.
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    vi.setSystemTime(302_000);
+    service.tick();
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+
+    // 首次 save 解析：autoOpen.common 从 FALLBACK 300s → 100s。
+    // recompute 后 item 的 autoOpenAtMs = 1000 + 100*1000 = 101000（已过去，
+    // 因为 now=302000）。WeakSet 重置，item 重新可被 tick 处理。
+    // reconcileWithChestSlots 设置 liveSlots = { common: 2 }（save is ground truth）。
+    // queue 里仍有 1 个 common item（autoOpenAtMs=101000）；slots.common=2
+    // >= queue.common=1，不 prune。
+    autoOpenRef.value = { common: 100, stageBoss: 600, actBoss: 60 };
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+
+    // tick 越过新 autoOpenAtMs（101000 < now=302000）→ 应该 decrement liveSlots。
+    // 若 WeakSet 未重置，tick 会跳过这个 item（旧引用仍命中 WeakSet），
+    // liveSlots 保持 2，造成不一致。
+    service.tick();
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
+  });
+
+  it("H3: 真实值→FALLBACK 回退不触发 recompute (current=null 早返回)", () => {
+    // 边界场景：save 解析失败导致 ChestService 再次返回 null。
+    // maybeRecalibrateQueue 在 current=null 时早返回，不破坏队列。
+    const autoOpenRef = {
+      value: { common: 120, stageBoss: 600, actBoss: 60 } as {
+        common: number;
+        stageBoss: number;
+        actBoss: number;
+      } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=121000 (120s)
+    let snap = service.getQueueSnapshot();
+    expect(snap.items[0]!.autoOpenInMs).toBe(111_000); // 121000 - 10000
+
+    // save 解析失败 → autoOpenRef.value=null。maybeRecalibrateQueue 早返回，
+    // lastAutoOpenSeconds 也保持原值（不被 null 覆盖），队列保持原状。
+    autoOpenRef.value = null;
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+    snap = service.getQueueSnapshot();
+    expect(snap.items).toHaveLength(1);
+    expect(snap.items[0]!.autoOpenInMs).toBe(111_000); // 未变
+  });
+
+  // ---------------------------------------------------------------------------
+  // H4: 重启后状态恢复（disable→enable）。
+  // disable 时清空 queue / pending / liveSlots / lastReconcileSlots /
+  // lastAutoOpenSeconds；重新 enable 后行为与首次启动一致：liveSlots 为 null
+  // 直到下一次 reconcileWithChestSlots，lastAutoOpenSeconds 为 null 使下一次
+  // autoOpenSeconds 读取走 "first calibration" 路径。slotDecrementedItems WeakSet
+  // 虽未被显式重置，但 queue=[] 后旧 item 失去引用，新 drop 创建新对象，
+  // WeakSet.has(newItem) 返回 false，不会泄露。
+  // ---------------------------------------------------------------------------
+
+  it("H4: disable→enable 后状态完全重置，行为与首次启动一致", () => {
+    const autoOpenRef = {
+      value: { common: 300, stageBoss: 600, actBoss: 60 } as {
+        common: number;
+        stageBoss: number;
+        actBoss: number;
+      } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // 会话期内状态：liveSlots 已初始化、queue 有 items、lastAutoOpenSeconds 已设置。
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    expect(service.getQueueSnapshot().totalQueued).toBe(1);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+
+    // 禁用：状态全部清空。
+    service.setEnabled(false);
+    const disabledSnap = service.getQueueSnapshot();
+    expect(disabledSnap.totalQueued).toBe(0);
+    expect(disabledSnap.liveSlots).toBeNull();
+
+    // 重新启用：状态重置，行为与首次启动一致。
+    service.setEnabled(true);
+    const reenabledSnap = service.getQueueSnapshot();
+    expect(reenabledSnap.totalQueued).toBe(0);
+    expect(reenabledSnap.liveSlots).toBeNull(); // 等待 reconcileWithChestSlots 恢复
+
+    // 重新启用后掉落一个 chest：lastAutoOpenSeconds=null（已重置），不会触发
+    // recompute（prev=null → maybeRecalibrateQueue 在 queue.length===0 时早返回；
+    // 即使 queue 非空，prev=null 也走 first calibration 分支但不会 recompute
+    // 已经为空的队列）。
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.autoOpenInMs).toBe(291_000); // 301000 - 10000
+    // liveSlots 仍为 null（reconcile 还没来），handleChestDrop 不会 ++null。
+    expect(snap.liveSlots).toBeNull();
+
+    // save 解析到达，liveSlots 恢复。reconcileWithChestSlots 直接覆盖为 save 的绝对值
+    // （不会叠加 drop 的 ++：save is ground truth）。
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
+  });
+
+  it("H4: 重启后 tick 正确递减 liveSlots（旧 WeakSet 引用不泄露）", () => {
+    // 验证 disable→enable 后，新 drop 创建的新 item 对象不被旧的
+    // slotDecrementedItems WeakSet 抑制（即使 WeakSet 未显式重置）。
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // 第一次会话：drop 一个 chest，tick 自动开启它，liveSlots 递减，
+    // item 进入 slotDecrementedItems WeakSet。
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    vi.setSystemTime(302_000);
+    service.tick();
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+
+    // 重启：disable→enable。queue 清空，slotDecrementedItems WeakSet 仍持有旧 item
+    // 引用，但 queue=[] 后旧 item 不再被引用。新 drop 创建新 item 对象，
+    // WeakSet.has(newItem) 返回 false。
+    service.setEnabled(false);
+    service.setEnabled(true);
+    // 重新初始化 liveSlots 并 drop 一个新 chest。
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // 新 item, autoOpenAtMs=301000
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    // tick 越过 autoOpenAtMs → liveSlots 应该递减（不被旧 WeakSet 抑制）。
+    vi.setSystemTime(302_000);
+    service.tick();
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+  });
+
+  it("H4: 重启后 lastAutoOpenSeconds=null，首次 autoOpen 读取走 first calibration", () => {
+    // 验证重启后 lastAutoOpenSeconds 被重置为 null，使下一次 autoOpenSeconds
+    // 读取走 "first calibration" 路径（prev=null → recompute 触发）。
+    // 这保证：如果重启后 ChestService 返回的 autoOpenSeconds 与重启前不同
+    // （比如玩家在重启间隙修改了符文配置），队列会被重新校准。
+    const autoOpenRef = {
+      value: { common: 300, stageBoss: 600, actBoss: 60 } as {
+        common: number;
+        stageBoss: number;
+        actBoss: number;
+      } | null,
+    };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpenRef,
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // 第一次会话：drop 一个 chest，建立 lastAutoOpenSeconds={common:300,...}。
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+
+    // 重启。
+    service.setEnabled(false);
+    service.setEnabled(true);
+
+    // 重启后玩家改了符文：autoOpen.common 300s → 100s。
+    // drop 一个新 chest：maybeRecalibrateQueue 看到 prev=null（重启时已重置）
+    // → first calibration 分支。但此时 queue=[]（重启时已清空），所以
+    // recomputeQueueAutoOpenAtMs 早返回，不执行任何 recompute。
+    // 新 chest 直接用新 autoOpen=100s enqueue：
+    //   autoOpenAtMs = 1000 + 100*1000 = 101000
+    autoOpenRef.value = { common: 100, stageBoss: 600, actBoss: 60 };
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.items).toHaveLength(1);
+    expect(snap.items[0]!.autoOpenInMs).toBe(91_000); // 101000 - 10000
   });
 });
