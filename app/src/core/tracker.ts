@@ -689,7 +689,14 @@ export class XpTracker {
   }
 
   get sessionRate(): number {
-    return this.sessionRateValue;
+    // sessionRate 是"会话至今的平均每小时经验"，分母必须用真实会话总时长
+    // (now - sessionStart)，而非"首次到末次 XP 增益"的时长。否则玩家挂机后
+    // sessionRate 卡在"打怪期"的高位不衰减，与 UI 标签 "sessionXpPerHour" 语义
+    // 不符。`sessionRateValue` 字段保留旧公式（仅用于持久化/合理性检查）。
+    const elapsed = this.elapsed;
+    if (elapsed <= 0) return this.sessionRateValue;
+    const rate = (this.cumulativeGained / elapsed) * 3600;
+    return isPlausibleXpRate(rate) ? rate : this.sessionRateValue;
   }
 
   get rollingRate(): number {
@@ -716,7 +723,11 @@ export class XpTracker {
   }
 
   get goldSessionRate(): number {
-    return this.goldSessionRateValue;
+    // 同 sessionRate：基于会话总时长实时计算，避免挂机后速率卡住不衰减。
+    const elapsed = this.elapsed;
+    if (elapsed <= 0) return this.goldSessionRateValue;
+    const rate = (this.goldGained / elapsed) * 3600;
+    return isPlausibleXpRate(rate) ? rate : this.goldSessionRateValue;
   }
 
   /** Seconds since the save file mtime when XP last changed (not every read). */

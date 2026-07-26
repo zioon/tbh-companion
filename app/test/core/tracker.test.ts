@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { XpTracker } from "../../src/core/tracker";
 import type { SaveSnapshot } from "../../shared/types";
 
@@ -110,6 +110,54 @@ describe("XpTracker", () => {
 
     t.update(snap(baseNow - 5, 600)); // save wrote 5s ago, XP unchanged
     expect(t.secondsSinceGain).toBeCloseTo(30, 0); // still anchored to last gain mtime
+  });
+
+  it("sessionRate decays toward zero as the session runs idle (no new XP gain)", () => {
+    // 用 fake timers 把 nowSeconds() 固定到 t0；snap.saveMtime 也用同一时间基。
+    vi.useFakeTimers();
+    const t0 = 1_000_000; // seconds since epoch
+    vi.setSystemTime(t0 * 1000);
+
+    const t = new XpTracker(300);
+    t.update(snap(t0, 0)); // init at session start
+
+    // 在 t0+60s 获得 600 XP（即 60s 内 600 XP -> 36000/hr）
+    vi.setSystemTime((t0 + 60) * 1000);
+    t.update(snap(t0 + 60, 600));
+    expect(t.cumulativeGained).toBe(600);
+    // 此时整个会话已经 60s，sessionRate ≈ 36000
+    expect(t.sessionRate).toBeCloseTo(36000, -3);
+
+    // 玩家挂机 1 小时：save 文件继续写但 XP 不变
+    vi.setSystemTime((t0 + 60 + 3600) * 1000);
+    t.update(snap(t0 + 60 + 3600, 600));
+    // 期望 sessionRate 衰减到接近 600/3660*3600 ≈ 590 XP/hour
+    expect(t.sessionRate).toBeLessThan(800);
+    expect(t.sessionRate).toBeGreaterThan(500);
+
+    vi.useRealTimers();
+  });
+
+  it("goldSessionRate decays toward zero as the session runs idle (no new gold gain)", () => {
+    vi.useFakeTimers();
+    const t0 = 1_000_000;
+    vi.setSystemTime(t0 * 1000);
+
+    const t = new XpTracker(300);
+    t.update(snap(t0, 0, 0)); // init
+
+    vi.setSystemTime((t0 + 60) * 1000);
+    t.update(snap(t0 + 60, 0, 600)); // +600 gold in 60s
+    expect(t.goldGained).toBe(600);
+    expect(t.goldSessionRate).toBeCloseTo(36000, -3);
+
+    // 挂机 1 小时
+    vi.setSystemTime((t0 + 60 + 3600) * 1000);
+    t.update(snap(t0 + 60 + 3600, 0, 600));
+    expect(t.goldSessionRate).toBeLessThan(800);
+    expect(t.goldSessionRate).toBeGreaterThan(500);
+
+    vi.useRealTimers();
   });
 });
 
