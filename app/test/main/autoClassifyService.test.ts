@@ -2089,18 +2089,18 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
 
     // Save shows common=1 (one chest opened). liveSlots was 2 → delta=1.
-    // Classification: burst → common. Reset timers anchored to
-    // burstMs + autoOpenSec = 2000 + 300*1000 = 302000 (new head's autoOpenAtMs):
-    //   head (new): autoOpenAtMs = 302000
-    //   tail: autoOpenAtMs = 302000 + 300*1000 = 602000 (chained)
-    // After excess-prune (queue 2 > slots 1): head (302000) pruned, tail remains.
+    // Step 1 (excess-prune): queue 2 > slots 1 → prune A (autoOpenAtMs=301000).
+    //   queue after prune: [B(601000)]
+    // Step 2 (classify): reset(common, burstMs + autoOpenSec = 2000 + 300*1000 = 302000).
+    //   B becomes new head: autoOpenAtMs = 302000 (A opened at burstMs=2000,
+    //   timer retargets B starting at burstMs + autoOpenSec = 302000).
     service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
 
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(1);
-    // Remaining tail's autoOpenAtMs = 602000. now=10000 → autoOpenInMs=592000.
+    // B.autoOpenAtMs = 302000. now=10000 → autoOpenInMs=292000.
     expect(snap.items[0]!.droppedAtMs).toBe(2000);
-    expect(snap.items[0]!.autoOpenInMs).toBe(592_000);
+    expect(snap.items[0]!.autoOpenInMs).toBe(292_000);
   });
 
   it("resets all slot timers when multiple categories decreased (ambiguous)", () => {
@@ -2128,20 +2128,21 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(2);
 
     // Save shows common=1, rare=0 → both decreased → ambiguous.
-    // Reset all timers anchored to earliest burst + per-cat autoOpenSec:
+    // Step 1 (excess-prune):
+    //   common: queue 2 > slots 1 → prune A (autoOpenAtMs=301000). queue: [B(601000)]
+    //   rare: queue 1 > slots 0 → prune head (autoOpenAtMs=601000). queue: []
+    // Step 2 (classify): reset all timers anchored to earliest burst + per-cat autoOpenSec:
     //   earliest burstMs=2000, common autoOpenSec=300 → anchor=302000
-    //   common head: autoOpenAtMs=302000 (pruned: queue 2 > slots 1)
-    //   common tail: autoOpenAtMs=302000+300*1000=602000
-    //   rare autoOpenSec=600 → anchor=602000
-    //   rare head: autoOpenAtMs=602000 (pruned: queue 1 > slots 0)
+    //   common B: autoOpenAtMs = 302000 (new head, A opened at burstMs=2000)
+    //   rare autoOpenSec=600 → anchor=602000, but rare queue is empty → no-op
     service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
 
     const snap = service.getQueueSnapshot();
-    // common: 1 item remains (tail, autoOpenAtMs=602000).
+    // common: 1 item remains (B, autoOpenAtMs=302000).
     // rare: 0 items remain (pruned).
     expect(snap.totalQueued).toBe(1);
     expect(snap.items[0]!.boxKey).toBe("common:5");
-    expect(snap.items[0]!.autoOpenInMs).toBe(592_000); // 602000 - 10000
+    expect(snap.items[0]!.autoOpenInMs).toBe(292_000); // 302000 - 10000
     // Items left unclassified (no reclassify).
     const stats = boxOpenTracker.getStats(100, null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();

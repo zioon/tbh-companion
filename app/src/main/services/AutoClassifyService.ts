@@ -493,85 +493,24 @@ export class AutoClassifyService {
     // and other state changes become visible to ChestService, so this is the
     // primary trigger for queue recalibration.
     this.maybeRecalibrateQueue();
-    // Classify pending bursts BEFORE overwriting liveSlots. The classification
-    // compares the previous liveSlots (real-time, pre-save) against the new
-    // save's slot counts to detect which categories decreased — i.e., which
-    // slots had chests open since the last save. This must happen before
-    // liveSlots is overwritten because the delta is the signal.
-    this.classifyPendingBursts(slots);
-    // Recalibrate liveSlots to the save's absolute values. This discards any
-    // real-time adjustments (drops/opens) accumulated since the last save parse
-    // — the save is the ground truth, and the adjustments were only providing
-    // sub-save-latency responsiveness between parses.
-    this.liveSlots = { ...slots };
-
-    // High-frequency reconcile (5 Hz from live snapshots) would emit the same
-    // "queue < slots" info log on every tick when slots are unchanged. Suppress
-    // by tracking the last-seen slots and only logging the deficit info when
-    // slots actually change (or on the first call after enable). Pruning logs
-    // are not suppressed — they only fire on actual excess, which is rare.
-    const prev = this.lastReconcileSlots;
-    const slotsChanged =
-      prev == null ||
-      prev.common !== slots.common ||
-      prev.rare !== slots.rare ||
-      prev.act !== slots.act;
-    this.lastReconcileSlots = slots;
 
     const order = ["common", "rare", "act"] as const;
+
+    // Step 1: Excess-prune FIRST (before classifyPendingBursts). Queue is
+    // sorted by autoOpenAtMs ascending; the first `excess` matching items
+    // are the ones with the soonest auto-open times — they should have
+    // opened already. Prune them BEFORE reset so that reset only applies
+    // to remaining items, making the new head's autoOpenAtMs = anchorMs
+    // (= burstMs + autoOpenSec). Without this ordering, reset would chain
+    // the already-opened chest into the new chain, pushing the new head's
+    // autoOpenAtMs to anchorMs + N*autoOpenSec (N = opened count) — wrong.
     let prunedTotal = 0;
     for (const category of order) {
       const slotCount = slots[category];
       const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
       const queueCount = matching.length;
-      if (queueCount < slotCount) {
-        // Queue has fewer items than the save's slot count. This happens
-        // when: (a) companion just opened — save has chests but the queue
-        // is empty (no live drops tracked yet); (b) live reader lagged or
-        // was stopped and missed some drops. Backfill the deficit with
-        // placeholder items anchored to "now", each getting a full
-        // autoOpenSeconds countdown. `enqueue` handles serial-queue
-        // chaining (1st = now + autoOpenSec, 2nd chains onto 1st, ...)
-        // so displayed countdowns match the game's per-slot behavior: a
-        // slot that already holds a chest starts a full countdown from
-        // the moment the companion first sees it.
-        const deficit = slotCount - queueCount;
-        const stageKey = this.deps.getCurrentStageKey() ?? 0;
-        const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
-        const boxKey = this.resolveDropBoxKey({ category }, stageKey);
-        if (boxKey) {
-          const seconds = this.autoOpenForBoxKey(boxKey, autoOpen);
-          const anchorMs = this.getEffectiveNow();
-          for (let i = 0; i < deficit; i++) {
-            this.queue = enqueue(this.queue, {
-              boxKey,
-              droppedAtMs: anchorMs,
-              stageKey,
-              autoOpenSeconds: seconds,
-            });
-          }
-          if (slotsChanged) {
-            log.info(
-              `reconcile: backfilled ${deficit} ${category} item(s) ` +
-                `(queue ${queueCount} < slots ${slotCount}); each gets full ${seconds}s countdown`,
-            );
-          }
-        } else if (slotsChanged) {
-          log.warn(
-            `reconcile: could not backfill ${deficit} ${category} item(s) ` +
-              `(queue ${queueCount} < slots ${slotCount}); boxKey unresolved`,
-          );
-        }
-        continue;
-      }
-      if (queueCount === slotCount) continue;
+      if (queueCount <= slotCount) continue;
       const excess = queueCount - slotCount;
-      // Queue is sorted by autoOpenAtMs ascending. The first `excess`
-      // matching items are the ones with the soonest auto-open times — they
-      // should have opened already. Prune them; remaining items keep their
-      // original autoOpenAtMs (serial-queue model: each item's auto-open
-      // moment was precomputed at drop time and is independent of the
-      // pruned chests).
       const toRemove = new Set(matching.slice(0, excess));
       this.queue = this.queue.filter((q) => !toRemove.has(q));
       prunedTotal += excess;
@@ -582,6 +521,69 @@ export class AutoClassifyService {
     }
     if (prunedTotal > 0) {
       log.info(`reconcile: total pruned ${prunedTotal} item(s) across categories`);
+    }
+
+    // Step 2: Classify pending bursts BEFORE overwriting liveSlots. The
+    // classification compares the previous liveSlots (real-time, pre-save)
+    // against the new save's slot counts to detect which categories
+    // decreased — i.e., which slots had chests open since the last save.
+    // This must happen before liveSlots is overwritten because the delta
+    // is the signal. Reset anchors to burstMs + autoOpenSec (the new head's
+    // autoOpenAtMs under the serial-queue model: the chest that opened at
+    // burstMs is gone, the timer retargets the new head starting at
+    // burstMs + autoOpenSec). After step 1's excess-prune, reset only
+    // applies to remaining items, so the new head's autoOpenAtMs = anchorMs.
+    this.classifyPendingBursts(slots);
+
+    // Step 3: Recalibrate liveSlots to the save's absolute values. This
+    // discards any real-time adjustments (drops/opens) accumulated since
+    // the last save parse — the save is the ground truth.
+    this.liveSlots = { ...slots };
+
+    // Step 4: Backfill (queue < slots). Companion just opened or live reader
+    // lagged — save has chests but the queue is empty/short. Backfill with
+    // placeholder items anchored to "now", each getting a full autoOpenSeconds
+    // countdown. `enqueue` handles serial-queue chaining.
+    const prev = this.lastReconcileSlots;
+    const slotsChanged =
+      prev == null ||
+      prev.common !== slots.common ||
+      prev.rare !== slots.rare ||
+      prev.act !== slots.act;
+    this.lastReconcileSlots = slots;
+
+    for (const category of order) {
+      const slotCount = slots[category];
+      const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
+      const queueCount = matching.length;
+      if (queueCount >= slotCount) continue;
+      const deficit = slotCount - queueCount;
+      const stageKey = this.deps.getCurrentStageKey() ?? 0;
+      const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+      const boxKey = this.resolveDropBoxKey({ category }, stageKey);
+      if (boxKey) {
+        const seconds = this.autoOpenForBoxKey(boxKey, autoOpen);
+        const anchorMs = this.getEffectiveNow();
+        for (let i = 0; i < deficit; i++) {
+          this.queue = enqueue(this.queue, {
+            boxKey,
+            droppedAtMs: anchorMs,
+            stageKey,
+            autoOpenSeconds: seconds,
+          });
+        }
+        if (slotsChanged) {
+          log.info(
+            `reconcile: backfilled ${deficit} ${category} item(s) ` +
+              `(queue ${queueCount} < slots ${slotCount}); each gets full ${seconds}s countdown`,
+          );
+        }
+      } else if (slotsChanged) {
+        log.warn(
+          `reconcile: could not backfill ${deficit} ${category} item(s) ` +
+            `(queue ${queueCount} < slots ${slotCount}); boxKey unresolved`,
+        );
+      }
     }
   }
 

@@ -73,25 +73,33 @@
 
 ### 5.1 触发时机
 - `reconcileWithChestSlots(slots)` 在 save 解析时调用
-- 在 `liveSlots` 更新前执行 `classifyPendingBursts(slots)`
+- 流程顺序：
+  1. **excess-prune**（基于新 slots）：删除 queue > slots 的 items（已开但未 dequeue 的）
+  2. **classifyPendingBursts**：对比 liveSlots 与 saveSlots，分类 pending bursts 并 reset 剩余 items 的倒计时
+  3. **liveSlots = slots**：用 save 值覆盖
+  4. **backfill**（queue < slots）：补充缺失的 items
 
-### 5.2 对比逻辑
+### 5.2 excess-prune 在前的原因
+- reset 只应用于**剩余 items**，让新 head 的 autoOpenAtMs = anchorMs
+- 如果 reset 在 excess-prune 之前，已开的 chest 会被算进 chain，新 head 的 autoOpenAtMs 错位为 anchorMs + N*autoOpenSec
+
+### 5.3 对比逻辑
 - 对比 `liveSlots`（旧值，实时跟踪）与 `saveSlots`（新 save 值）
 - `liveSlots[cat] > saveSlots[cat]` → 该 category 有 chest 被打开（live 比 save 多，因为 drop 时 ++ 但 open 没有匹配到 slot 来 --）
 
-### 5.3 分类规则
+### 5.4 分类规则
 1. **单一 slot 减少 + 单一 pending burst**：
    - 分类 burst 到该 category（reclassify items）
-   - 重置该 slots 倒计时（anchor = `burst.burstMs`）
+   - 重置该 slots 倒计时（anchor = `burstMs + autoOpenSec`，即新 head 的 autoOpenAtMs）
 2. **多个 slots 减少（兜底）**：
    - burst 留在未分类（不 reclassify）
-   - 重置所有 slots 倒计时（anchor = 最早 burst 的 `burstMs`）
+   - 重置所有 slots 倒计时（anchor = 最早 burst 的 `burstMs + per-cat autoOpenSec`）
 3. **无 slot 减少**：
    - pending bursts 保留（等待 TTL pruning）
 
-### 5.4 后续处理
+### 5.5 后续处理
 - `liveSlots` 更新为 save 值
-- excess-prune：`queueCount > slotCount` → 删除多余的 items（已打开但未 dequeue 的）
+- backfill：`queueCount < slotCount` → 补充缺失的 items（初始打开 companion 场景）
 
 ## 6. 背包满暂停
 
