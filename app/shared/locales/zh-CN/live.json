@@ -83,7 +83,7 @@
   "colClearedAt": "通关时间",
   "colClearTime": "通关用时",
   "colGold": "金币",
-  "bossLabel": "Boss",
+  "bossLabel": "Box",
   "invLabel": "物品栏 {{value}}",
   "pricingProgress": "定价中 {{done}}/{{total}}…",
   "pricingLabel": "定价中…",

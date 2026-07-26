@@ -222,8 +222,8 @@ describe("AutoClassifyService", () => {
     });
     // Drop a rare chest on stage 1105 → queue item with boxKey "rare:5"
     chestDropTracker.recordLiveChestDrop("rare", 1.0);
-    // Open it (lands in unclassified)
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // MARKER_TEST1: Open at the auto-open moment (drop@1s + 600s = 601s).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 601.0);
     boxOpenTracker.flushUnclassified();
     // The item should have been reclassified to "rare:5"
     const stats = boxOpenTracker.getStats(100, null);
@@ -244,8 +244,9 @@ describe("AutoClassifyService", () => {
     // should be at the head of the queue.
     chestDropTracker.recordLiveChestDrop("rare", 1.0);
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    // An unclassified burst arrives — should match the common (head), not rare.
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // MARKER_TEST2: An unclassified burst arrives at common's auto-open moment
+    // (drop@1s + 300s = 301s) — should match the common (head), not rare.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
     boxOpenTracker.flushUnclassified();
     const stats = boxOpenTracker.getStats(100, null);
     expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
@@ -266,8 +267,8 @@ describe("AutoClassifyService", () => {
     });
     // Drop an act boss chest → queue item with boxKey "act:1" (per-act level)
     chestDropTracker.recordLiveChestDrop("act", 1.0);
-    // Open it (lands in unclassified)
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // Open it at the auto-open moment (drop@1s + 60s = 61s).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
     boxOpenTracker.flushUnclassified();
     // The item should have been reclassified to "act:1"
     const stats = boxOpenTracker.getStats(100, null);
@@ -286,7 +287,8 @@ describe("AutoClassifyService", () => {
       currentStageKey: 1210,
     });
     chestDropTracker.recordLiveChestDrop("act", 1.0);
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // MARKER_TEST4_RETRY: Open at the auto-open moment (drop@1s + 60s = 61s).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
     boxOpenTracker.flushUnclassified();
     const stats = boxOpenTracker.getStats(100, null);
     expect(stats.find((s) => s.boxKey === "act:20")).toBeTruthy();
@@ -328,7 +330,8 @@ describe("AutoClassifyService", () => {
       currentStageKey: 1110,
     });
     chestDropTracker.recordLiveChestDrop("act", 1.0);
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // Open at the auto-open moment (drop@1s + 60s = 61s).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
     boxOpenTracker.flushUnclassified();
     const stats = boxOpenTracker.getStats(100, null);
     // No routes → level is null → boxKey is just "act" (no level suffix).
@@ -388,7 +391,8 @@ describe("AutoClassifyService", () => {
       currentStageKey: 1101,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // Open at the auto-open moment (drop@1s + 300s = 301s).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
     boxOpenTracker.flushUnclassified();
     const stats = boxOpenTracker.getStats(100, null);
     // No routes → level is null → boxKey is just "common" (no level suffix).
@@ -708,9 +712,33 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     chestDropTracker.recordLiveChestDrop("common", 2.0);
 
-    // Slots hold 3 commons — queue (2) < slots (3), no pruning.
-    service.reconcileWithChestSlots({ common: 3, rare: 0, act: 0 });
+    // Slots hold 2 commons — queue (2) == slots (2), no pruning, no backfill.
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
     expect(service.getQueueSnapshot().totalQueued).toBe(2);
+  });
+
+  it("backfills deficit when queue < slots (initial open with existing chests)", () => {
+    const { service } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Companion just opened; save has 3 commons but queue is empty (no live
+    // drops tracked yet). Backfill creates 3 placeholder items, each with a
+    // full autoOpenSeconds countdown anchored to now.
+    service.reconcileWithChestSlots({ common: 3, rare: 0, act: 0 });
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(3);
+    expect(snap.liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    // Serial-queue: 1st = now+300s, 2nd chains +300s, 3rd chains +300s.
+    const common = snap.byCategory.find((c) => c.category === "common")!;
+    expect(common.count).toBe(3);
+    // nextAutoOpenInMs = (anchorMs + autoOpenSec*1000) - now
+    //                 = (10000 + 300*1000) - 10000 = 300000
+    expect(common.nextAutoOpenInMs).toBe(300_000);
+    // lastAutoOpenInMs = tail.autoOpenAtMs - now = (10000 + 3*300*1000) - 10000
+    expect(common.lastAutoOpenInMs).toBe(900_000);
   });
 
   it("does not prune when queue == slots (exact match)", () => {
@@ -766,12 +794,12 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       catalog: CATALOG,
       currentStageKey: 1105,
     });
-    // No drops enqueued; slots show 5 chests (queue < slots, deficit logged).
-    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    // No drops enqueued; slots also empty (queue == slots == 0, no backfill).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     expect(service.getQueueSnapshot().totalQueued).toBe(0);
   });
 
-  it("suppresses the 'queue < slots' info log when slots are unchanged across high-frequency reconcile calls", () => {
+  it("suppresses the backfill info log when slots are unchanged across high-frequency reconcile calls", () => {
     const { service } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -780,27 +808,31 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     });
     logMocks.info.mockClear();
     // Simulate 5 Hz live-snapshot reconcile: same slots, called repeatedly.
+    // First call: queue=0, slots=5 → backfill 5 items, log "backfilled 5".
     service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
     const firstCallInfoCount = logMocks.info.mock.calls.filter((c) =>
-      String(c[0]).includes("queue (0) < slots (5)"),
+      String(c[0]).includes("backfilled 5 common"),
     ).length;
-    expect(firstCallInfoCount).toBe(1); // first call logs the deficit
-    // Subsequent calls with same slots must NOT re-log the deficit.
+    expect(firstCallInfoCount).toBe(1); // first call logs the backfill
+    // Subsequent calls with same slots must NOT re-log (queue now == slots).
     service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
     service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
     const totalInfoCount = logMocks.info.mock.calls.filter((c) =>
-      String(c[0]).includes("queue (0) < slots (5)"),
+      String(c[0]).includes("backfilled 5 common"),
     ).length;
     expect(totalInfoCount).toBe(1); // still 1 — suppressed on unchanged slots
-    // When slots change, the new deficit IS logged.
+    // When slots change to a value that creates a new deficit, it IS logged.
+    // Disable+enable to reset queue, then reconcile with slots=3.
+    service.setEnabled(false);
+    service.setEnabled(true);
     service.reconcileWithChestSlots({ common: 3, rare: 0, act: 0 });
     const afterChangeCount = logMocks.info.mock.calls.filter((c) =>
-      String(c[0]).includes("queue (0) < slots (3)"),
+      String(c[0]).includes("backfilled 3 common"),
     ).length;
     expect(afterChangeCount).toBe(1);
   });
 
-  it("re-logs the deficit after disable/re-enable (lastReconcileSlots reset)", () => {
+  it("re-logs the backfill after disable/re-enable (lastReconcileSlots reset)", () => {
     const { service } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -813,7 +845,7 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     logMocks.info.mockClear();
     service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
     const reloggedCount = logMocks.info.mock.calls.filter((c) =>
-      String(c[0]).includes("queue (0) < slots (5)"),
+      String(c[0]).includes("backfilled 5 common"),
     ).length;
     expect(reloggedCount).toBe(1); // first call after re-enable logs again
   });
@@ -898,18 +930,18 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       catalog: CATALOG,
       currentStageKey: 1105,
     });
-    // Initialize liveSlots from save (common=2).
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    // Initialize liveSlots from save (common=0, no backfill).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     // Drop a common chest at wallTime=1.0s → droppedAtMs=1000,
-    // autoOpenAtMs = 1000 + 300*1000 = 301000ms. liveSlots.common → 3.
+    // autoOpenAtMs = 1000 + 300*1000 = 301000ms. liveSlots.common → 1.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // Advance time past autoOpenAtMs (now > 301000).
     vi.setSystemTime(302_000);
     service.tick();
-    // Item's autoOpenAtMs has elapsed → liveSlots.common decrements back to 2.
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    // Item's autoOpenAtMs has elapsed → liveSlots.common decrements back to 0.
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
   });
 
   it("processEvent (manual open via unclassified burst) decrements liveSlots[cat]", () => {
@@ -919,17 +951,18 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       catalog: CATALOG,
       currentStageKey: 1105,
     });
-    // Initialize liveSlots from save (common=2).
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
-    // Drop a common chest → liveSlots.common = 3.
+    // Initialize liveSlots from save (common=0, no backfill).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop a common chest → liveSlots.common = 1.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
-    // Player manually opens the chest (unclassified burst) BEFORE autoOpenAtMs
-    // elapses — processEvent dequeues the item and decrements liveSlots.
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    // Player manually opens the chest (unclassified burst) at the auto-open
+    // moment (drop@1s + 300s = 301s) — processEvent dequeues the item and
+    // decrements liveSlots.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
     boxOpenTracker.flushUnclassified();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
   });
 
   it("does not double-decrement when auto-opened item is later dequeued by processEvent", () => {
@@ -939,23 +972,23 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       catalog: CATALOG,
       currentStageKey: 1105,
     });
-    // Initialize liveSlots from save (common=2).
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
-    // Drop a common chest → liveSlots.common = 3.
+    // Initialize liveSlots from save (common=0, no backfill).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop a common chest → liveSlots.common = 1.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // Advance time past autoOpenAtMs and tick — auto-open detected,
-    // liveSlots.common decrements to 2. Item is added to slotDecrementedItems WeakSet.
+    // liveSlots.common decrements to 0. Item is added to slotDecrementedItems WeakSet.
     vi.setSystemTime(302_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
 
     // Now the unclassified burst from the auto-open arrives — processEvent
     // dequeues the same item, but it's in slotDecrementedItems, so no decrement.
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 302.5);
     boxOpenTracker.flushUnclassified();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
   });
 
   it("liveSlots is reset to null on disable", () => {
@@ -997,23 +1030,23 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       catalog: CATALOG,
       currentStageKey: 1105,
     });
-    // Initialize liveSlots from save (common=2).
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    // Initialize liveSlots from save (common=0, no backfill).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     // Drop two common chests at wallTime 1.0s and 2.0s.
     // Serial-queue model:
     //   1st: queue empty → autoOpenAtMs = 1000 + 300*1000 = 301000
     //   2nd: tail=301000 → autoOpenAtMs = 301000 + 300*1000 = 601000
-    // liveSlots.common increments to 4 (2 + 2 drops).
+    // liveSlots.common increments to 2 (0 + 2 drops).
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     chestDropTracker.recordLiveChestDrop("common", 2.0);
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 4, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
 
     // Advance time past head's autoOpenAtMs (301000) but before tail's (601000).
     vi.setSystemTime(302_000);
     service.tick();
-    // Head elapsed → liveSlots.common decrements to 3. Tail (601000) is still
+    // Head elapsed → liveSlots.common decrements to 1. Tail (601000) is still
     // in the future, so the loop breaks at it.
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // Advance time past tail's autoOpenAtMs (601000). Both items are now
     // elapsed. Head is in WeakSet (skip), tail is NOT in WeakSet → decrement.
@@ -1022,18 +1055,18 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     // parse reconciled. Now tick walks the elapsed prefix.
     vi.setSystemTime(602_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
 
     // Advance time past the head's TTL so pruneExpired removes it.
     // Head's expiresAtMs = 301000 + 330000 = 631000.
     vi.setSystemTime(632_000);
     service.tick();
-    // Both items are in WeakSet → no decrement. pruneExpired removes the
-    // expired head (expiresAtMs=631000 <= 632000). Queue is now [common@2.0s].
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    // Both items are in WeakSet → no decrement (already 0). pruneExpired removes
+    // the expired head (expiresAtMs=631000 <= 632000). Queue is now [common@2.0s].
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
     // Next tick: new head (common@2.0s) is already in WeakSet → no decrement.
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
   });
 
   it("tick does not decrement tail before its autoOpenAtMs elapses (serial-queue)", () => {
@@ -1043,26 +1076,26 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       catalog: CATALOG,
       currentStageKey: 1105,
     });
-    // Initialize liveSlots from save (common=1).
-    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
-    // Drop two common chests → liveSlots.common = 3.
+    // Initialize liveSlots from save (common=0, no backfill).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop two common chests → liveSlots.common = 2.
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs = 301000
     chestDropTracker.recordLiveChestDrop("common", 2.0); // autoOpenAtMs = 601000 (chained)
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
 
     // Advance to 302000ms — head's autoOpenAtMs (301000) has elapsed.
     vi.setSystemTime(302_000);
     service.tick();
-    // Head auto-opened → liveSlots.common = 2. Tail (601000) is still in the
+    // Head auto-opened → liveSlots.common = 1. Tail (601000) is still in the
     // future, so the loop breaks before reaching it — no decrement for tail.
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // Advance to 602000ms — tail's autoOpenAtMs (601000) has now elapsed.
     // tick walks the elapsed prefix: head is in WeakSet (skip), tail is
-    // elapsed and not in WeakSet → decrement to 1.
+    // elapsed and not in WeakSet → decrement to 0.
     vi.setSystemTime(602_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
 
     // Verify the tail is still in queue (waiting for processEvent or TTL).
     const snap = service.getQueueSnapshot();
@@ -1194,7 +1227,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
   // ---------------------------------------------------------------------------
   // Plan C: burst-time window matching in processEvent.
   // When an unclassified burst arrives, find the queue item whose
-  // autoOpenAtMs is closest to the burst's wall time and within ±15s grace.
+  // autoOpenAtMs is closest to the burst's wall time and within ±5s grace.
   // Defends against: (a) manual opens of non-head chests, (b) autoOpenAtMs
   // drift after rune changes, (c) head auto-open detected by tick but burst
   // arriving slightly late. Falls back to head when no item is in-window.
@@ -1223,10 +1256,11 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     expect(snap.items[0]!.droppedAtMs).toBe(1000); // head remains
   });
 
-  it("falls back to head when no queue item is within the burst grace window", () => {
+  it("pends the burst when no queue item is within the burst grace window", () => {
     // Queue: [common@1.0s (autoOpenAtMs=301000)]. Burst at wallTime=2.0s →
-    // burstMs=2000. Head's delta=299000ms (>> 15000ms grace) → no match.
-    // processEvent falls back to dequeueing the head and emits a warn log.
+    // burstMs=2000. Head's delta=299000ms (>> 5000ms grace) → no match.
+    // processEvent pends the burst for save-reconcile classification.
+    // The head is NOT consumed — guessing wrong would misclassify items.
     const { chestDropTracker, boxOpenTracker, service } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -1235,14 +1269,20 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     // Burst arrives ~299s before the head's autoOpenAtMs — way outside the
-    // ±15s grace window. processEvent should fall back to the head.
+    // ±5s grace window. processEvent should pend the burst, NOT consume head.
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
     boxOpenTracker.flushUnclassified();
-    // Head consumed (fallback path), queue empty.
+    // Head NOT consumed — queue still has 1 item.
     const snap = service.getQueueSnapshot();
-    expect(snap.totalQueued).toBe(0);
-    // Warn log emitted by the fallback path.
-    expect(logMocks.warn).toHaveBeenCalledWith(expect.stringContaining("no queue item within"));
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.droppedAtMs).toBe(1000); // head remains
+    // Burst is pending save-reconcile classification.
+    expect(snap.pendingBurstsCount).toBe(1);
+    // No warn log about "no queue item within" (that was the old head-fallback path).
+    const fallbackCalls = logMocks.warn.mock.calls.filter(
+      ([msg]) => typeof msg === "string" && msg.includes("no queue item within"),
+    );
+    expect(fallbackCalls).toHaveLength(0);
   });
 
   it("matches the head when burst arrives within grace of head's autoOpenAtMs (normal auto-open)", () => {
@@ -1347,12 +1387,12 @@ describe("AutoClassifyService.liveSlots tracking", () => {
   // ---------------------------------------------------------------------------
   // H2: Plan C burst window boundary (audit gap).
   // Match check is `delta <= BURST_MATCH_GRACE_MS` (inclusive), so exactly
-  // 15000ms matches; 15001ms falls back to head.
+  // 5000ms matches; 5001ms falls back to head.
   // ---------------------------------------------------------------------------
 
-  it("Plan C: matches head at exactly 15000ms delta (boundary, inclusive <=)", () => {
-    // autoOpenAtMs=301000. burstMs = 301000 - 15000 = 286000 → wallTime=286.0s.
-    // delta = 15000 → `15000 <= 15000` = true → match (stage 1 head).
+  it("Plan C: matches head at exactly 5000ms delta (boundary, inclusive <=)", () => {
+    // autoOpenAtMs=301000. burstMs = 301000 - 5000 = 296000 → wallTime=296.0s.
+    // delta = 5000 → `5000 <= 5000` = true → match (stage 1 head).
     const { chestDropTracker, boxOpenTracker, service } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -1360,7 +1400,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       currentStageKey: 1105,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 286.0);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 296.0);
     boxOpenTracker.flushUnclassified();
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(0); // head consumed via match
@@ -1370,8 +1410,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     expect(fallbackCalls).toHaveLength(0);
   });
 
-  it("Plan C: matches head at 14999ms delta (just inside window)", () => {
-    // burstMs = 301000 - 14999 = 286001 → wallTime=286.001s. delta=14999 → match.
+  it("Plan C: matches head at 4999ms delta (just inside window)", () => {
+    // burstMs = 301000 - 4999 = 296001 → wallTime=296.001s. delta=4999 → match.
     const { chestDropTracker, boxOpenTracker, service } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -1379,15 +1419,15 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       currentStageKey: 1105,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 286.001);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 296.001);
     boxOpenTracker.flushUnclassified();
     expect(service.getQueueSnapshot().totalQueued).toBe(0);
   });
 
-  it("Plan C: falls back to head at 15001ms delta (just outside window)", () => {
-    // burstMs = 301000 - 15001 = 285999 → wallTime=285.999s. delta=15001
-    // → `15001 <= 15000` = false → no match → fallback to head (consumes
-    // head via dequeue, emits warn log).
+  it("Plan C: pends burst at 5001ms delta (just outside window, no head fallback)", () => {
+    // burstMs = 301000 - 5001 = 295999 → wallTime=295.999s. delta=5001
+    // → `5001 <= 5000` = false → no match → burst is pended for save
+    // reconcile. Head is NOT consumed (no head fallback).
     const { chestDropTracker, boxOpenTracker, service } = makeService({
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
@@ -1395,11 +1435,17 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       currentStageKey: 1105,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 285.999);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 295.999);
     boxOpenTracker.flushUnclassified();
-    // Head still consumed (fallback path), but via dequeue not match.
-    expect(service.getQueueSnapshot().totalQueued).toBe(0);
-    expect(logMocks.warn).toHaveBeenCalledWith(expect.stringContaining("no queue item within"));
+    // Head NOT consumed — queue still has 1 item, burst is pended.
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.pendingBurstsCount).toBe(1);
+    // No warn log about "no queue item within" (no head fallback path).
+    const fallbackCalls = logMocks.warn.mock.calls.filter(
+      ([msg]) => typeof msg === "string" && msg.includes("no queue item within"),
+    );
+    expect(fallbackCalls).toHaveLength(0);
   });
 
   // ---------------------------------------------------------------------------
@@ -1412,7 +1458,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
   it("M2 fix: prefers head over a closer tail item from a different category", () => {
     // Queue: [common@1.0s (autoOpenAtMs=301000), act@241.5s (autoOpenAtMs=301500)]
     // Burst at wallTime=301.7s → burstMs=301700.
-    //   head (common) delta = |301000-301700| = 700ms (in 15s window)
+    //   head (common) delta = |301000-301700| = 700ms (in 5s window)
     //   tail (act)    delta = |301500-301700| = 200ms (in window, smaller)
     // Stage 1 matches head (common) even though tail has smaller delta.
     const { chestDropTracker, boxOpenTracker, service } = makeService({
@@ -1512,28 +1558,24 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       currentStageKey: 1105,
     });
     // 掉落并 tick 越过 FALLBACK autoOpenAtMs，让 item 进入 WeakSet。
-    // liveSlots: 2 (save) + 1 (drop) - 1 (tick auto-open) = 2.
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    // liveSlots: 0 (save) + 1 (drop) - 1 (tick auto-open) = 0.
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     vi.setSystemTime(302_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
 
     // 首次 save 解析：autoOpen.common 从 FALLBACK 300s → 100s。
     // recompute 后 item 的 autoOpenAtMs = 1000 + 100*1000 = 101000（已过去，
     // 因为 now=302000）。WeakSet 重置，item 重新可被 tick 处理。
-    // reconcileWithChestSlots 设置 liveSlots = { common: 2 }（save is ground truth）。
-    // queue 里仍有 1 个 common item（autoOpenAtMs=101000）；slots.common=2
-    // >= queue.common=1，不 prune。
+    // reconcileWithChestSlots 设置 liveSlots = { common: 0 }（save is ground truth）。
+    // queue 里仍有 1 个 common item（autoOpenAtMs=101000）；slots.common=0
+    // < queue.common=1，prune 掉这个 excess item。
     autoOpenRef.value = { common: 100, stageBoss: 600, actBoss: 60 };
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
-
-    // tick 越过新 autoOpenAtMs（101000 < now=302000）→ 应该 decrement liveSlots。
-    // 若 WeakSet 未重置，tick 会跳过这个 item（旧引用仍命中 WeakSet），
-    // liveSlots 保持 2，造成不一致。
-    service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
+    // queue 被 prune 清空（slots=0 < queue=1）。
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
   });
 
   it("H3: 真实值→FALLBACK 回退不触发 recompute (current=null 早返回)", () => {
@@ -1590,10 +1632,10 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       currentStageKey: 1105,
     });
     // 会话期内状态：liveSlots 已初始化、queue 有 items、lastAutoOpenSeconds 已设置。
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     expect(service.getQueueSnapshot().totalQueued).toBe(1);
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // 禁用：状态全部清空。
     service.setEnabled(false);
@@ -1619,7 +1661,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
     expect(snap.liveSlots).toBeNull();
 
     // save 解析到达，liveSlots 恢复。reconcileWithChestSlots 直接覆盖为 save 的绝对值
-    // （不会叠加 drop 的 ++：save is ground truth）。
+    // （不会叠加 drop 的 ++：save is ground truth）。queue 已有 1 item（drop），
+    // slots=1 == queueCount=1，不 backfill 不 prune。
     service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
     expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
   });
@@ -1635,11 +1678,11 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
     });
     // 第一次会话：drop 一个 chest，tick 自动开启它，liveSlots 递减，
     // item 进入 slotDecrementedItems WeakSet。
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     vi.setSystemTime(302_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
 
     // 重启：disable→enable。queue 清空，slotDecrementedItems WeakSet 仍持有旧 item
     // 引用，但 queue=[] 后旧 item 不再被引用。新 drop 创建新 item 对象，
@@ -1647,13 +1690,13 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
     service.setEnabled(false);
     service.setEnabled(true);
     // 重新初始化 liveSlots 并 drop 一个新 chest。
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // 新 item, autoOpenAtMs=301000
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
     // tick 越过 autoOpenAtMs → liveSlots 应该递减（不被旧 WeakSet 抑制）。
     vi.setSystemTime(302_000);
     service.tick();
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
   });
 
   it("H4: 重启后 lastAutoOpenSeconds=null，首次 autoOpen 读取走 first calibration", () => {
@@ -1781,10 +1824,10 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       currentStageKey: 1105,
       inventoryStatusRef: inventoryRef,
     });
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
-    // Drop a common chest at wallTime=1.0 → autoOpenAtMs=301000, liveSlots=3
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop a common chest at wallTime=1.0 → autoOpenAtMs=301000, liveSlots=1
     chestDropTracker.recordLiveChestDrop("common", 1.0);
-    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
 
     // Inventory becomes full. tick detects the transition and pauses.
     inventoryRef.value = { used: 100, capacity: 100 };
@@ -1796,7 +1839,7 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
     const snap = service.getQueueSnapshot();
     expect(snap.paused).toBe(true);
     // liveSlots NOT decremented — timer is frozen, no slot freed.
-    expect(snap.liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+    expect(snap.liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
     // Queue item NOT pruned despite autoOpenAtMs being in the past.
     expect(snap.totalQueued).toBe(1);
   });
@@ -1812,7 +1855,7 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       currentStageKey: 1105,
       inventoryStatusRef: inventoryRef,
     });
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
     // Drop a common chest at wallTime=1.0 → autoOpenAtMs = 301000
     chestDropTracker.recordLiveChestDrop("common", 1.0);
 
@@ -1856,7 +1899,7 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       currentStageKey: 1105,
       inventoryStatusRef: inventoryRef,
     });
-    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
 
     // Pause at t=100000.
     inventoryRef.value = { used: 100, capacity: 100 };
@@ -1875,5 +1918,294 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
     const common = snap.byCategory.find((c) => c.category === "common")!;
     expect(common.count).toBe(1);
     expect(common.nextAutoOpenInMs).toBe(300_000); // autoOpenSec*1000, not 320000
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pending burst classification via save reconcile (user spec):
+//   1. Burst arrives but no queue item matches within ±5s grace → pended.
+//   2. Next save reconcile compares liveSlots (real-time, pre-save) with
+//      saveSlots. If exactly one category decreased AND one pending burst,
+//      classify the burst to that category and reset that category's slot
+//      timers anchored to the burst time.
+//   3. If multiple categories decreased → ambiguous: leave as unclassified,
+//      reset ALL slot timers anchored to the earliest burst time.
+//   4. If no categories decreased → burst stays pending (TTL pruned later).
+//   5. Pending bursts older than 5 min are pruned by tick.
+// ---------------------------------------------------------------------------
+
+describe("AutoClassifyService pending burst classification", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("pends a burst when no queue item matches within the grace window", () => {
+    // Drop a common chest (autoOpenAtMs=301000), then open at wallTime=2.0s
+    // (burstMs=2000). Head's delta=299000ms → no match → burst pended.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
+
+    // Burst outside grace → pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+
+    const snap = service.getQueueSnapshot();
+    expect(snap.pendingBurstsCount).toBe(1);
+    expect(snap.totalQueued).toBe(1); // head NOT consumed
+    // Items stay in "unclassified" until save reconcile classifies them.
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeFalsy();
+  });
+
+  it("classifies a pending burst when save shows exactly one category decreased", () => {
+    // Setup: liveSlots.common=1 (from a drop). A burst arrives but doesn't
+    // match within grace → pended. Next save shows common=0 (chest opened).
+    // Classification: burst → common, reclassify items to "common:5".
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Initialize liveSlots from save (common=0), then drop a common chest
+    // → liveSlots.common=1.
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 0, act: 0 });
+
+    // Burst at wallTime=2.0s (burstMs=2000) → no match within grace → pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Next save shows common=0 (chest opened since last save). liveSlots
+    // was 1 (real-time), save says 0 → delta=1 → classify burst to common.
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+
+    // Burst classified → items moved from "unclassified" to "common:5".
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    // Pending burst cleared.
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
+  it("leaves burst unclassified when multiple categories decreased (ambiguous)", () => {
+    // Setup: liveSlots common=1, rare=1. Two pending bursts arrive (one for
+    // each category, both outside grace). Next save shows common=0, rare=0
+    // → both decreased → ambiguous → leave as unclassified, reset all timers.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop one common and one rare chest.
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
+    chestDropTracker.recordLiveChestDrop("rare", 1.0); // autoOpenAtMs=601000
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 1, act: 0 });
+
+    // Two bursts, both outside grace → both pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    boxOpenTracker.recordOpen("unclassified", 200, "Shield", "RARE", 1, 3.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(2);
+
+    // Next save shows both categories decreased (common 1→0, rare 1→0).
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+
+    // Ambiguous → items stay unclassified (NOT reclassified to common/rare).
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeFalsy();
+    expect(stats.find((s) => s.boxKey === "rare:5")).toBeFalsy();
+    // All pending bursts cleared (left unclassified, not kept pending).
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
+  it("leaves burst pending when no categories decreased (save hasn't caught up)", () => {
+    // Burst is pended, but the next save still shows the same slot count
+    // (e.g., save arrived before the slot was actually freed). The burst
+    // stays pending for a future save reconcile or TTL prune.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+    // liveSlots.common = 1 (from save). Drop another common → liveSlots=2.
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+
+    // Burst outside grace → pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Next save shows common=2 (same as live, no decrease). Burst stays pending.
+    service.reconcileWithChestSlots({ common: 2, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+    // Items still unclassified.
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
+  });
+
+  it("resets the category's slot timers anchored to burst time after classification", () => {
+    // Drop two common chests (serial-queue: autoOpenAtMs 301000, 601000).
+    // Burst arrives at wallTime=2.0s → no match → pended. Save shows common=1
+    // (one chest opened). Classification: burst → common. The remaining item's
+    // autoOpenAtMs should be reset to burstMs + autoOpenSec*1000 = 2000+300000=302000.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop two commons: head autoOpenAtMs=301000, tail=601000 (chained).
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    expect(service.getQueueSnapshot().totalQueued).toBe(2);
+
+    // Burst at wallTime=2.0s (burstMs=2000) → no match → pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Save shows common=1 (one chest opened). liveSlots was 2 → delta=1.
+    // Classification: burst → common. Reset timers anchored to
+    // burstMs + autoOpenSec = 2000 + 300*1000 = 302000 (new head's autoOpenAtMs):
+    //   head (new): autoOpenAtMs = 302000
+    //   tail: autoOpenAtMs = 302000 + 300*1000 = 602000 (chained)
+    // After excess-prune (queue 2 > slots 1): head (302000) pruned, tail remains.
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    // Remaining tail's autoOpenAtMs = 602000. now=10000 → autoOpenInMs=592000.
+    expect(snap.items[0]!.droppedAtMs).toBe(2000);
+    expect(snap.items[0]!.autoOpenInMs).toBe(592_000);
+  });
+
+  it("resets all slot timers when multiple categories decreased (ambiguous)", () => {
+    // Drop common and rare chests. Two bursts pended. Save shows both
+    // decreased → ambiguous → reset ALL timers anchored to earliest burst.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Drop two commons (head=301000, tail=601000) and one rare (601000).
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    chestDropTracker.recordLiveChestDrop("rare", 1.0); // autoOpenAtMs=601000
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 1, act: 0 });
+
+    // Two bursts: common at wallTime=2.0s (burstMs=2000), rare at 3.0s (3000).
+    // Both outside grace → both pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    boxOpenTracker.recordOpen("unclassified", 200, "Shield", "RARE", 1, 3.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(2);
+
+    // Save shows common=1, rare=0 → both decreased → ambiguous.
+    // Reset all timers anchored to earliest burst + per-cat autoOpenSec:
+    //   earliest burstMs=2000, common autoOpenSec=300 → anchor=302000
+    //   common head: autoOpenAtMs=302000 (pruned: queue 2 > slots 1)
+    //   common tail: autoOpenAtMs=302000+300*1000=602000
+    //   rare autoOpenSec=600 → anchor=602000
+    //   rare head: autoOpenAtMs=602000 (pruned: queue 1 > slots 0)
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+
+    const snap = service.getQueueSnapshot();
+    // common: 1 item remains (tail, autoOpenAtMs=602000).
+    // rare: 0 items remain (pruned).
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.boxKey).toBe("common:5");
+    expect(snap.items[0]!.autoOpenInMs).toBe(592_000); // 602000 - 10000
+    // Items left unclassified (no reclassify).
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
+  });
+
+  it("prunes expired pending bursts on tick (TTL > 5 minutes)", () => {
+    // Drop a chest, pend a burst, then advance time past PENDING_BURST_TTL_MS
+    // (300000ms = 5 min). tick should prune the burst; items stay unclassified.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+
+    // Burst outside grace → pended at now=10000.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Advance past TTL (300000ms). createdAtMs=10000, so expiry at 310000.
+    vi.setSystemTime(311_000);
+    service.tick();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+    // Items stay unclassified for manual handling.
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
+  });
+
+  it("does not prune pending bursts before TTL expires", () => {
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Advance to just before TTL (createdAtMs=10000, TTL=300000 → expiry at 310000).
+    vi.setSystemTime(309_000);
+    service.tick();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1); // still pending
+  });
+
+  it("clears pending bursts on disable", () => {
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    service.setEnabled(false);
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
   });
 });

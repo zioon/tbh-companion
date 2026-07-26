@@ -12,7 +12,6 @@ import { categoryFromBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog"
 import { inferLevelFromStage, type StageBoxTrackerRoute } from "../../core/stageBoxTracker";
 import {
   computeTtlMs,
-  dequeue,
   enqueue,
   groupBoxOpenEvents,
   pruneExpired,
@@ -27,6 +26,17 @@ const FALLBACK_AUTO_OPEN = { common: 300, stageBoss: 600, actBoss: 60 } as const
 
 /** Pending prompt lifetime (ms). Items left unclassified after timeout stay unclassified. */
 const PROMPT_TIMEOUT_MS = 60_000;
+
+/**
+ * TTL for pending bursts (ms). A pending burst is an unclassified open event
+ * that didn't match any queued slot within the burst-match grace window.
+ * The burst is held pending the next save reconcile, which can classify it
+ * by comparing save slot counts against live counts. Bursts older than this
+ * TTL are pruned without classification (items stay in "unclassified" for
+ * manual handling). 5 minutes covers multiple save parse cycles (saves are
+ * typically 30s apart) while bounding memory growth.
+ */
+const PENDING_BURST_TTL_MS = 300_000;
 
 /**
  * Relative-change threshold (fraction) for detecting autoOpenSeconds drift.
@@ -57,20 +67,41 @@ const AUTO_OPEN_ABSOLUTE_THRESHOLD = 1;
  * non-head chest, (b) `autoOpenAtMs` drifted from the real auto-open moment
  * due to rune changes or wall-clock skew, or (c) the head's auto-open was
  * detected by `tick` but the burst arrived slightly late. If no item falls
- * within the window, `processEvent` falls back to dequeuing the head.
+ * within the window, `processEvent` pends the burst for save-reconcile
+ * classification (or broadcasts a prompt if the queue is empty) — it does
+ * NOT fall back to dequeuing the head, since guessing wrong would
+ * misclassify the burst's items.
  *
- * 15s (not 30s) keeps the window tight enough that two queue items from
- * different categories rarely both fall in-window simultaneously — that
- * would force a cross-category guess. 15s still comfortably covers the
- * live-reader tick interval (200ms) plus burst propagation latency (≈2s),
- * and is well under the shortest auto-open period (act=60s, so 15s is a
- * quarter period). See audit M2/M5.
+ * 5s keeps the window tight enough that two queue items from different
+ * categories rarely both fall in-window simultaneously — that would force a
+ * cross-category guess. 5s still comfortably covers the live-reader tick
+ * interval (200ms) plus burst propagation latency (≈2s), and is well under
+ * the shortest auto-open period (act=60s, so 5s is a twelfth period).
+ * See audit M2/M5.
  */
-const BURST_MATCH_GRACE_MS = 15_000;
+const BURST_MATCH_GRACE_MS = 5_000;
 
 interface PendingPrompt {
   promptId: number;
   itemKeys: number[];
+  createdAtMs: number;
+}
+
+/**
+ * A pending (unclassified) open burst awaiting classification via save
+ * reconcile. Created when `processEvent` can't match a burst to any queued
+ * slot within the burst-match grace window. The next `reconcileWithChestSlots`
+ * call compares save slot counts against live counts: if exactly one category
+ * decreased and there's exactly one pending burst, the burst is classified
+ * to that category; otherwise the burst stays in "unclassified" for manual
+ * handling.
+ */
+interface PendingBurst {
+  burstId: number;
+  itemKeys: number[];
+  /** Wall-clock ms of the open burst (from BoxOpenLog wallTime). */
+  burstMs: number;
+  /** Wall-clock ms when this burst was enqueued (for TTL pruning). */
   createdAtMs: number;
 }
 
@@ -191,6 +222,15 @@ export class AutoClassifyService {
    * not reset.
    */
   private inventoryFullSinceMs: number | null = null;
+  /**
+   * Pending (unclassified) open bursts awaiting classification via save
+   * reconcile. Each entry is a burst that `processEvent` couldn't match to
+   * any queued slot within the grace window. The next
+   * `reconcileWithChestSlots` compares save slot counts against live counts
+   * to classify these. See {@link PendingBurst} for the classification rules.
+   */
+  private pendingBursts: PendingBurst[] = [];
+  private nextBurstId = 1;
 
   constructor(deps: AutoClassifyServiceDeps) {
     this.deps = deps;
@@ -266,6 +306,7 @@ export class AutoClassifyService {
     if (!enabled) {
       this.queue = [];
       this.pending = null;
+      this.pendingBursts = [];
       this.liveSlots = null;
       this.lastReconcileSlots = null;
       this.lastAutoOpenSeconds = null;
@@ -311,22 +352,22 @@ export class AutoClassifyService {
         // burst hasn't arrived yet, or the inventory is full and the timer
         // is paused — in the latter case `paused: true` signals the UI to
         // show "paused" instead of the clamped 0).
-        const headRemain = items[0]!.autoOpenAtMs - now;
+        const head = items[0]!;
+        const tail = items[items.length - 1]!;
+        const headRemain = head.autoOpenAtMs - now;
         nextAutoOpenInMs = Math.max(0, headRemain);
-        // Queue-clear time = next-open time + (depth-1) * single chest
-        // auto-open duration. Under the serial-queue model every queued
-        // chest chains onto the previous same-category tail, so the tail's
-        // auto-open moment is exactly head + (depth-1) * autoOpenSeconds.
-        // Computing from the head (rather than reading tail.autoOpenAtMs
-        // directly) is robust against any partial-shift drift introduced
-        // by shiftQueueTimes skipping already-decremented items on
-        // inventory resume, and matches the player's mental model: "after
-        // the next chest opens, each subsequent chest takes one autoOpen
-        // cycle." When depth == 1, this collapses to nextAutoOpenInMs
-        // (the single chest's countdown), which is correct.
-        const depth = items.length;
-        const singleSec = items[0]!.autoOpenSeconds;
-        lastAutoOpenInMs = Math.max(0, headRemain + (depth - 1) * singleSec * 1000);
+        // Queue-clear time = tail's remaining time. Under the serial-queue
+        // model, tail.autoOpenAtMs is computed at enqueue/recompute time by
+        // chaining onto the previous same-category tail, so it already
+        // encodes the full "head + (depth-1) * autoOpenSeconds" chain — and
+        // stays accurate even when the queue mixes items with different
+        // autoOpenSeconds (e.g. a rune purchase shortened autoOpen for
+        // chests dropped after the purchase). Reading tail.autoOpenAtMs
+        // directly is more robust than recomputing via a formula, since
+        // any drift correction (maybeRecalibrateQueue) or partial shift
+        // (shiftQueueTimes on inventory resume) is already reflected in
+        // the stored value.
+        lastAutoOpenInMs = Math.max(0, tail.autoOpenAtMs - now);
       }
       return { category, count: items.length, nextAutoOpenInMs, lastAutoOpenInMs };
     });
@@ -352,6 +393,7 @@ export class AutoClassifyService {
       items,
       liveSlots: this.liveSlots ? { ...this.liveSlots } : null,
       paused: this.inventoryFullSinceMs != null,
+      pendingBurstsCount: this.pendingBursts.length,
     };
   }
 
@@ -451,6 +493,12 @@ export class AutoClassifyService {
     // and other state changes become visible to ChestService, so this is the
     // primary trigger for queue recalibration.
     this.maybeRecalibrateQueue();
+    // Classify pending bursts BEFORE overwriting liveSlots. The classification
+    // compares the previous liveSlots (real-time, pre-save) against the new
+    // save's slot counts to detect which categories decreased — i.e., which
+    // slots had chests open since the last save. This must happen before
+    // liveSlots is overwritten because the delta is the signal.
+    this.classifyPendingBursts(slots);
     // Recalibrate liveSlots to the save's absolute values. This discards any
     // real-time adjustments (drops/opens) accumulated since the last save parse
     // — the save is the ground truth, and the adjustments were only providing
@@ -476,15 +524,47 @@ export class AutoClassifyService {
       const slotCount = slots[category];
       const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
       const queueCount = matching.length;
-      if (queueCount <= slotCount) {
-        if (slotsChanged && queueCount < slotCount) {
-          log.info(
-            `reconcile: ${category} queue (${queueCount}) < slots (${slotCount}); ` +
-              `${slotCount - queueCount} chest(s) predate live tracking or were missed`,
+      if (queueCount < slotCount) {
+        // Queue has fewer items than the save's slot count. This happens
+        // when: (a) companion just opened — save has chests but the queue
+        // is empty (no live drops tracked yet); (b) live reader lagged or
+        // was stopped and missed some drops. Backfill the deficit with
+        // placeholder items anchored to "now", each getting a full
+        // autoOpenSeconds countdown. `enqueue` handles serial-queue
+        // chaining (1st = now + autoOpenSec, 2nd chains onto 1st, ...)
+        // so displayed countdowns match the game's per-slot behavior: a
+        // slot that already holds a chest starts a full countdown from
+        // the moment the companion first sees it.
+        const deficit = slotCount - queueCount;
+        const stageKey = this.deps.getCurrentStageKey() ?? 0;
+        const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+        const boxKey = this.resolveDropBoxKey({ category }, stageKey);
+        if (boxKey) {
+          const seconds = this.autoOpenForBoxKey(boxKey, autoOpen);
+          const anchorMs = this.getEffectiveNow();
+          for (let i = 0; i < deficit; i++) {
+            this.queue = enqueue(this.queue, {
+              boxKey,
+              droppedAtMs: anchorMs,
+              stageKey,
+              autoOpenSeconds: seconds,
+            });
+          }
+          if (slotsChanged) {
+            log.info(
+              `reconcile: backfilled ${deficit} ${category} item(s) ` +
+                `(queue ${queueCount} < slots ${slotCount}); each gets full ${seconds}s countdown`,
+            );
+          }
+        } else if (slotsChanged) {
+          log.warn(
+            `reconcile: could not backfill ${deficit} ${category} item(s) ` +
+              `(queue ${queueCount} < slots ${slotCount}); boxKey unresolved`,
           );
         }
         continue;
       }
+      if (queueCount === slotCount) continue;
       const excess = queueCount - slotCount;
       // Queue is sorted by autoOpenAtMs ascending. The first `excess`
       // matching items are the ones with the soonest auto-open times — they
@@ -503,6 +583,181 @@ export class AutoClassifyService {
     if (prunedTotal > 0) {
       log.info(`reconcile: total pruned ${prunedTotal} item(s) across categories`);
     }
+  }
+
+  /**
+   * Classify pending bursts by comparing the previous `liveSlots` (real-time,
+   * pre-save) against the new save's slot counts. For each category, if
+   * `liveSlots[cat] > saveSlots[cat]`, then `liveSlots[cat] - saveSlots[cat]`
+   * chests opened since the last save but weren't matched to a queued slot
+   * within the burst-match grace window — they're the pending bursts.
+   *
+   * Classification rules (per user spec):
+   *   - Exactly ONE category decreased AND exactly ONE pending burst:
+   *     classify the burst to that category (reclassify items), then reset
+   *     that category's slot timers anchored to the burst's wall time.
+   *   - MULTIPLE categories decreased (ambiguous): leave ALL bursts as
+   *     unclassified (no reclassify), reset ALL slot timers anchored to the
+   *     earliest burst's wall time.
+   *   - NO categories decreased: leave pending bursts as-is (will be pruned
+   *     by TTL in tick). This can happen when the save arrives before the
+   *     slot is actually freed, or when drops cancelled out opens.
+   *
+   * The actual dequeue of opened chests is handled by the existing pruning
+   * logic in {@link reconcileWithChestSlots} (queue > slots → prune oldest).
+   * This method only handles classification (reclassify items to the right
+   * boxKey) and timer reset (recompute remaining items' autoOpenAtMs).
+   *
+   * Called BEFORE `liveSlots` is overwritten with save values — the delta
+   * is the classification signal.
+   */
+  private classifyPendingBursts(saveSlots: {
+    common: number;
+    rare: number;
+    act: number;
+  }): void {
+    if (this.pendingBursts.length === 0 || this.liveSlots == null) return;
+
+    // Compute per-category deltas: positive = chests opened since last save
+    // (real-time count was higher than what the save reports).
+    const decreased: ChestDropCategory[] = [];
+    for (const cat of ["common", "rare", "act"] as const) {
+      if (this.liveSlots[cat] > saveSlots[cat]) {
+        decreased.push(cat);
+      }
+    }
+
+    if (decreased.length === 0) {
+      // No slots decreased — pending bursts stay pending (TTL pruned later).
+      log.info(
+        `classifyPendingBursts: ${this.pendingBursts.length} pending burst(s) but no slot decrease; waiting`,
+      );
+      return;
+    }
+
+    if (decreased.length === 1 && this.pendingBursts.length === 1) {
+      // Unambiguous: one category decreased, one pending burst.
+      const cat = decreased[0]!;
+      const burst = this.pendingBursts[0]!;
+      const stageKey = this.deps.getCurrentStageKey() ?? 0;
+      const toBoxKey = this.resolveDropBoxKey({ category: cat }, stageKey);
+      if (toBoxKey) {
+        for (const itemKey of burst.itemKeys) {
+          this.deps.boxOpenTracker.reclassifyItem(UNCLASSIFIED_BOX_KEY, itemKey, toBoxKey);
+        }
+      }
+      // Reset this category's slot timers anchored to the new head's
+      // autoOpenAtMs (= burstMs + autoOpenSec). Under the serial-queue
+      // model, the chest that opened at burstMs is dequeued/excess-pruned,
+      // and the timer retargets the new head starting at burstMs + autoOpenSec.
+      // Using burstMs + autoOpenSec (not burstMs alone) keeps the new head's
+      // autoOpenAtMs in the future, preventing tick from immediately
+      // decrementing liveSlots for items that haven't actually opened yet.
+      const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+      const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
+      const anchorMs = burst.burstMs + seconds * 1000;
+      this.resetSlotTimersForCategory(cat, anchorMs);
+      log.info(
+        `classified pending burst ${burst.burstId} → ${cat} ` +
+          `(burstMs=${burst.burstMs}, anchor=${anchorMs}, ${burst.itemKeys.length} items reclassified)`,
+      );
+      this.pendingBursts = [];
+      return;
+    }
+
+    // Ambiguous: multiple categories decreased OR multiple pending bursts.
+    // Per user spec: leave items as unclassified, reset ALL slot timers
+    // anchored to the earliest burst time + autoOpenSec (per category).
+    // Each category may have a different autoOpenSeconds, so the anchor is
+    // computed per-category inside the loop.
+    const earliestBurstMs = this.pendingBursts.reduce(
+      (min, b) => (b.burstMs < min ? b.burstMs : min),
+      this.pendingBursts[0]!.burstMs,
+    );
+    const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+    for (const cat of ["common", "rare", "act"] as const) {
+      const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
+      this.resetSlotTimersForCategory(cat, earliestBurstMs + seconds * 1000);
+    }
+    log.info(
+      `ambiguous classification: ${decreased.length} categories decreased ` +
+        `(${decreased.join(",")}), ${this.pendingBursts.length} pending burst(s); ` +
+        `left unclassified, reset all slot timers (earliestBurstMs=${earliestBurstMs}, +per-cat autoOpenSec)`,
+    );
+    this.pendingBursts = [];
+  }
+
+  /**
+   * Recompute `autoOpenAtMs` and `expiresAtMs` for all queued items in the
+   * given category, anchored to `anchorMs`. `anchorMs` is the new head's
+   * autoOpenAtMs — i.e., the moment the timer will retarget the new head
+   * after the previous head opened. All callers MUST pass
+   * `burstMs + autoOpenSeconds` (or equivalent future moment) as `anchorMs`,
+   * NOT the burst time alone: passing a past moment would set every item's
+   * `autoOpenAtMs` into the past, causing tick to immediately decrement
+   * liveSlots for items that haven't actually opened yet.
+   *
+   * Chain layout after reset:
+   *   head.autoOpenAtMs       = anchorMs
+   *   item[1].autoOpenAtMs    = anchorMs + autoOpenSec*1000
+   *   item[2].autoOpenAtMs    = anchorMs + 2*autoOpenSec*1000
+   *   ...
+   *
+   * This is the "reset slot countdown based on the burst time" step from the
+   * user spec: by re-anchoring the serial-queue chain to the actual open
+   * moment (rather than the precomputed `autoOpenAtMs` which may have drifted
+   * due to rune changes, inventory pauses, or wall-clock skew), the
+   * remaining items' countdowns stay accurate.
+   *
+   * Creates new item objects (immutability contract — audit M3/Q7). The
+   * `slotDecrementedItems` WeakSet is NOT reset: old item references become
+   * dead (no longer in queue, GC'd naturally), and new item references are
+   * NOT in the WeakSet — correct behavior, since their new `autoOpenAtMs`
+   * values should be evaluated fresh by `tick`. WeakSet membership is
+   * preserved across the old→new object transition to avoid double-decrement.
+   */
+  private resetSlotTimersForCategory(cat: ChestDropCategory, anchorMs: number): void {
+    const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+    const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
+    const ttlMs = computeTtlMs(seconds);
+
+    // Sort this category's items by droppedAtMs ascending (FIFO order).
+    const catItems = this.queue
+      .filter((q) => categoryFromBoxKey(q.boxKey) === cat)
+      .sort((a, b) => a.droppedAtMs - b.droppedAtMs);
+
+    if (catItems.length === 0) return;
+
+    // Recompute the chain: head's autoOpenAtMs = anchorMs (the new head's
+    // expected open moment), subsequent items chain at +autoOpenSec*1000.
+    let prevAutoOpenAtMs = anchorMs;
+    const updatedItems = new Map<QueueItem, QueueItem>();
+    for (const item of catItems) {
+      const autoOpenAtMs = prevAutoOpenAtMs;
+      const newItem: QueueItem = {
+        ...item,
+        autoOpenAtMs,
+        autoOpenSeconds: seconds,
+        expiresAtMs: autoOpenAtMs + ttlMs,
+      };
+      updatedItems.set(item, newItem);
+      // Preserve WeakSet membership: if the old item was already counted as
+      // auto-opened (slot decremented in tick), the new item object must
+      // also be marked to avoid double-decrement when tick later sees the
+      // new object with an elapsed autoOpenAtMs.
+      if (this.slotDecrementedItems.has(item)) {
+        this.slotDecrementedItems.add(newItem);
+      }
+      prevAutoOpenAtMs = autoOpenAtMs + seconds * 1000;
+    }
+
+    // Apply updates and re-sort the queue by the new autoOpenAtMs.
+    this.queue = this.queue
+      .map((q) => updatedItems.get(q) ?? q)
+      .sort((a, b) => {
+        if (a.autoOpenAtMs !== b.autoOpenAtMs) return a.autoOpenAtMs - b.autoOpenAtMs;
+        return a.droppedAtMs - b.droppedAtMs;
+      });
   }
 
   /** Resolve a user's category choice from the prompt dialog. */
@@ -543,7 +798,9 @@ export class AutoClassifyService {
       // `effectiveNow` is frozen at the pause moment, so no item should be
       // treated as elapsed or expired while the timer is frozen. Pending
       // prompt timeout still uses wall-clock: user interaction is
-      // independent of the game's auto-open pause.
+      // independent of the game's auto-open pause. Pending burst TTL also
+      // uses wall-clock: classification depends on save reconcile, not on
+      // the game's auto-open timer.
       const wallNow = Date.now();
       if (this.pending && wallNow - this.pending.createdAtMs > PROMPT_TIMEOUT_MS) {
         log.info(
@@ -551,6 +808,7 @@ export class AutoClassifyService {
         );
         this.pending = null;
       }
+      this.pruneExpiredPendingBursts(wallNow);
       return;
     }
     const now = Date.now();
@@ -587,39 +845,44 @@ export class AutoClassifyService {
       );
       this.pending = null;
     }
+    this.pruneExpiredPendingBursts(now);
+  }
+
+  /**
+   * Prune pending bursts older than {@link PENDING_BURST_TTL_MS}. Called from
+   * both branches of {@link tick} (inventory-paused and normal) because
+   * pending burst TTL is wall-clock based — classification depends on save
+   * reconcile, not on the game's auto-open timer, so inventory pause should
+   * not delay pruning.
+   */
+  private pruneExpiredPendingBursts(now: number): void {
+    const before = this.pendingBursts.length;
+    if (before === 0) return;
+    this.pendingBursts = this.pendingBursts.filter(
+      (b) => now - b.createdAtMs < PENDING_BURST_TTL_MS,
+    );
+    const pruned = before - this.pendingBursts.length;
+    if (pruned > 0) {
+      log.info(
+        `pruned ${pruned} expired pending burst(s) ` +
+          `(items left unclassified for manual handling)`,
+      );
+    }
   }
 
   private processEvent(itemKeys: number[], burstWallTimeSec: number): void {
     if (this.pending) {
-      // Accumulate into pending; do not re-broadcast.
+      // Accumulate into pending prompt; do not re-broadcast.
       this.pending.itemKeys.push(...itemKeys);
       return;
     }
     const now = Date.now();
     const burstMs = burstWallTimeSec * 1000;
     const match = this.findBurstMatch(burstMs);
-    let item: QueueItem | null;
-    let matchedDelta: number | null;
     if (match) {
-      // Dequeue the matched item (not necessarily the head).
-      item = this.queue[match.idx]!;
+      // Matched a queued slot within the grace window — classify and dequeue.
+      const item = this.queue[match.idx]!;
       this.queue = this.queue.filter((_, i) => i !== match.idx);
-      matchedDelta = match.delta;
-    } else {
-      // No item within the grace window — fall back to head (skipping
-      // expired items as `dequeue` does). If head is also gone, prompt.
-      const result = dequeue(this.queue, now);
-      this.queue = result.queue;
-      item = result.item;
-      matchedDelta = null;
-      if (item) {
-        log.warn(
-          `no queue item within ±${BURST_MATCH_GRACE_MS}ms of burst=${burstMs}; ` +
-            `falling back to head boxKey=${item.boxKey} autoOpenAtMs=${item.autoOpenAtMs}`,
-        );
-      }
-    }
-    if (item) {
       for (const itemKey of itemKeys) {
         this.deps.boxOpenTracker.reclassifyItem(UNCLASSIFIED_BOX_KEY, itemKey, item.boxKey);
       }
@@ -636,15 +899,53 @@ export class AutoClassifyService {
       }
       log.info(
         `matched ${itemKeys.length} items to queued boxKey=${item.boxKey} ` +
-          `(burstMs=${burstMs}, autoOpenAtMs=${item.autoOpenAtMs}, delta=${matchedDelta === null ? "fallback" : `${matchedDelta}ms`})`,
+          `(burstMs=${burstMs}, autoOpenAtMs=${item.autoOpenAtMs}, delta=${match.delta}ms)`,
       );
+      // Calibrate the remaining items in this category: the matched chest
+      // opened at burstMs, so under the serial-queue model the timer
+      // retargets the new head at burstMs, meaning the new head's
+      // autoOpenAtMs = burstMs + autoOpenSeconds. Without this calibration,
+      // timing error accumulates down the tail (e.g. if the head opened 5s
+      // before its predicted autoOpenAtMs, every subsequent chest's
+      // autoOpenAtMs would be 5s too late).
+      if (cat && cat !== "unclassified") {
+        const remaining = this.queue.some(
+          (q) => categoryFromBoxKey(q.boxKey) === cat,
+        );
+        if (remaining) {
+          this.resetSlotTimersForCategory(cat, burstMs + item.autoOpenSeconds * 1000);
+          log.info(
+            `calibrated ${cat} slot timers after burst match ` +
+              `(anchor=${burstMs + item.autoOpenSeconds * 1000}ms = burstMs + ${item.autoOpenSeconds}s)`,
+          );
+        }
+      }
       return;
     }
-    // Queue empty: prompt the user.
-    const promptId = this.nextPromptId++;
-    this.pending = { promptId, itemKeys: [...itemKeys], createdAtMs: now };
-    this.deps.broadcast(IPC.LOOT_PROMPT_CLASSIFY, { promptId, itemKeys: [...itemKeys] });
-    log.info(`broadcast LOOT_PROMPT_CLASSIFY promptId=${promptId} items=${itemKeys.length}`);
+    // No match within grace window. If the queue is empty, prompt the user
+    // to pick a category (no slots to match against). Otherwise, pend the
+    // burst for classification via the next save reconcile — the save will
+    // show which category's slot count decreased, letting us classify
+    // without guessing. Previous behavior fell back to the head, which could
+    // misclassify when the head's autoOpenAtMs was far from the burst time.
+    if (this.queue.length === 0) {
+      const promptId = this.nextPromptId++;
+      this.pending = { promptId, itemKeys: [...itemKeys], createdAtMs: now };
+      this.deps.broadcast(IPC.LOOT_PROMPT_CLASSIFY, { promptId, itemKeys: [...itemKeys] });
+      log.info(`broadcast LOOT_PROMPT_CLASSIFY promptId=${promptId} items=${itemKeys.length}`);
+      return;
+    }
+    const burstId = this.nextBurstId++;
+    this.pendingBursts.push({
+      burstId,
+      itemKeys: [...itemKeys],
+      burstMs,
+      createdAtMs: now,
+    });
+    log.info(
+      `pending burst ${burstId}: ${itemKeys.length} items, burstMs=${burstMs}, ` +
+        `no queue match within ±${BURST_MATCH_GRACE_MS}ms; waiting for save reconcile`,
+    );
   }
 
   /**
@@ -668,10 +969,10 @@ export class AutoClassifyService {
    *         recalibration should have fixed it, but this is the safety net).
    *
    * Returns `{ idx, delta }` for the matched item, or `null` if no item is
-   * within the grace window. The caller (`processEvent`) falls back to
-   * dequeuing the head when `null` is returned, so that a burst with no
-   * good match still consumes a queue slot rather than spinning up a prompt
-   * when the queue is non-empty.
+   * within the grace window. The caller (`processEvent`) pends the burst for
+   * save-reconcile classification when `null` is returned (or broadcasts a
+   * prompt if the queue is empty) — it does NOT fall back to dequeuing the
+   * head, since guessing wrong would misclassify the burst's items.
    */
   private findBurstMatch(burstMs: number): { idx: number; delta: number } | null {
     // Stage 1: head-first match.

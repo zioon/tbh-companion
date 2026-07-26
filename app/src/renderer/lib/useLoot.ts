@@ -36,6 +36,7 @@ const EMPTY_STATE: AutoClassifyStatePayload = {
   items: [],
   liveSlots: null,
   paused: false,
+  pendingBurstsCount: 0,
 };
 
 export function useLoot(): {

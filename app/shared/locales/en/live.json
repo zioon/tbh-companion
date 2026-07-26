@@ -83,7 +83,7 @@
   "colClearedAt": "Cleared at",
   "colClearTime": "Clear time",
   "colGold": "Gold",
-  "bossLabel": "Boss",
+  "bossLabel": "Box",
   "invLabel": "Inv {{value}}",
   "pricingProgress": "pricing {{done}}/{{total}}…",
   "pricingLabel": "pricing…",

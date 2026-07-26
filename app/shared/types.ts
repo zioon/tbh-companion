@@ -292,6 +292,15 @@ export interface AutoClassifyStatePayload {
    * `expiresAtMs` are shifted forward by the paused duration.
    */
   paused: boolean;
+  /**
+   * Number of pending (unclassified) open bursts awaiting classification
+   * via save reconcile. These are bursts that `processEvent` couldn't
+   * match to any queued slot within the grace window. The next
+   * `reconcileWithChestSlots` will attempt to classify them by comparing
+   * save slot counts against live counts. The renderer can show this as a
+   * "pending classification" indicator.
+   */
+  pendingBurstsCount: number;
 }
 
 /** One queued chest drop in {@link AutoClassifyStatePayload.items}. */
