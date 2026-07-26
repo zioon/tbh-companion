@@ -96,6 +96,12 @@ const GetExitCodeProcess = kernel32.func("GetExitCodeProcess", "bool", [
   "void *",
   "_Out_ uint32 *",
 ]);
+// GetModuleHandleW is used to detect whether the current process has been
+// injected by Sandboxie-Plus (sbiedll.dll). This is the "companion self-check"
+// half of multi-instance isolation: when multiple TBH processes coexist
+// (host + sandboxed), the companion only attaches to the one whose sandbox
+// state matches its own.
+const GetModuleHandleW = kernel32.func("GetModuleHandleW", "void *", ["str16"]);
 
 // psapi.dll — PSAPI module enumeration, used as a fallback when ToolHelp's
 // CreateToolhelp32Snapshot(TH32CS_SNAPMODULE) is blocked by sandbox software
@@ -204,6 +210,36 @@ function normalizeProcessName(name: string): string {
   return name.toLowerCase().replace(/\.exe$/i, "");
 }
 
+/**
+ * Pure helper for multi-instance sandbox isolation. Given the list of TBH
+ * candidate processes (each annotated with whether it is sandboxed) and the
+ * companion's own sandbox state, returns the PID to attach to.
+ *
+ * Selection rule:
+ * 1. Prefer candidates whose sandbox state matches the companion's own
+ *    (host companion → host TBH; sandboxed companion → sandboxed TBH).
+ * 2. Among matches, pick the highest PID (preserves the legacy tiebreak).
+ * 3. If no candidate matches (e.g. sandbox detection failed for all), fall
+ *    back to the highest PID across all candidates — never return null when
+ *    the input is non-empty. The caller logs this fallback.
+ *
+ * Exported for unit testing — the FFI calls inside {@link WinProcess.findByNames}
+ * cannot be tested, but this selection logic can.
+ */
+export function selectProcessBySandbox(
+  candidates: ReadonlyArray<{ pid: number; inSandbox: boolean }>,
+  companionInSandbox: boolean,
+): number | null {
+  if (candidates.length === 0) return null;
+  const sameSandbox = candidates.filter((c) => c.inSandbox === companionInSandbox);
+  const pool = sameSandbox.length > 0 ? sameSandbox : candidates;
+  let best = pool[0];
+  for (let i = 1; i < pool.length; i++) {
+    if (pool[i].pid > best.pid) best = pool[i];
+  }
+  return best.pid;
+}
+
 export interface ProcessInfo {
   pid: number;
   name: string;
@@ -309,8 +345,112 @@ export class WinProcess implements MemoryReader {
     }
 
     if (matches.length === 0) return null;
-    const pick = matches.sort((a, b) => b.pid - a.pid)[0];
+
+    // Multi-instance isolation: when several TBH processes coexist (one in
+    // the host + one inside a Sandboxie-Plus sandbox), pick the one whose
+    // sandbox state matches the companion's own. Without this, the host
+    // companion silently attaches to the sandboxed game (its PID is usually
+    // larger because it was launched later), mixing live data across
+    // instances. Single-candidate fast path skips the per-process module
+    // probe to avoid the OpenProcess + EnumProcessModulesEx cost.
+    let pick: ProcessInfo;
+    if (matches.length === 1) {
+      pick = matches[0];
+    } else {
+      const companionInSandbox = WinProcess.isCurrentProcessInSandbox();
+      const annotated = matches.map((m) => {
+        let inSandbox = false;
+        try {
+          inSandbox = WinProcess.isProcessInSandbox(m.pid);
+        } catch (err) {
+          winProcessLogger?.(
+            `findByNames: sandbox probe failed for pid=${m.pid}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        return { pid: m.pid, name: m.name, inSandbox };
+      });
+      const chosenPid = selectProcessBySandbox(annotated, companionInSandbox);
+      pick = annotated.find((m) => m.pid === chosenPid) ?? matches[0];
+      const sameSandboxCount = annotated.filter((m) => m.inSandbox === companionInSandbox).length;
+      if (sameSandboxCount === 0) {
+        winProcessLogger?.(
+          `findByNames: no TBH candidate matches companion sandbox state ` +
+            `(companionInSandbox=${companionInSandbox}, ` +
+            `pids=[${annotated.map((m) => `${m.pid}${m.inSandbox ? "+" : "-"}`).join(",")}]); ` +
+            `falling back to highest-pid selection (pid=${pick.pid})`,
+        );
+      } else {
+        winProcessLogger?.(
+          `findByNames: ${sameSandboxCount}/${annotated.length} candidate(s) match companion ` +
+            `sandbox state (companionInSandbox=${companionInSandbox}); selected pid=${pick.pid}`,
+        );
+      }
+    }
     return WinProcess.open(pick.pid, pick.name);
+  }
+
+  /**
+   * Detect whether the companion's own process is running inside a sandbox.
+   * Used by {@link findByNames} to match the companion's sandbox state
+   * against each TBH candidate's state, so a host companion only attaches
+   * to the host TBH and a sandboxed companion only attaches to the
+   * sandboxed TBH.
+   *
+   * Two signals are checked (either is sufficient):
+   * 1. `process.env.sandbox` — Sandboxie-Plus sets this to the box name for
+   *    every process launched inside a sandbox. Cheap and reliable when
+   *    present; absent if the user disabled the env-var injection or is
+   *    using a different sandbox tool.
+   * 2. `GetModuleHandleW("sbiedll.dll")` — Sandboxie injects this DLL into
+   *    every sandboxed process. Works even if env-var injection is off; only
+   *    matches Sandboxie-Plus-class sandboxes.
+   *
+   * Both signals are Sandboxie-Plus-specific; other sandboxes (Windows
+   * Sandbox, Hyper-V containers) are not detected. In that case both the
+   * companion and every TBH candidate report `false`, and {@link findByNames}
+   * degrades to the legacy highest-PID tiebreak.
+   */
+  static isCurrentProcessInSandbox(): boolean {
+    if (process.env.sandbox) return true;
+    const h = GetModuleHandleW("sbiedll.dll");
+    return !isInvalidHandle(h);
+  }
+
+  /**
+   * Detect whether the target process has `sbiedll.dll` loaded, which
+   * Sandboxie-Plus injects into every sandboxed process. Used by
+   * {@link findByNames} to classify each TBH candidate's sandbox state.
+   *
+   * Opens the process with PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+   * (same privileges as the read loop) and calls EnumProcessModulesEx —
+   * no extra privileges, no child process spawn. Returns `false` on any
+   * failure (OpenProcess denied, enum failed, etc.); the caller's fallback
+   * is the legacy highest-PID tiebreak.
+   */
+  static isProcessInSandbox(pid: number): boolean {
+    const handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+    if (isInvalidHandle(handle)) return false;
+    try {
+      const needed = [0];
+      if (!EnumProcessModulesEx(handle, null, 0, needed, LIST_MODULES_ALL)) return false;
+      const bytesNeeded = needed[0];
+      if (bytesNeeded === 0) return false;
+      const hModsBuf = Buffer.alloc(bytesNeeded);
+      if (!EnumProcessModulesEx(handle, hModsBuf, bytesNeeded, needed, LIST_MODULES_ALL)) {
+        return false;
+      }
+      const handles = parseHModulesBuffer(hModsBuf, needed[0]);
+      const nameBuf = Buffer.alloc(260 * 2); // MAX_PATH * sizeof(wchar_t)
+      for (const hMod of handles) {
+        const nameLen = GetModuleFileNameExW(handle, hMod, nameBuf, 260);
+        if (nameLen === 0) continue;
+        const path = nameBuf.toString("utf16le", 0, nameLen * 2);
+        if (extractBasename(path).toLowerCase() === "sbiedll.dll") return true;
+      }
+      return false;
+    } finally {
+      CloseHandle(handle);
+    }
   }
 
   static open(pid: number, name: string): WinProcess {
