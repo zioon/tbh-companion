@@ -622,6 +622,16 @@ export function makeChestLogPinState(): ChestLogPinState {
 }
 
 const MAX_CHEST_LOG = 5_000;
+/** Maximum number of re-read attempts for a single GetBoxLog entry.
+ *  Each sample is a few µs apart (kernel call latency); 3 samples gives the
+ *  writer ~10µs total to finish committing the monsterType field — enough for
+ *  the typical 2-3 store-instruction sequence. Mirrors BOX_OPEN_LOG_SAMPLES.
+ *  Without this, a mid-write race during boss death / stage transition (the
+ *  most memory-write-dense moment) silently drops the entry, and since
+ *  pin.lastCount advances past it, the drop is lost permanently — which is
+ *  why boss chests (rare/act) were occasionally missed while common drops
+ *  (stable memory during normal farming) were not. */
+const CHEST_LOG_SAMPLES = 3;
 const LM_STATIC_SCAN_MAX = 0x100;
 
 /** EMonsterLogType → chest category (0 common, 1 stage boss, 2 act boss). */
@@ -787,11 +797,26 @@ export function readRuntimeChestLog(
   const drops: LiveChestCategory[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
   for (let i = start; i < count; i++) {
-    const entryPtr = readPtr(reader, first + BigInt(i * 8));
-    if (entryPtr == null) continue;
-    const mt = readI32(reader, entryPtr + BigInt(o.runtime.getBoxLog.monsterType));
-    const cat = mt == null ? null : chestCategoryFromMonsterType(mt);
-    if (cat) drops.push(cat);
+    // Re-read up to CHEST_LOG_SAMPLES times to defend against mid-write races:
+    // the game may have allocated the entry slot but not yet committed the
+    // monsterType field. A single sample in that window reads null (RPM fail)
+    // or a garbage mt (non-0/1/2), and the entry is silently dropped — and
+    // since pin.lastCount advances to `count` after the loop, the drop is
+    // lost permanently. Boss deaths (rare/act chests) coincide with stage
+    // transitions (dense memory writes), making this race most likely exactly
+    // when the drop matters most. Mirrors BOX_OPEN_LOG_SAMPLES defense.
+    for (let s = 0; s < CHEST_LOG_SAMPLES; s++) {
+      const entryPtr = readPtr(reader, first + BigInt(i * 8));
+      if (entryPtr == null) continue; // retry next sample
+      const mt = readI32(reader, entryPtr + BigInt(o.runtime.getBoxLog.monsterType));
+      if (mt == null) continue; // retry next sample
+      const cat = chestCategoryFromMonsterType(mt);
+      if (cat != null) {
+        drops.push(cat);
+        break; // valid category decoded, stop retrying
+      }
+      // mt is non-null but not 0/1/2: likely mid-write race, retry next sample
+    }
   }
   pin.lastCount = count;
   return {
@@ -813,6 +838,14 @@ export function makeStageClearPinState(): StageClearPinState {
 const MAX_STAGE_CLEAR_LOG = 5_000;
 /** Reject implausible clear times (corrupted memory / mid-write read). */
 const MAX_CLEAR_TIME_SEC = 36_000;
+/** Maximum number of re-read attempts for a single StageClearLog entry.
+ *  Same mid-write race defense as CHEST_LOG_SAMPLES / BOX_OPEN_LOG_SAMPLES:
+ *  stage clear entries are written right when the player finishes a stage
+ *  (dense memory activity), so a single sample may read entryPtr allocated
+ *  but clearTimeSec/act/stage fields not yet committed. Without retry the
+ *  entry is dropped silently and pin.lastCount advances past it — the clear
+ *  is lost permanently. */
+const STAGE_CLEAR_LOG_SAMPLES = 3;
 
 /** Resolve the StageClear `List<StageClearLog>` backing array + length from a LogManager instance. */
 function stageClearLogList(
@@ -887,25 +920,58 @@ export function readRuntimeStageClears(
   const stageOff = BigInt(o.runtime.stageClearLog.stage);
   const clearTimeOff = BigInt(o.runtime.stageClearLog.clearTimeSec);
   for (let i = start; i < count; i++) {
-    const entryPtr = readPtr(reader, first + BigInt(i * 8));
-    if (entryPtr == null) continue;
-    const clearTimeSec = readI32(reader, entryPtr + clearTimeOff);
-    if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) continue;
-    const act = readI32(reader, entryPtr + actOff);
-    const stage = readI32(reader, entryPtr + stageOff);
-    // act is 1-digit (1-9), stage is 1-99. 0 or out-of-range ⇒ corrupted /
-    // mid-write read. Surface the entry with `valid=false` so the caller can
-    // drop it: falling back to the live stageKey would re-introduce the
-    // off-by-one attribution bug (live stageKey has already advanced past the
-    // cleared stage by the time we poll the next tick).
-    const actValid = act != null && act >= 1 && act <= 9;
-    const stageValid = stage != null && stage >= 1 && stage <= 99;
-    clears.push({
-      act: actValid ? act! : 0,
-      stage: stageValid ? stage! : 0,
-      clearTimeSec,
-      valid: actValid && stageValid,
-    });
+    // Re-read up to STAGE_CLEAR_LOG_SAMPLES times to defend against mid-write
+    // races: stage clear entries are written exactly when the player finishes
+    // a stage (dense memory activity — UI updates, save triggers, log appends
+    // from multiple systems). A single sample may read entryPtr allocated but
+    // clearTimeSec/act/stage fields not yet committed; the entry would be
+    // silently dropped and pin.lastCount would advance past it, losing the
+    // clear permanently. Mirrors CHEST_LOG_SAMPLES / BOX_OPEN_LOG_SAMPLES.
+    let entryPtr: bigint | null = null;
+    let clearTimeSec: number | null = null;
+    let act: number | null = null;
+    let stage: number | null = null;
+    let resolved = false;
+    for (let s = 0; s < STAGE_CLEAR_LOG_SAMPLES; s++) {
+      entryPtr = readPtr(reader, first + BigInt(i * 8));
+      if (entryPtr == null) continue; // retry next sample
+      clearTimeSec = readI32(reader, entryPtr + clearTimeOff);
+      if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) {
+        continue; // retry next sample
+      }
+      act = readI32(reader, entryPtr + actOff);
+      stage = readI32(reader, entryPtr + stageOff);
+      // act is 1-digit (1-9), stage is 1-99. 0 or out-of-range ⇒ corrupted /
+      // mid-write read. Retry once more in case the writer hadn't committed
+      // these fields yet.
+      const actValid = act != null && act >= 1 && act <= 9;
+      const stageValid = stage != null && stage >= 1 && stage <= 99;
+      if (actValid && stageValid) {
+        clears.push({ act: act!, stage: stage!, clearTimeSec, valid: true });
+        resolved = true;
+        break;
+      }
+    }
+    if (resolved) continue;
+    // All samples failed to read a fully-valid entry. If we at least got a
+    // plausible clearTimeSec, surface the entry with `valid=false` so the
+    // caller can drop it: falling back to the live stageKey would re-introduce
+    // the off-by-one attribution bug (live stageKey has already advanced past
+    // the cleared stage by the time we poll the next tick). Preserves the
+    // original valid=false semantics for persistently-corrupted entries while
+    // the retry above handles transient mid-write races.
+    if (entryPtr != null && clearTimeSec != null && clearTimeSec > 0 && clearTimeSec < MAX_CLEAR_TIME_SEC) {
+      const actValid = act != null && act >= 1 && act <= 9;
+      const stageValid = stage != null && stage >= 1 && stage <= 99;
+      clears.push({
+        act: actValid ? act! : 0,
+        stage: stageValid ? stage! : 0,
+        clearTimeSec,
+        valid: actValid && stageValid,
+      });
+    }
+    // else: never read even a plausible clearTimeSec across all samples —
+    // skip entirely (cannot record a clear without a clear-time).
   }
   pin.lastCount = count;
   return clears;

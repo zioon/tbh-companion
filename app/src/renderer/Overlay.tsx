@@ -187,7 +187,7 @@ export function Overlay() {
           <p className="m-0 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] tabular-nums text-muted">
             {stats.chestDrops.lastRareDropWallTime != null && (
               <span>
-                {t("bossLabel")}{" "}
+                {t("boxLabel")}{" "}
                 {fmtShortDuration(
                   Math.max(0, Math.round(nowSeconds - stats.chestDrops.lastRareDropWallTime)),
                 )}

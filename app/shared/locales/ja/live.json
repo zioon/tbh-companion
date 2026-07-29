@@ -83,7 +83,7 @@
   "colClearedAt": "クリア時間",
   "colClearTime": "クリア時間",
   "colGold": "ゴールド",
-  "bossLabel": "Box",
+  "boxLabel": "Box",
   "invLabel": "インベントリ {{value}}",
   "pricingProgress": "価格設定中 {{done}}/{{total}}…",
   "pricingLabel": "価格設定中…",

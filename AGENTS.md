@@ -57,6 +57,10 @@ pnpm dist                # minify data + build + Windows NSIS installer
 ## Conventions
 
 - **文档语言：** 所有说明文件（`docs/` 下的全部 `.md`、根目录 `*.md`、`docs/agent/` 与 `docs/superpowers/` 下的所有文档）必须使用中文撰写。代码注释、commit message、PR 描述保持现有惯例（中英混合/英文）。新增英文文档需在 PR 中说明理由。
+- **业务流程变更（强制）：** 所有针对项目业务逻辑的代码改动（save 解析、tracker 速率计算、live memory 读取、inventory/lookup/market、boxTimer、autoClassify、notification、session 持久化、catalog refresh、update、pet、stageRun 等任意业务流程），**必须**：
+  1. **动手前**：先查阅 [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 对应章节，理解现有数据流、服务边界与不变量，避免重复设计或破坏既有契约。
+  2. **落地后**：在同一个 PR 内**同步更新** [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 对应章节（含数据流图、错误处理路径、关键文件路径速查表）。若新增了业务流程，追加新章节并按现有编号顺序递增。
+  3. **审查时**：PR 审查者需确认 BUSINESS-FLOWS.md 已同步，未同步的 PR 不予合并。
 - TypeScript everywhere in `app/`. Keep `core/` free of Electron/React imports so it stays unit-testable.
 - **Before `app/` work:** read [`docs/agent/SKILLS.md`](docs/agent/SKILLS.md) (routing) and [`docs/agent/CODING-GUIDELINES.md`](docs/agent/CODING-GUIDELINES.md).
 - **Done means:** [`docs/agent/QA.md`](docs/agent/QA.md) passed — not just green tests.
@@ -107,10 +111,11 @@ Edit canonical skills in `.cursor/skills/`; mirror the edits into `.claude/skill
 
 ### Domain
 
-- `docs/ARCHITECTURE.md` - processes, IPC boundary, windows, data flow
-- `docs/STYLING.md` - Tailwind + design-system vs legacy `styles.css`
-- `docs/DIAGNOSTIC_LOGGING.md` - support logs (main/renderer rules)
-- `docs/SAVE_FORMAT.md` - ES3 decryption + save JSON layout
-- `docs/BENCHMARKS.md` - performance benchmarks
-- `docs/DECISIONS.md` - ADR log
-- `docs/findings/` - research outputs (Steam Market, item mapping)
+- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — **业务流程单一真理源**（必读）：23 个章节覆盖启动、save 解析、tracker 双路径、live memory、inventory/lookup/market、boxTimer、autoClassify、notification、session 持久化、catalog refresh、update、pet、stageRun 等全部业务流程。任何业务逻辑改动**必须**先查阅本文档，落地后**同步更新**。
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - processes, IPC boundary, windows, data flow
+- [`docs/STYLING.md`](docs/STYLING.md) - Tailwind + design-system vs legacy `styles.css`
+- [`docs/DIAGNOSTIC_LOGGING.md`](docs/DIAGNOSTIC_LOGGING.md) - support logs (main/renderer rules)
+- [`docs/SAVE_FORMAT.md`](docs/SAVE_FORMAT.md) - ES3 decryption + save JSON layout
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) - performance benchmarks
+- [`docs/DECISIONS.md`](docs/DECISIONS.md) - ADR log
+- [`docs/findings/`](docs/findings/) - research outputs (Steam Market, item mapping, audit reports)

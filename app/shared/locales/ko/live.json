@@ -83,7 +83,7 @@
   "colClearedAt": "클리어 시각",
   "colClearTime": "클리어 시간",
   "colGold": "골드",
-  "bossLabel": "Box",
+  "boxLabel": "Box",
   "invLabel": "인벤토리 {{value}}",
   "pricingProgress": "가격 책정 중 {{done}}/{{total}}…",
   "pricingLabel": "가격 책정 중…",
