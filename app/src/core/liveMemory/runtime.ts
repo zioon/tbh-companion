@@ -659,22 +659,62 @@ function getBoxLogList(
   return { arr, count };
 }
 
-/** A LogManager candidate is valid when its GetBox log list is walkable. */
+/**
+ * A LogManager candidate is valid when its `logByType` Dictionary is
+ * structurally sound (dict pointer non-null, count in a plausible range,
+ * entries array pointer non-null) AND, when `getBoxTypeKey` is derived,
+ * the dict actually contains that key. The key-presence check is critical:
+ * without it, any object whose `+logByType` offset happens to hold a
+ * dict-like struct (e.g. another manager's internal dict with count 1-1000
+ * + non-null entries) passes validation, but that dict belongs to a
+ * different class and won't contain the GetBox/BoxOpen log-type keys —
+ * causing every `dictLookupIntKey` to return null with "list not walkable".
+ *
+ * When `getBoxTypeKey === 0` (fallback path couldn't derive the key),
+ * degrades to pure structural validation — the key-presence check is
+ * skipped because we don't know which key to look for.
+ *
+ * This is stricter than "dict pointer non-null" but looser than "GetBox
+ * bucket fully walkable" (which fails during transient mid-write races on
+ * the dict or when a specific log-type bucket hasn't been created yet).
+ * The key-presence check is stable across races because `getBoxTypeKey`
+ * identifies a log-type bucket that is created once during the first battle
+ * and never removed — it may be transiently mid-write, but never absent.
+ */
 function isLiveLogManager(reader: MemoryReader, ptr: bigint, o: LiveOffsets): boolean {
-  return getBoxLogList(reader, ptr, o) != null;
+  const dictPtr = readPtr(reader, ptr + BigInt(o.runtime.log.logByType));
+  if (dictPtr == null) return false;
+  const count = readI32(reader, dictPtr + BigInt(o.dict.count));
+  if (count == null || count <= 0 || count > 1000) return false;
+  const entries = readPtr(reader, dictPtr + BigInt(o.dict.entries));
+  if (entries == null) return false;
+  // When getBoxTypeKey is derived (non-zero), require the dict to actually
+  // contain that key. Without this, any object whose `+logByType` offset
+  // happens to hold a dict-like struct (count 1-1000 + non-null entries)
+  // passes — but that dict belongs to a different class and won't contain
+  // the GetBox/BoxOpen log-type keys, causing every dict lookup to fail
+  // with "list not walkable". When getBoxTypeKey is 0 (fallback path
+  // couldn't derive the key), degrade to pure structural validation.
+  if (o.runtime.log.getBoxTypeKey !== 0) {
+    const listPtr = dictLookupIntKey(reader, dictPtr, o.runtime.log.getBoxTypeKey, o);
+    if (listPtr == null) return false;
+  }
+  return true;
 }
 
 /**
  * Resolve the live `LogManager` instance pointer by scanning its class static
- * block for the pointer whose GetBox log list is walkable. Pinned and revalidated
- * each tick. Returns null when the TypeInfo RVA has not been derived yet
- * (`logManager === 0n`) — the offset extractor fills it at runtime.
- */
-/**
- * Resolve the live `LogManager` instance pointer. Shared by every log-tailing
- * reader (chest drops, stage clears, …) — the resolution itself only depends
- * on the class anchor + a walkable GetBox list as its liveness check, not on
- * which `ELogType` bucket the caller ultimately tails.
+ * block for the first pointer whose `logByType` Dictionary is readable. Pinned
+ * and revalidated each tick. Returns null when the TypeInfo RVA has not been
+ * derived yet (`logManager === 0n`) — the offset extractor fills it at runtime.
+ *
+ * Shared by every log-tailing reader (chest drops, stage clears, box opens) —
+ * the resolution only depends on the class anchor + a readable `logByType`
+ * dict pointer as its liveness check, not on which `ELogType` bucket the
+ * caller ultimately tails. Per-bucket walkability is enforced at read time by
+ * each reader's `*LogList` helper, so a transiently-unreadable bucket does
+ * NOT invalidate the LogManager pin (which would cascade into all log
+ * readers returning null for the entire battle).
  */
 export function resolveLogManager(
   reader: MemoryReader,
@@ -751,9 +791,20 @@ export function readRuntimeChestLog(
   }
   const list = getBoxLogList(reader, lmPtr, o);
   if (list == null) {
+    // Diagnostic: re-read the dict path to pinpoint the failure cause.
+    // Without this, "dict lookup failed" gives no clue whether dictPtr is
+    // null, count is 0, entries array is null, or the key simply isn't in
+    // the dict — each points to a different root cause.
+    const dictPtr = readPtr(reader, lmPtr + BigInt(o.runtime.log.logByType));
+    let diag = "dictPtr=null";
+    if (dictPtr != null) {
+      const dCount = readI32(reader, dictPtr + BigInt(o.dict.count));
+      const dEntries = readPtr(reader, dictPtr + BigInt(o.dict.entries));
+      diag = `dictPtr=0x${dictPtr.toString(16)} count=${dCount ?? "null"} entries=${dEntries != null ? "ok" : "null"} getBoxTypeKey=${o.runtime.log.getBoxTypeKey}`;
+    }
     return {
       drops: null,
-      status: "GetBox log list not walkable (runtime.log.logByType dict lookup failed)",
+      status: `GetBox log list not walkable (runtime.log.logByType dict lookup failed; ${diag})`,
     };
   }
 
@@ -960,7 +1011,12 @@ export function readRuntimeStageClears(
     // the cleared stage by the time we poll the next tick). Preserves the
     // original valid=false semantics for persistently-corrupted entries while
     // the retry above handles transient mid-write races.
-    if (entryPtr != null && clearTimeSec != null && clearTimeSec > 0 && clearTimeSec < MAX_CLEAR_TIME_SEC) {
+    if (
+      entryPtr != null &&
+      clearTimeSec != null &&
+      clearTimeSec > 0 &&
+      clearTimeSec < MAX_CLEAR_TIME_SEC
+    ) {
       const actValid = act != null && act >= 1 && act <= 9;
       const stageValid = stage != null && stage >= 1 && stage <= 99;
       clears.push({
@@ -1101,7 +1157,15 @@ export function readRuntimeBoxOpenLog(
   }
   const list = boxOpenLogList(reader, lmPtr, o);
   if (list == null) {
-    return { opens: null, status: "BoxOpenLog list not walkable (dict lookup failed)" };
+    // Diagnostic: re-read the dict path to pinpoint the failure cause.
+    const dictPtr = readPtr(reader, lmPtr + BigInt(o.runtime.log.logByType));
+    let diag = "dictPtr=null";
+    if (dictPtr != null) {
+      const dCount = readI32(reader, dictPtr + BigInt(o.dict.count));
+      const dEntries = readPtr(reader, dictPtr + BigInt(o.dict.entries));
+      diag = `dictPtr=0x${dictPtr.toString(16)} count=${dCount ?? "null"} entries=${dEntries != null ? "ok" : "null"} boxOpenTypeKey=${o.runtime.log.getItemWithBoxOpenTypeKey}`;
+    }
+    return { opens: null, status: `BoxOpenLog list not walkable (dict lookup failed; ${diag})` };
   }
 
   const { arr, count } = list;

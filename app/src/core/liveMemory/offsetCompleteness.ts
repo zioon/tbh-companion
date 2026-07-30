@@ -51,6 +51,25 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   { path: "typeInfoRva.monsterSpawnManager", get: (o) => o.typeInfoRva.monsterSpawnManager },
   { path: "player.petSaveDatas", get: (o) => o.player.petSaveDatas },
   { path: "player.itemSaveDatas", get: (o) => o.player.itemSaveDatas },
+  // PlayerSaveData.BoxData — gates readRuntimeChestSlots. When 0, chest slots
+  // degrade to the save-snapshot path (5s latency). Listed here so a cache
+  // that claims "complete" but has boxData=0 (e.g. fallback table where
+  // findPlayerSaveData hasn't run) is flagged incomplete and the extractor
+  // gets a chance to derive it.
+  //
+  // Known unsupported versions:
+  // - v1.00.28: field name is obfuscated, extractor can't fill it.
+  // - v1.01.02: CommonSaveData is serialized as an ES3 byte stream (type
+  //   "System.Object", namespace "TaskbarHero"). Field values are stored as
+  //   binary blobs, not pointer-walkable object graphs. Live memory reader
+  //   cannot deserialize ES3 streams, so boxData/petSaveDatas/itemSaveDatas
+  //   are all non-derivable. Live chest slots/pets/inventory fall back to
+  //   the save-snapshot path.
+  //
+  // `enrichmentAlreadyAttempted` (worker.ts Path 2 guard) prevents the 30s
+  // fallback timer from re-running the extractor forever after the first
+  // failed attempt on these versions.
+  { path: "player.boxData", get: (o) => o.player.boxData },
   { path: "petSaveData.petKey", get: (o) => o.petSaveData.petKey },
   { path: "petSaveData.isUnlock", get: (o) => o.petSaveData.isUnlock },
   { path: "inventoryItem.itemKey", get: (o) => o.inventoryItem.itemKey },
@@ -157,6 +176,7 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       petSaveDatas: pickN(base.player.petSaveDatas, derived.player.petSaveDatas),
       itemSaveDatas: pickN(base.player.itemSaveDatas, derived.player.itemSaveDatas),
       aggregates: pickN(base.player.aggregates, derived.player.aggregates),
+      boxData: pickN(base.player.boxData, derived.player.boxData),
     },
     petSaveData: {
       petKey: pickN(base.petSaveData.petKey, derived.petSaveData.petKey),

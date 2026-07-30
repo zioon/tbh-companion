@@ -11,6 +11,7 @@ import {
   collectClassEntries,
   collectLogManagerDiagnostics,
   dumpCatalogCandidates,
+  dumpSaveListHolders,
   findBoxOpenLogDictDirect,
   findBoxOpenLogFields,
   findCurrencyManager,
@@ -345,9 +346,29 @@ export function extractOffsets(
   log(
     player
       ? `extract: player anchor rva=0x${player.commonSaveData.toString(16)} ` +
-          `static+0x${player.playerStaticOff.toString(16)} pets=0x${player.petSaveDatas.toString(16)} items=0x${player.itemSaveDatas.toString(16)}`
+          `static+0x${player.playerStaticOff.toString(16)} pets=0x${player.petSaveDatas.toString(16)} items=0x${player.itemSaveDatas.toString(16)} boxData=0x${(player.boxData ?? 0).toString(16)}`
       : `extract: player save-data anchor not derived (pets/inventory degrade to save file)`,
   );
+  // When the "BoxData" field-name match failed, dump the PlayerSaveData class
+  // field table + raw bytes so we can see the actual (possibly obfuscated)
+  // field name on versions like v1.01.02. The dump is one-shot per class
+  // (probedClasses guard inside dumpClassFields), so this won't repeat.
+  if (player?.boxDataDiagnostics) {
+    log(player.boxDataDiagnostics);
+  }
+  // Diagnostic: when the player anchor couldn't be derived at all (holder
+  // class restructured — v1.01.02 signature), dump every static-reachable
+  // List<*> field + recurse one level into CommonSaveData's sub-objects so
+  // we can see where PetSaveData/ItemSaveData/BoxData lists moved. Gated by
+  // env var — zero impact on the production path when disabled. Reuses the
+  // already-built ScanContext + entries, so it adds no extra memory scanning.
+  if (!player && process.env.TBH_DUMP_SAVE_LIST_HOLDERS === "1") {
+    try {
+      dumpSaveListHolders(ctx, entries, log);
+    } catch (e) {
+      log(`[save-list-dump] error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   log(`extract: done in ${Date.now() - t0} ms`);
 

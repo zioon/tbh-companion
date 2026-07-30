@@ -496,6 +496,51 @@ describe("readRuntimeChestLog", () => {
     expect(result.drops).toEqual([]);
     expect(pin.lastCount).toBe(1); // realigned, not reset to 0
   });
+
+  it("rejects non-LogManager objects whose +logByType offset holds an unrelated dict", () => {
+    // v1.01.02 regression: resolveLogManager scans the LogManager static block
+    // for the first pointer whose `+logByType` offset holds a dict-like struct
+    // (count 1-1000 + non-null entries). Without a key-presence check, any
+    // unrelated object with a dict at that offset passes — but its dict won't
+    // contain the GetBox log-type key, so every dictLookupIntKey returns null
+    // and the reader reports "dict lookup failed" forever.
+    //
+    // Seed two candidates in the static block: a decoy (unrelated dict with
+    // no getBoxTypeKey entry) at +0x00, and the real LogManager at +0x08.
+    // isLiveLogManager must reject the decoy and accept the real one.
+    const pin = makeChestLogPinState();
+    const m = new FakeMemory();
+    m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS).writePtr(
+      LOG_CLASS + BigInt(CAND),
+      LOG_BLOCK,
+    );
+
+    // Decoy instance at static block +0x00: dict with 5 entries, none of which
+    // match getBoxTypeKey. Structurally valid as a dict, but not a LogManager.
+    const DECOY_INSTANCE = 0xd21000n;
+    const DECOY_DICT = 0xd31000n;
+    const DECOY_DICT_ENTRIES = 0xd41000n;
+    m.writePtr(LOG_BLOCK + 0n, DECOY_INSTANCE)
+      .writePtr(DECOY_INSTANCE + BigInt(O.runtime.log.logByType), DECOY_DICT)
+      .writePtr(DECOY_DICT + BigInt(O.dict.entries), DECOY_DICT_ENTRIES)
+      .writeI32(DECOY_DICT + BigInt(O.dict.count), 5);
+    // Decoy dict entries: keys 100, 101, 102, 103, 104 — none match getBoxTypeKey.
+    for (let i = 0; i < 5; i++) {
+      const e = DECOY_DICT_ENTRIES + BigInt(O.container.arrayFirst) + BigInt(i * O.dict.entrySize);
+      m.writeI32(e + BigInt(O.dict.entryHash), 1)
+        .writeI32(e + BigInt(O.dict.entryKey), 100 + i)
+        .writePtr(e + BigInt(O.dict.entryValue), 0xd50000n + BigInt(i * 0x1000));
+    }
+
+    // Real LogManager at static block +0x08: dict with getBoxTypeKey entry.
+    m.writePtr(LOG_BLOCK + 0x8n, LM_INSTANCE);
+    seedLogChain(m, [0]); // seeds LM_INSTANCE with a valid GetBox bucket
+
+    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // Should resolve the real LogManager (not the decoy) and prime successfully.
+    expect(result.drops).toEqual([]);
+    expect(pin.ptr).toBe(LM_INSTANCE);
+  });
 });
 
 // ── readRuntimeStageClears ─────────────────────────────────────────────────────

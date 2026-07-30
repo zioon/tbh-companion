@@ -69,8 +69,7 @@ export function useLookupPriceHistory(): LookupPriceChange[] {
       const oldLocal = prevLocal?.[hash] ?? null;
       // USD 变了，或 local 变了，或两者从无到有
       const usdChanged = oldUsd !== newUsd && !(oldUsd == null && newUsd == null);
-      const localChanged =
-        oldLocal !== newLocal && !(oldLocal == null && newLocal == null);
+      const localChanged = oldLocal !== newLocal && !(oldLocal == null && newLocal == null);
       if (!usdChanged && !localChanged) continue;
       newEntries.push({
         hash,
@@ -103,8 +102,7 @@ export function useLookupPriceHistory(): LookupPriceChange[] {
       for (const [hash, newLocal] of Object.entries(snapshot.pricesLocal)) {
         if (seenHashes.has(hash)) continue;
         const oldLocal = prevLocal?.[hash] ?? null;
-        const localChanged =
-          oldLocal !== newLocal && !(oldLocal == null && newLocal == null);
+        const localChanged = oldLocal !== newLocal && !(oldLocal == null && newLocal == null);
         if (!localChanged) continue;
         newEntries.push({
           hash,

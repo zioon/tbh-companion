@@ -67,10 +67,6 @@ export function selectPollingTargets(input: PollingTargetInput): string[] {
   highValueOwned.sort((a, b) => b.usd - a.usd);
 
   // 3) 合并 + 截断
-  const merged = [
-    ...watchedOrdered,
-    ...highValueOwned.map((x) => x.hash),
-    ...regularOwned,
-  ];
+  const merged = [...watchedOrdered, ...highValueOwned.map((x) => x.hash), ...regularOwned];
   return merged.length > maxTargets ? merged.slice(0, maxTargets) : merged;
 }

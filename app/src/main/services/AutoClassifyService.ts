@@ -613,11 +613,7 @@ export class AutoClassifyService {
    * Called BEFORE `liveSlots` is overwritten with save values — the delta
    * is the classification signal.
    */
-  private classifyPendingBursts(saveSlots: {
-    common: number;
-    rare: number;
-    act: number;
-  }): void {
+  private classifyPendingBursts(saveSlots: { common: number; rare: number; act: number }): void {
     if (this.pendingBursts.length === 0 || this.liveSlots == null) return;
 
     // Compute per-category deltas: positive = chests opened since last save
@@ -911,9 +907,7 @@ export class AutoClassifyService {
       // before its predicted autoOpenAtMs, every subsequent chest's
       // autoOpenAtMs would be 5s too late).
       if (cat && cat !== "unclassified") {
-        const remaining = this.queue.some(
-          (q) => categoryFromBoxKey(q.boxKey) === cat,
-        );
+        const remaining = this.queue.some((q) => categoryFromBoxKey(q.boxKey) === cat);
         if (remaining) {
           this.resetSlotTimersForCategory(cat, burstMs + item.autoOpenSeconds * 1000);
           log.info(

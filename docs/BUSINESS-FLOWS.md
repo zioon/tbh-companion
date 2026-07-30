@@ -564,8 +564,9 @@ type WorkerMessage =
 
 - **场景 A**：v1.01.02 玩家在主菜单 attach → StageManager 单例未实例化 → extractor 3 次 critical 失败 → 预算耗尽 → 永远 stuck 在 stale baseline。
   - **防御**：`healOffsets()` 内检测到 `isCriticalStaleOnFallback` → 调 `resetCriticalExtractionBudget()` 强制重置。worker Path 3 的 30s timer 周期性触发 heal。每次 heal 重置预算，等玩家进入关卡 StageManager 实例化 → extractor 成功 → derived RVAs 覆盖 baseline → `isCriticalStaleOnBaseline` 返回 false → Path 3 停止。
-- **场景 B**：v1.01.02 BoxOpenLog 字段名混淆 → extractor 验证失败 → enrichment 预算（1 次）耗尽 → 每 30s 重跑 ~9s extractor。
-  - **防御**：Path 2 检查 `enrichmentAlreadyAttempted`，若为 true 不重置预算。`mayAttemptEnrichment` 返回 false → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回。用户看不到"scanning"闪烁。
+- **场景 B**：v1.01.02 BoxOpenLog 字段名混淆（bfpc/bfpd/bfpe）→ `identifyBoxOpenLogFieldsByValue` value-based scanner 需要识别字段。
+  - **已修复**：v1.01.02 的 `itemStringKey` 是 `System.String` 指针（非裸 int32），其低 32 位可能为正值（如 `0x57509000`），旧代码仅在 `v < 0` 时尝试 pointer→String 路径，导致正值指针被误判为 plain i32 → `isPlausibleItemKey` 返回 false → `bestItemKeyOffset` 永远为 0 → 识别失败。修复后条件扩展为 `v == null || v < 0 || (!isPlausibleItemKey(v) && !isPlausibleGrade(v))`，正值非 plausible 的 i32 也尝试 pointer→String→number 路径。
+  - **防御**：若 extractor 仍验证失败（如玩家未开过箱、LogManager dict 无 BoxOpen 桶），Path 2 检查 `enrichmentAlreadyAttempted`，若为 true 不重置预算。`mayAttemptEnrichment` 返回 false → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回。用户看不到"scanning"闪烁。
 - **场景 C**：cache pollution（baseline `getItemWithBoxOpenTypeKey` 值被错误信任）。
   - **防御**：Path 1.5 一次性 flag → extractor 跑一次 → flag 清零。即使 extractor 没修好，也不会重复触发，直到下一次 60s 失败 streak 重新检测。
 
@@ -595,7 +596,7 @@ loop():
 | Stage | `readRuntimeStage` (`runtime.ts:40`) | 25Hz | 复用 smPin；读 `StageCacheManager → StageCache → StageInfoData` |
 | Monster HP | `readRuntimeMonsterHp` (`runtime.ts:1718`) | 25Hz | `monsterPin` — 缓存 MonsterSpawnManager 指针 + cachedHpOffsets |
 | Heroes | `readRuntimeHeroes` (`runtime.ts:473`) | 25Hz | 复用 smPin；读 `StageManager.HeroList → Unit.cache → HeroRuntime` |
-| Chest drops | `readRuntimeChestLog` (`runtime.ts:721`) | 25Hz | `chestPin` — 缓存 LogManager 指针 + tail 位置 + primed 标志；entry 读取带 `CHEST_LOG_SAMPLES=3` 重试（防 boss 死亡/stage transition 时的 mid-write race 静默丢条目） |
+| Chest drops | `readRuntimeChestLog` (`runtime.ts:721`) | 25Hz | `chestPin` — 缓存 LogManager 指针 + tail 位置 + primed 标志；entry 读取带 `CHEST_LOG_SAMPLES=3` 重试（防 boss 死亡/stage transition 时的 mid-write race 静默丢条目）。LogManager liveness 校验为 dict 结构校验（`logByType` 指针非 null + count > 0 且 < 1000 + entries array 非空）——比"dict 指针非 null"严格（防止非 LogManager 对象误通过），比"GetBox bucket 可 walk"宽松（避免战斗中 bucket 暂时不可读时 LogManager 被误判失效） |
 | Box opens | `readRuntimeBoxOpenLog` (`runtime.ts:1006`) | 25Hz | `boxOpenPin` — 同 chest pin 结构 |
 | Box-open event 探测 | `peekBoxOpenLogCount` (`runtime.ts:973`) | 25Hz（仅当 enrichment 未完成） | 复用 boxOpenPin 但不动 tail |
 | Inventory | `readRuntimeInventory` (`runtime.ts:1229`) | 0.5Hz（每 50 tick） | `cachedInventory` — tick 间复用 |
@@ -670,21 +671,21 @@ worker.read() → LiveMemorySnapshot 对象
 4. `applyResolvedOffsets` — 更新 `supported` / `offsetSource` / `offsets`。
 5. 日志：从 unsupported 翻到 supported 时记 "offsets now supported"；仍 unsupported 时列 critical missing；仍 stale-on-baseline 时记 "still on stale baseline RVAs"。
 
-#### 5.8.3 cache pollution 检测与自愈（`liveReader.ts:1080-1120`）
+#### 5.8.3 cache pollution 检测与自愈（`liveReader.ts:1086-1150`）
 
-**检测条件**（同时满足）：
-- `readRuntimeBoxOpenLog.opens == null`
-- `boxOpenResult.status` 匹配 `/dict lookup failed|list not walkable/i`
-- `readRuntimeChestLog.drops != null`（LogManager 本身是好的）
+**检测条件**（任一满足即可，用同一个 60s 计时器 `dictFailSince`）：
+- **boxOpen dict-fail**：`readRuntimeBoxOpenLog.opens == null` 且 `boxOpenResult.status` 匹配 `/dict lookup failed|list not walkable/i`。表示 `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` 是未验证的 baseline 副本。
+- **chest drops dict-fail**：`readRuntimeChestDrops.drops == null` 且 `chestResult.status` 匹配同一正则。表示 `logManager` TypeInfo RVA 本身对当前 build 无效（典型场景：v1.01.02 fallback from v1.01.01，cache 继承了 v1.01.01 的 LogManager RVA），或 `runtime.log.logByType` 是污染值。
+- 当 boxOpen 和 chest drops **同时** dict-fail 时，LogManager 本身就是问题所在 —— `isCriticalStaleOnBaseline` 因 `_extractorRev` 存在而故意跳过 critical path，cache-pollution 路径是唯一剩余的触发器。
 
 **触发流程**：
-1. 首次检测到 → 记录 `boxOpenDictFailSince = Date.now()`，本 tick 不动作。
+1. 首次检测到任一 dict-fail → 记录 `dictFailSince = Date.now()`，本 tick 不动作。
 2. 持续 60s（`BOX_OPEN_FAIL_HEAL_MS`）→ 设置 `forceExtractorNextHeal = true`。
 3. worker 下一 tick 的 `maybeHealEnrichment` Path 1.5 检测到 `needsForcedReextract` → 立即 `healOffsets()`。
 4. `resolveOffsets` 内 `forceReextract` 为 true → 绕过 `isOffsetTableComplete` 短路 + 绕过预算 cap。
-5. extractor 跑前手动清零 base 的 `getItemWithBoxOpenTypeKey` 和 `boxOpenLog.*` 字段，让 derived 重新填充。
-6. extractor 跑完（成功或失败）→ `forceExtractorNextHeal = false` + `boxOpenDictFailSince = null`。
-7. 成功：merged 表覆盖磁盘 cache，下次启动加载干净 cache。失败：用户看到 status-failure 日志，可手动删 cache 目录。
+5. extractor 跑前手动清零 base 的 `getItemWithBoxOpenTypeKey` 和 `boxOpenLog.*` 字段，让 derived 重新填充。`logManager` TypeInfo RVA **不清零**：fallback 场景下 `mergeOffsets` 的 `derivedWins` 规则会让 extractor 派生的新值覆盖 baseline；若 extractor 派生不出（如 StageManager 未实例化），保留 baseline 不降级。
+6. extractor 跑完（成功或失败）→ `forceExtractorNextHeal = false` + `dictFailSince = null`。
+7. 成功：merged 表覆盖磁盘 cache，下次启动加载干净 cache。失败：用户看到 status-failure 日志，可手动删 cache 目录（`%APPDATA%\tbh-companion\live-memory-offsets\`）。
 
 ### 5.9 沙箱（Sandboxie-Plus）下的三条模块枚举 fallback
 
@@ -747,7 +748,7 @@ worker 端（`worker.ts:252-269`）：
 - 所有指针/状态字段重置为初始值。
 - 所有 pin state 重新构造（`makeGoldPinState()` 等）。
 - 缓存字段清零：`cachedInventory/cachedPets/boxTypeCatalogMap/boxOpenCountPrev/boxOpenEventPending`。
-- cache-pollution 检测器重置：`boxOpenDictFailSince=null, forceExtractorNextHeal=false`。
+- cache-pollution 检测器重置：`dictFailSince=null, forceExtractorNextHeal=false`。
 - 名字扫描状态重置：`monsterNameScanAttempted/playerNameScanAttempted/...`。
 - `offsets/offsetSource/gameVersion/gameInstallDir` 也清空，重新 attach 时从 bundled/cache 重新解析。
 

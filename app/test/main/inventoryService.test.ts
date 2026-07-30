@@ -221,8 +221,7 @@ describe("InventoryService.refreshPrices low-value filter", () => {
         pruneCacheTargets: () => 0,
         reloadFromDisk: () => undefined,
         cancel: () => undefined,
-        refresh: (targets: OwnedPriceTarget[]) =>
-          Promise.resolve(onRefresh(targets)),
+        refresh: (targets: OwnedPriceTarget[]) => Promise.resolve(onRefresh(targets)),
       },
     });
   }
@@ -253,9 +252,10 @@ describe("InventoryService.refreshPrices low-value filter", () => {
     });
 
     const owned: OwnedPriceTarget[] = [{ kind: "material", hash: "Cheap Ore" }];
-    vi
-      .spyOn(service as never as { currentOwnedPriceTargets: () => OwnedPriceTarget[] }, "currentOwnedPriceTargets")
-      .mockReturnValue(owned);
+    vi.spyOn(
+      service as never as { currentOwnedPriceTargets: () => OwnedPriceTarget[] },
+      "currentOwnedPriceTargets",
+    ).mockReturnValue(owned);
 
     await service.refreshPrices(false);
 
@@ -288,9 +288,10 @@ describe("InventoryService.refreshPrices low-value filter", () => {
     });
 
     const owned: OwnedPriceTarget[] = [{ kind: "material", hash: "Cheap Ore" }];
-    vi
-      .spyOn(service as never as { currentOwnedPriceTargets: () => OwnedPriceTarget[] }, "currentOwnedPriceTargets")
-      .mockReturnValue(owned);
+    vi.spyOn(
+      service as never as { currentOwnedPriceTargets: () => OwnedPriceTarget[] },
+      "currentOwnedPriceTargets",
+    ).mockReturnValue(owned);
 
     await service.refreshPrices(true);
 

@@ -21,11 +21,7 @@ describe("parseHModulesBuffer", () => {
     buf.writeBigUInt64LE(0x140000000n, 0);
     buf.writeBigUInt64LE(0x180000000n, 8);
     buf.writeBigUInt64LE(0x7ff00000n, 16);
-    expect(parseHModulesBuffer(buf, 24)).toEqual([
-      0x140000000n,
-      0x180000000n,
-      0x7ff00000n,
-    ]);
+    expect(parseHModulesBuffer(buf, 24)).toEqual([0x140000000n, 0x180000000n, 0x7ff00000n]);
   });
 
   it("truncates incomplete trailing bytes (not a multiple of 8)", () => {
@@ -52,9 +48,9 @@ describe("extractBasename", () => {
   });
 
   it("extracts filename from a path with multiple directories", () => {
-    expect(extractBasename("D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskBarHero.exe")).toBe(
-      "TaskBarHero.exe",
-    );
+    expect(
+      extractBasename("D:\\SteamLibrary\\steamapps\\common\\TaskbarHero\\TaskBarHero.exe"),
+    ).toBe("TaskBarHero.exe");
   });
 
   it("returns the input as-is when there is no backslash", () => {

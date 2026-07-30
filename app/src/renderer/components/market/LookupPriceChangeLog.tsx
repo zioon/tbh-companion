@@ -82,7 +82,8 @@ export function LookupPriceChangeLog() {
               </span>
               {hasLocal ? (
                 <span className="shrink-0 text-[11px] text-muted">
-                  {t("changeLog.local")}: {formatUsd(c.oldLocal ?? null)} → {formatUsd(c.newLocal ?? null)}
+                  {t("changeLog.local")}: {formatUsd(c.oldLocal ?? null)} →{" "}
+                  {formatUsd(c.newLocal ?? null)}
                 </span>
               ) : null}
               <span className={`shrink-0 text-[11px] ${dirColor}`}>{dirLabel}</span>

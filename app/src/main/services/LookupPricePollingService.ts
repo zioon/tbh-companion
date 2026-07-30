@@ -631,10 +631,24 @@ export class LookupPricePollingService {
     // 总是抓一次目标货币 priceoverview（同时拿 lowest + median）
     const localResponse = await fetchSteamPrice(hash, isUsd ? "USD" : targetCurrency);
     if (!localResponse.ok && localResponse.status === 429) {
-      return { ok: false, usd: null, localAmount: null, median: null, buyOrder: null, rateLimited: true };
+      return {
+        ok: false,
+        usd: null,
+        localAmount: null,
+        median: null,
+        buyOrder: null,
+        rateLimited: true,
+      };
     }
     if (!localResponse.ok) {
-      return { ok: false, usd: null, localAmount: null, median: null, buyOrder: null, rateLimited: false };
+      return {
+        ok: false,
+        usd: null,
+        localAmount: null,
+        median: null,
+        buyOrder: null,
+        rateLimited: false,
+      };
     }
     const localAmount = localResponse.entry.lowest ?? null;
     const localMedian = localResponse.entry.median ?? null;
@@ -726,9 +740,7 @@ export class LookupPricePollingService {
       const buyOrderResult = await fetchSteamBuyOrder(nameIdResult.nameId, hash, targetCurrency);
       if (!buyOrderResult.ok) {
         // histogram 调用失败：视为「无收购单」，写 null
-        log.info(
-          `tryFetchBuyOrder: ${hash} histogram failed (status=${buyOrderResult.status})`,
-        );
+        log.info(`tryFetchBuyOrder: ${hash} histogram failed (status=${buyOrderResult.status})`);
         return null;
       }
       return buyOrderResult.buyOrder ?? null;

@@ -38,12 +38,8 @@ export const WatchedStarToggle = memo(function WatchedStarToggle({ hash }: { has
       type="button"
       onClick={(e) => void onClick(e)}
       aria-pressed={isWatched}
-      aria-label={
-        isWatched ? t("watched.unwatchAria") : t("watched.watchAria")
-      }
-      title={
-        isWatched ? t("watched.unwatchTitle") : t("watched.watchTitle")
-      }
+      aria-label={isWatched ? t("watched.unwatchAria") : t("watched.watchAria")}
+      title={isWatched ? t("watched.unwatchTitle") : t("watched.watchTitle")}
       className={cn(
         "inline-flex size-5 items-center justify-center rounded-sm transition-colors",
         isWatched
@@ -51,10 +47,7 @@ export const WatchedStarToggle = memo(function WatchedStarToggle({ hash }: { has
           : "text-amber-400/40 hover:text-amber-400",
       )}
     >
-      <LuStar
-        className={cn("size-4", isWatched && "fill-current")}
-        aria-hidden
-      />
+      <LuStar className={cn("size-4", isWatched && "fill-current")} aria-hidden />
     </button>
   );
 });

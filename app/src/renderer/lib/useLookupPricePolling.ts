@@ -77,9 +77,7 @@ export function useLookupPricePolling(): LookupPricePollingStatus | null {
  * 用于图鉴 UI「立即刷新此物品」按钮。不传则跑完整 cycle（含所有 owned +
  * watched 目标）。
  */
-export async function triggerLookupPricePoll(
-  hash?: string,
-): Promise<PollingCycleResult | null> {
+export async function triggerLookupPricePoll(hash?: string): Promise<PollingCycleResult | null> {
   try {
     return await window.tbh.pollLookupPrices(hash);
   } catch (err) {

@@ -20,6 +20,10 @@ const COMPLETE: LiveOffsets = {
     logManager: 0x5e40000n,
     monsterSpawnManager: 0x5e50000n,
   },
+  player: {
+    ...INCOMPLETE.player,
+    boxData: 0x78, // PlayerSaveData.BoxData — derived at runtime by findPlayerSaveData
+  },
   runtime: {
     ...INCOMPLETE.runtime,
     log: { ...INCOMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 42 },
@@ -41,6 +45,10 @@ const DERIVED: LiveOffsets = {
     ...INCOMPLETE.typeInfoRva,
     logManager: 0x5e40000n,
     monsterSpawnManager: 0x5e50000n,
+  },
+  player: {
+    ...INCOMPLETE.player,
+    boxData: 0x78, // PlayerSaveData.BoxData — derived at runtime by findPlayerSaveData
   },
   runtime: {
     ...INCOMPLETE.runtime,

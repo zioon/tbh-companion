@@ -192,10 +192,7 @@ export class LookupPriceService {
     // 追加/覆盖这些字段。
     const prev = this.snapshot;
     const hasLocalData =
-      prev?.pricesLocal ||
-      prev?.medianLocal ||
-      prev?.buyOrderLocal ||
-      prev?.localCurrency;
+      prev?.pricesLocal || prev?.medianLocal || prev?.buyOrderLocal || prev?.localCurrency;
     const merged: LookupPriceSnapshot = hasLocalData
       ? {
           ...parsed,

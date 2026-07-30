@@ -206,16 +206,36 @@ export class LiveMemoryReader {
    */
   private lastStatusFailLogAt: number | null = null;
   /**
-   * Cache-pollution self-heal detector. When `readRuntimeBoxOpenLog` keeps
-   * returning "list not walkable" / "dict lookup failed" while chest drops
-   * resolve normally (LogManager itself is fine), the cached
-   * `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
-   * unvalidated baseline copies — not real extractor output. Track the
-   * failure start time; after `BOX_OPEN_FAIL_HEAL_MS` of continuous failure,
-   * set `forceExtractorNextHeal` so the worker bypasses the
-   * `isOffsetTableComplete` short-circuit and re-runs the extractor.
+   * Cache-pollution self-heal detector. Fires when a runtime dict lookup
+   * keeps failing for `BOX_OPEN_FAIL_HEAL_MS` — the cached offset values
+   * are non-zero but invalid (unvalidated baseline copies from a fallback
+   * table, or a stale RVA the extractor never re-derived).
+   *
+   * Covers two failure signatures:
+   *  - **boxOpen dict-fail** (`readRuntimeBoxOpenLog` returns "list not
+   *    walkable" / "dict lookup failed"): `getItemWithBoxOpenTypeKey` /
+   *    `boxOpenLog.itemStringKey` are polluted. Originally the ONLY signal;
+   *    required chest drops to be healthy so a genuinely missing LogManager
+   *    didn't trigger a pointless extractor run.
+   *  - **chest drops dict-fail** (`readRuntimeChestDrops` returns "GetBox
+   *    log list not walkable (runtime.log.logByType dict lookup failed)"):
+   *    the `logManager` TypeInfo RVA itself is stale/invalid for the
+   *    current build, or `runtime.log.logByType` is a polluted baseline.
+   *    This is the v1.01.02-fallback-from-v1.01.01 signature: the cache
+   *    carries v1.01.01's LogManager RVA which doesn't resolve to the
+   *    correct class on v1.01.02, so the dict lookup fails on every tick.
+   *    When BOTH chest drops AND boxOpen fail, LogManager itself is the
+   *    problem — the extractor MUST re-run to re-derive the RVA (the
+   *    `isCriticalStaleOnBaseline` guard intentionally skips this when
+   *    `_extractorRev` is set, so the cache-pollution path is the only
+   *    remaining trigger).
+   *
+   * When either signal persists for 60s, set `forceExtractorNextHeal` so
+   * the worker bypasses the `isOffsetTableComplete` short-circuit AND the
+   * per-budget attempt cap, forcing a fresh extractor run. The flag is
+   * one-shot (cleared after the extractor runs) so we can't loop forever.
    */
-  private boxOpenDictFailSince: number | null = null;
+  private dictFailSince: number | null = null;
   /**
    * One-shot flag consumed by `resolveOffsets`. When true, the next
    * `resolveOffsets` call skips the `isOffsetTableComplete` short-circuit
@@ -731,7 +751,7 @@ export class LiveMemoryReader {
         // can manually delete the cache directory.
         if (forceReextract) {
           this.forceExtractorNextHeal = false;
-          this.boxOpenDictFailSince = null;
+          this.dictFailSince = null;
         }
         if (derived) {
           // Note: the attempt budget was already recorded above (before the
@@ -747,9 +767,15 @@ export class LiveMemoryReader {
           // values (the standard "base is trusted" rule). But in
           // force-reextract mode the base's BoxOpen enrichment fields are
           // explicitly suspected invalid — that's why we're here. Clear
-          // them before merge so derived values can fill the gaps. Critical
-          // RVAs and other enrichment fields stay intact (only BoxOpen is
-          // the suspected culprit per `detectCachePollution`).
+          // them before merge so derived values can fill the gaps. The
+          // LogManager TypeInfo RVA is NOT cleared here: when chest drops
+          // also fail (LogManager RVA stale on a fallback build), the
+          // extractor re-derives it and `mergeOffsets`'s `derivedWins`
+          // rule (fallback table) lets the fresh value override the
+          // baseline. If the extractor can't re-derive it (e.g.
+          // StageManager not yet instantiated), the baseline RVA is
+          // preserved so the reader stays in its previous state rather
+          // than degrading further to "RVA = 0".
           let baseForMerge = base;
           if (forceReextract && base) {
             baseForMerge = {
@@ -857,7 +883,7 @@ export class LiveMemoryReader {
     this.boxOpenEventPending = false;
     // Reset cache-pollution detector state — a fresh attach should not
     // inherit the previous session's failure streak or forced-reextract flag.
-    this.boxOpenDictFailSince = null;
+    this.dictFailSince = null;
     this.forceExtractorNextHeal = false;
     this.lastStatusFailLogAt = null;
   }
@@ -1052,7 +1078,10 @@ export class LiveMemoryReader {
       return;
     }
     const now = Date.now();
-    if (this.lastStatusFailLogAt != null && now - this.lastStatusFailLogAt < STATUS_FAIL_LOG_THROTTLE_MS) {
+    if (
+      this.lastStatusFailLogAt != null &&
+      now - this.lastStatusFailLogAt < STATUS_FAIL_LOG_THROTTLE_MS
+    ) {
       return;
     }
     this.lastStatusFailLogAt = now;
@@ -1064,55 +1093,65 @@ export class LiveMemoryReader {
   }
 
   /**
-   * Detect the cache-pollution signature: `readRuntimeBoxOpenLog` keeps
+   * Detect the cache-pollution signature: a runtime dict lookup keeps
    * returning "list not walkable" / "dict lookup failed" (offsets are
-   * non-zero but the live dict lookup fails) while chest drops resolve
-   * normally (LogManager itself is fine). This means the cached
-   * `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
-   * unvalidated baseline copies, not real extractor output — set
-   * `forceExtractorNextHeal` so the worker triggers an immediate forced
-   * re-extraction that bypasses the `isOffsetTableComplete` short-circuit.
+   * non-zero but the live dict lookup fails). This means cached offset
+   * values are unvalidated baseline copies, not real extractor output —
+   * set `forceExtractorNextHeal` so the worker triggers an immediate
+   * forced re-extraction that bypasses the `isOffsetTableComplete`
+   * short-circuit.
    *
-   * The check is conservative: it only fires when chest drops are non-null
-   * (LogManager resolved successfully), so a genuinely missing LogManager
-   * doesn't trigger a pointless extractor run.
+   * Two failure signals are tracked through the same 60s timer:
+   *  1. **boxOpen dict-fail** with chest drops healthy → BoxOpen field
+   *     pollution (`getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey`).
+   *  2. **chest drops dict-fail** (with or without boxOpen also failing) →
+   *     LogManager RVA or `runtime.log.logByType` is the polluted value.
+   *     This is the v1.01.02 fallback signature where the cache inherits
+   *     v1.01.01's LogManager RVA and it doesn't resolve on the new build.
+   *
+   * Only "dict lookup failed" / "list not walkable" qualifies — earlier
+   * failure modes (logManager RVA = 0, getItemWithBoxOpenTypeKey = 0) mean
+   * the offsets ARE zero, so the existing enrichment budget / heal timer
+   * already handles them. Both signals clearing resets the tracker so the
+   * next failure streak starts a fresh timer.
    */
   private detectCachePollution(
     boxOpenResult: { opens: BoxOpenEntry[] | null; status: string },
     chestResult: { drops: LiveChestCategory[] | null; status: string },
   ): void {
-    // Only "list not walkable" / "dict lookup failed" qualifies — earlier
-    // failure modes (logManager RVA = 0, getItemWithBoxOpenTypeKey = 0,
-    // boxOpenLog.itemStringKey = 0) mean the offsets ARE zero, so the
-    // existing enrichment budget / heal timer already handles them.
-    const isDictLookupFail =
-      boxOpenResult.opens == null &&
-      /dict lookup failed|list not walkable/i.test(boxOpenResult.status);
-    const chestDropsOk = chestResult.drops != null;
+    const isDictLookupFail = (s: string): boolean =>
+      /dict lookup failed|list not walkable/i.test(s);
+    const boxOpenFail = boxOpenResult.opens == null && isDictLookupFail(boxOpenResult.status);
+    const chestFail = chestResult.drops == null && isDictLookupFail(chestResult.status);
 
-    if (isDictLookupFail && chestDropsOk) {
-      if (this.boxOpenDictFailSince == null) {
-        this.boxOpenDictFailSince = Date.now();
+    if (boxOpenFail || chestFail) {
+      if (this.dictFailSince == null) {
+        this.dictFailSince = Date.now();
         return;
       }
       // Already triggered — wait for the worker to consume the flag and
       // re-derive. Don't re-arm to avoid hammering the 8 s extractor.
       if (this.forceExtractorNextHeal) return;
-      if (Date.now() - this.boxOpenDictFailSince >= BOX_OPEN_FAIL_HEAL_MS) {
+      if (Date.now() - this.dictFailSince >= BOX_OPEN_FAIL_HEAL_MS) {
         this.forceExtractorNextHeal = true;
+        const which =
+          boxOpenFail && chestFail
+            ? "boxOpen + chest drops"
+            : boxOpenFail
+              ? "boxOpen"
+              : "chest drops";
         this.log(
-          `read: boxOpenLog dict lookup failed for ${BOX_OPEN_FAIL_HEAL_MS}ms despite valid LogManager — cache pollution suspected; forcing extractor re-run on next heal`,
+          `read: ${which} dict lookup failed for ${BOX_OPEN_FAIL_HEAL_MS}ms — cache pollution suspected; forcing extractor re-run on next heal`,
         );
       }
       return;
     }
-    // Box opens recovered (or chest drops also failed, meaning LogManager
-    // itself is the problem — not cache pollution). Reset the tracker so
-    // the next failure streak starts a fresh timer.
-    if (this.boxOpenDictFailSince != null && boxOpenResult.opens != null) {
-      this.log("read: boxOpenLog recovered — clearing cache-pollution tracker");
+    // Both signals recovered — reset the tracker so the next failure
+    // streak starts a fresh timer.
+    if (this.dictFailSince != null) {
+      this.log("read: dict lookup recovered — clearing cache-pollution tracker");
     }
-    this.boxOpenDictFailSince = null;
+    this.dictFailSince = null;
     // NOTE: forceExtractorNextHeal is NOT cleared here — it is consumed by
     // resolveOffsets after the extractor runs. Clearing it here would let a
     // single successful tick (e.g. mid-extraction) cancel a forced heal

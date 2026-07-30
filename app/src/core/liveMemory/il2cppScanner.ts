@@ -1085,12 +1085,23 @@ function identifyBoxOpenLogFieldsByValue(
       let decodeMode = "i32";
       let isString = false;
       const diagParts: string[] = [];
-      // If int32 read is implausible (negative), the field may be:
+      // If int32 read is implausible, the field may be:
       //   - a pointer (v1.00.28 BoxOpenLog.itemStringKey is a System.String
       //     pointer, not an int)
       //   - an ACTk ObscuredInt struct (hiddenValue + currentCryptoKey)
       // Try pointer → IL2CPP String → number first, then ObscuredInt.
-      if (v == null || v < 0) {
+      //
+      // "Implausible" covers three cases:
+      //   1. v == null (read failed)
+      //   2. v < 0 (high bit set — typical for pointers whose low 32 bits
+      //      exceed 0x7FFFFFFF, e.g. GradeSO* 0x1fdf23f2700 → i32 = -230742786)
+      //   3. v >= 0 but neither a plausible itemKey nor a plausible grade
+      //      (e.g. a System.String pointer whose low 32 bits happen to be
+      //      positive, like 0x1fe57509000 → i32 = 0x57509000 = 1464897536).
+      //      Without this third case, the scanner treats the pointer's low
+      //      bits as a plain int32 and never tries the String path — the
+      //      field is silently misidentified and itemKeyHits stays 0.
+      if (v == null || v < 0 || (!isPlausibleItemKey(v) && !isPlausibleGrade(v))) {
         const ptrVal = readPtr(ctx.reader, ptr + BigInt(off));
         if (ptrVal == null) {
           diagParts.push("ptr=null");
@@ -1562,6 +1573,14 @@ export interface PlayerAnchor {
   aggregateSaveDatas?: number;
   /** Optional: PlayerSaveData.BoxData offset (for live chest slot reading). 0 = not derived. */
   boxData?: number;
+  /**
+   * Diagnostic dump from `ScanContext.dumpClassFields` produced when the
+   * "BoxData" field-name match fails. Forwarded to the extractor log so we
+   * can see the actual PlayerSaveData field names on versions where BoxData
+   * is obfuscated/renamed (e.g. v1.01.02). Undefined when the field was
+   * found, or when the one-shot `probedClasses` guard suppressed the dump.
+   */
+  boxDataDiagnostics?: string;
   petKey: number;
   petIsUnlock: number;
   itemKey: number;
@@ -1608,7 +1627,14 @@ export function findPlayerSaveData(
 
       // BoxData field — named match first (ES3-stable field name), structural
       // fallback not yet needed. 0 = absent; reader falls back to save path.
+      // When the named match fails, dump the PlayerSaveData class field table
+      // + raw bytes so the extractor log shows the actual (possibly obfuscated)
+      // field names on versions like v1.01.02 where "BoxData" is renamed.
+      // `dumpClassFields` is one-shot per class (probedClasses guard), so this
+      // is cheap and won't spam the log on repeated extraction attempts.
       const boxDataOff = fields.get("BoxData") ?? 0;
+      const boxDataDiagnostics =
+        boxDataOff === 0 ? (ctx.dumpClassFields(obj, fields) ?? undefined) : undefined;
 
       return {
         commonSaveData: entry.slotRva,
@@ -1616,6 +1642,7 @@ export function findPlayerSaveData(
         petSaveDatas: petsOff,
         itemSaveDatas: itemsOff,
         boxData: boxDataOff,
+        boxDataDiagnostics,
         petKey: namedClassField(ctx, entries, "PetSaveData", "PetKey"),
         petIsUnlock: namedClassField(ctx, entries, "PetSaveData", "IsUnlock"),
         itemKey: namedClassField(ctx, entries, "ItemSaveData", "ItemKey"),
@@ -2020,4 +2047,857 @@ export function dumpCatalogCandidates(
   }
 
   log(`[catalog-dump] end`);
+}
+
+// ── Save-list holder diagnostic dump ─────────────────────────────────────────
+
+const SAVE_LIST_DUMP_MAX_LISTS = 200;
+const SAVE_LIST_DUMP_MAX_NAME_PROBE = 200;
+const SAVE_LIST_DUMP_RECURSE_MAX = 0x80; // sub-object field scan depth (per level)
+const SAVE_LIST_DUMP_RECURSE_DEPTH = 3; // Pass C+D recurse depth (levels)
+
+/**
+ * Class-name hints for the save-list holder name probe (Pass A) and the
+ * recurse target filter (Pass C). Ordered loosely by likelihood.
+ */
+const SAVE_LIST_NAME_HINTS = [
+  "Save",
+  "Player",
+  "Pet",
+  "Item",
+  "Box",
+  "Inventory",
+  "Holder",
+  "DataManager",
+  "Container",
+  "Repository",
+];
+
+/**
+ * Diagnostic dump: locate where `List<PetSaveData>` / `List<ItemSaveData>`
+ * (or their renamed/obfuscated variants) actually live at runtime. Triggered
+ * by `TBH_DUMP_SAVE_LIST_HOLDERS=1` when `findPlayerSaveData` returns null
+ * (v1.01.02 symptom: `extract: player save-data anchor not derived`).
+ *
+ * Three passes, all bounded for performance:
+ *
+ *  - **Pass A — name probe**: print class names containing save-data hints
+ *    (Save/Player/Pet/Item/Box/Inventory/Holder/DataManager/Container/
+ *    Repository). Cheap string match, reveals the renamed holder class.
+ *
+ *  - **Pass B — static-reachable List<*>**: for every class entry's static
+ *    slots, scan instance fields 0x10..INSTANCE_SCAN_MAX for List-shaped
+ *    pointers (ptr → +0x10 _items array, +0x18 _size). For each List, read
+ *    the first element's class name and dump it. This catches the case where
+ *    the holder is static-reachable but its field name is obfuscated AND the
+ *    element class name is also obfuscated (e.g. `vb.PetSaveData` → `csd.XY`).
+ *    Capped at SAVE_LIST_DUMP_MAX_LISTS.
+ *
+ *  - **Pass C — CommonSaveData sub-object recurse**: for the first
+ *    name-matched holder class (CommonSaveData/PlayerSaveData/...) with a
+ *    static-reachable instance, recurse ONE level into its pointer fields and
+ *    scan each sub-object for List<*> shapes. This catches the v1.01.02 case
+ *    where CommonSaveData no longer holds save lists directly but references
+ *    a sub-object (e.g. `CommonSaveData.saveHolder → SaveHolder.petSaveDatas`).
+ *    Only the first matching holder class is recursed (keeps the dump small).
+ *
+ * The dump reuses the already-built ScanContext + entries, so it adds no
+ * extra memory scanning — only field-table lookups and a bounded instance
+ * field walk.
+ */
+export function dumpSaveListHolders(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+  log: (line: string) => void,
+): void {
+  log(`[save-list-dump] scanning ${entries.length} class entries for save-list holders`);
+
+  // Build classPtr → name lookup for Pass C's subClassLabel fallback.
+  // When instanceClassName returns null (class name field unreadable), we
+  // cross-reference the class pointer against this map to recover the name.
+  const classPtrToName = new Map<bigint, string>();
+  for (const entry of entries) {
+    if (entry.name) classPtrToName.set(entry.classPtr, entry.name);
+  }
+
+  // ── Pass A: name probe ─────────────────────────────────────────────────
+  const nameProbeHits: Array<{ name: string; classPtr: bigint }> = [];
+  for (const entry of entries) {
+    if (!entry.name) continue;
+    const lower = entry.name.toLowerCase();
+    if (SAVE_LIST_NAME_HINTS.some((h) => lower.includes(h.toLowerCase()))) {
+      nameProbeHits.push({ name: entry.name, classPtr: entry.classPtr });
+      if (nameProbeHits.length >= SAVE_LIST_DUMP_MAX_NAME_PROBE) break;
+    }
+  }
+  log(
+    `[save-list-dump] Pass A — name-probe hits: ${nameProbeHits.length}` +
+      (nameProbeHits.length >= SAVE_LIST_DUMP_MAX_NAME_PROBE
+        ? ` (capped at ${SAVE_LIST_DUMP_MAX_NAME_PROBE})`
+        : ""),
+  );
+  for (let i = 0; i < nameProbeHits.length; i += 8) {
+    const chunk = nameProbeHits.slice(i, i + 8);
+    log(`[save-list-dump]   ${chunk.map((h) => h.name).join(" | ")}`);
+  }
+
+  // ── Pass B: static-reachable List<*> ───────────────────────────────────
+  let listCount = 0;
+  for (const entry of entries) {
+    if (listCount >= SAVE_LIST_DUMP_MAX_LISTS) break;
+    const slots = ctx.staticSlots(entry.classPtr);
+    for (const { value: obj } of slots) {
+      if (listCount >= SAVE_LIST_DUMP_MAX_LISTS) break;
+      for (let foff = 0x10; foff <= INSTANCE_SCAN_MAX; foff += 8) {
+        if (listCount >= SAVE_LIST_DUMP_MAX_LISTS) break;
+        const found = scanListAt(ctx, obj, foff);
+        if (found == null) continue;
+        log(
+          `[save-list-dump] Pass B — holder="${entry.name}" inst=0x${obj.toString(16)} ` +
+            `+0x${foff.toString(16)} → List<element="${found.elemClass ?? "null"}" count=${found.count}>` +
+            (found.elemClass == null ? ` raw=${found.rawItemsHex}` : ""),
+        );
+        listCount++;
+      }
+    }
+  }
+  log(
+    `[save-list-dump] Pass B — dumped ${listCount} static-reachable List fields` +
+      (listCount >= SAVE_LIST_DUMP_MAX_LISTS ? ` (capped at ${SAVE_LIST_DUMP_MAX_LISTS})` : ""),
+  );
+
+  // ── Pass C: CommonSaveData sub-object recurse (one level) ──────────────
+  // Find the first name-matched holder class that has a static-reachable
+  // instance, then walk its pointer fields one level deep and scan each
+  // sub-object for List<*> shapes. This catches the v1.01.02 case where
+  // CommonSaveData references a sub-object that holds the save lists.
+  //
+  // Instance resolution tries two paths:
+  //   1. `ctx.staticSlots(classPtr)` — the standard Il2CppClass.static_fields
+  //      block (at +0xb0/+0xb8/+0xa8). Works for most versions.
+  //   2. Header-block scan fallback — when static_fields is null (v1.01.02
+  //      CommonSaveData: `+0xb0 = 0`), scan the class header's ptr-like
+  //      values (0x00..0xC0) as potential block pointers, and for each block
+  //      scan 0x00..0x400 for an instance whose header matches classPtr or
+  //      a subclass. This mirrors `probeClassLayout` in liveReader.ts and
+  //      finds instances stored in non-standard header offsets.
+  const findHolderInstance = (classPtr: bigint): bigint | null => {
+    const slots = ctx.staticSlots(classPtr);
+    if (slots.length > 0) return slots[0].value;
+    // Fallback: header-block scan (probeClassLayout-style).
+    return findInstanceViaHeaderScan(ctx, classPtr);
+  };
+
+  let recurseHolder: { name: string; classPtr: bigint; inst: bigint } | null = null;
+  for (const entry of entries) {
+    if (!entry.name) continue;
+    const lower = entry.name.toLowerCase();
+    // Prefer CommonSaveData / PlayerSaveData; fall back to any name hit.
+    const isPreferred =
+      lower === "commonsavedata" ||
+      lower === "playersavedata" ||
+      lower.endsWith(".commonsavedata") ||
+      lower.endsWith(".playersavedata");
+    if (!isPreferred) continue;
+    const inst = findHolderInstance(entry.classPtr);
+    if (inst == null) continue;
+    recurseHolder = { name: entry.name, classPtr: entry.classPtr, inst };
+    break;
+  }
+  // Fallback: if no CommonSaveData/PlayerSaveData by exact short name, use
+  // the first name-probe hit that has a static-reachable instance.
+  if (recurseHolder == null) {
+    for (const hit of nameProbeHits) {
+      const inst = findHolderInstance(hit.classPtr);
+      if (inst == null) continue;
+      recurseHolder = { name: hit.name, classPtr: hit.classPtr, inst };
+      break;
+    }
+  }
+
+  if (recurseHolder == null) {
+    log(
+      `[save-list-dump] Pass C — no name-matched holder class with a static-reachable instance; skipping recurse`,
+    );
+    log(`[save-list-dump] end`);
+    return;
+  }
+
+  log(
+    `[save-list-dump] Pass C — recursing into "${recurseHolder.name}" inst=0x${recurseHolder.inst.toString(16)} sub-objects (depth ${SAVE_LIST_DUMP_RECURSE_DEPTH}, per-level scan ${SAVE_LIST_DUMP_RECURSE_MAX.toString(16)})`,
+  );
+  const visited = new Set<bigint>();
+  visited.add(recurseHolder.inst);
+  const passCPath: string[] = [`"${recurseHolder.name}"`];
+  const recurseCount = recurseForSaveLists(
+    ctx,
+    classPtrToName,
+    recurseHolder.inst,
+    passCPath,
+    0,
+    visited,
+    SAVE_LIST_DUMP_MAX_LISTS,
+    log,
+  );
+  log(
+    `[save-list-dump] Pass C — dumped ${recurseCount} List fields in sub-objects of "${recurseHolder.name}" (recursed ${SAVE_LIST_DUMP_RECURSE_DEPTH} levels)` +
+      (recurseCount >= SAVE_LIST_DUMP_MAX_LISTS ? ` (capped at ${SAVE_LIST_DUMP_MAX_LISTS})` : ""),
+  );
+
+  // ── Pass E: CommonSaveData reference graph ─────────────────────────────
+  // Dump every pointer field (0x10..0x400) of the holder instance + its
+  // immediate sub-objects, showing the sub-object's class name. This gives
+  // a complete view of where save data could be nested, even when no
+  // List<*> shape is detected (e.g. Dictionary, custom container, or
+  // struct-array storage).
+  log(
+    `[save-list-dump] Pass E — reference graph from "${recurseHolder.name}" inst=0x${recurseHolder.inst.toString(16)} (one level, scan 0x10..0x400)`,
+  );
+  const refGraphVisited = new Set<bigint>();
+  refGraphVisited.add(recurseHolder.inst);
+  let refCount = 0;
+  for (let foff = 0x10; foff <= 0x400; foff += 8) {
+    const subPtr = readPtr(ctx.reader, recurseHolder.inst + BigInt(foff));
+    if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+    if (refGraphVisited.has(subPtr)) continue;
+    refGraphVisited.add(subPtr);
+    const subClass = ctx.instanceClassName(subPtr);
+    const subClassPtr = readPtr(ctx.reader, subPtr);
+    const subClassLabel =
+      subClass != null
+        ? subClass
+        : (classPtrToName.get(subClassPtr ?? 0n) ?? `class@0x${(subClassPtr ?? 0n).toString(16)}`);
+    // Also show the sub-object's own pointer fields' class names (one level)
+    const childFields: string[] = [];
+    for (let cfoff = 0x10; cfoff <= 0x80; cfoff += 8) {
+      const childPtr = readPtr(ctx.reader, subPtr + BigInt(cfoff));
+      if (childPtr == null || !isPlausibleHeapPtr(childPtr)) continue;
+      if (refGraphVisited.has(childPtr)) {
+        childFields.push(`+0x${cfoff.toString(16)}→(visited)`);
+        continue;
+      }
+      refGraphVisited.add(childPtr);
+      const childClass = ctx.instanceClassName(childPtr);
+      const childClassPtr = readPtr(ctx.reader, childPtr);
+      const childLabel =
+        childClass != null
+          ? childClass
+          : (classPtrToName.get(childClassPtr ?? 0n) ??
+            `class@0x${(childClassPtr ?? 0n).toString(16)}`);
+      childFields.push(`+0x${cfoff.toString(16)}→${childLabel}`);
+    }
+    log(
+      `[save-list-dump] Pass E — "${recurseHolder.name}"+0x${foff.toString(16)}→${subClassLabel}(0x${subPtr.toString(16)})` +
+        (childFields.length > 0 ? ` children=[${childFields.join(", ")}]` : ""),
+    );
+    refCount++;
+  }
+  log(
+    `[save-list-dump] Pass E — dumped ${refCount} direct references from "${recurseHolder.name}"`,
+  );
+
+  // ── Pass F: Dump field tables for key candidate classes ──────────────
+  // For each direct sub-object of the holder, dump its class's field name
+  // table (offset → name). This reveals what the sub-object actually is
+  // (e.g. PlayerSaveData, ItemSaveData holder, BoxData holder) even when
+  // no List<*> shape is found.
+  log(
+    `[save-list-dump] Pass F — dumping field tables for direct sub-objects of "${recurseHolder.name}"`,
+  );
+  const passFVisited = new Set<bigint>();
+  passFVisited.add(recurseHolder.inst);
+  let fieldTableCount = 0;
+  for (let foff = 0x10; foff <= 0x400; foff += 8) {
+    const subPtr = readPtr(ctx.reader, recurseHolder.inst + BigInt(foff));
+    if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+    if (passFVisited.has(subPtr)) continue;
+    passFVisited.add(subPtr);
+    const fields = ctx.instanceClassFields(subPtr);
+    const subClass = ctx.instanceClassName(subPtr);
+    const subClassPtr = readPtr(ctx.reader, subPtr);
+    const subClassLabel =
+      subClass != null
+        ? subClass
+        : (classPtrToName.get(subClassPtr ?? 0n) ?? `class@0x${(subClassPtr ?? 0n).toString(16)}`);
+    if (fields != null && fields.size > 0) {
+      const fieldList = Array.from(fields.entries())
+        .map(([name, off]) => `${name}=0x${off.toString(16)}`)
+        .join(", ");
+      log(
+        `[save-list-dump] Pass F — "${recurseHolder.name}"+0x${foff.toString(16)}→${subClassLabel}(0x${subPtr.toString(16)}) fields(${fields.size}): ${fieldList}`,
+      );
+      fieldTableCount++;
+    } else {
+      // instanceClassFields failed — try probeClassFieldsLayout as fallback.
+      // This probes class+0x68..0xb0 for plausible field-info pointers and
+      // dumps the raw bytes, letting us identify fields even when the standard
+      // +0x80/+0x88 layout doesn't match.
+      const probe = ctx.probeClassFieldsLayout(subPtr);
+      if (probe != null) {
+        log(
+          `[save-list-dump] Pass F — "${recurseHolder.name}"+0x${foff.toString(16)}→${subClassLabel}(0x${subPtr.toString(16)}) fields=probe: ${probe}`,
+        );
+        fieldTableCount++;
+      }
+    }
+  }
+  log(`[save-list-dump] Pass F — dumped ${fieldTableCount} field tables`);
+
+  // ── Pass G: Dump the shared container class field table + element raw bytes
+  // Pass C found Lists with `class@0x1fc20282468` as the holder's +0x20 field
+  // (this class appears in multiple sub-objects). Dump its field table so we
+  // can identify what container type it is (e.g. SerializableList<T>,
+  // SavedList<T>, etc.). Also dump the first List element's full 64 bytes
+  // (not just qwords) to identify the element struct layout.
+  const SHARED_CONTAINER_CLASS = 0x1fc20282468n;
+  const sharedFields = ctx.classFields(SHARED_CONTAINER_CLASS);
+  if (sharedFields != null && sharedFields.size > 0) {
+    const fieldList = Array.from(sharedFields.entries())
+      .map(([name, off]) => `${name}=0x${off.toString(16)}`)
+      .join(", ");
+    log(
+      `[save-list-dump] Pass G — shared container class@0x${SHARED_CONTAINER_CLASS.toString(16)} fields(${sharedFields.size}): ${fieldList}`,
+    );
+  } else {
+    log(
+      `[save-list-dump] Pass G — shared container class@0x${SHARED_CONTAINER_CLASS.toString(16)} has no readable field table`,
+    );
+  }
+
+  // Dump first List element's raw bytes (64 bytes continuous) from the first
+  // List found in Pass C. Re-find it by scanning the holder's sub-objects
+  // recursively (up to 3 levels, matching Pass C).
+  // Also dump the List object itself + the _items array header, so we can
+  // verify the IL2CPP List<T> layout (which may differ in v1.01.02).
+  const passGVisited = new Set<bigint>();
+  passGVisited.add(recurseHolder.inst);
+  const findAndDumpList = (obj: bigint, path: string[], depth: number): boolean => {
+    if (depth >= SAVE_LIST_DUMP_RECURSE_DEPTH) return false;
+    for (let foff = 0x10; foff <= SAVE_LIST_DUMP_RECURSE_MAX; foff += 8) {
+      const subPtr = readPtr(ctx.reader, obj + BigInt(foff));
+      if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+      if (passGVisited.has(subPtr)) continue;
+      passGVisited.add(subPtr);
+      for (let sfoff = 0x10; sfoff <= INSTANCE_SCAN_MAX; sfoff += 8) {
+        const listPtr = readPtr(ctx.reader, subPtr + BigInt(sfoff));
+        if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+        const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+        if (arr == null || !isPlausibleHeapPtr(arr)) continue;
+        const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+        if (count == null || count <= 0 || count > MAX_SAVE_LIST) continue;
+        // Dump List object + _items array header + first element.
+        const listBuf = ctx.reader.readBytes(listPtr, 64);
+        const arrBuf = ctx.reader.readBytes(arr, 64);
+        const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
+        const elemBuf = ctx.reader.readBytes(first, 64);
+        const dumpQwords = (buf: Buffer | null, label: string): string => {
+          if (buf == null || buf.length < 64) return `${label}=<unreadable>`;
+          const qwords: string[] = [];
+          for (let i = 0; i < 8; i++) {
+            qwords.push(`+0x${(i * 8).toString(16)}=0x${buf.readBigUInt64LE(i * 8).toString(16)}`);
+          }
+          return `${label}=${qwords.join(" ")}`;
+        };
+        log(
+          `[save-list-dump] Pass G — List at ${path.join("")}+0x${foff.toString(16)}+0x${sfoff.toString(16)} (listPtr=0x${listPtr.toString(16)}, arr=0x${arr.toString(16)}, count=${count}):`,
+        );
+        log(`[save-list-dump] Pass G   ${dumpQwords(listBuf, "listObj")}`);
+        log(`[save-list-dump] Pass G   ${dumpQwords(arrBuf, "arrHdr  ")}`);
+        log(`[save-list-dump] Pass G   ${dumpQwords(elemBuf, "elem0  ")}`);
+        // Dump arrHdr+0x10 and arrHdr+0x18 as IL2CPP strings — these may be
+        // ES3List's key strings (e.g. "keys", "values") that identify the
+        // container type.
+        for (const keyOff of [0x10, 0x18]) {
+          const keyPtr = readPtr(ctx.reader, arr + BigInt(keyOff));
+          if (keyPtr == null || !isPlausibleHeapPtr(keyPtr)) continue;
+          const keyStr = readIl2CppString(ctx.reader, keyPtr);
+          if (keyStr != null) {
+            log(`[save-list-dump] Pass G   arrHdr+0x${keyOff.toString(16)} → String "${keyStr}"`);
+          } else {
+            // Not a System.String — try inline null-terminated ASCII. ES3
+            // keys are sometimes stored as raw char arrays rather than
+            // managed String objects (v1.01.02 confirmed case).
+            const inlineAscii = readCString(ctx.reader, keyPtr, 128);
+            if (inlineAscii != null) {
+              log(
+                `[save-list-dump] Pass G   arrHdr+0x${keyOff.toString(16)} → ASCII "${inlineAscii}"`,
+              );
+            } else {
+              // Not a string — dump as object
+              const keyClass = ctx.instanceClassName(keyPtr);
+              const keyClassLabel =
+                keyClass != null
+                  ? keyClass
+                  : (classPtrToName.get(readPtr(ctx.reader, keyPtr) ?? 0n) ??
+                    `class@0x${(readPtr(ctx.reader, keyPtr) ?? 0n).toString(16)}`);
+              log(
+                `[save-list-dump] Pass G   arrHdr+0x${keyOff.toString(16)} → ${keyClassLabel}(0x${keyPtr.toString(16)})`,
+              );
+            }
+          }
+        }
+        // Also dump the first element OBJECT (what arrHdr+0x20 points to).
+        // This is the actual save-data element (HeroSaveData/PetSaveData/etc).
+        const elemObjPtr = readPtr(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
+        if (elemObjPtr != null && isPlausibleHeapPtr(elemObjPtr)) {
+          const elemClass = ctx.instanceClassName(elemObjPtr);
+          const elemFields = ctx.instanceClassFields(elemObjPtr);
+          const elemClassLabel =
+            elemClass != null
+              ? elemClass
+              : (classPtrToName.get(readPtr(ctx.reader, elemObjPtr) ?? 0n) ??
+                `class@0x${(readPtr(ctx.reader, elemObjPtr) ?? 0n).toString(16)}`);
+          const fieldList =
+            elemFields != null && elemFields.size > 0
+              ? Array.from(elemFields.entries())
+                  .map(([name, off]) => `${name}=0x${off.toString(16)}`)
+                  .join(", ")
+              : "<no readable fields>";
+          log(
+            `[save-list-dump] Pass G   elemObj =0x${elemObjPtr.toString(16)} klass=${elemClassLabel} fields(${elemFields?.size ?? 0}): ${fieldList}`,
+          );
+          // Dump elemObj raw 256 bytes — when klass pointer is implausible
+          // (fields=0), the "elemObj" may be an inline ES3 struct / byte
+          // stream rather than a managed object. Raw bytes let us inspect
+          // the layout and locate BoxTypes/BoxQuantity inline.
+          const elemObjBuf = ctx.reader.readBytes(elemObjPtr, 256);
+          if (elemObjBuf != null && elemObjBuf.length >= 256) {
+            for (let i = 0; i < 256; i += 64) {
+              const qwords: string[] = [];
+              for (let j = 0; j < 64; j += 8) {
+                qwords.push(
+                  `+0x${(i + j).toString(16).padStart(2, "0")}=0x${elemObjBuf.readBigUInt64LE(i + j).toString(16)}`,
+                );
+              }
+              log(`[save-list-dump] Pass G   elemObjRaw+0x${i.toString(16)} ${qwords.join(" ")}`);
+            }
+            // Try inline ASCII (ES3 value may be a string blob)
+            const asciiAttempt = readCString(ctx.reader, elemObjPtr, 128);
+            if (asciiAttempt != null) {
+              log(`[save-list-dump] Pass G   elemObjAscii = "${asciiAttempt}"`);
+            }
+          }
+          // Dump elem0+0x38 target — elem0's 0x38 field points to another
+          // object (possibly the value payload or a type descriptor).
+          if (elemBuf != null && elemBuf.length >= 0x40) {
+            const elem38Ptr = elemBuf.readBigUInt64LE(0x38);
+            if (elem38Ptr !== 0n && isPlausibleHeapPtr(elem38Ptr)) {
+              const t38Buf = ctx.reader.readBytes(elem38Ptr, 128);
+              log(`[save-list-dump] Pass G   elem0+0x38 → 0x${elem38Ptr.toString(16)}:`);
+              if (t38Buf != null && t38Buf.length >= 128) {
+                for (let i = 0; i < 128; i += 64) {
+                  const qwords: string[] = [];
+                  for (let j = 0; j < 64; j += 8) {
+                    qwords.push(
+                      `+0x${(i + j).toString(16).padStart(2, "0")}=0x${t38Buf.readBigUInt64LE(i + j).toString(16)}`,
+                    );
+                  }
+                  log(`[save-list-dump] Pass G   target38+0x${i.toString(16)} ${qwords.join(" ")}`);
+                }
+                const t38Class = ctx.instanceClassName(elem38Ptr);
+                const t38Fields = ctx.instanceClassFields(elem38Ptr);
+                const t38ClassLabel =
+                  t38Class != null
+                    ? t38Class
+                    : (classPtrToName.get(readPtr(ctx.reader, elem38Ptr) ?? 0n) ??
+                      `class@0x${(readPtr(ctx.reader, elem38Ptr) ?? 0n).toString(16)}`);
+                const t38FieldList =
+                  t38Fields != null && t38Fields.size > 0
+                    ? Array.from(t38Fields.entries())
+                        .map(([n, o]) => `${n}=0x${o.toString(16)}`)
+                        .join(", ")
+                    : "<no readable fields>";
+                log(
+                  `[save-list-dump] Pass G   target38 klass=${t38ClassLabel} fields(${t38Fields?.size ?? 0}): ${t38FieldList}`,
+                );
+                const t38Ascii = readCString(ctx.reader, elem38Ptr, 128);
+                if (t38Ascii != null) {
+                  log(`[save-list-dump] Pass G   target38Ascii = "${t38Ascii}"`);
+                }
+                // Probe target38+0x10 / +0x18 / +0x20 — these may be ES3
+                // key/value string pointers or List/array pointers. The
+                // 0x1fd16c... address range matches the "CommonSaveData"
+                // string pointer seen in arrHdr+0x10, so they likely point
+                // to inline ASCII or System.String objects.
+                for (const subOff of [0x10, 0x18, 0x20]) {
+                  const subPtr = readPtr(ctx.reader, elem38Ptr + BigInt(subOff));
+                  if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+                  const subStr = readIl2CppString(ctx.reader, subPtr);
+                  if (subStr != null) {
+                    log(
+                      `[save-list-dump] Pass G   target38+0x${subOff.toString(16)} → String "${subStr}"`,
+                    );
+                    continue;
+                  }
+                  const subAscii = readCString(ctx.reader, subPtr, 128);
+                  if (subAscii != null) {
+                    log(
+                      `[save-list-dump] Pass G   target38+0x${subOff.toString(16)} → ASCII "${subAscii}"`,
+                    );
+                    continue;
+                  }
+                  // Try as List<T>: read +0x10 (items) and +0x18 (size)
+                  const subArr = readPtr(ctx.reader, subPtr + BigInt(STRUCT_CONTAINER.listItems));
+                  const subCount = readI32(ctx.reader, subPtr + BigInt(STRUCT_CONTAINER.listSize));
+                  if (
+                    subArr != null &&
+                    isPlausibleHeapPtr(subArr) &&
+                    subCount != null &&
+                    subCount > 0 &&
+                    subCount < 1000
+                  ) {
+                    log(
+                      `[save-list-dump] Pass G   target38+0x${subOff.toString(16)} → List(count=${subCount}, arr=0x${subArr.toString(16)})`,
+                    );
+                    // Dump first 3 elements as ASCII/string (keys) and raw bytes
+                    const elemSize = 8; // pointer array
+                    for (let ei = 0; ei < Math.min(subCount, 3); ei++) {
+                      const ePtr = readPtr(
+                        ctx.reader,
+                        subArr + BigInt(STRUCT_CONTAINER.arrayFirst + ei * elemSize),
+                      );
+                      if (ePtr == null || !isPlausibleHeapPtr(ePtr)) continue;
+                      const eStr = readIl2CppString(ctx.reader, ePtr);
+                      const eAscii = readCString(ctx.reader, ePtr, 64);
+                      log(
+                        `[save-list-dump] Pass G     elem[${ei}]=0x${ePtr.toString(16)} str="${eStr ?? ""}" ascii="${eAscii ?? ""}"`,
+                      );
+                    }
+                    continue;
+                  }
+                  // Fallback: dump raw 64 bytes
+                  const subBuf = ctx.reader.readBytes(subPtr, 64);
+                  if (subBuf != null && subBuf.length >= 64) {
+                    const qwords: string[] = [];
+                    for (let i = 0; i < 8; i++) {
+                      qwords.push(
+                        `+0x${(i * 8).toString(16)}=0x${subBuf.readBigUInt64LE(i * 8).toString(16)}`,
+                      );
+                    }
+                    log(
+                      `[save-list-dump] Pass G   target38+0x${subOff.toString(16)} → raw@0x${subPtr.toString(16)}: ${qwords.join(" ")}`,
+                    );
+                  }
+                }
+              }
+            }
+          }
+        }
+        return true;
+      }
+      // Recurse one level deeper
+      const subPath = path.concat([`+0x${foff.toString(16)}`]);
+      if (findAndDumpList(subPtr, subPath, depth + 1)) return true;
+    }
+    return false;
+  };
+  const passGDumped = findAndDumpList(recurseHolder.inst, [`"${recurseHolder.name}"`], 0);
+  if (!passGDumped) {
+    log(`[save-list-dump] Pass G — no List element found to dump`);
+  }
+
+  // ── Pass H: Structural BoxData candidate scan ────────────────────────────
+  // v1.01.02 hypothesis: if the game deserialized CommonSaveData via
+  // ES3.Load<CommonSaveData>(), the resulting object graph should be somewhere
+  // in managed heap — a BoxData instance with two List<int> fields of equal
+  // length (BoxTypes + BoxQuantity). Pass H scans ALL class entries' static
+  // field blocks and recurses 2 levels into instance fields, looking for this
+  // "twin List<int> equal-count" structural signature. No field-name matching
+  // — pure shape detection. If Pass H finds candidates, v1.01.02 live
+  // boxData is recoverable via structural anchor; if not, the game likely
+  // uses ES3 streaming (field-level lazy read) and live boxData stays on the
+  // save-file fallback path.
+  const PASS_H_MAX_VISITED = 5000;
+  const PASS_H_MAX_CANDIDATES = 10;
+  const PASS_H_MAX_DEPTH = 2;
+  const PASS_H_MAX_LIST_COUNT = 100; // BoxTypes/BoxQuantity plausible upper bound
+  const passHVisited = new Set<bigint>();
+  const boxDataCandidates: Array<{
+    obj: bigint;
+    klass: bigint;
+    klassName: string | null;
+    list1Off: number;
+    list2Off: number;
+    count: number;
+    firstElem1: number | null;
+    firstElem2: number | null;
+  }> = [];
+
+  const scanForBoxData = (obj: bigint, depth: number): void => {
+    if (boxDataCandidates.length >= PASS_H_MAX_CANDIDATES) return;
+    if (passHVisited.size >= PASS_H_MAX_VISITED) return;
+    if (passHVisited.has(obj)) return;
+    passHVisited.add(obj);
+
+    // Collect all List<int>-shaped fields on this object
+    const intLists: Array<{ off: number; count: number; firstElem: number | null }> = [];
+    for (let foff = 0x10; foff <= INSTANCE_SCAN_MAX; foff += 8) {
+      const listPtr = readPtr(ctx.reader, obj + BigInt(foff));
+      if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+      const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+      if (arr == null || !isPlausibleHeapPtr(arr)) continue;
+      const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+      if (count == null || count <= 0 || count > PASS_H_MAX_LIST_COUNT) continue;
+      // Validate int[]: read first element, must be plausible BoxType int
+      const firstElem = readI32(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
+      if (firstElem == null) continue;
+      intLists.push({ off: foff, count, firstElem });
+    }
+
+    // BoxData signature: two List<int> with equal count
+    if (intLists.length >= 2) {
+      for (let i = 0; i < intLists.length; i++) {
+        for (let j = i + 1; j < intLists.length; j++) {
+          if (intLists[i].count === intLists[j].count) {
+            const klass = readPtr(ctx.reader, obj);
+            boxDataCandidates.push({
+              obj,
+              klass: klass ?? 0n,
+              klassName: klass != null ? ctx.className(klass) : null,
+              list1Off: intLists[i].off,
+              list2Off: intLists[j].off,
+              count: intLists[i].count,
+              firstElem1: intLists[i].firstElem,
+              firstElem2: intLists[j].firstElem,
+            });
+            if (boxDataCandidates.length >= PASS_H_MAX_CANDIDATES) return;
+          }
+        }
+      }
+    }
+
+    // Recurse into instance pointer fields
+    if (depth >= PASS_H_MAX_DEPTH) return;
+    for (let foff = 0x10; foff <= INSTANCE_SCAN_MAX; foff += 8) {
+      if (boxDataCandidates.length >= PASS_H_MAX_CANDIDATES) return;
+      const subPtr = readPtr(ctx.reader, obj + BigInt(foff));
+      if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+      scanForBoxData(subPtr, depth + 1);
+    }
+  };
+
+  for (const entry of entries) {
+    if (boxDataCandidates.length >= PASS_H_MAX_CANDIDATES) break;
+    if (passHVisited.size >= PASS_H_MAX_VISITED) break;
+    const slots = ctx.staticSlots(entry.classPtr);
+    for (const { value: obj } of slots) {
+      if (boxDataCandidates.length >= PASS_H_MAX_CANDIDATES) break;
+      scanForBoxData(obj, 0);
+    }
+  }
+
+  log(
+    `[save-list-dump] Pass H — scanned ${passHVisited.size} objects (cap ${PASS_H_MAX_VISITED}), found ${boxDataCandidates.length} BoxData candidates (cap ${PASS_H_MAX_CANDIDATES})`,
+  );
+  for (const c of boxDataCandidates) {
+    const fields = c.klass !== 0n ? ctx.classFields(c.klass) : null;
+    const fieldList =
+      fields != null && fields.size > 0
+        ? Array.from(fields.entries())
+            .map(([n, o]) => `${n}=0x${o.toString(16)}`)
+            .join(", ")
+        : "<no readable fields>";
+    log(
+      `[save-list-dump] Pass H   candidate obj=0x${c.obj.toString(16)} klass="${c.klassName ?? "null"}" count=${c.count} list1Off=0x${c.list1Off.toString(16)} (elem0=${c.firstElem1}) list2Off=0x${c.list2Off.toString(16)} (elem0=${c.firstElem2}) fields(${fields?.size ?? 0}): ${fieldList}`,
+    );
+    // Dump first 4 elements of each List to verify BoxTypes/BoxQuantity semantics
+    const dumpListElems = (off: number, label: string): void => {
+      const listPtr = readPtr(ctx.reader, c.obj + BigInt(off));
+      if (listPtr == null || !isPlausibleHeapPtr(listPtr)) return;
+      const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+      if (arr == null || !isPlausibleHeapPtr(arr)) return;
+      const elems: string[] = [];
+      for (let i = 0; i < Math.min(c.count, 4); i++) {
+        const v = readI32(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst + i * 4));
+        if (v == null) break;
+        elems.push(String(v));
+      }
+      log(
+        `[save-list-dump] Pass H     ${label}=[${elems.join(", ")}${c.count > 4 ? ", ..." : ""}]`,
+      );
+    };
+    dumpListElems(c.list1Off, "list1");
+    dumpListElems(c.list2Off, "list2");
+    // Find the parent object that points at this BoxData candidate — that's
+    // the CommonSaveData instance (its +N field = boxData offset).
+    let parentInfo: string | null = null;
+    for (const entry2 of entries) {
+      if (parentInfo) break;
+      const slots2 = ctx.staticSlots(entry2.classPtr);
+      for (const { soff, value: inst } of slots2) {
+        if (parentInfo) break;
+        for (let foff = 0x10; foff <= INSTANCE_SCAN_MAX; foff += 8) {
+          const p = readPtr(ctx.reader, inst + BigInt(foff));
+          if (p === c.obj) {
+            const parentClass = ctx.instanceClassName(inst);
+            const parentFields = ctx.instanceClassFields(inst);
+            // Find which field name matches this offset
+            const fieldName = parentFields?.entries
+              ? Array.from(parentFields.entries()).find(([, o]) => o === foff)?.[0]
+              : undefined;
+            parentInfo = `parent="${parentClass ?? entry2.name}" static+0x${soff.toString(16)}+0x${foff.toString(16)} (field="${fieldName ?? "?"}")`;
+            break;
+          }
+        }
+      }
+    }
+    log(`[save-list-dump] Pass H     ${parentInfo ?? "parent not found (orphan candidate)"}`);
+  }
+
+  log(`[save-list-dump] end`);
+}
+
+/**
+ * Recursive helper for Pass C: walk `obj`'s pointer fields one level deep,
+ * scan each sub-object for List<*> shapes, and recurse into each sub-object
+ * up to `maxDepth` levels. `path` tracks the traversal chain for logging.
+ * `visited` prevents infinite loops on circular references.
+ */
+function recurseForSaveLists(
+  ctx: ScanContext,
+  classPtrToName: Map<bigint, string>,
+  obj: bigint,
+  path: string[],
+  depth: number,
+  visited: Set<bigint>,
+  maxLists: number,
+  log: (line: string) => void,
+): number {
+  if (depth >= SAVE_LIST_DUMP_RECURSE_DEPTH) return 0;
+  let count = 0;
+  for (let foff = 0x10; foff <= SAVE_LIST_DUMP_RECURSE_MAX; foff += 8) {
+    if (count >= maxLists) break;
+    const subPtr = readPtr(ctx.reader, obj + BigInt(foff));
+    if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+    if (visited.has(subPtr)) continue;
+    visited.add(subPtr);
+    const subClass = ctx.instanceClassName(subPtr);
+    const subClassPtr = readPtr(ctx.reader, subPtr);
+    const subClassLabel =
+      subClass != null
+        ? subClass
+        : (classPtrToName.get(subClassPtr ?? 0n) ?? `class@0x${(subClassPtr ?? 0n).toString(16)}`);
+    // Scan sub-object's fields for List<*> shapes
+    for (let sfoff = 0x10; sfoff <= INSTANCE_SCAN_MAX; sfoff += 8) {
+      if (count >= maxLists) break;
+      const found = scanListAt(ctx, subPtr, sfoff);
+      if (found == null) continue;
+      const pathStr = path.concat([`+0x${foff.toString(16)}→${subClassLabel}`]).join("");
+      log(
+        `[save-list-dump] Pass C — ${pathStr} +0x${sfoff.toString(16)} → List<element="${found.elemClass ?? "null"}" count=${found.count}>` +
+          (found.elemClass == null ? ` raw=${found.rawItemsHex}` : ""),
+      );
+      count++;
+    }
+    // Recurse one level deeper
+    const subPath = path.concat([`+0x${foff.toString(16)}→${subClassLabel}`]);
+    count += recurseForSaveLists(
+      ctx,
+      classPtrToName,
+      subPtr,
+      subPath,
+      depth + 1,
+      visited,
+      maxLists - count,
+      log,
+    );
+  }
+  return count;
+}
+
+/**
+ * Header-block scan fallback for finding a class's singleton instance when
+ * `staticSlots()` returns empty (static_fields pointer is null). Mirrors
+ * `probeClassLayout` in liveReader.ts: scan the class header's ptr-like
+ * values (0x00..0xC0) as potential block pointers, and for each block scan
+ * 0x00..0x400 for an instance whose IL2CPP header (`*inst`) matches
+ * `classPtr` or whose header's parent chain includes `classPtr` (subclass).
+ *
+ * On v1.01.02 CommonSaveData: `+0xb0 = 0` (no static_fields block), but the
+ * instance lives at `classPtr+0x90` directly — found when the scan treats
+ * `classPtr` itself as a block candidate (header+0x40 points back to
+ * classPtr on that build).
+ */
+function findInstanceViaHeaderScan(ctx: ScanContext, classPtr: bigint): bigint | null {
+  const HEADER_SCAN_MAX = 0xc0;
+  const BLOCK_SCAN_MAX = 0x400;
+  // Read header ptr-like values one qword at a time (compatible with
+  // MemoryReader implementations that only support 8-byte aligned reads).
+  for (let off = 0; off < HEADER_SCAN_MAX; off += 8) {
+    const block = readPtr(ctx.reader, classPtr + BigInt(off));
+    if (block == null || !isPlausibleHeapPtr(block)) continue;
+    for (let foff = 0; foff <= BLOCK_SCAN_MAX; foff += 8) {
+      const inst = readPtr(ctx.reader, block + BigInt(foff));
+      if (inst == null || !isPlausibleHeapPtr(inst)) continue;
+      const instHeader = readPtr(ctx.reader, inst);
+      if (instHeader == null) continue;
+      // Direct match
+      if (instHeader === classPtr) return inst;
+      // Subclass match: walk parent chain (up to 4 levels)
+      let cls = instHeader;
+      for (let depth = 0; depth < 4; depth++) {
+        const parent = readPtr(ctx.reader, cls + 0x58n);
+        if (parent == null || !isPlausibleHeapPtr(parent)) break;
+        if (parent === classPtr) return inst;
+        cls = parent;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Probe a single instance field offset for a List<*> shape.
+ * Returns `{ count, elemClass, rawItemsHex }` when the pointer at `obj+foff`
+ * looks like a `List<T>` (has a plausible `_items` array at +0x10 with
+ * `_size` at +0x18). Returns null otherwise.
+ *
+ * `rawItemsHex` is a hex dump of the first 8 element slots (64 bytes) — used
+ * when `elemClass` is null to distinguish:
+ *   - all-zero slots (List genuinely emptied / nulled)
+ *   - small-integer slots (value-type List<int> / List<enum>)
+ *   - non-plausible-pointer slots (compressed ptrs / struct data)
+ *
+ * Scans up to the first 8 elements to find the first non-null plausible
+ * pointer — C# `List<T>` may have null entries at the head when elements
+ * were removed. The element class name comes from `instanceClassName`.
+ */
+function scanListAt(
+  ctx: ScanContext,
+  obj: bigint,
+  foff: number,
+): { count: number; elemClass: string | null; rawItemsHex: string } | null {
+  const listPtr = readPtr(ctx.reader, obj + BigInt(foff));
+  if (listPtr == null || !isPlausibleHeapPtr(listPtr)) return null;
+  const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+  if (arr == null || !isPlausibleHeapPtr(arr)) return null;
+  const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+  if (count == null || count <= 0 || count > MAX_SAVE_LIST) return null;
+  // Scan up to 8 elements to find the first non-null plausible pointer.
+  // C# List<T> may have null entries at the head after RemoveAt().
+  const first = arr + BigInt(STRUCT_CONTAINER.arrayFirst);
+  const scanLimit = Math.min(count, 8);
+  // Collect raw hex of first 8 slots (64 bytes) for diagnostics when
+  // elemClass is null. Use readBytes directly (not readPtr) so small
+  // integers and zero are preserved — readPtr filters out values < 0x10000.
+  const rawHex: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const buf = ctx.reader.readBytes(first + BigInt(i * 8), 8);
+    if (buf == null || buf.length < 8) {
+      rawHex.push("??");
+    } else {
+      rawHex.push(`0x${buf.readBigUInt64LE(0).toString(16)}`);
+    }
+  }
+  const rawItemsHex = `[${rawHex.join(",")}]`;
+  for (let i = 0; i < scanLimit; i++) {
+    const e = readPtr(ctx.reader, first + BigInt(i * 8));
+    if (e == null || !isPlausibleHeapPtr(e)) continue;
+    const elemClass = ctx.instanceClassName(e);
+    return { count, elemClass, rawItemsHex };
+  }
+  // List has count > 0 but all probed elements are null — still report it
+  // (could be a List<T> where all entries were nulled out, or a value-type
+  // List<int>/List<struct> whose slots aren't object pointers).
+  return { count, elemClass: null, rawItemsHex };
 }

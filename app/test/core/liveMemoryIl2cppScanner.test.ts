@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   collectClassEntries,
   collectLogManagerDiagnostics,
+  dumpSaveListHolders,
   findBoxOpenLogDictDirect,
   findBoxOpenLogFields,
   findCurrencyManager,
@@ -14,6 +15,7 @@ import {
   readClassFields,
   validateGetBoxList,
   ScanContext,
+  STRUCT_CONTAINER,
   type ClassEntry,
 } from "../../src/core/liveMemory/il2cppScanner";
 import { FakeMemory } from "./liveMemoryFake";
@@ -65,6 +67,24 @@ function seedStaticBlock(m: FakeMemory, classPtr: bigint, blockAddr: bigint): bi
 /** Give an object instance a class header (`*obj` = Il2CppClass*). */
 function seedInstance(m: FakeMemory, objPtr: bigint, classPtr: bigint): void {
   m.writePtr(objPtr, classPtr);
+}
+
+/**
+ * Seed a List<T> shape at `listPtr`: writes the _items array pointer at
+ * +0x10, the _size int32 at +0x18, and the first element pointer at
+ * arrayPtr+0x20. The element's class header must be set separately via
+ * seedInstance.
+ */
+function seedList<T extends bigint>(
+  m: FakeMemory,
+  listPtr: bigint,
+  arrayPtr: bigint,
+  count: number,
+  firstElemPtr: T,
+): void {
+  m.writePtr(listPtr + BigInt(STRUCT_CONTAINER.listItems), arrayPtr);
+  m.writeI32(listPtr + BigInt(STRUCT_CONTAINER.listSize), count);
+  m.writePtr(arrayPtr + BigInt(STRUCT_CONTAINER.arrayFirst), firstElemPtr);
 }
 
 /** A hand-built index entry (detector tests skip the region scan). */
@@ -983,6 +1003,55 @@ describe("findBoxOpenLogFields", () => {
       gradeSOGrade: 0,
     });
   });
+
+  it("identifies obfuscated fields by value when itemStringKey is a System.String pointer (v1.01.02)", () => {
+    // v1.01.02 BoxOpenLog: field names are obfuscated (bfpc/bfpd/bfpe) and
+    // itemStringKey is a System.String pointer (not a plain int32). The
+    // scanner must:
+    //   1. See that readI32 at +0x40 returns a positive but non-plausible
+    //      value (the String pointer's low 32 bits, e.g. 0x57509000).
+    //   2. Fall through to the pointer → String → number path.
+    //   3. Extract the trailing digit run from the string as the itemKey.
+    //   4. Match +0x48=0 as itemGradeType (plausible grade 0).
+    const m = new FakeMemory();
+    const boClass = 0x7ff500000n;
+    const boInstance = 0x7ff510000n;
+    seedClass(m, boClass, "BoxOpenLog");
+    // Obfuscated field names — name-based lookup returns 0 for both.
+    seedFields(m, boClass, [
+      { name: "bfpc", offset: 0x40 },
+      { name: "bfpd", offset: 0x48 },
+      { name: "bfpe", offset: 0x50 },
+    ]);
+    seedInstance(m, boInstance, boClass);
+
+    // +0x40: System.String pointer → "ItemName_530017"
+    const strClass = 0x7ff520000n;
+    const strObj = 0x7ff530000n;
+    seedClass(m, strClass, "String");
+    seedInstance(m, strObj, strClass);
+    const str = "ItemName_530017";
+    m.writeI32(strObj + 0x10n, str.length);
+    m.writeBytes(strObj + 0x14n, Buffer.from(str, "utf16le"));
+    m.writePtr(boInstance + 0x40n, strObj);
+
+    // +0x48: itemGradeType = 0 (plain int32)
+    m.writeI32(boInstance + 0x48n, 0);
+
+    // +0x50: GradeSO pointer (v1.01.02 layout). Must NOT be null — null would
+    // make readI32 return 0, which is a plausible grade and would compete
+    // with +0x48 for bestGradeOffset. A real GradeSO pointer has negative
+    // low 32 bits, so the scanner enters the pointer path and doesn't match.
+    const gradeClass = 0x7ff540000n;
+    const gradeObj = 0x7ff550000n;
+    seedClass(m, gradeClass, "GradeSO");
+    seedInstance(m, gradeObj, gradeClass);
+    m.writePtr(boInstance + 0x50n, gradeObj);
+
+    const result = findBoxOpenLogFields(new ScanContext(m), [], boInstance);
+    expect(result.itemStringKey).toBe(0x40);
+    expect(result.itemGradeType).toBe(0x48);
+  });
 });
 
 // ── findCurrencyManager ───────────────────────────────────────────────────────
@@ -1097,11 +1166,72 @@ describe("findPlayerSaveData", () => {
       petSaveDatas: 0x68,
       itemSaveDatas: 0xa0,
       boxData: 0,
+      // "BoxData" field name is absent → dumpClassFields fires and surfaces the
+      // holder class name + field table so the extractor log shows what the
+      // field is actually called on this build.
+      boxDataDiagnostics: expect.stringContaining("PlayerSaveData"),
       petKey: 0x10,
       petIsUnlock: 0x14,
       itemKey: 0x10,
       itemIsChaotic: 0x20,
     });
+  });
+
+  it("leaves boxDataDiagnostics undefined when the BoxData field name is present", () => {
+    const m = new FakeMemory();
+    const elements = seedElementClasses(m);
+
+    const wrapper = 0x7ff700000n;
+    const holderClass = 0x7ff710000n;
+    const holder = 0x7ff720000n;
+    const e = entry(m, wrapper, 0x8000n, "csd");
+    const block = seedStaticBlock(m, wrapper, 0x7ff730000n);
+    m.writePtr(block + 0x10n, holder);
+    seedInstance(m, holder, holderClass);
+    seedClass(m, holderClass, "PlayerSaveData");
+    seedFields(m, holderClass, [
+      { name: "PetSaveData", offset: 0x68 },
+      { name: "itemSaveDatas", offset: 0xa0 },
+      { name: "BoxData", offset: 0xb8 },
+    ]);
+
+    const result = findPlayerSaveData(new ScanContext(m), [e, ...elements]);
+    expect(result).not.toBeNull();
+    expect(result!.boxData).toBe(0xb8);
+    expect(result!.boxDataDiagnostics).toBeUndefined();
+  });
+
+  it("emits boxDataDiagnostics naming the obfuscated holder class when BoxData is renamed (v1.01.02 shape)", () => {
+    // v1.01.02-style: holder class is renamed and "BoxData" is missing, but
+    // PetSaveData/itemSaveDatas field names still match (so the holder is
+    // detected). The dump must surface the actual holder class name + the
+    // fields that ARE present, so we can pick the renamed BoxData field
+    // offline.
+    const m = new FakeMemory();
+    const elements = seedElementClasses(m);
+
+    const wrapper = 0x7ff700000n;
+    const holderClass = 0x7ff710000n;
+    const holder = 0x7ff720000n;
+    const e = entry(m, wrapper, 0x8000n, "csd");
+    const block = seedStaticBlock(m, wrapper, 0x7ff730000n);
+    m.writePtr(block + 0x10n, holder);
+    seedInstance(m, holder, holderClass);
+    seedClass(m, holderClass, "csd.PlayerSaveData");
+    seedFields(m, holderClass, [
+      { name: "PetSaveData", offset: 0x68 },
+      { name: "itemSaveDatas", offset: 0xa0 },
+      // Renamed BoxData — would appear in the dump as bfpc=0xb8 or similar.
+      { name: "bfpc", offset: 0xb8 },
+    ]);
+
+    const result = findPlayerSaveData(new ScanContext(m), [e, ...elements]);
+    expect(result).not.toBeNull();
+    expect(result!.boxData).toBe(0);
+    expect(result!.boxDataDiagnostics).toBeDefined();
+    expect(result!.boxDataDiagnostics).toContain("csd.PlayerSaveData");
+    expect(result!.boxDataDiagnostics).toContain("bfpc=0xb8");
+    expect(result!.boxDataDiagnostics).not.toContain("BoxData=");
   });
 
   it("falls back to hunting for a List<PetSaveData> among raw instance fields", () => {
@@ -1353,5 +1483,322 @@ describe("findBoxOpenLogDictDirect fallback", () => {
     const e = entry(m, 0x7ff600000n, 0x8000n, "EmptyClass");
     seedStaticBlock(m, 0x7ff600000n, 0x7ff610000n);
     expect(findBoxOpenLogDictDirect(new ScanContext(m), [e])).toBeNull();
+  });
+});
+
+// ── dumpSaveListHolders ───────────────────────────────────────────────────────
+
+describe("dumpSaveListHolders", () => {
+  /** Capture log lines into an array for assertion. */
+  function captureLog(): { log: (line: string) => void; lines: string[] } {
+    const lines: string[] = [];
+    return { log: (line: string) => lines.push(line), lines };
+  }
+
+  it("Pass B finds a static-reachable List<PetSaveData> and reports its holder + element class", () => {
+    const m = new FakeMemory();
+    // Element class: PetSaveData
+    const petClass = 0x7ff600000n;
+    seedClass(m, petClass, "PetSaveData");
+    // A pet instance (first element of the list)
+    const petObj = 0x7ff610000n;
+    seedInstance(m, petObj, petClass);
+    // List<PetSaveData> at holder+0x68
+    const list = 0x7ff620000n;
+    const listArr = 0x7ff630000n;
+    seedList(m, list, listArr, 3, petObj);
+    // Holder class with a static block pointing at an instance
+    const holderClass = 0x7ff640000n;
+    const holder = 0x7ff650000n;
+    const e = entry(m, holderClass, 0x8000n, "SomeHolder");
+    const block = seedStaticBlock(m, holderClass, 0x7ff660000n);
+    m.writePtr(block + 0x10n, holder);
+    seedInstance(m, holder, holderClass);
+    // Holder's field table — doesn't matter for Pass B (structural scan),
+    // but seed an empty field table so instanceClassFields returns empty.
+    seedFields(m, holderClass, [{ name: "renamed", offset: 0x68 }]);
+    m.writePtr(holder + 0x68n, list);
+
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e], log);
+
+    const passBLine = lines.find((l) => l.includes("Pass B — holder="));
+    expect(passBLine).toBeDefined();
+    expect(passBLine).toContain("SomeHolder");
+    expect(passBLine).toContain("+0x68");
+    expect(passBLine).toContain('element="PetSaveData"');
+    expect(passBLine).toContain("count=3");
+  });
+
+  it("Pass C finds save lists moved into a CommonSaveData sub-object (v1.01.02 shape)", () => {
+    // v1.01.02 scenario: CommonSaveData no longer holds PetSaveData/ItemSaveData
+    // directly. Its instance references a sub-object (e.g. SaveDataHolder)
+    // which holds the actual List<PetSaveData>.
+    const m = new FakeMemory();
+
+    // Element classes
+    const petClass = 0x7ff600000n;
+    seedClass(m, petClass, "PetSaveData");
+    const itemClass = 0x7ff610000n;
+    seedClass(m, itemClass, "ItemSaveData");
+
+    // Pet + Item instances (first elements)
+    const petObj = 0x7ff620000n;
+    seedInstance(m, petObj, petClass);
+    const itemObj = 0x7ff630000n;
+    seedInstance(m, itemObj, itemClass);
+
+    // Sub-object (SaveDataHolder) holds the lists
+    const subObjClass = 0x7ff640000n;
+    const subObj = 0x7ff650000n;
+    seedInstance(m, subObj, subObjClass);
+    seedClass(m, subObjClass, "SaveDataHolder");
+    // List<PetSaveData> at subObj+0x40
+    const petList = 0x7ff660000n;
+    const petListArr = 0x7ff670000n;
+    seedList(m, petList, petListArr, 5, petObj);
+    m.writePtr(subObj + 0x40n, petList);
+    // List<ItemSaveData> at subObj+0x48
+    const itemList = 0x7ff680000n;
+    const itemListArr = 0x7ff690000n;
+    seedList(m, itemList, itemListArr, 120, itemObj);
+    m.writePtr(subObj + 0x48n, itemList);
+
+    // CommonSaveData instance — its +0x20 field points at SaveDataHolder
+    const csdClass = 0x7ff6a0000n;
+    const csdInst = 0x7ff6b0000n;
+    seedClass(m, csdClass, "CommonSaveData");
+    seedInstance(m, csdInst, csdClass);
+    // CommonSaveData's own field table has NO save lists (the v1.01.02 case)
+    seedFields(m, csdClass, [
+      { name: "version", offset: 0x10 },
+      { name: "playTime", offset: 0x18 },
+    ]);
+    m.writePtr(csdInst + 0x20n, subObj); // reference to sub-object
+
+    // Static block: CommonSaveData class has a static slot pointing at the instance
+    const e = entry(m, csdClass, 0x8000n, "CommonSaveData");
+    const block = seedStaticBlock(m, csdClass, 0x7ff6c0000n);
+    m.writePtr(block + 0x10n, csdInst);
+
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e], log);
+
+    // Pass C should have recursed into CommonSaveData and found both lists.
+    // New format: `[save-list-dump] Pass C — "CommonSaveData"+0x20→SaveDataHolder(0x...) +0x40 → List<...>`
+    const passCLines = lines.filter((l) => l.includes("Pass C — ") && l.includes("→ List<"));
+    expect(passCLines.length).toBeGreaterThanOrEqual(2);
+
+    const petLine = passCLines.find((l) => l.includes("PetSaveData"));
+    expect(petLine).toBeDefined();
+    expect(petLine).toContain("CommonSaveData");
+    expect(petLine).toContain("+0x20");
+    expect(petLine).toContain("SaveDataHolder");
+    expect(petLine).toContain("+0x40");
+    expect(petLine).toContain("count=5");
+
+    const itemLine = passCLines.find((l) => l.includes("ItemSaveData"));
+    expect(itemLine).toBeDefined();
+    expect(itemLine).toContain("+0x48");
+    expect(itemLine).toContain("count=120");
+  });
+
+  it("Pass A lists class names matching save-data hints", () => {
+    const m = new FakeMemory();
+    const e1 = entry(m, 0x7ff600000n, 0x8000n, "CommonSaveData");
+    const e2 = entry(m, 0x7ff610000n, 0x8100n, "PlayerInventoryManager");
+    const e3 = entry(m, 0x7ff620000n, 0x8200n, "TotallyUnrelated");
+
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e1, e2, e3], log);
+
+    const passAHeader = lines.find((l) => l.includes("Pass A — name-probe hits:"));
+    expect(passAHeader).toBeDefined();
+    // e3 "TotallyUnrelated" should NOT appear in the name probe hits
+    const nameLine = lines.find((l) => l.includes("CommonSaveData | PlayerInventoryManager"));
+    expect(nameLine).toBeDefined();
+    const unrelatedLine = lines.find((l) => l.includes("TotallyUnrelated"));
+    expect(unrelatedLine).toBeUndefined();
+  });
+
+  it("scanListAt skips null head elements and reports the first non-null element's class (HeroSaveData with 16 entries)", () => {
+    // v1.01.02 case: List<HeroSaveData> with count=16, but the first 3
+    // entries are null (heroes removed/locked). scanListAt must scan past
+    // nulls and find the first non-null HeroSaveData element.
+    const m = new FakeMemory();
+    const heroClass = 0x7ff600000n;
+    seedClass(m, heroClass, "HeroSaveData");
+    const heroObj = 0x7ff620000n;
+    seedInstance(m, heroObj, heroClass);
+
+    const list = 0x7ff630000n;
+    const listArr = 0x7ff640000n;
+    // _size = 16, but first 3 slots are null. seedList writes firstElemPtr
+    // at arrayFirst+0; overwrite it and the next two slots with null, then
+    // put heroObj at index 3.
+    seedList(m, list, listArr, 16, 0n);
+    const arrFirst = listArr + BigInt(STRUCT_CONTAINER.arrayFirst);
+    m.writePtr(arrFirst + 0n * 8n, 0n);
+    m.writePtr(arrFirst + 1n * 8n, 0n);
+    m.writePtr(arrFirst + 2n * 8n, 0n);
+    m.writePtr(arrFirst + 3n * 8n, heroObj);
+
+    // Holder has the list at +0x68
+    const holderClass = 0x7ff650000n;
+    const holder = 0x7ff660000n;
+    seedInstance(m, holder, holderClass);
+    seedClass(m, holderClass, "SomeHolder");
+    const e = entry(m, holderClass, 0x8000n, "SomeHolder");
+    const block = seedStaticBlock(m, holderClass, 0x7ff670000n);
+    m.writePtr(block + 0x10n, holder);
+    m.writePtr(holder + 0x68n, list);
+
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e], log);
+
+    const passBLine = lines.find((l) => l.includes("Pass B — holder="));
+    expect(passBLine).toBeDefined();
+    expect(passBLine).toContain('element="HeroSaveData"');
+    expect(passBLine).toContain("count=16");
+  });
+
+  it("Pass C reports class@<ptr> label when sub-object's class name is unreadable", () => {
+    // Sub-object has a valid class pointer but the class's name field is
+    // unreadable (e.g. unmapped region). Pass C should still report the
+    // List with a class@0x... label.
+    const m = new FakeMemory();
+    const petClass = 0x7ff600000n;
+    seedClass(m, petClass, "PetSaveData");
+    const petObj = 0x7ff620000n;
+    seedInstance(m, petObj, petClass);
+
+    // Sub-object with unreadable class name — write a class pointer but
+    // don't seed the class's name field.
+    const subObjClass = 0x7ff640000n;
+    const subObj = 0x7ff650000n;
+    seedInstance(m, subObj, subObjClass); // inst → subObjClass, but no seedClass
+    const petList = 0x7ff660000n;
+    const petListArr = 0x7ff670000n;
+    seedList(m, petList, petListArr, 5, petObj);
+    m.writePtr(subObj + 0x40n, petList);
+
+    const csdClass = 0x7ff6a0000n;
+    seedClass(m, csdClass, "CommonSaveData");
+    const csdInst = 0x7ff6b0000n;
+    const block = seedStaticBlock(m, csdClass, 0x7ff6c0000n);
+    m.writePtr(block + 0x10n, csdInst);
+    seedInstance(m, csdInst, csdClass);
+    m.writePtr(csdInst + 0x20n, subObj);
+
+    const e = entry(m, csdClass, 0x8000n, "CommonSaveData");
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e], log);
+
+    const passCLine = lines.find((l) => l.includes("Pass C — ") && l.includes("PetSaveData"));
+    expect(passCLine).toBeDefined();
+    expect(passCLine).toContain("class@0x");
+  });
+
+  it("Pass C dumps raw items hex when all List elements are null (value-type or emptied List)", () => {
+    // List<int> or List with all-null head elements: scanListAt can't find
+    // a plausible element pointer, so elemClass is null. The log must
+    // include `raw=[...]` showing the first 8 qwords so we can distinguish
+    // all-zero (emptied) from small-int (value-type) from struct data.
+    const m = new FakeMemory();
+    const subObjClass = 0x7ff640000n;
+    const subObj = 0x7ff650000n;
+    seedInstance(m, subObj, subObjClass);
+    seedClass(m, subObjClass, "SaveDataHolder");
+
+    // List with count=16, all elements are small integers (value-type
+    // List<int>-like: each slot holds an int32 like 1,2,3... packed in a
+    // qword). scanListAt won't find any plausible heap pointer.
+    const list = 0x7ff660000n;
+    const listArr = 0x7ff670000n;
+    seedList(m, list, listArr, 16, 0n);
+    const arrFirst = listArr + BigInt(STRUCT_CONTAINER.arrayFirst);
+    // Write small-integer values (value-type List<int> pattern)
+    m.writePtr(arrFirst + 0n * 8n, 1n);
+    m.writePtr(arrFirst + 1n * 8n, 2n);
+    m.writePtr(arrFirst + 2n * 8n, 3n);
+    m.writePtr(arrFirst + 3n * 8n, 0n);
+    m.writePtr(subObj + 0x80n, list);
+
+    const csdClass = 0x7ff6a0000n;
+    seedClass(m, csdClass, "CommonSaveData");
+    const csdInst = 0x7ff6b0000n;
+    const block = seedStaticBlock(m, csdClass, 0x7ff6c0000n);
+    m.writePtr(block + 0x10n, csdInst);
+    seedInstance(m, csdInst, csdClass);
+    m.writePtr(csdInst + 0x20n, subObj);
+
+    const e = entry(m, csdClass, 0x8000n, "CommonSaveData");
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e], log);
+
+    const passCLine = lines.find((l) => l.includes("Pass C — ") && l.includes("count=16"));
+    expect(passCLine).toBeDefined();
+    expect(passCLine).toContain('element="null"');
+    expect(passCLine).toContain("raw=[");
+    // raw should contain the small-integer values we wrote
+    expect(passCLine).toContain("0x1");
+    expect(passCLine).toContain("0x2");
+    expect(passCLine).toContain("0x3");
+  });
+
+  it("Pass C finds CommonSaveData instance via header-block scan when static_fields is null (v1.01.02 shape)", () => {
+    // v1.01.02: CommonSaveData's static_fields block (+0xb0) is null, so
+    // staticSlots() returns empty. The instance lives at a non-standard
+    // header offset — findInstanceViaHeaderScan must scan the class header's
+    // ptr-like values as block candidates and find the instance.
+    const m = new FakeMemory();
+
+    // Element class
+    const petClass = 0x7ff600000n;
+    seedClass(m, petClass, "PetSaveData");
+    const petObj = 0x7ff620000n;
+    seedInstance(m, petObj, petClass);
+
+    // Sub-object that holds the List<PetSaveData>
+    const subObjClass = 0x7ff640000n;
+    const subObj = 0x7ff650000n;
+    seedInstance(m, subObj, subObjClass);
+    seedClass(m, subObjClass, "SaveDataHolder");
+    const petList = 0x7ff660000n;
+    const petListArr = 0x7ff670000n;
+    seedList(m, petList, petListArr, 7, petObj);
+    m.writePtr(subObj + 0x40n, petList);
+
+    // CommonSaveData class — static_fields (+0xb0) left as 0 (no seedStaticBlock)
+    const csdClass = 0x7ff6a0000n;
+    seedClass(m, csdClass, "CommonSaveData");
+    // Put a block pointer at header+0x40 (the offset probeClassLayout found
+    // on v1.01.02). The block itself holds the instance at +0x90.
+    const blockPtr = 0x7ff6c0000n;
+    m.writePtr(csdClass + 0x40n, blockPtr);
+    const csdInst = 0x7ff6b0000n;
+    m.writePtr(blockPtr + 0x90n, csdInst);
+    seedInstance(m, csdInst, csdClass); // inst header → classPtr
+    // CommonSaveData instance references sub-object at +0x20
+    m.writePtr(csdInst + 0x20n, subObj);
+
+    const e = entry(m, csdClass, 0x8000n, "CommonSaveData");
+
+    const { log, lines } = captureLog();
+    dumpSaveListHolders(new ScanContext(m), [e], log);
+
+    // Pass C should have found the instance via header-block scan (not via
+    // staticSlots, which returns empty for this class).
+    const passCHeader = lines.find((l) => l.includes('Pass C — recursing into "CommonSaveData"'));
+    expect(passCHeader).toBeDefined();
+    expect(passCHeader).toContain(`0x${csdInst.toString(16)}`);
+
+    const petLine = lines.find((l) => l.includes("PetSaveData"));
+    expect(petLine).toBeDefined();
+    expect(petLine).toContain("CommonSaveData");
+    expect(petLine).toContain("+0x20");
+    expect(petLine).toContain("SaveDataHolder");
+    expect(petLine).toContain("+0x40");
+    expect(petLine).toContain("count=7");
   });
 });
