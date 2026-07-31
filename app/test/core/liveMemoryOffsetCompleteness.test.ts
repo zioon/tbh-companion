@@ -29,6 +29,7 @@ function withAllEnrichment(o: LiveOffsets): LiveOffsets {
   return {
     ...withLM,
     player: { ...withLM.player, boxData: 0x78 },
+    boxData: { boxTypes: 0x18, boxQuantity: 0x20 },
     runtime: {
       ...withLM.runtime,
       log: { ...withLM.runtime.log, getItemWithBoxOpenTypeKey: 42 },
@@ -50,6 +51,8 @@ describe("missingOffsetFields", () => {
       "typeInfoRva.logManager",
       "typeInfoRva.monsterSpawnManager",
       "player.boxData",
+      "boxData.boxTypes",
+      "boxData.boxQuantity",
       "runtime.log.getItemWithBoxOpenTypeKey",
       "runtime.boxOpenLog.itemStringKey",
       "runtime.boxOpenLog.itemGradeType",
@@ -70,6 +73,7 @@ describe("missingOffsetFields", () => {
       ...BASE,
       typeInfoRva: { ...BASE.typeInfoRva, logManager: 0n, commonSaveData: 0n },
       player: { ...BASE.player, petSaveDatas: 0, itemSaveDatas: 0 },
+      boxData: { boxTypes: 0, boxQuantity: 0 },
       petSaveData: { petKey: 0, isUnlock: 0 },
       inventoryItem: { itemKey: 0, isChaotic: 0 },
       runtime: {
@@ -88,6 +92,8 @@ describe("missingOffsetFields", () => {
     };
     expect(missingOffsetFields(stripped, "full").sort()).toEqual(
       [
+        "boxData.boxQuantity",
+        "boxData.boxTypes",
         "inventoryItem.isChaotic",
         "inventoryItem.itemKey",
         "petSaveData.isUnlock",
@@ -197,6 +203,45 @@ describe("mergeOffsets", () => {
     expect(merged.runtime.stageClearLog.stage).toBe(BASE.runtime.stageClearLog.stage);
     expect(merged.runtime.stageClearLog.clearTimeSec).toBe(BASE.runtime.stageClearLog.clearTimeSec);
     expect(isOffsetTableComplete(merged)).toBe(true);
+  });
+
+  it("fills zeroed boxData struct offsets from the derived table", () => {
+    // Structural BoxData.boxTypes/boxQuantity derived by findBoxDataFields
+    // must merge into a base table that has them at 0 (bundled default).
+    const stripped: LiveOffsets = {
+      ...BASE,
+      player: { ...BASE.player, boxData: 0x78 },
+      boxData: { boxTypes: 0, boxQuantity: 0 },
+    };
+    const derived = withAllEnrichment(BASE);
+    const merged = mergeOffsets(stripped, derived);
+    expect(merged.boxData.boxTypes).toBe(0x18);
+    expect(merged.boxData.boxQuantity).toBe(0x20);
+  });
+
+  it("preserves _criticalRvasValidated from base across merge", () => {
+    // Rev 13: _criticalRvasValidated is provenance for whether the extractor
+    // has confirmed stageManager/stageCacheManager RVAs for the current build.
+    // It MUST survive mergeOffsets (spread from base) so a healed-then-cached
+    // table still records that critical RVAs were validated.
+    const validatedBase: LiveOffsets = {
+      ...BASE,
+      _criticalRvasValidated: true,
+      _fallbackFromVersion: "1.00.20",
+    };
+    const derived = withAllEnrichment(BASE);
+    const merged = mergeOffsets(validatedBase, derived);
+    expect(merged._criticalRvasValidated).toBe(true);
+    expect(merged._fallbackFromVersion).toBe("1.00.20");
+  });
+
+  it("preserves absent _criticalRvasValidated across merge (pre-Rev 13 cache)", () => {
+    // Pre-Rev 13 disk caches don't have _criticalRvasValidated. The merged
+    // table should also lack it (treated as false by isCriticalStaleOnBaseline).
+    const noFlagBase: LiveOffsets = { ...BASE, _criticalRvasValidated: undefined };
+    const derived = withAllEnrichment(BASE);
+    const merged = mergeOffsets(noFlagBase, derived);
+    expect(merged._criticalRvasValidated).toBeUndefined();
   });
 
   // ── Fallback merge semantics ────────────────────────────────────────────

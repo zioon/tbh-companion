@@ -70,6 +70,18 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   // fallback timer from re-running the extractor forever after the first
   // failed attempt on these versions.
   { path: "player.boxData", get: (o) => o.player.boxData },
+  // BoxData struct field offsets — gates readRuntimeChestSlots together with
+  // player.boxData. When 0 (BoxData instance reachable but the twin List<int>
+  // fields weren't found — e.g. player owns no chests yet, so the lists are
+  // empty and the equal-count signature doesn't match), the 30s fallback heal
+  // timer re-runs the extractor. Once the player opens a chest and the lists
+  // become non-empty, the structural scan succeeds and these flip non-zero.
+  // On versions where BoxData itself is not derivable (v1.01.02 ES3 stream),
+  // player.boxData is 0 too, so the heal is gated by both fields being 0 —
+  // `enrichmentAlreadyAttempted` (worker.ts Path 2 guard) stops the loop after
+  // the first failed attempt.
+  { path: "boxData.boxTypes", get: (o) => o.boxData?.boxTypes ?? 0 },
+  { path: "boxData.boxQuantity", get: (o) => o.boxData?.boxQuantity ?? 0 },
   { path: "petSaveData.petKey", get: (o) => o.petSaveData.petKey },
   { path: "petSaveData.isUnlock", get: (o) => o.petSaveData.isUnlock },
   { path: "inventoryItem.itemKey", get: (o) => o.inventoryItem.itemKey },
@@ -177,6 +189,10 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
       itemSaveDatas: pickN(base.player.itemSaveDatas, derived.player.itemSaveDatas),
       aggregates: pickN(base.player.aggregates, derived.player.aggregates),
       boxData: pickN(base.player.boxData, derived.player.boxData),
+    },
+    boxData: {
+      boxTypes: pickN(base.boxData?.boxTypes ?? 0, derived.boxData?.boxTypes ?? 0),
+      boxQuantity: pickN(base.boxData?.boxQuantity ?? 0, derived.boxData?.boxQuantity ?? 0),
     },
     petSaveData: {
       petKey: pickN(base.petSaveData.petKey, derived.petSaveData.petKey),

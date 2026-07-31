@@ -1166,6 +1166,11 @@ describe("findPlayerSaveData", () => {
       petSaveDatas: 0x68,
       itemSaveDatas: 0xa0,
       boxData: 0,
+      // BoxData field-name absent → findBoxDataFields can't reach a BoxData
+      // instance (no offset to read the pointer from), so the struct offsets
+      // stay 0. chestSlots.ts falls back to the save path.
+      boxTypes: 0,
+      boxQuantity: 0,
       // "BoxData" field name is absent → dumpClassFields fires and surfaces the
       // holder class name + field table so the extractor log shows what the
       // field is actually called on this build.
@@ -1175,6 +1180,96 @@ describe("findPlayerSaveData", () => {
       itemKey: 0x10,
       itemIsChaotic: 0x20,
     });
+  });
+
+  it("derives boxTypes/boxQuantity structurally when BoxData is named and reachable", () => {
+    // Rev 13 findBoxDataFields: when the BoxData field-name match succeeds,
+    // read the BoxData instance pointer and scan it for two List<int> fields
+    // of equal length. This survives BoxTypes/BoxQuantity field-name
+    // obfuscation (e.g. v1.00.28 where BoxData is named but its inner List<int>
+    // fields are renamed). Both lists must be non-empty (count > 0) and have
+    // matching _size for the parallel-arrays signature.
+    const m = new FakeMemory();
+    const elements = seedElementClasses(m);
+
+    const wrapper = 0x7ff700000n;
+    const holderClass = 0x7ff710000n;
+    const holder = 0x7ff720000n;
+    const boxDataObj = 0x7ff780000n;
+    const typesList = 0x7ff781000n;
+    const typesArr = 0x7ff782000n;
+    const qtyList = 0x7ff783000n;
+    const qtyArr = 0x7ff784000n;
+
+    const e = entry(m, wrapper, 0x8000n, "csd");
+    const block = seedStaticBlock(m, wrapper, 0x7ff730000n);
+    m.writePtr(block + 0x10n, holder);
+    seedInstance(m, holder, holderClass);
+    seedClass(m, holderClass, "PlayerSaveData");
+    seedFields(m, holderClass, [
+      { name: "PetSaveData", offset: 0x68 },
+      { name: "itemSaveDatas", offset: 0xa0 },
+      { name: "BoxData", offset: 0xb8 },
+    ]);
+    // holder+0xb8 → boxDataObj
+    m.writePtr(holder + 0xb8n, boxDataObj);
+    // boxDataObj+0x18 → List<int> BoxTypes (count=3, first elem=1001)
+    m.writePtr(boxDataObj + 0x18n, typesList);
+    m.writePtr(typesList + 0x10n, typesArr); // _items
+    m.writeI32(typesList + 0x18n, 3); // _size
+    m.writeI32(typesArr + 0x20n, 1001); // first elem
+    // boxDataObj+0x20 → List<int> BoxQuantity (count=3, first elem=5)
+    m.writePtr(boxDataObj + 0x20n, qtyList);
+    m.writePtr(qtyList + 0x10n, qtyArr);
+    m.writeI32(qtyList + 0x18n, 3);
+    m.writeI32(qtyArr + 0x20n, 5);
+
+    const result = findPlayerSaveData(new ScanContext(m), [e, ...elements]);
+    expect(result).not.toBeNull();
+    expect(result!.boxData).toBe(0xb8);
+    expect(result!.boxTypes).toBe(0x18);
+    expect(result!.boxQuantity).toBe(0x20);
+  });
+
+  it("leaves boxTypes/boxQuantity at 0 when BoxData lists are empty (count=0)", () => {
+    // When the player owns no chests, BoxData's List<int> fields have _size=0.
+    // The equal-count signature doesn't match (count must be > 0), so
+    // findBoxDataFields returns null. The 30s enrichment heal timer will
+    // re-run the extractor once the player opens a chest and the lists
+    // become non-empty.
+    const m = new FakeMemory();
+    const elements = seedElementClasses(m);
+
+    const wrapper = 0x7ff700000n;
+    const holderClass = 0x7ff710000n;
+    const holder = 0x7ff720000n;
+    const boxDataObj = 0x7ff780000n;
+    const typesList = 0x7ff781000n;
+    const qtyList = 0x7ff783000n;
+
+    const e = entry(m, wrapper, 0x8000n, "csd");
+    const block = seedStaticBlock(m, wrapper, 0x7ff730000n);
+    m.writePtr(block + 0x10n, holder);
+    seedInstance(m, holder, holderClass);
+    seedClass(m, holderClass, "PlayerSaveData");
+    seedFields(m, holderClass, [
+      { name: "PetSaveData", offset: 0x68 },
+      { name: "itemSaveDatas", offset: 0xa0 },
+      { name: "BoxData", offset: 0xb8 },
+    ]);
+    m.writePtr(holder + 0xb8n, boxDataObj);
+    m.writePtr(boxDataObj + 0x18n, typesList);
+    m.writePtr(typesList + 0x10n, 0x7ff782000n); // _items (null would also work)
+    m.writeI32(typesList + 0x18n, 0); // _size=0 — empty list
+    m.writePtr(boxDataObj + 0x20n, qtyList);
+    m.writePtr(qtyList + 0x10n, 0x7ff784000n);
+    m.writeI32(qtyList + 0x18n, 0);
+
+    const result = findPlayerSaveData(new ScanContext(m), [e, ...elements]);
+    expect(result).not.toBeNull();
+    expect(result!.boxData).toBe(0xb8);
+    expect(result!.boxTypes).toBe(0);
+    expect(result!.boxQuantity).toBe(0);
   });
 
   it("leaves boxDataDiagnostics undefined when the BoxData field name is present", () => {

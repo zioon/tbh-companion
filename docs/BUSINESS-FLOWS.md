@@ -517,6 +517,7 @@ type WorkerMessage =
   - fallback base（`_fallbackFromVersion` 存在）：**derived-wins** — derived 非零字段覆盖 base。保证 fallback 表的 stale RVAs 能被 extractor 重新推导覆盖。
   - cache-pollution 强制模式下，先手动把 base 的 `getItemWithBoxOpenTypeKey` 和 `boxOpenLog.{itemStringKey, itemGradeType, gradeSO, gradeSOGrade, boxType, level}` 清零再 merge，让 derived 填空。
 - 合并结果写 `_extractorRev = EXTRACTOR_REVISION`，`saveCachedOffsets` 原子写入磁盘。
+- **Rev 13 新增**：若 `useCriticalBudget=true` 且 derived 的 `stageManager` + `stageCacheManager` RVA 都非零，再写 `_criticalRvasValidated = true`。失败 / null 返回 / enrichment-only 模式都不写此字段 → `isCriticalStaleOnBaseline` 仍返回 true，等 Path 1.6 触发重试。
 - `source = base ? "merged" : "extracted"`。
 
 **Step 5 — Degraded fallback**（`liveReader.ts:802-806`）：
@@ -524,13 +525,14 @@ type WorkerMessage =
 
 ### 5.4 防死循环机制
 
-#### 5.4.1 三种"标记字段"
+#### 5.4.1 四种"标记字段"
 
 | 字段 | 位置 | 作用 |
 |------|------|------|
-| `EXTRACTOR_REVISION` | `offsetExtractor.ts:88` 常量 = 12 | 提取器策略版本；bump 后所有旧 cache 自动失效 |
-| `_extractorRev` | `LiveOffsets._extractorRev?` | 单表上的标记：本次表的产出 revision。envelope 里也存一份 `extractorRevision` |
+| `EXTRACTOR_REVISION` | `offsetExtractor.ts` 常量 = 13 | 提取器策略版本；bump 后所有旧 cache 自动失效。Rev 13 引入 `_criticalRvasValidated`、LogManager name-scan fallback、cache-pollution 检测器扩展、`findBoxDataFields` 结构化派生、StageManager-availability transition（Path 1.6） |
+| `_extractorRev` | `LiveOffsets._extractorRev?` | 单表上的标记：本次表的产出 revision。envelope 里也存一份 `extractorRevision`。**Rev 13 起 `isCriticalStaleOnBaseline` 不再读它**（旧的 `_extractorRev`-based 检查有死锁：extractor 跑过一次即使是失败也会设此标记 → 永远不重试）。仍用于 `enrichmentAlreadyAttempted` 判断（决定 Path 2 是否重置 enrichment 预算） |
 | `_fallbackFromVersion` | `LiveOffsets._fallbackFromVersion?` | provenance 标记：当前表是同 major.minor 邻居 fallback 而来；`mergeOffsets` 保留它跨 cache |
+| `_criticalRvasValidated` | `LiveOffsets._criticalRvasValidated?`（Rev 13 新增） | **liveness 标记**：extractor 在 critical 模式下成功派生（或确认）了 `stageManager` + `stageCacheManager` RVAs。仅当 `useCriticalBudget=true` 且两个 RVA 都非零时设为 true。`isCriticalStaleOnBaseline` 用此字段替代 `_extractorRev` 判断 baseline 是否可信。失败/未跑过 critical 路径都不设 → reader 会重试，但重试由 `consumeSmTransition`（Path 1.6）触发，不是 30s 定时器，避免无限循环 |
 
 #### 5.4.2 两个独立预算（`offsetHealing.ts`）
 
@@ -538,37 +540,42 @@ type WorkerMessage =
 - **enrichment budget** (`MAX_ENRICHMENT_ATTEMPTS=1`) — gating `extractOffsets(enrichmentOnly=true)`。
 - 每个预算按 `(gameVersion, appBuild, extractorRevision)` 三元组键控。任一维度变化（新版本/新构建/新 extractor revision）→ 预算自动重置为 0。
 
-#### 5.4.3 `isCriticalStaleOnBaseline`（`liveReader.ts:167-177`）
+#### 5.4.3 `isCriticalStaleOnBaseline`（`liveReader.ts:163-173`）
 
-判断当前 offset 表是不是"还在 baseline 状态的 fallback 表"：
-1. `_fallbackFromVersion` 必须存在。
-2. `_extractorRev` 必须不存在（extractor 还没跑过）。
+判断当前 offset 表是不是"还在 baseline 状态的 fallback 表"（即 extractor 尚未成功派生 fresh critical RVAs）：
+1. `_fallbackFromVersion` 必须存在（同 major.minor 邻居 fallback 而来）。
+2. `_criticalRvasValidated` 必须为 falsy（Rev 13 用此字段替代旧的 `_extractorRev` 检查）。
 3. 当前表的 `stageManager` / `stageCacheManager` RVA 必须与 bundled fallback 表的 RVA 完全相等。
 
-只要这三个条件同时满足，说明 extractor 还没机会重新推导 critical RVAs。一旦 extractor 跑过（无论成功失败），`_extractorRev` 会被写入 cache，此函数返回 false。
+三个条件同时满足 → extractor 还没机会（或上次失败）重新推导 critical RVAs，baseline RVA 仍是 fallback 来的 stale 值。一旦 extractor 在 critical 模式下成功派生（`useCriticalBudget=true` 且两个 RVA 都非零），`_criticalRvasValidated` 写入 cache，此函数返回 false。
+
+**关键修复**：旧的 `_extractorRev`-based 检查有死锁——extractor 跑一次（即使是 StageManager 未实例化导致的失败 / null 返回）也会写 `_extractorRev` → 此函数返回 false 永远不重试 → critical budget 永不重置 → RVAs 永久卡在 stale baseline。`_criticalRvasValidated` 仅在**成功**派生时才设，失败不设 → reader 会重试；但重试由 `consumeSmTransition`（Path 1.6，事件驱动）触发，不是 30s 定时器，避免无限循环。
 
 #### 5.4.4 `enrichmentAlreadyAttempted`（`liveReader.ts:345-347`）
 
 `return this.offsets?._extractorRev != null;` — 当前表上是否有 extractor 跑过的痕迹。
 
-#### 5.4.5 worker maybeHealEnrichment 4 条路径
+#### 5.4.5 worker maybeHealEnrichment 5 条路径
 
 | 路径 | 触发条件 | 是否重置预算 | 是否受预算 cap | 防死循环依据 |
 |------|----------|--------------|------------------|----------------|
 | **Path 1** box-open event | `consumeBoxOpenEvent()` 返回 true（0→>0 转换） | 是（`resetEnrichmentBudget`） | 否 | 一次性 flag，被 consume 后清零，不会重复触发 |
-| **Path 1.5** cache pollution | `needsForcedReextract === true` | 否 | 否（绕过 cap） | `forceExtractorNextHeal` 是 one-shot，extractor 跑完即清零 |
-| **Path 2** enrichment fallback timer | `!enrichmentComplete` && 30s 到期 | **仅当 `!enrichmentAlreadyAttempted` 时重置** | 是 | 一旦 extractor 跑过（`_extractorRev` 存在），不再重置预算；预算耗尽 → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回 |
-| **Path 3** critical-stale-on-fallback timer | `isCriticalStaleOnFallback` && 30s 到期 | 同 Path 2 | 是 | 同 Path 2；extractor 跑过会写 `_extractorRev`，`isCriticalStaleOnBaseline` 返回 false |
+| **Path 1.5** cache pollution | `needsForcedReextract === true` | 是（同时重置 critical + enrichment，见 5.8.3） | 否（绕过 cap） | `forceExtractorNextHeal` 是 one-shot，extractor 跑完即清零 |
+| **Path 1.6** StageManager transition（Rev 13 新增） | `consumeSmTransition()` 返回 true（玩家进入关卡，StageManager 单例从无到有） | **是（仅重置 critical 预算，不动 enrichment）** | 否 | `smTransitionPending` 是一次性 flag，consume 后清零；玩家进关卡的 transition 是离散事件不会重复触发 |
+| **Path 2** enrichment fallback timer | `!enrichmentComplete` && 30s 到期 | **仅当 `!enrichmentAlreadyAttempted` 时重置 enrichment** | 是 | 一旦 extractor 跑过（`_extractorRev` 存在），不再重置预算；预算耗尽 → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回 |
+| **Path 3** critical-stale-on-fallback timer | `isCriticalStaleOnFallback` && 30s 到期 | **否（Rev 13 起 critical 预算不在此重置，仅 Path 1.6 重置）** | 是 | Rev 13 前 `healOffsets` 内会无条件 `resetCriticalExtractionBudget()` → 每 30s 跑一次 ~9s extractor 的无限循环；Rev 13 改为 Path 3 只让 extractor 跑完初始 3 次尝试，真正的恢复信号由 Path 1.6（玩家进入关卡）提供 |
 
 **关键死循环场景与防御**：
 
 - **场景 A**：v1.01.02 玩家在主菜单 attach → StageManager 单例未实例化 → extractor 3 次 critical 失败 → 预算耗尽 → 永远 stuck 在 stale baseline。
-  - **防御**：`healOffsets()` 内检测到 `isCriticalStaleOnFallback` → 调 `resetCriticalExtractionBudget()` 强制重置。worker Path 3 的 30s timer 周期性触发 heal。每次 heal 重置预算，等玩家进入关卡 StageManager 实例化 → extractor 成功 → derived RVAs 覆盖 baseline → `isCriticalStaleOnBaseline` 返回 false → Path 3 停止。
+  - **Rev 13 防御**：critical 预算耗尽后 Path 3 变成廉价 no-op（`resolveOffsets` 短路几毫秒返回），不会无限重试。当玩家进入关卡 → StageManager 单例从无到有 → `read()` 内 `smWasAvailable` 翻转 → 设置 `smTransitionPending` → 下一 tick `maybeHealEnrichment` Path 1.6 调 `consumeSmTransition()` → 重置 critical 预算 → 立即 `healOffsets()` → extractor 在 critical 模式下成功派生 fresh stageManager/stageCacheManager RVAs → `_criticalRvasValidated=true` → `isCriticalStaleOnBaseline` 返回 false → Path 3 停止。这是 Rev 13 的核心修复。
 - **场景 B**：v1.01.02 BoxOpenLog 字段名混淆（bfpc/bfpd/bfpe）→ `identifyBoxOpenLogFieldsByValue` value-based scanner 需要识别字段。
   - **已修复**：v1.01.02 的 `itemStringKey` 是 `System.String` 指针（非裸 int32），其低 32 位可能为正值（如 `0x57509000`），旧代码仅在 `v < 0` 时尝试 pointer→String 路径，导致正值指针被误判为 plain i32 → `isPlausibleItemKey` 返回 false → `bestItemKeyOffset` 永远为 0 → 识别失败。修复后条件扩展为 `v == null || v < 0 || (!isPlausibleItemKey(v) && !isPlausibleGrade(v))`，正值非 plausible 的 i32 也尝试 pointer→String→number 路径。
   - **防御**：若 extractor 仍验证失败（如玩家未开过箱、LogManager dict 无 BoxOpen 桶），Path 2 检查 `enrichmentAlreadyAttempted`，若为 true 不重置预算。`mayAttemptEnrichment` 返回 false → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回。用户看不到"scanning"闪烁。
 - **场景 C**：cache pollution（baseline `getItemWithBoxOpenTypeKey` 值被错误信任）。
   - **防御**：Path 1.5 一次性 flag → extractor 跑一次 → flag 清零。即使 extractor 没修好，也不会重复触发，直到下一次 60s 失败 streak 重新检测。
+- **场景 D**（Rev 13 新增）：游戏小版本更新后，fallback 表的 LogManager TypeInfo RVA 失效（指向错误 class），25Hz 读取持续返回 "LogManager singleton unresolved"。
+  - **防御**：cache-pollution 检测器（5.8.3）正则扩展为 `/LogManager singleton unresolved|dict lookup failed|list not walkable/i`，60s 持续失败 → Path 1.5 触发。同时 `read()` 内首次检测到此 status → 设置 `logManagerNameScanPending` → worker 调 `runLogManagerNameScan()`（5.8.4）按类名直接定位 LogManager 单例，绕过 stale RVA。两条 fallback 互补：name-scan 立即恢复日志读取，cache-pollution 异步让 extractor 重新派生 RVA 写入 cache。
 
 ### 5.5 worker 25Hz 轮询
 
@@ -636,7 +643,7 @@ worker.read() → LiveMemorySnapshot 对象
 2. `lastLiveFrame = snap`。
 3. `tracker.updateLive({ gold: snap.gold, heroes: snap.heroes }, snap.at / 1000, stage)` — 喂 XpTracker。
 4. **stageEventBaseline 初始化**：若 null，用 `tracker.cumulativeGained` 和 `tracker.currentGold` seed。
-5. **DPS / monster tracking**：若 `snap.monsterHp != null`，检测 stage/wave 变化 → `dpsTracker.beginMap()`，`dpsTracker.update(monsterHp, deadMonsterCount, timestamp)`。
+5. **DPS / monster tracking**：若 `snap.monsterHp != null`，检测 **stage 切换**（`stageKey` 变化，含首次 live frame）→ `dpsTracker.beginMap()`；随后 `dpsTracker.update(monsterHp, deadMonsterCount, timestamp)`。**注意**：stage 内 wave 推进（1→2→3...）**不**触发 `beginMap()` —— 早期实现把 `stageWave` 变化也视为地图切换，导致 `_wavesCleared` 每波重置为 0、`currentWave` 永远卡在 1（"波次识别卡住" bug）。per-map 计数（`mapDamage`/`mapMobsKilled`）在 stage 内跨波累计，符合"当前地图总量"语义。
 6. **live chest drops**：检测 `snap.chestLogDebug.count < lastCountBefore` → warn（log 缩小是重复记录的特征）。`chestAggregator.feed(snap.chestDrops ?? [], chestAt)` 返回 collapsed categories，对每个 category 调用 `chestDropTracker.recordLiveChestDrop(category, chestAt)` → 成功且 category="rare" → `onLiveStageBossDrop?.(stageKey)` → `boxTimers.tryMarkDroppedFromLiveStage`。
 7. `onLiveChestSlots?.(snap.chestSlots)` — 当前不路由到 AutoClassify（保留接口）。
 8. **stage clears**：若 `snap.stageClears.length > 0`：
@@ -656,36 +663,119 @@ worker.read() → LiveMemorySnapshot 对象
 |------|------|------|----------|
 | 10s | `HEAL_UNSUPPORTED_MS` | `maybeHealUnsupported` (`worker.ts:89-101`) | `attached && !supported` |
 | 30s | `HEAL_ENRICHMENT_FALLBACK_MS` | `maybeHealEnrichment` Path 2/3 (`worker.ts:136-200`) | `attached && supported && (!enrichmentComplete \|\| isCriticalStaleOnFallback)` |
-| 即时 | event-driven | `maybeHealEnrichment` Path 1 / Path 1.5 | box-open event / cache pollution |
+| 即时 | event-driven | `maybeHealEnrichment` Path 1 / 1.5 / 1.6 | box-open event / cache pollution / StageManager transition |
 
 #### 5.8.2 critical path vs enrichment path
 
-`healOffsets()`（`liveReader.ts:482-518`）：
+`healOffsets()`（`liveReader.ts:555-586`，**Rev 13 起不再在内部重置 critical 预算**）：
 
-1. 若 `isCriticalStaleOnFallback` → `resetCriticalExtractionBudget()`（强制重置 critical 预算让 extractor 重试）。
-2. `refreshGameContext()` — 重新读 Version.txt 和 GA base。
-3. `resolveOffsets(proc, appBuild)`：
+1. `refreshGameContext()` — 重新读 Version.txt 和 GA base。
+2. `resolveOffsets(proc, appBuild)`：
    - 决定 `useCriticalBudget = !isSupported || forceCriticalPath`。
    - critical 模式：`extractOffsets(enrichmentOnly=false)`，跑全部锚点；任一 critical 失败返回 null。
    - enrichment 模式：`extractOffsets(enrichmentOnly=true)`，只跑 LogManager/BoxOpenLog/MonsterSpawnManager/PlayerSaveData；critical 字段保留 base 值。
-4. `applyResolvedOffsets` — 更新 `supported` / `offsetSource` / `offsets`。
-5. 日志：从 unsupported 翻到 supported 时记 "offsets now supported"；仍 unsupported 时列 critical missing；仍 stale-on-baseline 时记 "still on stale baseline RVAs"。
+3. `applyResolvedOffsets` — 更新 `supported` / `offsetSource` / `offsets`。
+4. 日志：从 unsupported 翻到 supported 时记 "offsets now supported"；仍 unsupported 时列 critical missing；仍 stale-on-baseline 时记 "still on stale baseline RVAs"（提示恢复需等 Path 1.6）。
 
-#### 5.8.3 cache pollution 检测与自愈（`liveReader.ts:1086-1150`）
+**critical 预算重置点已迁移**：旧版（Rev ≤12）`healOffsets()` 内 `if (isCriticalStaleOnFallback) resetCriticalExtractionBudget()` 会每 30s 重置一次，导致 extractor 在 StageManager 未实例化时无限重跑（每次 ~9s）。Rev 13 起此 reset 仅在 `consumeSmTransition()`（Path 1.6 触发）和 `detectCachePollution()`（Path 1.5 触发）内执行，二者都是事件驱动而非定时驱动。
 
-**检测条件**（任一满足即可，用同一个 60s 计时器 `dictFailSince`）：
-- **boxOpen dict-fail**：`readRuntimeBoxOpenLog.opens == null` 且 `boxOpenResult.status` 匹配 `/dict lookup failed|list not walkable/i`。表示 `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` 是未验证的 baseline 副本。
-- **chest drops dict-fail**：`readRuntimeChestDrops.drops == null` 且 `chestResult.status` 匹配同一正则。表示 `logManager` TypeInfo RVA 本身对当前 build 无效（典型场景：v1.01.02 fallback from v1.01.01，cache 继承了 v1.01.01 的 LogManager RVA），或 `runtime.log.logByType` 是污染值。
-- 当 boxOpen 和 chest drops **同时** dict-fail 时，LogManager 本身就是问题所在 —— `isCriticalStaleOnBaseline` 因 `_extractorRev` 存在而故意跳过 critical path，cache-pollution 路径是唯一剩余的触发器。
+#### 5.8.3 cache pollution 检测与自愈（`liveReader.ts:1224-1295`）
+
+**检测条件**（任一满足即可，用同一个 60s 计时器 `dictFailSince`；正则 `isDictLookupFail` 在 Rev 13 扩展）：
+
+```typescript
+const isDictLookupFail = (s: string) =>
+  /LogManager singleton unresolved|dict lookup failed|list not walkable/i.test(s);
+```
+
+- **boxOpen dict-fail**：`readRuntimeBoxOpenLog.opens == null` 且 `boxOpenResult.status` 匹配 `isDictLookupFail`。表示 `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` 是未验证的 baseline 副本。
+- **chest drops dict-fail**：`readRuntimeChestDrops.drops == null` 且 `chestResult.status` 匹配 `isDictLookupFail`。表示 `logManager` TypeInfo RVA 本身对当前 build 无效，或 `runtime.log.logByType` 是污染值。
+- **LogManager singleton unresolved**（Rev 13 新增）：fallback 表的 `logManager` RVA 指向错误 class → 静态块扫描找不到 LogManager 实例。这是 v1.01.02 fallback from v1.01.01 的典型签名（同 major.minor 邻居版本 LogManager RVA 偶尔会偏移到无关 class）。
+- 当 boxOpen 和 chest drops **同时** dict-fail 时，LogManager 本身就是问题所在 —— `_criticalRvasValidated` 因上次 extractor 跑过（即使失败）而不被信任校验，cache-pollution 路径是唯一剩余的触发器。
 
 **触发流程**：
 1. 首次检测到任一 dict-fail → 记录 `dictFailSince = Date.now()`，本 tick 不动作。
-2. 持续 60s（`BOX_OPEN_FAIL_HEAL_MS`）→ 设置 `forceExtractorNextHeal = true`。
+2. 持续 60s（`BOX_OPEN_FAIL_HEAL_MS`）→ 设置 `forceExtractorNextHeal = true` + **同时 `resetCriticalExtractionBudget()` + `resetEnrichmentBudget()`**（Rev 13 新增 critical 重置，因为污染的 cache 也可能让 critical 路径的尝试次数耗尽）。
 3. worker 下一 tick 的 `maybeHealEnrichment` Path 1.5 检测到 `needsForcedReextract` → 立即 `healOffsets()`。
 4. `resolveOffsets` 内 `forceReextract` 为 true → 绕过 `isOffsetTableComplete` 短路 + 绕过预算 cap。
 5. extractor 跑前手动清零 base 的 `getItemWithBoxOpenTypeKey` 和 `boxOpenLog.*` 字段，让 derived 重新填充。`logManager` TypeInfo RVA **不清零**：fallback 场景下 `mergeOffsets` 的 `derivedWins` 规则会让 extractor 派生的新值覆盖 baseline；若 extractor 派生不出（如 StageManager 未实例化），保留 baseline 不降级。
 6. extractor 跑完（成功或失败）→ `forceExtractorNextHeal = false` + `dictFailSince = null`。
 7. 成功：merged 表覆盖磁盘 cache，下次启动加载干净 cache。失败：用户看到 status-failure 日志，可手动删 cache 目录（`%APPDATA%\tbh-companion\live-memory-offsets\`）。
+
+#### 5.8.4 LogManager name-scan fallback（Rev 13 新增，`liveReader.ts:1444-1490`）
+
+当 `readRuntimeChestLog` / `readRuntimeStageClears` / `readRuntimeBoxOpenLog` 返回 `status` 含 "LogManager singleton unresolved" 时，说明 fallback 表的 `logManager` TypeInfo RVA 对当前 build 无效（静态块扫描走到了错误 class，找不到 LogManager 实例）。`read()` 在首次检测到此 status 时设置 `logManagerNameScanPending` flag（仅触发一次，避免重复扫描）。
+
+worker 下一 tick 在 `runPendingNameScans()` 中检测到 flag，调用 `runLogManagerNameScan(p, ga, o)`：
+
+```
+resolveClassByName(p, ga, "LogManager")  // 类名不被混淆
+  ↓ 找到 TypeInfo → 静态块扫描第一个 plausible 实例
+  ↓ singletonFromClass(p, typeInfo, ga)  // 读 s_Instance 字段
+  ↓ isLiveLogManager(p, inst, o)         // 校验 logByType Dictionary 可读 + GetBox bucket 存在
+  ↓ 校验通过 → pin 到 chestPin / stageClearPin / boxOpenPin 三个 pin 的 .ptr
+```
+
+**与 cache-pollution 的关系**：name-scan 是**即时**恢复路径（一发现就 pin 实例，绕过 stale RVA），cache-pollution 是**异步**根因修复（60s 后让 extractor 重新派生 RVA 写入 cache）。两者互补：name-scan 让日志读取在 25Hz 内立即恢复，cache-pollution 保证下次启动加载到正确的 cache。name-scan 失败不重试（class 找不到或 singleton 字段无法解析属于真正的"LogManager 类未实例化"场景，等 extractor 通过 Path 1.6 派生新 RVA）。
+
+**关键文件路径**：
+- `app/src/main/liveMemory/liveReader.ts` — `runLogManagerNameScan()` 实现
+- `app/src/main/liveMemory/winProcess.ts` — `resolveClassByName` / `singletonFromClass`
+- `app/src/core/liveMemory/runtime.ts` — `isLiveLogManager` 校验函数（Rev 13 新导出）
+
+#### 5.8.5 BoxData 字段结构化派生（Rev 13 新增，`il2cppScanner.ts:findBoxDataFields`）
+
+旧版依赖 BoxData 类的字段名（`BoxTypes` / `BoxQuantity`）匹配偏移，但游戏偶尔混淆这两个字段名（如 v1.00.28），导致 `player.boxTypes` / `player.boxQuantity` 始终为 0，宝箱实时功能在新版本上失效。
+
+Rev 13 引入 `findBoxDataFields(ctx, obj)`，**不依赖字段名**，纯结构特征派生：
+
+```
+BoxData 实例 +0x10..INSTANCE_SCAN_MAX，每 8 字节扫一次
+  ↓ 找出所有指向 List<int> 的字段（List 指针 plausible + _items 数组 plausible + _size ∈ [1, MAX_BOX_DATA_LIST_COUNT=256]）
+  ↓ 在候选 List<int> 字段中找两个 count 相等的
+  ↓ 返回 { boxTypes: <第一个 offset>, boxQuantity: <第二个 offset> }
+```
+
+**调用时机**：在 `findPlayerSaveData` 内，当 `BoxData` 字段命名匹配成功（`boxData` offset 已知）且 BoxData 实例可达时调用。派生结果写入 `PlayerAnchor.boxTypes` / `PlayerAnchor.boxQuantity`，再由 extractor 落到 `LiveOffsets.boxData.boxTypes` / `LiveOffsets.boxData.boxQuantity`，最后由 `offsetCompleteness.ENRICHMENT_FIELDS` 标记为 enrichment 字段。
+
+**与 save 数据的交叉校准**：`readRuntimeChestSlots` 读取宝箱槽位时，会与 save 解析的 `InventorySnapshot.chests.slots` 数量交叉验证。当 BoxData 派生偏移错误时，chestSlots 读出的 boxTypes 数组长度 ≠ save 的 chests 数量 → 触发 cache-pollution 检测器的间接路径（dict lookup 失败签名），让 extractor 重新派生。
+
+**关键文件路径**：
+- `app/src/core/liveMemory/il2cppScanner.ts` — `findBoxDataFields` / `PlayerAnchor` 接口
+- `app/src/core/liveMemory/offsetCompleteness.ts` — `ENRICHMENT_FIELDS` 包含 `boxData.boxTypes` / `boxData.boxQuantity`
+- `app/src/core/liveMemory/offsets.ts` — `LiveOffsets.boxData` 类型定义
+- `app/src/core/liveMemory/chestSlots.ts` — `readRuntimeChestSlots` 使用派生偏移读取
+
+#### 5.8.6 StageManager-availability transition（Path 1.6，Rev 13 新增）
+
+**死锁根因**：v1.01.02 fallback from v1.01.01 场景下，玩家在主菜单 attach → StageManager 单例未实例化 → extractor critical 模式必失败 → 3 次后 critical budget 耗尽。旧版（Rev ≤12）每 30s 重置 critical budget 导致无限 ~9s extractor 跑（占满 CPU）；Rev 12 引入预算 cap 后又出现"预算永不重置 → 永远 stuck"。
+
+**Path 1.6 数据流**：
+
+```
+玩家在主菜单 → read() 内 resolveStageManager 返回 null → smWasAvailable=false
+   ↓
+玩家进入关卡 → resolveStageManager 返回非 null 实例 → smWasAvailable=true → smTransitionPending=true
+   ↓
+worker 下一 tick maybeHealEnrichment()
+   ↓ consumeSmTransition() 检测 smTransitionPending
+   ↓ true → resetCriticalExtractionBudget()（仅 critical，不动 enrichment）
+   ↓ healOffsets() 立即触发
+   ↓ resolveOffsets 走 critical path（!isSupported || forceCriticalPath）
+   ↓ extractOffsets(enrichmentOnly=false) → StageManager 单例已实例化 → 成功派生 fresh RVAs
+   ↓ mergeOffsets(derived-wins) → stale baseline RVAs 被覆盖
+   ↓ _criticalRvasValidated=true → isCriticalStaleOnBaseline 返回 false
+   ↓ Path 3 不再触发，恢复完成
+```
+
+**防死循环依据**：`smTransitionPending` 是一次性 flag，consume 后立即清零（`consumeSmTransition()` 第一行就 reset）；玩家进关卡的 transition 是离散事件不会重复触发（除非玩家反复进出关卡，但每次进入都是合法的恢复机会）。
+
+**为什么不用 30s 定时器**：StageManager 单例是否实例化取决于玩家行为（在主菜单 vs 在关卡），与时间无关。30s 定时器要么过频（玩家一直在主菜单，每 30s 跑一次 9s 浪费 CPU），要么过慢（玩家进入关卡后还要等下次 30s tick 才恢复）。事件驱动的 Path 1.6 在玩家进入关卡的**下一 tick（40ms 内）**就触发恢复，延迟最低。
+
+**关键文件路径**：
+- `app/src/main/liveMemory/liveReader.ts:461-468` — `consumeSmTransition()` 实现
+- `app/src/main/liveMemory/liveReader.ts:261-274` — `smWasAvailable` / `smTransitionPending` 字段
+- `app/src/main/liveMemory/worker.ts:179-189` — Path 1.6 worker 端入口
 
 ### 5.9 沙箱（Sandboxie-Plus）下的三条模块枚举 fallback
 
@@ -1619,9 +1709,13 @@ TrackingService.ingestLiveFrame
 | LiveMemoryReader | `app/src/main/liveMemory/liveReader.ts` |
 | offsetExtractor | `app/src/main/liveMemory/offsetExtractor.ts` |
 | offsetHealing | `app/src/main/liveMemory/offsetHealing.ts` |
+| offsetCache | `app/src/main/liveMemory/offsetCache.ts` |
 | WinProcess + FFI | `app/src/main/liveMemory/winProcess.ts` |
-| runtime 字段读取 | `app/src/main/liveMemory/runtime.ts` |
-| chestSlots 读取 | `app/src/main/liveMemory/chestSlots.ts` |
+| runtime 字段读取 | `app/src/core/liveMemory/runtime.ts` |
+| chestSlots 读取 | `app/src/core/liveMemory/chestSlots.ts` |
+| il2cppScanner | `app/src/core/liveMemory/il2cppScanner.ts` — Rev 13 `findBoxDataFields` 结构化派生 boxTypes/boxQuantity |
+| offsets 类型 + 内置表 | `app/src/core/liveMemory/offsets.ts` — `LiveOffsets` 接口、`offsetsForVersion` / `offsetsForVersionMeta`、`_criticalRvasValidated` / `_fallbackFromVersion` / `_extractorRev` 字段定义 |
+| offsetCompleteness | `app/src/core/liveMemory/offsetCompleteness.ts` — `isOffsetTableComplete` / `mergeOffsets` / `ENRICHMENT_FIELDS`（Rev 13 加入 `boxData.boxTypes` / `boxData.boxQuantity`） |
 | InventoryService | `app/src/main/services/InventoryService.ts` |
 | inventory parse | `app/src/core/inventory/parse.ts` |
 | inventory composition | `app/src/core/inventory/composition.ts` |

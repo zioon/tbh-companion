@@ -30,13 +30,37 @@ export interface LiveOffsets {
    * `mergeOffsets` (so a healed-then-cached table still records where the
    * baseline came from) and never cleared by the extractor. Callers that need
    * to know whether critical RVAs have been re-derived should check
-   * `offsetHealth.source` (`"merged"`/`"extracted"` ⇒ extractor ran) in
-   * combination with this field.
+   * `_criticalRvasValidated` in combination with this field.
    *
    * Absent on exact-match bundled tables and on tables that never went through
    * the fallback path.
    */
   _fallbackFromVersion?: string;
+  /**
+   * True when the runtime extractor has SUCCESSFULLY derived (or confirmed)
+   * the critical TypeInfo RVAs (stageManager / stageCacheManager) for the
+   * CURRENT game build. Only set when the extractor ran with
+   * `enrichmentOnly=false` (critical path) AND returned non-null with non-zero
+   * stageManager + stageCacheManager RVAs.
+   *
+   * Replaces the `_extractorRev`-based trust check in `isCriticalStaleOnBaseline`.
+   * The old check had a deadlock: extractor ran once (even on failure / null
+   * return when StageManager wasn't instantiated) → `_extractorRev` set on
+   * merged table → `isCriticalStaleOnBaseline` returns false forever → critical
+   * budget never resets → RVAs stay on stale baseline permanently.
+   *
+   * With this field, `isCriticalStaleOnBaseline` returns false ONLY when the
+   * extractor actually confirmed the critical RVAs. A failed extraction (null
+   * return) does NOT set this flag, so the reader keeps retrying — but the
+   * retry is gated by the StageManager-availability signal (see
+   * `LiveMemoryReader.consumeSmTransition`) rather than an unconditional 30s
+   * timer, avoiding the "scanning every 30s" infinite loop.
+   *
+   * Preserved across `mergeOffsets` (via `...base` spread) and disk cache.
+   * Absent on bundled tables and pre-Rev 13 caches (treated as false →
+   * re-derivation is attempted).
+   */
+  _criticalRvasValidated?: boolean;
   /** ScriptMetadata TypeInfo RVA whose slot holds `Il2CppClass*`. */
   typeInfoRva: {
     /** TaskbarHero.CommonSaveData — save-layer anchor for hero/party discovery. */

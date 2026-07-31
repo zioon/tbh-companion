@@ -85,8 +85,41 @@ import type { WinProcess } from "./winProcess";
  * actually appear in the live log instead of being dropped. Fixes the
  * residual v1.01.02 regression where Rev 11 still matched a wrong class
  * with a transiently non-empty HeroList during the 5s extraction window.
+ * Rev 13: version-adaptation hardening — five fixes that together break the
+ * "fallback table → 3 critical failures → budget exhausted → never retries"
+ * deadlock and the "BoxData live reads broken after every minor patch"
+ * regression:
+ *  1. `_criticalRvasValidated` flag on LiveOffsets: only set when the
+ *     extractor actually confirmed stageManager/stageCacheManager RVAs.
+ *     Replaces the `_extractorRev`-based trust check that always returned
+ *     false after a single failed extraction attempt.
+ *  2. LogManager name-scan fallback (`runLogManagerNameScan`): when the
+ *     fallback table's LogManager RVA is stale for the current build,
+ *     resolve the class by name ("LogManager" is not obfuscated) and pin
+ *     the singleton instance on all three log pins.
+ *  3. Cache-pollution detector expanded to match "LogManager singleton
+ *     unresolved" (the v1.01.02-fallback-from-v1.01.01 signature).
+ *  4. `findBoxDataFields` structural derivation of BoxData.BoxTypes /
+ *     BoxQuantity — scans the BoxData instance for two List<int> fields of
+ *     equal length, no field-name matching. Survives BoxTypes/BoxQuantity
+ *     field-name obfuscation on versions like v1.00.28.
+ *  5. StageManager-availability transition (worker Path 1.6) resets the
+ *     CRITICAL budget when the player enters a stage — the recovery signal
+ *     for the budget-exhausted deadlock.
  */
-export const EXTRACTOR_REVISION = 12;
+export const EXTRACTOR_REVISION = 13;
+
+/**
+ * Module-level flag: `dumpSaveListHolders` has run once this process lifetime.
+ * Mirrors `catalogDumpDone` in liveReader.ts — the dump only needs to fire
+ * once per session to reveal the renamed save-list holder class. Without
+ * this guard, Rev 13's Path 1.6 (StageManager transition) and Path 1.5
+ * (cache pollution) can reset the critical budget and re-trigger the
+ * extractor multiple times, re-running the multi-hundred-line dump on
+ * every retry. The dump reuses the already-built ScanContext + entries,
+ * so it's cheap memory-wise, but the log volume is the problem.
+ */
+let saveListDumpDone = false;
 
 // Structural offsets whose field names ARE obfuscated but whose byte offsets are
 // stable across patches. Emitted as constants rather than derived by name.
@@ -346,7 +379,7 @@ export function extractOffsets(
   log(
     player
       ? `extract: player anchor rva=0x${player.commonSaveData.toString(16)} ` +
-          `static+0x${player.playerStaticOff.toString(16)} pets=0x${player.petSaveDatas.toString(16)} items=0x${player.itemSaveDatas.toString(16)} boxData=0x${(player.boxData ?? 0).toString(16)}`
+          `static+0x${player.playerStaticOff.toString(16)} pets=0x${player.petSaveDatas.toString(16)} items=0x${player.itemSaveDatas.toString(16)} boxData=0x${(player.boxData ?? 0).toString(16)} boxTypes=0x${(player.boxTypes ?? 0).toString(16)} boxQuantity=0x${(player.boxQuantity ?? 0).toString(16)}`
       : `extract: player save-data anchor not derived (pets/inventory degrade to save file)`,
   );
   // When the "BoxData" field-name match failed, dump the PlayerSaveData class
@@ -362,7 +395,8 @@ export function extractOffsets(
   // we can see where PetSaveData/ItemSaveData/BoxData lists moved. Gated by
   // env var — zero impact on the production path when disabled. Reuses the
   // already-built ScanContext + entries, so it adds no extra memory scanning.
-  if (!player && process.env.TBH_DUMP_SAVE_LIST_HOLDERS === "1") {
+  if (!player && process.env.TBH_DUMP_SAVE_LIST_HOLDERS === "1" && !saveListDumpDone) {
+    saveListDumpDone = true;
     try {
       dumpSaveListHolders(ctx, entries, log);
     } catch (e) {
@@ -424,8 +458,8 @@ export function extractOffsets(
       },
 
       boxData: {
-        boxTypes: 0, // BoxData.BoxTypes — derived at runtime via findBoxDataFields (future)
-        boxQuantity: 0, // BoxData.BoxQuantity — derived at runtime via findBoxDataFields (future)
+        boxTypes: player?.boxTypes ?? 0,
+        boxQuantity: player?.boxQuantity ?? 0,
       },
 
       common: {

@@ -715,15 +715,17 @@ export class TrackingService {
     if (snap.monsterHp != null) {
       const timestamp = snap.at / 1000;
 
-      // Detect stage/wave change for per-map reset (also handles first live frame).
-      // A wave change covers both map clears and failures that reset the wave counter.
+      // Detect stage (map) change for per-map reset (also handles first live frame).
+      // Only stageKey change triggers beginMap() — wave advancement within the
+      // same stage (1→2→3...) must NOT reset dpsTracker, otherwise _wavesCleared
+      // resets to 0 every wave and currentWave gets stuck at 1 (the "wave counter
+      // stuck" bug). Per-map counters (mapDamage/mapMobsKilled) accumulate across
+      // wave advancements within a stage, matching "current map total" semantics.
       const stageKey = snap.stageKey;
       const stageWave = snap.stageWave ?? 0;
       const stageChanged =
         stageKey != null &&
-        (this.lastLiveStage == null ||
-          stageKey !== this.lastLiveStage.stageKey ||
-          stageWave !== this.lastLiveStage.stageWave);
+        (this.lastLiveStage == null || stageKey !== this.lastLiveStage.stageKey);
       if (stageChanged) {
         this.dpsTracker.beginMap();
         this.lastLiveStage = { stageKey, stageWave };

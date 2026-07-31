@@ -34,6 +34,7 @@ import {
   resolveLiveMemoryUserDataDir,
 } from "./liveMemoryCacheDir";
 import {
+  isLiveLogManager,
   makeBoxOpenPinState,
   makeChestLogPinState,
   makeCombatGoldPinState,
@@ -137,37 +138,32 @@ function detectGameVersion(p: WinProcess): { version: string; installDir: string
 /**
  * True when `offsets` carries a `_fallbackFromVersion` marker AND its critical
  * RVAs (stageManager / stageCacheManager) still match the original bundled
- * fallback baseline. When they match, the extractor has not yet re-derived
- * fresh anchors for the current build — live reads may resolve to wrong
- * classes (returning null). When they differ, a previous session's extractor
- * already overwrote the stale baseline via mergeOffsets, so the table is
- * safe to use without forcing the critical path again.
+ * fallback baseline AND the extractor has NOT confirmed them via
+ * `_criticalRvasValidated`.
  *
- * Extractor-ran exception: if `offsets._extractorRev` is present, the
- * extractor already ran in a prior session. Two outcomes are possible:
- *  (a) derived critical RVAs were non-zero → mergeOffsets overwrote the
- *      baseline → the RVA-equality check above returns false anyway;
- *  (b) derived critical RVAs were zero (StageManager singleton not
- *      instantiated, e.g. user was at the main menu) → mergeOffsets kept
- *      the baseline → RVA-equality check returns true, but re-running the
- *      extractor will produce the same outcome (StageManager still not
- *      instantiated, or the game genuinely didn't change so derived == 0
- *      again). Without this exception, the reader enters an infinite loop:
- *      every 30s Path 3 triggers healOffsets → extractor runs ~8-10s →
- *      same result → cache saved → next 30s same trigger. User-visible
- *      symptom: live page flips to "scanning" for ~10s every ~30s.
- * The extractor-ran marker lets the reader trust that the baseline is
- * either confirmed-correct or unrecoverable (the user must enter a stage
- * for StageManager to instantiate; the reader can't force that). The user
- * can still manually clear the cache to force a fresh extraction.
+ * When true, the extractor has not yet re-derived fresh anchors for the
+ * current build — live reads may resolve to wrong classes (returning null).
+ * When false (either RVAs differ from baseline, OR `_criticalRvasValidated`
+ * is true), the table is safe to use without forcing the critical path again.
+ *
+ * Replaces the old `_extractorRev`-based trust check. The old check had a
+ * deadlock: extractor ran once (even on failure / null return when
+ * StageManager wasn't instantiated) → `_extractorRev` set on merged table →
+ * this function returns false forever → critical budget never resets →
+ * RVAs stay on stale baseline permanently. The `_criticalRvasValidated`
+ * flag is only set on SUCCESSFUL critical derivation, so a failed extraction
+ * leaves this function returning true — but the retry is gated by the
+ * StageManager-availability signal (see `consumeSmTransition`) rather than
+ * an unconditional 30s timer, avoiding the "scanning every 30s" infinite
+ * loop.
  *
  * Pure (no `this`), so it can be called from `resolveOffsets` before
  * `this.offsets` is updated.
  */
 function isCriticalStaleOnBaseline(offsets: LiveOffsets | null): boolean {
   if (!offsets?._fallbackFromVersion) return false;
-  // Extractor already ran — trust its outcome (see comment above).
-  if (offsets._extractorRev != null) return false;
+  // Extractor confirmed critical RVAs — trust them.
+  if (offsets._criticalRvasValidated) return false;
   const baseline = offsetsForVersion(offsets._fallbackFromVersion);
   if (!baseline) return false;
   return (
@@ -251,6 +247,31 @@ export class LiveMemoryReader {
   private monsterNameScanAttempted = false;
   /** True once we've attempted name-based PlayerSaveData resolution (avoid re-scan). */
   private playerNameScanAttempted = false;
+  /**
+   * True once we've attempted name-based LogManager resolution (avoid re-scan).
+   * Set when `read()` detects chest-drops failure due to LogManager RVA stale
+   * and the name-scan fallback is requested.
+   */
+  private logManagerNameScanAttempted = false;
+  /** Same as {@link monsterNameScanPending} but for LogManager resolution. */
+  private logManagerNameScanPending = false;
+  /**
+   * Tracks whether StageManager singleton was available on the previous read
+   * tick. Used to detect the null→non-null transition (player entered a
+   * stage), which is the signal that a previously-failed critical extraction
+   * might now succeed. On transition, sets {@link smTransitionPending} so the
+   * worker can reset the critical budget and trigger an immediate heal.
+   */
+  private smWasAvailable = false;
+  /**
+   * One-shot flag set by `read()` when StageManager transitions from
+   * unavailable to available while the reader is on a stale fallback baseline.
+   * Consumed by the worker via {@link consumeSmTransition} to trigger an
+   * immediate critical re-derivation — breaks the "extractor failed while
+   * player was in main menu → budget exhausted → never retries" deadlock
+   * without the "30s heal timer → 10s extract → repeat" infinite loop.
+   */
+  private smTransitionPending = false;
   /**
    * Set by `read()` when MonsterSpawnManager RVA produced no monsters and the
    * expensive name-scan fallback should run. Consumed by
@@ -422,6 +443,32 @@ export class LiveMemoryReader {
   }
 
   /**
+   * Consume and clear the pending StageManager-transition flag. Returns true
+   * when a transition was pending (caller should reset the critical budget
+   * and trigger an immediate heal). The reset is done HERE so the worker
+   * doesn't need to know about the budget API — it just calls healOffsets
+   * after this returns true.
+   *
+   * This is the key signal that breaks the critical-extraction deadlock:
+   * when the extractor failed because StageManager wasn't instantiated
+   * (player was in main menu), the critical budget is exhausted after 3
+   * attempts. The moment the player enters a stage, `read()` detects the
+   * smPtr null→non-null transition and sets the flag. The worker consumes
+   * it here, resets the budget, and triggers an immediate heal — so fresh
+   * RVAs are derived within seconds of entering a stage, not after a 30s
+   * timer (or never, as was the case with the old `_extractorRev` deadlock).
+   */
+  consumeSmTransition(): boolean {
+    const pending = this.smTransitionPending;
+    this.smTransitionPending = false;
+    if (pending) {
+      this.resetCriticalExtractionBudget();
+      this.log("smTransition: consumed — critical budget reset, triggering immediate heal");
+    }
+    return pending;
+  }
+
+  /**
    * Reset the critical extraction attempt counter to 0 so the next heal tick
    * is allowed to retry critical anchor derivation. Called by the worker while
    * the reader is on a fallback table whose critical RVAs have not yet been
@@ -475,12 +522,12 @@ export class LiveMemoryReader {
     this.log(
       `attach: pid=${proc.pid} version=${this.gameVersion ?? "?"} ga=${this.ga ? "ok" : "missing"}`,
     );
-    try {
-      this.setScanning(true);
-      this.applyResolvedOffsets(this.resolveOffsets(proc, appBuild), appBuild);
-    } finally {
-      this.setScanning(false);
-    }
+    // resolveOffsets manages scanning state internally — only sets
+    // scanning=true when the extractor actually needs to run. When a complete
+    // cache hits (Step 3 short-circuit), scanning stays false and the UI
+    // skips the "scanning..." flicker entirely, making same-version relaunch
+    // feel instant.
+    this.applyResolvedOffsets(this.resolveOffsets(proc, appBuild), appBuild);
     return true;
   }
 
@@ -489,36 +536,30 @@ export class LiveMemoryReader {
    * happened too early (menu / singletons not up) or the extractor shipped an
    * improvement and the attempt budget reopened.
    *
-   * When the reader is on a fallback table whose critical RVAs have NOT been
-   * re-derived yet (StageManager singleton was not instantiated at attach
-   * time), the critical extraction budget is reset before resolving. This
-   * breaks the "3 critical failures → permanently stuck on stale baseline"
-   * deadlock when the player later enters a stage. Without the reset, the
-   * extractor would never retry, the reader would stay "supported" (fallback
-   * baseline has critical fields) but all live reads would resolve to wrong
-   * classes → null data — the symptom reported as "全部都没有" on v1.01.02
-   * when attach happened from the main menu.
+   * NOTE: This method NO LONGER unconditionally resets the critical extraction
+   * budget when `isCriticalStaleOnFallback` is true. The old behavior caused an
+   * infinite loop: every 30s Path 3 triggers healOffsets → reset budget →
+   * extractor runs ~8-10s → fails (StageManager not up) → next 30s same cycle.
+   * The budget is now reset ONLY by explicit signals:
+   *  - `consumeSmTransition()`: StageManager became available (player entered
+   *    a stage) — the strongest signal that a retry might succeed.
+   *  - `forceExtractorNextHeal`: cache-pollution detected (one-shot).
+   *  - `consumeBoxOpenEvent()`: box-open event (resets enrichment budget).
+   *
+   * The worker's Path 3 still fires every 30s when `isCriticalStaleOnFallback`
+   * is true, but `resolveOffsets` short-circuits when the critical budget is
+   * exhausted (3 attempts) — making Path 3 a cheap no-op instead of an 8s
+   * extraction. The moment StageManager becomes available, `consumeSmTransition`
+   * resets the budget and triggers an immediate heal, so recovery is fast.
    */
   healOffsets(appBuild: string = resolveAppBuild()): void {
     const proc = this.proc;
     if (!proc?.isAlive()) return;
 
-    if (this.isCriticalStaleOnFallback) {
-      this.log(
-        `heal: fallback table critical RVAs still on baseline (v${this.offsets?._fallbackFromVersion}); resetting critical budget to retry`,
-      );
-      this.resetCriticalExtractionBudget();
-    }
-
     const wasSupported = this.supported;
     this.refreshGameContext();
-    try {
-      this.setScanning(true);
-      const resolved = this.resolveOffsets(proc, appBuild);
-      this.applyResolvedOffsets(resolved, appBuild);
-    } finally {
-      this.setScanning(false);
-    }
+    // resolveOffsets manages scanning state internally (see attach comment).
+    this.applyResolvedOffsets(this.resolveOffsets(proc, appBuild), appBuild);
 
     if (!wasSupported && this.supported) {
       this.log(`heal: offsets now supported (source=${this.offsetSource})`);
@@ -529,8 +570,10 @@ export class LiveMemoryReader {
       this.log(`heal: still unsupported — source=${this.offsetSource} critical=${missing}`);
     } else if (this.isCriticalStaleOnFallback) {
       // Still stale after heal — extractor either failed (singleton not up
-      // yet) or returned derived RVAs that happened to match the baseline.
-      // The worker's fallback heal timer will retry on the 30s cadence.
+      // yet) or budget exhausted. The worker's fallback heal timer will retry
+      // on the 30s cadence, but the budget cap prevents infinite re-extraction.
+      // The moment StageManager becomes available, consumeSmTransition resets
+      // the budget for an immediate retry.
       this.log(
         `heal: still on stale baseline RVAs for v${this.gameVersion} (fallback from v${this.offsets?._fallbackFromVersion})`,
       );
@@ -716,108 +759,139 @@ export class LiveMemoryReader {
           ? mayAttemptExtraction(cacheDir, version, appBuild)
           : mayAttemptEnrichment(cacheDir, version, appBuild));
       if (mayExtract) {
-        // Neither catalog-dump nor forced-reextract consumes the attempt
-        // budget — both are diagnostic / signal-driven runs that should not
-        // exhaust the permanent budget. Forced re-extract is a one-shot flag
-        // cleared below after the extractor runs (success or failure), so it
-        // can't loop.
-        if (!forceExtractForCatalogDump && !forceReextract) {
-          if (useCriticalBudget) recordExtractionAttempt(cacheDir, version, appBuild);
-          else recordEnrichmentAttempt(cacheDir, version, appBuild);
-        }
-        this.log(
-          forceReextract
-            ? `resolve: running extractor (forced — cache pollution)`
-            : useCriticalBudget
-              ? `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})${forceCriticalPath ? " — fallback table, re-deriving critical anchors" : ""}`
-              : `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`,
-        );
-        const derived = extractOffsets(
-          proc,
-          ga,
-          version,
-          (msg) => this.log(msg),
-          !useCriticalBudget,
-          base ?? undefined,
-        );
-        // Catalog dump completes after one extractor run regardless of outcome
-        // (the dump fires inside extractOffsets when the env var is set).
-        if (forceExtractForCatalogDump) catalogDumpDone = true;
-        // Consume the cache-pollution flag — one extractor run per detection
-        // event. Whether the extractor succeeded or failed, we don't re-arm
-        // until the next 60s failure streak (see detectCachePollution). On
-        // success the merged table overwrites the bad cache; on failure the
-        // reader stays degraded but the user sees the status-failure log and
-        // can manually delete the cache directory.
-        if (forceReextract) {
-          this.forceExtractorNextHeal = false;
-          this.dictFailSince = null;
-        }
-        if (derived) {
-          // Note: the attempt budget was already recorded above (before the
-          // extractor ran). Both successful AND failed extractions consume one
-          // budget unit — that is intentional, so 3 consecutive failures
-          // permanently stop the heal loop and don't keep re-running the ~8s
-          // extractor every tick. A detected state change (box-open event,
-          // fallback critical-stale) resets the budget via the dedicated
-          // reset functions; do NOT record a second time here on success or
-          // every productive run would count as 2 attempts.
-          //
-          // Cache-pollution exception: `mergeOffsets` keeps non-zero base
-          // values (the standard "base is trusted" rule). But in
-          // force-reextract mode the base's BoxOpen enrichment fields are
-          // explicitly suspected invalid — that's why we're here. Clear
-          // them before merge so derived values can fill the gaps. The
-          // LogManager TypeInfo RVA is NOT cleared here: when chest drops
-          // also fail (LogManager RVA stale on a fallback build), the
-          // extractor re-derives it and `mergeOffsets`'s `derivedWins`
-          // rule (fallback table) lets the fresh value override the
-          // baseline. If the extractor can't re-derive it (e.g.
-          // StageManager not yet instantiated), the baseline RVA is
-          // preserved so the reader stays in its previous state rather
-          // than degrading further to "RVA = 0".
-          let baseForMerge = base;
-          if (forceReextract && base) {
-            baseForMerge = {
-              ...base,
-              runtime: {
-                ...base.runtime,
-                log: {
-                  ...base.runtime.log,
-                  getItemWithBoxOpenTypeKey: 0,
-                },
-                boxOpenLog: {
-                  itemStringKey: 0,
-                  itemGradeType: 0,
-                  gradeSO: 0,
-                  gradeSOGrade: 0,
-                  boxType: 0,
-                  level: 0,
-                },
-              },
-            };
+        // Scanning state is set ONLY when the extractor actually runs —
+        // cache-complete short-circuits (Step 3 above) and budget-exhausted
+        // skips stay scanning=false, so the UI doesn't flicker on same-version
+        // relaunches. try/finally ensures scanning is cleared even if
+        // extractOffsets throws or returns via the early `return` below.
+        this.setScanning(true);
+        try {
+          // Neither catalog-dump nor forced-reextract consumes the attempt
+          // budget — both are diagnostic / signal-driven runs that should not
+          // exhaust the permanent budget. Forced re-extract is a one-shot flag
+          // cleared below after the extractor runs (success or failure), so it
+          // can't loop.
+          if (!forceExtractForCatalogDump && !forceReextract) {
+            if (useCriticalBudget) recordExtractionAttempt(cacheDir, version, appBuild);
+            else recordEnrichmentAttempt(cacheDir, version, appBuild);
           }
-          const merged = baseForMerge
-            ? mergeOffsets(baseForMerge, derived.offsets)
-            : derived.offsets;
-          // Tag the persisted cache with the extractor revision so a future
-          // reader launch with a newer revision knows to re-derive instead of
-          // loading this stale cache.
-          merged._extractorRev = EXTRACTOR_REVISION;
-          saveCachedOffsets(cacheDir, merged);
-          const mergedSource: OffsetResolutionSource = baseForMerge ? "merged" : "extracted";
           this.log(
             forceReextract
-              ? `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION}) — cache pollution fields overwritten`
-              : `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION})`,
+              ? `resolve: running extractor (forced — cache pollution)`
+              : useCriticalBudget
+                ? `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})${forceCriticalPath ? " — fallback table, re-deriving critical anchors" : ""}`
+                : `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`,
           );
-          return { table: merged, source: mergedSource, classIndex: derived.classIndex };
+          const derived = extractOffsets(
+            proc,
+            ga,
+            version,
+            (msg) => this.log(msg),
+            !useCriticalBudget,
+            base ?? undefined,
+          );
+          // Catalog dump completes after one extractor run regardless of outcome
+          // (the dump fires inside extractOffsets when the env var is set).
+          if (forceExtractForCatalogDump) catalogDumpDone = true;
+          // Consume the cache-pollution flag — one extractor run per detection
+          // event. Whether the extractor succeeded or failed, we don't re-arm
+          // until the next 60s failure streak (see detectCachePollution). On
+          // success the merged table overwrites the bad cache; on failure the
+          // reader stays degraded but the user sees the status-failure log and
+          // can manually delete the cache directory.
+          if (forceReextract) {
+            this.forceExtractorNextHeal = false;
+            this.dictFailSince = null;
+          }
+          if (derived) {
+            // Note: the attempt budget was already recorded above (before the
+            // extractor ran). Both successful AND failed extractions consume one
+            // budget unit — that is intentional, so 3 consecutive failures
+            // permanently stop the heal loop and don't keep re-running the ~8s
+            // extractor every tick. A detected state change (box-open event,
+            // fallback critical-stale) resets the budget via the dedicated
+            // reset functions; do NOT record a second time here on success or
+            // every productive run would count as 2 attempts.
+            //
+            // Cache-pollution exception: `mergeOffsets` keeps non-zero base
+            // values (the standard "base is trusted" rule). But in
+            // force-reextract mode the base's BoxOpen enrichment fields are
+            // explicitly suspected invalid — that's why we're here. Clear
+            // them before merge so derived values can fill the gaps. The
+            // LogManager TypeInfo RVA is NOT cleared here: when chest drops
+            // also fail (LogManager RVA stale on a fallback build), the
+            // extractor re-derives it and `mergeOffsets`'s `derivedWins`
+            // rule (fallback table) lets the fresh value override the
+            // baseline. If the extractor can't re-derive it (e.g.
+            // StageManager not yet instantiated), the baseline RVA is
+            // preserved so the reader stays in its previous state rather
+            // than degrading further to "RVA = 0".
+            let baseForMerge = base;
+            if (forceReextract && base) {
+              baseForMerge = {
+                ...base,
+                runtime: {
+                  ...base.runtime,
+                  log: {
+                    ...base.runtime.log,
+                    getItemWithBoxOpenTypeKey: 0,
+                  },
+                  boxOpenLog: {
+                    itemStringKey: 0,
+                    itemGradeType: 0,
+                    gradeSO: 0,
+                    gradeSOGrade: 0,
+                    boxType: 0,
+                    level: 0,
+                  },
+                },
+              };
+            }
+            const merged = baseForMerge
+              ? mergeOffsets(baseForMerge, derived.offsets)
+              : derived.offsets;
+            // Tag the persisted cache with the extractor revision so a future
+            // reader launch with a newer revision knows to re-derive instead of
+            // loading this stale cache.
+            merged._extractorRev = EXTRACTOR_REVISION;
+            // Mark critical RVAs as validated when the extractor ran the full
+            // critical path (enrichmentOnly=false) AND returned non-zero
+            // stageManager + stageCacheManager RVAs. This is the flag that
+            // `isCriticalStaleOnBaseline` checks to decide whether the fallback
+            // baseline can be trusted — without it, the reader would keep
+            // retrying the critical path even after a successful derivation
+            // (because the merged RVAs might happen to match the baseline).
+            // When useCriticalBudget=false (enrichment-only), critical RVAs
+            // were NOT probed — don't set the flag.
+            if (
+              useCriticalBudget &&
+              merged.typeInfoRva.stageManager !== 0n &&
+              merged.typeInfoRva.stageCacheManager !== 0n
+            ) {
+              merged._criticalRvasValidated = true;
+            } else if (baseForMerge?._criticalRvasValidated) {
+              // Preserve existing validation flag when merging into a previously
+              // validated base (e.g. enrichment-only run on a already-validated
+              // fallback table — don't lose the prior critical validation).
+              merged._criticalRvasValidated = true;
+            }
+            saveCachedOffsets(cacheDir, merged);
+            const mergedSource: OffsetResolutionSource = baseForMerge ? "merged" : "extracted";
+            this.log(
+              forceReextract
+                ? `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION}) — cache pollution fields overwritten`
+                : `resolve: extractor ok → ${mergedSource}, persisted cache (rev ${EXTRACTOR_REVISION})`,
+            );
+            return { table: merged, source: mergedSource, classIndex: derived.classIndex };
+          }
+          this.log(
+            useCriticalBudget
+              ? "resolve: extractor returned null (critical anchor failed)"
+              : "resolve: extractor returned null (enrichment extraction failed)",
+          );
+        } finally {
+          this.setScanning(false);
         }
-        this.log(
-          useCriticalBudget
-            ? "resolve: extractor returned null (critical anchor failed)"
-            : "resolve: extractor returned null (enrichment extraction failed)",
-        );
       } else {
         const attempts = useCriticalBudget
           ? extractionAttempts(cacheDir, version, appBuild)
@@ -863,9 +937,13 @@ export class LiveMemoryReader {
     this.gameInstallDir = null;
     this.monsterNameScanAttempted = false;
     this.playerNameScanAttempted = false;
+    this.logManagerNameScanAttempted = false;
+    this.logManagerNameScanPending = false;
     this.monsterNameScanPending = false;
     this.playerNameScanPending = false;
     this.playerPtr = null;
+    this.smWasAvailable = false;
+    this.smTransitionPending = false;
     this.classIndex = null;
     this.goldPin = makeGoldPinState();
     this.combatGoldPin = makeCombatGoldPinState();
@@ -900,6 +978,26 @@ export class LiveMemoryReader {
     }
     const t0 = Date.now();
     const smPtr = resolveStageManager(p, ga.base, ga.size, o, this.smPin);
+
+    // StageManager availability transition detection. When smPtr transitions
+    // from null (main menu / not in battle) to non-null (player entered a
+    // stage), this is the signal that a previously-failed critical extraction
+    // might now succeed. Set smTransitionPending so the worker can reset the
+    // critical budget and trigger an immediate heal — breaks the deadlock
+    // where attach happened during main menu → 3 critical failures → budget
+    // exhausted → never retries even after the player enters a stage.
+    if (smPtr != null && !this.smWasAvailable) {
+      this.smWasAvailable = true;
+      if (this.isCriticalStaleOnFallback && !this.smTransitionPending) {
+        this.smTransitionPending = true;
+        this.log(
+          "read: StageManager became available while on stale fallback baseline — will trigger critical re-derivation",
+        );
+      }
+    } else if (smPtr == null) {
+      this.smWasAvailable = false;
+    }
+
     const stage = readRuntimeStage(p, ga.base, ga.size, o, smPtr);
     if (!stage) {
       // Diagnostic: when stage reads null after a successful offset resolution,
@@ -946,6 +1044,29 @@ export class LiveMemoryReader {
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
     const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
+
+    // LogManager name-scan fallback: when the bundled/cache RVA for LogManager
+    // is stale (fallback table from a neighboring version), `resolveLogManager`
+    // scans the static block of the WRONG class and finds no valid instance →
+    // "LogManager singleton unresolved". The RVA itself is the problem, not
+    // the struct offsets. The name-scan finds the LogManager class by its
+    // real name ("LogManager") and resolves the singleton directly, bypassing
+    // the stale RVA. The found instance is validated via `isLiveLogManager`
+    // and pinned on all three log pins (chest/stageClear/boxOpen).
+    //
+    // Only triggered once per attach — if the name-scan fails (class not found
+    // or no singleton), it won't retry. The cache-pollution detector
+    // (detectCachePollution) handles persistent failures by forcing the
+    // extractor to re-derive the RVA.
+    if (
+      !this.logManagerNameScanAttempted &&
+      chestResult.drops == null &&
+      /LogManager singleton unresolved/i.test(chestResult.status)
+    ) {
+      this.logManagerNameScanAttempted = true;
+      this.logManagerNameScanPending = true;
+      this.log("LogManager: RVA resolution failed (singleton unresolved), name-scan requested");
+    }
 
     // Box-open event detection: when enrichment is incomplete (typically
     // boxOpenLog.itemStringKey/itemGradeType still 0), probe the BoxOpenLog
@@ -1094,33 +1215,52 @@ export class LiveMemoryReader {
 
   /**
    * Detect the cache-pollution signature: a runtime dict lookup keeps
-   * returning "list not walkable" / "dict lookup failed" (offsets are
-   * non-zero but the live dict lookup fails). This means cached offset
-   * values are unvalidated baseline copies, not real extractor output —
-   * set `forceExtractorNextHeal` so the worker triggers an immediate
-   * forced re-extraction that bypasses the `isOffsetTableComplete`
-   * short-circuit.
+   * returning "list not walkable" / "dict lookup failed" / "LogManager
+   * singleton unresolved" (offsets are non-zero but the live dict lookup
+   * fails). This means cached offset values are unvalidated baseline copies,
+   * not real extractor output — set `forceExtractorNextHeal` so the worker
+   * triggers an immediate forced re-extraction that bypasses the
+   * `isOffsetTableComplete` short-circuit.
    *
-   * Two failure signals are tracked through the same 60s timer:
+   * Three failure signals are tracked through the same 60s timer:
    *  1. **boxOpen dict-fail** with chest drops healthy → BoxOpen field
    *     pollution (`getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey`).
    *  2. **chest drops dict-fail** (with or without boxOpen also failing) →
    *     LogManager RVA or `runtime.log.logByType` is the polluted value.
    *     This is the v1.01.02 fallback signature where the cache inherits
    *     v1.01.01's LogManager RVA and it doesn't resolve on the new build.
+   *  3. **LogManager singleton unresolved** → the LogManager TypeInfo RVA
+   *     itself is stale/invalid for the current build. `resolveLogManager`
+   *     scans the static block of the WRONG class and finds no valid
+   *     instance. This is the most direct cache-pollution signal: the RVA
+   *     is non-zero (came from the fallback baseline) but points at the
+   *     wrong class. Added in Rev 13 to catch the case where the
+   *     LogManager name-scan fallback also fails (class not yet loaded).
    *
-   * Only "dict lookup failed" / "list not walkable" qualifies — earlier
-   * failure modes (logManager RVA = 0, getItemWithBoxOpenTypeKey = 0) mean
-   * the offsets ARE zero, so the existing enrichment budget / heal timer
-   * already handles them. Both signals clearing resets the tracker so the
-   * next failure streak starts a fresh timer.
+   * Only non-zero-offset failure modes qualify — earlier failure modes
+   * (logManager RVA = 0, getItemWithBoxOpenTypeKey = 0) mean the offsets
+   * ARE zero, so the existing enrichment budget / heal timer already
+   * handles them. Both signals clearing resets the tracker so the next
+   * failure streak starts a fresh timer.
+   *
+   * When the flag fires, the CRITICAL extraction budget is also reset —
+   * on a fallback table, the extractor runs in critical mode and the
+   * budget might be exhausted from prior failed attempts. The reset gives
+   * Path 3 (30s fallback heal) a few more attempts after the forced run,
+   * increasing the chance of recovery.
    */
   private detectCachePollution(
     boxOpenResult: { opens: BoxOpenEntry[] | null; status: string },
     chestResult: { drops: LiveChestCategory[] | null; status: string },
   ): void {
+    // "LogManager singleton unresolved" is the v1.01.02 fallback signature:
+    // the cache inherits v1.01.01's LogManager RVA which doesn't resolve to
+    // the correct class on the new build, so the static-block scan finds no
+    // valid instance. This is the SAME cache-pollution class as "dict lookup
+    // failed" — a non-zero but invalid cached RVA — so it's covered by the
+    // same detector.
     const isDictLookupFail = (s: string): boolean =>
-      /dict lookup failed|list not walkable/i.test(s);
+      /LogManager singleton unresolved|dict lookup failed|list not walkable/i.test(s);
     const boxOpenFail = boxOpenResult.opens == null && isDictLookupFail(boxOpenResult.status);
     const chestFail = chestResult.drops == null && isDictLookupFail(chestResult.status);
 
@@ -1134,6 +1274,16 @@ export class LiveMemoryReader {
       if (this.forceExtractorNextHeal) return;
       if (Date.now() - this.dictFailSince >= BOX_OPEN_FAIL_HEAL_MS) {
         this.forceExtractorNextHeal = true;
+        // Reset the CRITICAL budget too — on a fallback table, the extractor
+        // runs in critical mode (useCriticalBudget=true when
+        // isCriticalStaleOnBaseline). If the critical budget was exhausted
+        // (3 prior failures), the forceReextract path still bypasses it for
+        // THIS run, but subsequent Path 3 cycles (30s) would short-circuit.
+        // Resetting here gives Path 3 a few more attempts after the forced
+        // run, increasing the chance of recovery when the player enters a
+        // stage mid-cycle (smTransition might not fire if smWasAvailable was
+        // already true from a prior stage entry).
+        this.resetCriticalExtractionBudget();
         const which =
           boxOpenFail && chestFail
             ? "boxOpen + chest drops"
@@ -1141,7 +1291,7 @@ export class LiveMemoryReader {
               ? "boxOpen"
               : "chest drops";
         this.log(
-          `read: ${which} dict lookup failed for ${BOX_OPEN_FAIL_HEAL_MS}ms — cache pollution suspected; forcing extractor re-run on next heal`,
+          `read: ${which} dict lookup failed for ${BOX_OPEN_FAIL_HEAL_MS}ms — cache pollution suspected; forcing extractor re-run on next heal (critical budget reset)`,
         );
       }
       return;
@@ -1159,9 +1309,9 @@ export class LiveMemoryReader {
   }
 
   /**
-   * Run any pending name-scan fallbacks (MonsterSpawnManager / PlayerSaveData)
-   * requested by the previous `read()`. Returns true if a scan ran — the
-   * worker should skip that tick's `read()` call (the scan itself takes
+   * Run any pending name-scan fallbacks (MonsterSpawnManager / PlayerSaveData /
+   * LogManager) requested by the previous `read()`. Returns true if a scan ran
+   * — the worker should skip that tick's `read()` call (the scan itself takes
    * 30–60s when the GA index misses, so re-reading immediately is pointless;
    * the next tick will pick up the new pin). Returns false when no scan is
    * pending, leaving the worker free to call `read()` normally.
@@ -1171,19 +1321,30 @@ export class LiveMemoryReader {
    * The worker calls it BEFORE `read()` so the read path never blocks.
    */
   runPendingNameScans(): boolean {
-    if (!this.monsterNameScanPending && !this.playerNameScanPending) return false;
+    if (
+      !this.monsterNameScanPending &&
+      !this.playerNameScanPending &&
+      !this.logManagerNameScanPending
+    ) {
+      return false;
+    }
     const p = this.proc;
     const o = this.offsets;
     const ga = this.ga;
     if (!p || !o || !ga) {
       this.monsterNameScanPending = false;
       this.playerNameScanPending = false;
+      this.logManagerNameScanPending = false;
       return false;
     }
     try {
       this.setScanning(true);
-      // Build the GA class index once and reuse it for both scans.
-      if (this.monsterNameScanPending || this.playerNameScanPending) {
+      // Build the GA class index once and reuse it for all scans.
+      if (
+        this.monsterNameScanPending ||
+        this.playerNameScanPending ||
+        this.logManagerNameScanPending
+      ) {
         this.ensureClassIndex();
       }
       if (this.monsterNameScanPending) {
@@ -1193,6 +1354,10 @@ export class LiveMemoryReader {
       if (this.playerNameScanPending) {
         this.playerNameScanPending = false;
         this.runPlayerNameScan(p, ga, o);
+      }
+      if (this.logManagerNameScanPending) {
+        this.logManagerNameScanPending = false;
+        this.runLogManagerNameScan(p, ga, o);
       }
     } finally {
       this.setScanning(false);
@@ -1259,6 +1424,68 @@ export class LiveMemoryReader {
         this.log(`${name}: class found but no static-held instance`);
       }
     }
+  }
+
+  /**
+   * Name-scan fallback for LogManager when RVA resolution fails with
+   * "LogManager singleton unresolved". This happens when the fallback table's
+   * LogManager TypeInfo RVA is stale for the current build — the static-block
+   * scan walks the wrong class and finds no valid instance.
+   *
+   * The name-scan finds the LogManager class by its real name ("LogManager" —
+   * the class name is NOT obfuscated, only field names are), resolves the
+   * singleton instance via `singletonFromClass`, and validates it using
+   * `isLiveLogManager` (checks the `logByType` Dictionary is readable and
+   * contains the GetBox bucket). When valid, pins the instance on ALL THREE
+   * log pins (chestPin / stageClearPin / boxOpenPin) so every log reader
+   * benefits immediately — `resolveLogManager` checks `pin.ptr` first and
+   * skips the stale-RVA static-block scan entirely.
+   *
+   * When the name-scan also fails (class not found, no singleton, or
+   * validation rejects the instance), the cache-pollution detector
+   * (`detectCachePollution`) will eventually force the extractor to
+   * re-derive the LogManager RVA from scratch.
+   */
+  private runLogManagerNameScan(
+    p: WinProcess,
+    ga: { base: bigint; size: number },
+    o: LiveOffsets,
+  ): void {
+    this.log("LogManager: running name-scan fallback...");
+    // Fast path: the GA-derived class index usually has LogManager already.
+    // Only fall back to the ~30–60s whole-address-space scan when the index misses.
+    const lmClassFromIndex = this.classIndex?.get("LogManager") ?? null;
+    const lmClass = lmClassFromIndex ?? resolveClassByName(p, "LogManager", ga);
+    if (lmClassFromIndex) {
+      this.log("LogManager: class resolved via GA index (skipped name scan)");
+    }
+    if (!lmClass) {
+      this.log("LogManager: class not found by name scan");
+      return;
+    }
+    const inst = singletonFromClass(p, lmClass);
+    if (!inst) {
+      this.log("LogManager: class found but no static-held instance");
+      return;
+    }
+    // Validate the found instance before pinning — a wrong class with a
+    // dict-like field at the logByType offset would cause every subsequent
+    // log read to return null.
+    if (!isLiveLogManager(p, inst, o)) {
+      this.log(
+        `LogManager: instance at 0x${inst.toString(16)} failed isLiveLogManager validation (dict not readable or GetBox bucket missing)`,
+      );
+      return;
+    }
+    // Pin on all three log pins so every log reader benefits immediately.
+    // `resolveLogManager` checks `pin.ptr` first and returns it when valid,
+    // skipping the stale-RVA static-block scan entirely.
+    this.chestPin.ptr = inst;
+    this.stageClearPin.ptr = inst;
+    this.boxOpenPin.ptr = inst;
+    this.log(
+      `LogManager: resolved via name-scan at 0x${inst.toString(16)}, pinned on all log pins`,
+    );
   }
 
   /** Lazy-init the boxType → BoxCategory map from the bundled catalog. */

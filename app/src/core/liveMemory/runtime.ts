@@ -681,7 +681,16 @@ function getBoxLogList(
  * identifies a log-type bucket that is created once during the first battle
  * and never removed — it may be transiently mid-write, but never absent.
  */
-function isLiveLogManager(reader: MemoryReader, ptr: bigint, o: LiveOffsets): boolean {
+/**
+ * Validate that `ptr` points at a live LogManager instance by checking its
+ * `logByType` Dictionary is readable and (when `getBoxTypeKey` is derived)
+ * contains the GetBox bucket. Exported so the name-scan fallback in
+ * LiveMemoryReader can validate class-name-resolved candidates before
+ * pinning them — without this check, a wrong class with a dict-like field
+ * at the `logByType` offset would be pinned and every subsequent log read
+ * would return null.
+ */
+export function isLiveLogManager(reader: MemoryReader, ptr: bigint, o: LiveOffsets): boolean {
   const dictPtr = readPtr(reader, ptr + BigInt(o.runtime.log.logByType));
   if (dictPtr == null) return false;
   const count = readI32(reader, dictPtr + BigInt(o.dict.count));

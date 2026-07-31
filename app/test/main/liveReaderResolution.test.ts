@@ -24,6 +24,10 @@ const COMPLETE: LiveOffsets = {
     ...INCOMPLETE.player,
     boxData: 0x78, // PlayerSaveData.BoxData — derived at runtime by findPlayerSaveData
   },
+  boxData: {
+    boxTypes: 0x18, // BoxData.BoxTypes — derived structurally by findBoxDataFields (Rev 13)
+    boxQuantity: 0x20, // BoxData.BoxQuantity — derived structurally by findBoxDataFields (Rev 13)
+  },
   runtime: {
     ...INCOMPLETE.runtime,
     log: { ...INCOMPLETE.runtime.log, getItemWithBoxOpenTypeKey: 42 },
@@ -49,6 +53,10 @@ const DERIVED: LiveOffsets = {
   player: {
     ...INCOMPLETE.player,
     boxData: 0x78, // PlayerSaveData.BoxData — derived at runtime by findPlayerSaveData
+  },
+  boxData: {
+    boxTypes: 0x18, // BoxData.BoxTypes — derived structurally by findBoxDataFields (Rev 13)
+    boxQuantity: 0x20, // BoxData.BoxQuantity — derived structurally by findBoxDataFields (Rev 13)
   },
   runtime: {
     ...INCOMPLETE.runtime,
@@ -393,11 +401,14 @@ describe("LiveMemoryReader fallback version handling", () => {
   // main menu → StageManager singleton not instantiated → extractor fails →
   // 3 critical failures → critical budget permanently exhausted → reader
   // stays on stale v1.01.01 baseline RVAs → all live reads return null.
-  // The fix: healOffsets detects isCriticalStaleOnFallback and resets the
-  // critical budget BEFORE resolving, so the next heal tick retries the
-  // extractor (and once the player enters a stage, the singleton instantiates
-  // and derivation succeeds — derived RVAs overwrite the stale baseline).
-  it("healOffsets resets critical budget when stale on fallback", async () => {
+  //
+  // Rev 13 fix: `healOffsets` NO LONGER resets the critical budget
+  // unconditionally (that caused an infinite 30s heal loop). Instead, the
+  // budget is reset ONLY by `consumeSmTransition()` — the signal that
+  // StageManager became available (player entered a stage). The worker's
+  // Path 1.6 consumes the flag and triggers an immediate heal, so recovery
+  // is fast (seconds, not 30s) and only when actually recoverable.
+  it("consumeSmTransition resets critical budget and unblocks extractor (Rev 13)", async () => {
     stubs.version = "1.01.02";
     stubs.cached = null;
     // First attach: extractor fails (StageManager singleton not up yet).
@@ -423,20 +434,46 @@ describe("LiveMemoryReader fallback version handling", () => {
       },
     };
 
-    // Worker calls healOffsets — should reset critical budget first, then
-    // run the extractor, which now succeeds and overwrites the baseline.
+    // Worker's Path 1.6: consumeSmTransition resets critical budget (the key
+    // assertion — pre-Rev-13 this reset never happened because the budget
+    // was tied to _extractorRev which was always set after the first failed
+    // extraction). The flag is normally set by `read()` when StageManager
+    // transitions from null to non-null; we set it directly here (the read()
+    // path needs a fully mocked process / memory map — exercised via
+    // integration tests).
+    (reader as unknown as { smTransitionPending: boolean }).smTransitionPending = true;
     const beforeRecordCalls = stubs.recordCalls;
     const beforeCriticalResets = stubs.criticalResetCalls;
-    reader.healOffsets();
-
-    // Critical budget was reset (the key assertion — pre-fix this was 0).
+    const transitioned = reader.consumeSmTransition();
+    expect(transitioned).toBe(true);
     expect(stubs.criticalResetCalls).toBe(beforeCriticalResets + 1);
-    // Extractor ran (after the reset unblocked it).
+
+    // Worker then calls healOffsets — extractor runs (budget was reset) and
+    // succeeds, overwriting the baseline.
+    reader.healOffsets();
     expect(stubs.recordCalls).toBe(beforeRecordCalls + 1);
     // Persisted table now has the derived v1.01.02 RVA, not v1.01.01's.
     expect(stubs.saved?.typeInfoRva.stageManager).toBe(derivedStageMgr);
     // Reader is no longer "stale on fallback" — derived has overwritten.
     expect(reader.isCriticalStaleOnFallback).toBe(false);
+  });
+
+  it("healOffsets does NOT reset critical budget when stale on fallback (Rev 13)", async () => {
+    // Rev 13 regression guard: healOffsets must NOT reset the critical
+    // budget on its own. The old behavior caused an infinite loop
+    // (30s heal → reset → 8s extract → fail → repeat). The budget is now
+    // reset ONLY by consumeSmTransition (StageManager-availability signal).
+    stubs.version = "1.01.02";
+    stubs.cached = null;
+    stubs.extracted = null;
+
+    const reader = await attachFresh();
+    expect(reader.isCriticalStaleOnFallback).toBe(true);
+
+    const beforeCriticalResets = stubs.criticalResetCalls;
+    reader.healOffsets();
+    // No reset — healOffsets no longer touches the critical budget.
+    expect(stubs.criticalResetCalls).toBe(beforeCriticalResets);
   });
 
   it("healOffsets does NOT reset critical budget when derived already overwrote", async () => {
@@ -597,36 +634,33 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
     expect(stubs.enrichmentRecordCalls).toBe(0);
   });
 
-  it("does NOT force critical path when cache has _extractorRev even if critical RVAs match baseline", async () => {
-    // Bug: when a fallback version's extractor ran in a prior session but
-    // could not derive critical RVAs (e.g. StageManager singleton not
-    // instantiated because the user was at the main menu), mergeOffsets
-    // keeps the baseline RVAs (derived=0 → base wins) and the cache is
-    // saved with _extractorRev set. On the next launch, the cache loads
-    // with _fallbackFromVersion + baseline-matching critical RVAs, so
-    // isCriticalStaleOnBaseline() returns true → Path 3 (worker) triggers
-    // healOffsets every 30s → extractor re-runs (~8-10s of scanning) →
-    // same outcome (StageManager still not instantiated OR derived RVA
-    // genuinely equals baseline because the game didn't change) → cache
-    // saved again → infinite loop. User-visible symptom: live page flips
-    // to "scanning" for ~10s every ~30s.
+  it("does NOT force critical path when cache has _criticalRvasValidated=true (Rev 13)", async () => {
+    // Rev 13 fix: the old `isCriticalStaleOnBaseline` checked `_extractorRev`
+    // to decide whether the fallback baseline could be trusted. This had a
+    // deadlock: extractor ran once (even on failure / null return when
+    // StageManager wasn't instantiated) → `_extractorRev` set on merged
+    // table → `isCriticalStaleOnBaseline` returns false forever → critical
+    // budget never resets → RVAs stay on stale baseline permanently.
     //
-    // Fix: isCriticalStaleOnBaseline() checks _extractorRev — if the
-    // extractor already ran (cache carries the rev marker), trust that
-    // the baseline is either confirmed-correct or unrecoverable (user
-    // needs to enter a stage for StageManager to instantiate; the reader
-    // can't force that). The user can still manually clear the cache.
+    // The new check uses `_criticalRvasValidated` — only set when the
+    // extractor ACTUALLY confirmed stageManager/stageCacheManager RVAs
+    // (useCriticalBudget=true AND both RVAs non-zero). A failed extraction
+    // does NOT set this flag, so the reader keeps retrying — but the retry
+    // is gated by the StageManager-availability signal (Path 1.6) rather
+    // than an unconditional 30s timer, avoiding the infinite loop.
     stubs.version = "1.01.02";
     const baseline = offsetsForVersion("1.01.01")!;
     // Complete cache (enrichment filled) + baseline-matching critical RVAs
-    // + _extractorRev marker. This is the post-extractor cache state when
-    // the extractor ran but StageManager wasn't instantiated (critical RVAs
-    // kept as baseline) and enrichment succeeded.
+    // + _criticalRvasValidated marker. This is the post-extractor cache
+    // state when the extractor ran the critical path AND successfully
+    // derived both stageManager + stageCacheManager RVAs (which happen to
+    // match the baseline because the game didn't change).
     stubs.cached = {
       ...COMPLETE,
       gameVersion: "1.01.02",
       _fallbackFromVersion: "1.01.01",
       _extractorRev: 11, // prior session's extractor already ran
+      _criticalRvasValidated: true, // Rev 13: extractor confirmed critical RVAs
       typeInfoRva: {
         ...COMPLETE.typeInfoRva,
         stageManager: baseline.typeInfoRva.stageManager,
@@ -636,11 +670,49 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
 
     const reader = await attachFresh();
 
-    // Cache is complete + extractor already ran → extractor NOT re-run.
+    // Cache is complete + critical RVAs validated → extractor NOT re-run.
     expect(stubs.extractCalls).toBe(0);
     expect(reader.supported).toBe(true);
-    // Not stale — _extractorRev present means extractor already validated.
+    // Not stale — _criticalRvasValidated=true means extractor confirmed RVAs.
     expect(reader.isCriticalStaleOnFallback).toBe(false);
+  });
+
+  it("DOES force critical path when cache has _extractorRev but NOT _criticalRvasValidated (Rev 13 deadlock fix)", async () => {
+    // Rev 13 core fix: the old behavior trusted `_extractorRev` as a
+    // "extractor already validated" signal. But the extractor sets
+    // `_extractorRev` even when it returns null (StageManager not
+    // instantiated at attach time). This caused a permanent deadlock:
+    // extractor failed once → `_extractorRev` set → `isCriticalStaleOnBaseline`
+    // returns false → critical budget never resets → RVAs stay on stale
+    // baseline forever.
+    //
+    // Rev 13 breaks the deadlock by checking `_criticalRvasValidated`
+    // instead. A cache that has `_extractorRev` but NOT
+    // `_criticalRvasValidated` is still considered stale — the extractor
+    // ran but didn't confirm critical RVAs. The reader WILL retry (gated
+    // by StageManager-availability transition in Path 1.6, not 30s timer).
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      _extractorRev: 11, // prior session's extractor ran...
+      // ...but _criticalRvasValidated is ABSENT — extractor returned null
+      // (StageManager wasn't instantiated at attach time).
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        stageManager: baseline.typeInfoRva.stageManager,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager,
+      },
+    };
+
+    const reader = await attachFresh();
+
+    expect(reader.supported).toBe(true);
+    // Stale — extractor ran but didn't confirm critical RVAs. The reader
+    // will retry on the next StageManager-availability transition (Path 1.6).
+    expect(reader.isCriticalStaleOnFallback).toBe(true);
   });
 
   it("enrichmentAlreadyAttempted is true when cache has _extractorRev but enrichment still incomplete", async () => {
@@ -669,6 +741,12 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
       gameVersion: "1.01.02",
       _fallbackFromVersion: "1.01.01",
       _extractorRev: 12, // extractor already ran
+      // Rev 13: critical RVAs were validated in the prior session, so the
+      // reader trusts the baseline and does NOT force the critical path.
+      // Without this flag, isCriticalStaleOnBaseline returns true and the
+      // reader runs the critical extractor (useCriticalBudget=true),
+      // bypassing the enrichment-budget guard the test exercises.
+      _criticalRvasValidated: true,
       typeInfoRva: {
         ...COMPLETE.typeInfoRva,
         stageManager: baseline.typeInfoRva.stageManager,

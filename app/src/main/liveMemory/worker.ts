@@ -107,31 +107,44 @@ function maybeHealUnsupported(): void {
  * opened a box). Once the player opens one, the dictionary becomes non-empty
  * and a re-extraction can derive the key.
  *
- * Three paths trigger a heal:
+ * Five paths trigger a heal:
  *  1. Event-driven: `LiveMemoryReader` watches the BoxOpenLog list length on
  *     every read tick. A 0→>0 transition (player opened a box) sets
  *     `boxOpenEventPending`. This function consumes that flag, resets the
  *     enrichment attempt budget, and triggers an immediate heal.
+ *  1.5. Cache-pollution self-heal: when `readRuntimeBoxOpenLog` has been
+ *     failing "dict lookup failed" / "LogManager singleton unresolved" for
+ *     >60s, the cached offset values are unvalidated baseline copies. The
+ *     reader's `detectCachePollution` sets `needsForcedReextract` — trigger
+ *     an immediate heal here, bypassing the budget cap.
+ *  1.6. StageManager transition: when the reader is on a fallback table
+ *     whose critical RVAs have NOT been validated (`isCriticalStaleOnFallback`)
+ *     and StageManager transitions from null to non-null (player entered a
+ *     stage), `read()` sets `smTransitionPending`. This path consumes the
+ *     flag, resets the CRITICAL budget (not enrichment), and triggers an
+ *     immediate heal. This is the key fix for the version-adaptation
+ *     deadlock: attach during main menu → 3 critical failures → budget
+ *     exhausted → player enters stage → smTransition resets budget →
+ *     extractor succeeds. Without this, the reader would stay on stale
+ *     baseline RVAs forever (the old `_extractorRev` deadlock).
  *  2. Enrichment fallback timer: when `getItemWithBoxOpenTypeKey` itself is 0
  *     (not yet derived), `peekBoxOpenLogCount` returns null and no event is
  *     ever raised — so path 1 is deadlocked. The fallback resets the budget
  *     and re-runs the extractor every `HEAL_ENRICHMENT_FALLBACK_MS` until
  *     enrichment completes.
  *  3. Critical-stale-on-fallback timer: when the reader is on a fallback
- *     table (e.g. v1.01.02 → v1.01.01) whose critical RVAs have NOT been
- *     re-derived by the extractor, all live reads resolve to wrong classes
- *     → null data. `LiveMemoryReader.healOffsets` resets the critical budget
- *     in this state, but the worker must still drive the periodic heal —
- *     `maybeHealUnsupported` skips because `supported=true` (fallback baseline
- *     has critical fields). This path reuses the 30s cadence to keep retrying
- *     until the player enters a stage and StageManager instantiates, at
- *     which point the extractor succeeds and derived RVAs overwrite baseline.
+ *     table whose critical RVAs have NOT been validated, all live reads
+ *     resolve to wrong classes → null data. This path reuses the 30s cadence
+ *     to keep retrying, but the critical budget cap (3 attempts) prevents
+ *     infinite re-extraction — Path 1.6 (StageManager transition) is the
+ *     real recovery signal.
  *
  * The attach-time extraction (MAX_ENRICHMENT_ATTEMPTS=1) covers the "log
  * already has BoxOpenLog entries from a prior session" case; further retries
- * happen via path 1 (immediate, after the player opens a box), path 2
- * (every 30s while enrichment is incomplete), or path 3 (every 30s while
- * critical RVAs are still on the fallback baseline).
+ * happen via path 1 (immediate, after the player opens a box), path 1.5
+ * (immediate, cache pollution), path 1.6 (immediate, StageManager
+ * transition), path 2 (every 30s while enrichment is incomplete), or path 3
+ * (every 30s while critical RVAs are still unvalidated — but budget-capped).
  */
 function maybeHealEnrichment(): void {
   if (!reader?.attached || !reader.supported) {
@@ -148,17 +161,29 @@ function maybeHealEnrichment(): void {
     return;
   }
   // Path 1.5: cache-pollution self-heal. When `readRuntimeBoxOpenLog` has
-  // been failing "dict lookup failed" for >60s while chest drops resolve
-  // normally (LogManager itself is fine), the cached
-  // `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` values are
-  // unvalidated baseline copies. The reader's `detectCachePollution` sets
-  // `needsForcedReextract` — trigger an immediate heal here. `resolveOffsets`
-  // sees the flag and bypasses the complete-table short-circuit AND the
-  // per-budget attempt cap, then clears the flag (one-shot, see
-  // resolveOffsets). This path runs BEFORE Path 2/3's 30s timer because the
-  // reader is already `enrichmentComplete=true` (the bad cache claims all
-  // fields are filled) — Path 2/3 would otherwise never fire.
+  // been failing "dict lookup failed" / "LogManager singleton unresolved"
+  // for >60s, the cached offset values are unvalidated baseline copies. The
+  // reader's `detectCachePollution` sets `needsForcedReextract` — trigger
+  // an immediate heal here. `resolveOffsets` sees the flag and bypasses the
+  // complete-table short-circuit AND the per-budget attempt cap, then
+  // clears the flag (one-shot, see resolveOffsets). This path runs BEFORE
+  // Path 2/3's 30s timer because the reader is already
+  // `enrichmentComplete=true` (the bad cache claims all fields are filled)
+  // — Path 2/3 would otherwise never fire.
   if (reader.needsForcedReextract) {
+    reader.healOffsets();
+    postStatusIfChanged();
+    enrichmentHealDueAt = 0;
+    return;
+  }
+  // Path 1.6: StageManager transition — player entered a stage while the
+  // reader is on a stale fallback baseline. `consumeSmTransition` resets
+  // the CRITICAL budget (not enrichment) and returns true. Trigger an
+  // immediate heal so the extractor re-derives fresh critical RVAs within
+  // seconds of entering a stage. This is the key recovery path for the
+  // version-adaptation deadlock (attach during main menu → budget exhausted
+  // → never retries). Must run BEFORE Path 2/3's 30s timer.
+  if (reader.consumeSmTransition()) {
     reader.healOffsets();
     postStatusIfChanged();
     enrichmentHealDueAt = 0;
@@ -168,6 +193,10 @@ function maybeHealEnrichment(): void {
   // path 3 covers critical RVAs pending StageManager instantiation on
   // fallback tables (independent of enrichment completion — a reader can
   // have all enrichment offsets filled yet still be on stale baseline RVAs).
+  // Note: Path 3 is now budget-capped (3 attempts) — `healOffsets` no
+  // longer unconditionally resets the critical budget. The real recovery
+  // signal is Path 1.6 (StageManager transition). Path 3 just ensures the
+  // extractor gets its initial 3 attempts.
   const needsFallbackHeal = !reader.enrichmentComplete || reader.isCriticalStaleOnFallback;
   if (!needsFallbackHeal) {
     enrichmentHealDueAt = 0;
@@ -176,20 +205,20 @@ function maybeHealEnrichment(): void {
   const now = Date.now();
   if (enrichmentHealDueAt === 0) enrichmentHealDueAt = now + HEAL_ENRICHMENT_FALLBACK_MS;
   if (now >= enrichmentHealDueAt) {
-    // Reset the budget ONLY when the extractor has not yet had its turn for
-    // this version. When `enrichmentAlreadyAttempted` is true (cache carries
-    // `_extractorRev`), the extractor already ran — if enrichment is still
-    // incomplete, it means validation failed (e.g. scanner can't identify
-    // the version's BoxOpenLog field layout — see v1.01.02 obscured field
-    // bug). Re-running with the same scanner would produce the same failure,
-    // so we do NOT reset the budget. `resolveOffsets` sees the exhausted
-    // budget (`mayAttemptEnrichment=false`) and short-circuits the
-    // extractor, making `healOffsets` return in milliseconds instead of
-    // ~9s. Without this guard, Path 2 would reset the budget every 30s,
-    // re-running the ~9s extractor with the same validation failure forever
-    // — user-visible symptom: live page flips to "scanning" for ~9s every
-    // ~30s. Path 1 (box-open event) and Path 1.5 (cache-pollution) still
-    // reset the budget unconditionally because they carry new signals.
+    // Reset the ENRICHMENT budget ONLY when the extractor has not yet had
+    // its turn for this version. When `enrichmentAlreadyAttempted` is true
+    // (cache carries `_extractorRev`), the extractor already ran — if
+    // enrichment is still incomplete, it means validation failed. Re-running
+    // with the same scanner would produce the same failure, so we do NOT
+    // reset the budget. `resolveOffsets` sees the exhausted budget and
+    // short-circuits the extractor, making `healOffsets` return in
+    // milliseconds instead of ~9s. Without this guard, Path 2 would reset
+    // the budget every 30s, re-running the ~9s extractor with the same
+    // validation failure forever.
+    //
+    // CRITICAL budget is NOT reset here — that's now Path 1.6's job
+    // (StageManager transition signal). Path 3 with an exhausted critical
+    // budget becomes a cheap no-op (resolveOffsets short-circuits).
     if (!reader.enrichmentAlreadyAttempted) {
       reader.resetEnrichmentBudget();
     }

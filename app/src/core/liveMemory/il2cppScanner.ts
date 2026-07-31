@@ -1562,6 +1562,84 @@ function findListField(ctx: ScanContext, obj: bigint, elementClassName: string):
   return null;
 }
 
+/**
+ * Maximum plausible BoxTypes/BoxQuantity list length. BoxData stores one entry
+ * per chest type the player currently owns — bounded by the game's chest-type
+ * catalog (a few dozen in practice). 100 is the same cap Pass H uses; values
+ * above this are almost certainly not chest-slot lists (e.g. inventory arrays).
+ */
+const MAX_BOX_DATA_LIST_COUNT = 100;
+
+/**
+ * Result of {@link findBoxDataFields}: the offsets of the twin `List<int>`
+ * fields (BoxTypes + BoxQuantity) inside a BoxData instance. `boxTypes` and
+ * `boxQuantity` are field offsets within the BoxData object (NOT within
+ * PlayerSaveData). The two are NOT ordered — `findBoxDataFields` returns them
+ * as a pair and the caller treats them symmetrically (chestSlots.ts reads both
+ * arrays and zips them by index, so swapping BoxTypes/BoxQuantity just swaps
+ * which array is treated as keys vs. counts — the catalog lookup then fails
+ * harmlessly on the swapped indices and falls back to the save path).
+ */
+export interface BoxDataFieldOffsets {
+  boxTypes: number;
+  boxQuantity: number;
+}
+
+/**
+ * Structural derivation of `BoxData.BoxTypes` / `BoxData.BoxQuantity` field
+ * offsets by scanning `obj` (a BoxData instance) for two `List<int>`-shaped
+ * fields of equal length. Pure shape detection — no field-name matching — so
+ * it survives field-name obfuscation/renaming across game versions.
+ *
+ * The signature is "two `List<int>` with equal, non-zero count":
+ *  - Each candidate field at offset `foff` has `readPtr(obj + foff)` pointing
+ *    at a List object whose `_items` array is non-null and `_size` is in
+ *    `[1, MAX_BOX_DATA_LIST_COUNT]`.
+ *  - The first int element of each list must be readable (sanity check that
+ *    the array is really an `int[]`, not a `List<T>` of pointer payloads).
+ *  - The two lists' `_size` values must match exactly (BoxTypes and BoxQuantity
+ *    are parallel arrays — same length by construction).
+ *
+ * Returns the first matching pair, or `null` when no such pair exists on `obj`.
+ * The function is deliberately cheap (≤ `INSTANCE_SCAN_MAX / 8` pointer reads
+ * + a constant-time pair check) so it can run inside the extractor without
+ * blowing the extraction time budget.
+ *
+ * Extracted from the Pass H candidate-scan logic in `dumpSaveListHolders`,
+ * but scoped to a single object (the BoxData instance reached via
+ * `PlayerSaveData.BoxData`) instead of scanning every static-reachable object.
+ * This makes it suitable for the production extraction path; Pass H remains a
+ * diagnostic-only whole-heap scan gated by `TBH_DUMP_SAVE_LIST_HOLDERS=1`.
+ */
+export function findBoxDataFields(ctx: ScanContext, obj: bigint): BoxDataFieldOffsets | null {
+  // Collect all List<int>-shaped fields on the BoxData object.
+  const intLists: Array<{ off: number; count: number }> = [];
+  for (let foff = 0x10; foff <= INSTANCE_SCAN_MAX; foff += 8) {
+    const listPtr = readPtr(ctx.reader, obj + BigInt(foff));
+    if (listPtr == null || !isPlausibleHeapPtr(listPtr)) continue;
+    const arr = readPtr(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listItems));
+    if (arr == null || !isPlausibleHeapPtr(arr)) continue;
+    const count = readI32(ctx.reader, listPtr + BigInt(STRUCT_CONTAINER.listSize));
+    if (count == null || count <= 0 || count > MAX_BOX_DATA_LIST_COUNT) continue;
+    // Validate int[]: first element must be a plausible BoxType int. We don't
+    // check the value range here (the catalog maps arbitrary ints); we just
+    // confirm the read succeeds so we're not looking at a pointer array.
+    const firstElem = readI32(ctx.reader, arr + BigInt(STRUCT_CONTAINER.arrayFirst));
+    if (firstElem == null) continue;
+    intLists.push({ off: foff, count });
+  }
+
+  // BoxData signature: two List<int> with equal count. Return the first pair.
+  for (let i = 0; i < intLists.length; i++) {
+    for (let j = i + 1; j < intLists.length; j++) {
+      if (intLists[i].count === intLists[j].count) {
+        return { boxTypes: intLists[i].off, boxQuantity: intLists[j].off };
+      }
+    }
+  }
+  return null;
+}
+
 export interface PlayerAnchor {
   /** TypeInfo slot RVA of the class whose static block holds the player object. */
   commonSaveData: bigint;
@@ -1573,6 +1651,16 @@ export interface PlayerAnchor {
   aggregateSaveDatas?: number;
   /** Optional: PlayerSaveData.BoxData offset (for live chest slot reading). 0 = not derived. */
   boxData?: number;
+  /**
+   * Optional: BoxData.BoxTypes field offset (within the BoxData instance).
+   * Derived structurally by {@link findBoxDataFields} when the BoxData
+   * instance is reachable (i.e. `boxData > 0`). 0 = not derived; chest slots
+   * degrade to the save path. Survives field-name obfuscation on versions
+   * like v1.00.28 where BoxTypes/BoxQuantity are renamed.
+   */
+  boxTypes?: number;
+  /** Optional: BoxData.BoxQuantity field offset. See {@link boxTypes}. */
+  boxQuantity?: number;
   /**
    * Diagnostic dump from `ScanContext.dumpClassFields` produced when the
    * "BoxData" field-name match fails. Forwarded to the extractor log so we
@@ -1626,7 +1714,7 @@ export function findPlayerSaveData(
       if (petsOff <= 0 && itemsOff <= 0) continue;
 
       // BoxData field — named match first (ES3-stable field name), structural
-      // fallback not yet needed. 0 = absent; reader falls back to save path.
+      // fallback below. 0 = absent; reader falls back to save path.
       // When the named match fails, dump the PlayerSaveData class field table
       // + raw bytes so the extractor log shows the actual (possibly obfuscated)
       // field names on versions like v1.01.02 where "BoxData" is renamed.
@@ -1636,12 +1724,38 @@ export function findPlayerSaveData(
       const boxDataDiagnostics =
         boxDataOff === 0 ? (ctx.dumpClassFields(obj, fields) ?? undefined) : undefined;
 
+      // Derive BoxData.BoxTypes / BoxData.BoxQuantity structurally. We only
+      // attempt this when the BoxData field offset is known (boxDataOff > 0)
+      // — without it we can't reach the BoxData instance. The structural scan
+      // survives field-name obfuscation of BoxTypes/BoxQuantity themselves
+      // (e.g. v1.00.28 where BoxData is named but its inner List<int> fields
+      // are renamed). On v1.01.02 (BoxData itself is an ES3 byte stream),
+      // boxDataOff is 0 so we skip — chest slots stay on the save path.
+      // boxTypes/boxQuantity stay 0 when the scan finds no equal-length pair
+      // (e.g. empty BoxData with count=0 lists — player owns no chests yet);
+      // enrichment-completeness then triggers a heal once the player opens a
+      // chest and the lists become non-empty.
+      let boxTypesOff = 0;
+      let boxQuantityOff = 0;
+      if (boxDataOff > 0) {
+        const boxDataPtr = readPtr(ctx.reader, obj + BigInt(boxDataOff));
+        if (boxDataPtr != null && isPlausibleHeapPtr(boxDataPtr)) {
+          const bd = findBoxDataFields(ctx, boxDataPtr);
+          if (bd != null) {
+            boxTypesOff = bd.boxTypes;
+            boxQuantityOff = bd.boxQuantity;
+          }
+        }
+      }
+
       return {
         commonSaveData: entry.slotRva,
         playerStaticOff: soff,
         petSaveDatas: petsOff,
         itemSaveDatas: itemsOff,
         boxData: boxDataOff,
+        boxTypes: boxTypesOff,
+        boxQuantity: boxQuantityOff,
         boxDataDiagnostics,
         petKey: namedClassField(ctx, entries, "PetSaveData", "PetKey"),
         petIsUnlock: namedClassField(ctx, entries, "PetSaveData", "IsUnlock"),
