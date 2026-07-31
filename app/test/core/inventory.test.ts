@@ -145,6 +145,60 @@ describe("parseInventory", () => {
     const snap = parseInventory(wrapPlayer(inner), 0);
     expect(snap.items.map((i) => i.itemKey)).toEqual([514051, 140001]);
   });
+
+  // Regression: game v1.00.28+ inserts PrevUniqueId / IsBlocked /
+  // IsServerPendingItem between UniqueId and IsChaotic, which broke the
+  // legacy "ItemKey,UniqueId,IsChaotic adjacent" regex and made the inventory
+  // tab render an empty table. The parser is now field-order agnostic.
+  it("parses items when PrevUniqueId/IsBlocked/IsServerPendingItem are inserted between UniqueId and IsChaotic (v1.00.28+ save layout)", () => {
+    const inner = `{
+      "heroSaveDatas":[{"heroKey":201,"equippedItemIds":[551278195918898007]}],
+      "inventorySaveDatas":[{"Index":0,"ItemUniqueId":551278195918898009,"IsUnlock":true}],
+      "stashSaveDatas":[{"Index":0,"ItemUniqueId":551278195918898010,"IsUnlock":true}],
+      "itemSaveDatas":[
+        {"ItemKey":322111,"UniqueId":551278195918898007,"PrevUniqueId":0,"IsChaotic":false,"IsBlocked":false,"IsServerPendingItem":false,"EnchantCount":[0,0,0]},
+        {"ItemKey":322111,"UniqueId":551278195918898008,"PrevUniqueId":551278195918898007,"IsChaotic":true,"IsBlocked":false,"IsServerPendingItem":false,"EnchantCount":[0,0,0]},
+        {"ItemKey":141002,"UniqueId":551278195918898009,"PrevUniqueId":0,"IsChaotic":false,"IsBlocked":false,"IsServerPendingItem":false,"EnchantCount":[0,0,0]},
+        {"ItemKey":303071,"UniqueId":551278195918898010,"PrevUniqueId":0,"IsChaotic":false,"IsBlocked":false,"IsServerPendingItem":false,"EnchantCount":[0,0,0]}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.items).toHaveLength(4);
+    expect(snap.items.filter((i) => i.isChaotic)).toHaveLength(1);
+    expect(snap.items.filter((i) => i.inUse)).toHaveLength(1);
+    expect(snap.items.find((i) => i.itemKey === 141002)?.location).toBe("inventory");
+    expect(snap.items.find((i) => i.itemKey === 303071)?.location).toBe("stash");
+  });
+
+  it("parses items regardless of field order (field-order agnostic)", () => {
+    // IsChaotic before UniqueId, ItemKey last — the parser must not assume
+    // any specific ordering, only that each item is a top-level {} object.
+    const inner = `{
+      "itemSaveDatas":[
+        {"IsChaotic":true,"UniqueId":551278195918898011,"ItemKey":322111},
+        {"UniqueId":551278195918898012,"IsChaotic":false,"ItemKey":141002}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.items).toHaveLength(2);
+    expect(snap.items.find((i) => i.itemKey === 322111)?.isChaotic).toBe(true);
+    expect(snap.items.find((i) => i.itemKey === 141002)?.isChaotic).toBe(false);
+  });
+
+  it("parses items whose EnchantData contains nested objects without splitting mid-item", () => {
+    // Real v1.00.28 saves carry EnchantData[{...},{...}] with nested braces —
+    // splitTopLevelObjects must track depth so a nested "}" does not terminate
+    // the item object early and drop the trailing fields.
+    const inner = `{
+      "itemSaveDatas":[
+        {"ItemKey":322111,"UniqueId":551278195918898013,"PrevUniqueId":0,"IsChaotic":false,"IsBlocked":false,"IsServerPendingItem":false,"EnchantCount":[0,0,0],"EnchantData":[{"StatModKey":0,"Tier":0,"Value":0},{"StatModKey":1,"Tier":1,"Value":1}]}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.items).toHaveLength(1);
+    expect(snap.items[0]?.itemKey).toBe(322111);
+    expect(snap.items[0]?.isChaotic).toBe(false);
+  });
 });
 
 describe("resolveInventory", () => {

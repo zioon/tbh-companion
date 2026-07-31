@@ -67,8 +67,10 @@ PlayerSaveData.value (nested JSON string) ->
                     maxCompletedStage, ... }
   inventorySaveDatas / stashSaveDatas / tradingStashSaveDatas:
       [ { Index, ItemUniqueId, IsUnlock }, ... ]   # slots, ref items by id
-  itemSaveDatas: [ { ItemKey, UniqueId, IsChaotic, EnchantCount[3],
-                     EnchantData[6], ... }, ... ] # master list of instances
+  itemSaveDatas: [ { ItemKey, UniqueId, PrevUniqueId, IsChaotic, IsBlocked,
+                     IsServerPendingItem, EnchantCount[3], EnchantData[6], ... },
+                   ... ]                            # master list of instances
+                                                   # (field order: see note below)
   BoxData: { BoxTypes[], BoxUniqueId[], BoxQuantity[] }  # held (unopened) chests
   aggregateSaveDatas: [ { Type, SubKey, Value }, ... ]   # lifetime counters
   PetSaveData: [ { PetKey, IsUnlock, IsViewed }, ... ]   # companion unlock state
@@ -98,6 +100,12 @@ formation (passives apply whether equipped or not).
   (`IsUnlock` flags) and only say *where* an instance sits.
 - The inventory feature reads `itemSaveDatas` directly and groups by `ItemKey`.
   It does **not** join slots to instances by `UniqueId`.
+- **Field order is not guaranteed.** Game v1.00.28+ inserts `PrevUniqueId`,
+  `IsBlocked`, `IsServerPendingItem` between `UniqueId` and `IsChaotic`. The
+  parser (`core/inventory/parse.ts:parseItemsFromPlayerString`) splits each
+  top-level `{...}` object by brace depth and extracts `ItemKey` / `UniqueId` /
+  `IsChaotic` independently, so future field insertions do not silently empty
+  the inventory tab. Do **not** reintroduce a "three adjacent fields" regex.
 - **`UniqueId` precision warning:** `UniqueId` / `ItemUniqueId` (e.g.
   `514119247889201000`) exceed `Number.MAX_SAFE_INTEGER`. `JSON.parse` rounds
   them, so distinct ids can collide (~6/185 observed). Any future slot->instance

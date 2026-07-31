@@ -85,8 +85,61 @@ function parseSlotCapacity(arrText: string): { capacity: number; used: number } 
   return { capacity, used };
 }
 
-const ITEM_TRIPLE_RE =
-  /"ItemKey"\s*:\s*(\d+)\s*,\s*"UniqueId"\s*:\s*(\d+)\s*,\s*"IsChaotic"\s*:\s*(true|false)/g;
+/**
+ * Split a JSON array literal (e.g. `[{...},{...}]`) into its top-level object
+ * substrings. Tracks string state and brace depth so nested objects (e.g.
+ * `itemSaveDatas[].EnchantData[].{StatModKey,...}`) are not split mid-object.
+ * Returns each top-level `{...}` substring, or an empty array if the input has
+ * no top-level objects. Used so item-field extraction is **field-order
+ * agnostic** — game v1.00.28+ inserts `PrevUniqueId` / `IsBlocked` /
+ * `IsServerPendingItem` between `UniqueId` and `IsChaotic`, which broke the
+ * previous "ItemKey,UniqueId,IsChaotic adjacent" regex.
+ */
+function splitTopLevelObjects(arrText: string): string[] {
+  const objects: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < arrText.length; i++) {
+    const ch = arrText[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          objects.push(arrText.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+  }
+  return objects;
+}
+
+/** Extract the raw text of a numeric field, preserving full precision.
+ *  `UniqueId` exceeds `Number.MAX_SAFE_INTEGER` and must NOT be coerced to a
+ *  number — the equipped/inventory/stash/trading id sets key on the original
+ *  digit string, so any rounding breaks slot resolution. */
+function extractRawNumberText(objText: string, field: string): string | null {
+  const m = new RegExp(`"${field}"\\s*:\\s*(-?\\d+)`).exec(objText);
+  return m ? m[1] : null;
+}
+
+/** Extract a boolean field, defaulting to false when absent. */
+function extractBoolField(objText: string, field: string): boolean {
+  const m = new RegExp(`"${field}"\\s*:\\s*(true|false)`).exec(objText);
+  return m ? m[1] === "true" : false;
+}
 
 /** Returns catalog id for assignable rows; tracks pipeline vs playable ids in the sets. */
 function trackSaveItemKey(
@@ -137,15 +190,25 @@ function parseItemsFromPlayerString(playerStr: string): {
   const items: InventoryItemInstance[] = [];
   const assignableCatalogIds = new Set<number>();
   const pipelineCatalogIds = new Set<number>();
-  for (const m of arr.matchAll(ITEM_TRIPLE_RE)) {
-    const rawItemKey = Math.trunc(Number(m[1]));
+  // v1.00.28+ saves insert PrevUniqueId / IsBlocked / IsServerPendingItem
+  // between UniqueId and IsChaotic, so the legacy "ItemKey,UniqueId,IsChaotic
+  // adjacent" regex matched zero items and the inventory tab rendered empty.
+  // Splitting top-level objects and extracting each field independently makes
+  // the parser field-order agnostic — see splitTopLevelObjects.
+  for (const objText of splitTopLevelObjects(arr)) {
+    const rawItemKeyText = extractRawNumberText(objText, "ItemKey");
+    if (rawItemKeyText === null) continue;
+    const rawItemKey = Math.trunc(Number(rawItemKeyText));
     const catalogId = trackSaveItemKey(rawItemKey, assignableCatalogIds, pipelineCatalogIds);
     if (catalogId === null) continue;
-    const uniqueId = m[2];
+    // UniqueId is kept as a string — it exceeds Number.MAX_SAFE_INTEGER
+    // and the equipped/inventory/stash/trading id sets key on the digit text.
+    const uniqueId = extractRawNumberText(objText, "UniqueId") ?? "0";
+    const isChaotic = extractBoolField(objText, "IsChaotic");
     const location = resolveLocation(uniqueId, equipped, inventory, stash, trading);
     items.push({
       itemKey: catalogId,
-      isChaotic: m[3] === "true",
+      isChaotic,
       inUse: equipped.has(uniqueId),
       location,
     });
