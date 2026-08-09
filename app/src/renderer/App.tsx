@@ -13,6 +13,7 @@ const Loot = lazy(() => import("./tabs/Loot").then((m) => ({ default: m.Loot }))
 const Pets = lazy(() => import("./tabs/Pets").then((m) => ({ default: m.Pets })));
 const Lookup = lazy(() => import("./tabs/Lookup").then((m) => ({ default: m.Lookup })));
 const Market = lazy(() => import("./tabs/Market").then((m) => ({ default: m.Market })));
+const Trading = lazy(() => import("./tabs/Trading").then((m) => ({ default: m.Trading })));
 const Settings = lazy(() => import("./tabs/Settings").then((m) => ({ default: m.Settings })));
 const About = lazy(() => import("./tabs/About").then((m) => ({ default: m.About })));
 const LiveMemoryDiagnostics = lazy(() =>
@@ -47,6 +48,7 @@ export function App() {
               {tab === "pets" && <Pets />}
               {tab === "lookup" && <Lookup />}
               {tab === "market" && <Market />}
+              {tab === "trading" && <Trading />}
               {tab === "settings" && <Settings />}
               {tab === "about" && <About />}
               {tab === "debug" && import.meta.env.DEV && <LiveMemoryDiagnostics />}

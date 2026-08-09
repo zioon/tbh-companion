@@ -1,0 +1,349 @@
+// 市场交易额纯函数：把「hash 维度」的成交量×成交价聚合为「类别 + 时间」维度，
+// 供 Market 页展示总交易额、各类别交易额与按小时走势。无 Electron/IO 依赖，可单测。
+
+import type { LookupItem, MarketVolumeHourPoint, MarketVolumeSample } from "../../shared/types";
+
+/** Steam pricehistory 返回的单个历史点。 */
+export interface PriceHistoryPoint {
+  /** 点时间戳（epoch 秒，UTC）。 */
+  timestamp: number;
+  /** 该点成交价（目标货币）。 */
+  price: number;
+  /** 该点成交量（件数）。 */
+  volume: number;
+}
+
+/** 按小时聚合后的历史成交额点（含分类明细）。 */
+export interface HourlyHistoryBucket {
+  /** 小时桶起始时间（ISO UTC，整点）。 */
+  hour: string;
+  /** 该小时总成交额（目标货币）。 */
+  total: number;
+  /** 该小时各类别成交额：类别 key -> 金额。 */
+  byCategory: Record<string, number>;
+}
+
+/** 单个 hash 的成交量采样。 */
+export interface VolumeHashSample {
+  /** 24h 成交量（单位数）。 */
+  volume: number;
+  /** 成交价中位数（目标货币）。小于等于 0 视为无效，不计入交易额。 */
+  median: number | null;
+}
+
+/** 交易额展示的 5 大分类 key。 */
+export const VOLUME_CATEGORY_WEAPON = "WEAPON";
+export const VOLUME_CATEGORY_ARMOR = "ARMOR";
+export const VOLUME_CATEGORY_ACCESSORY = "ACCESSORY";
+export const VOLUME_CATEGORY_MATERIAL = "MATERIAL";
+export const VOLUME_CATEGORY_COIN = "COIN";
+export const VOLUME_CATEGORY_OTHER = "OTHER";
+
+/**
+ * 把一个图鉴物品归到交易额展示的 5 大分类：
+ * - 武器 = 装备 gearGroup=WEAPON；
+ * - 防具 = 装备 gearGroup=ARMOR；
+ * - 饰品 = 装备 gearGroup=ACCESSORY；
+ * - 硬币 = 材料 materialType=OFFERING（纪念币）；
+ * - 材料 = 其余材料（CRAFTING/DECORATION/ENGRAVING/INSCRIPTION/SOULSTONE）。
+ * 无法归类的物品（如 STAGEBOX）回退到 {@link VOLUME_CATEGORY_OTHER}。
+ */
+export function volumeCategoryKey(
+  item: Pick<LookupItem, "type" | "gearGroup" | "materialType">,
+): string {
+  if (item.type === "GEAR") {
+    if (item.gearGroup === VOLUME_CATEGORY_WEAPON) return VOLUME_CATEGORY_WEAPON;
+    if (item.gearGroup === VOLUME_CATEGORY_ACCESSORY) return VOLUME_CATEGORY_ACCESSORY;
+    return VOLUME_CATEGORY_ARMOR;
+  }
+  if (item.type === "MATERIAL") {
+    return item.materialType === "OFFERING" ? VOLUME_CATEGORY_COIN : VOLUME_CATEGORY_MATERIAL;
+  }
+  return VOLUME_CATEGORY_OTHER;
+}
+
+/** 历史遗留/别名分类 key 归一化（如旧版用 OFFERING 表示硬币，现统一为 COIN）。 */
+const CATEGORY_ALIASES: Record<string, string> = { OFFERING: VOLUME_CATEGORY_COIN };
+
+/** 把分类 key 归一化到走势图使用的 5 大分类 key，未知 key 原样返回。 */
+export function normalizeCategoryKey(key: string): string {
+  return CATEGORY_ALIASES[key] ?? key;
+}
+
+/**
+ * 把轮询采样快照（24h 滚动成交额）聚合成走势点。
+ *
+ * 每个 {@link MarketVolumeSample} 自带时间戳与分类明细，是 pricehistory 拉取
+ * 失败时的回退走势数据源。按小时桶聚合（同小时多点取平均，与
+ * {@link aggregateHourly} 一致），分类 key 经 {@link normalizeCategoryKey} 归一化
+ * （兼容旧版 OFFERING → COIN）。返回升序（旧→新）。
+ */
+export function aggregateSamplesToTrend(samples: MarketVolumeSample[]): MarketVolumeHourPoint[] {
+  const buckets = new Map<
+    string,
+    { total: number; count: number; byCategory: Record<string, number> }
+  >();
+  for (const s of samples) {
+    const ms = Date.parse(s.timestamp);
+    if (!Number.isFinite(ms)) continue;
+    const hour = new Date(Math.floor(ms / 3600_000) * 3600_000).toISOString();
+    let b = buckets.get(hour);
+    if (!b) {
+      b = { total: 0, count: 0, byCategory: {} };
+      buckets.set(hour, b);
+    }
+    b.total += s.total;
+    b.count++;
+    for (const [k, v] of Object.entries(s.byCategory ?? {})) {
+      const nk = normalizeCategoryKey(k);
+      b.byCategory[nk] = (b.byCategory[nk] ?? 0) + v;
+    }
+  }
+
+  const points: MarketVolumeHourPoint[] = [];
+  for (const [hour, b] of buckets) {
+    const byCategory: Record<string, number> = {};
+    for (const [k, v] of Object.entries(b.byCategory)) byCategory[k] = v / b.count;
+    points.push({ hour, total: b.total / b.count, byCategory });
+  }
+  points.sort((a, b) => (a.hour < b.hour ? -1 : 1));
+  return points;
+}
+
+/**
+ * 把 hash 维度的成交量/成交价聚合为一次 {@link MarketVolumeSample}。
+ *
+ * 只统计「有成交量且成交价有效」的物品。成交额 = Σ(volume × median)。
+ *
+ * @param volumeByHash  物品索引需要 hash 维度数据：传入一个 `hash -> item` 映射
+ *                      以把 hash 归到类别；未匹配到图鉴物品的 hash 归到 OTHER。
+ */
+export function aggregateVolume(
+  itemsByHash: Map<string, Pick<LookupItem, "type" | "gearGroup" | "materialType">>,
+  volumeByHash: Map<string, VolumeHashSample>,
+  currency: string,
+  timestamp = new Date().toISOString(),
+): MarketVolumeSample {
+  let total = 0;
+  let counted = 0;
+  const byCategory: Record<string, number> = {};
+
+  for (const [hash, sample] of volumeByHash) {
+    if (!Number.isFinite(sample.volume) || sample.volume <= 0) continue;
+    if (sample.median == null || !Number.isFinite(sample.median) || sample.median <= 0) continue;
+    const amount = sample.volume * sample.median;
+    total += amount;
+    counted++;
+    const item = itemsByHash.get(hash);
+    const key = item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER;
+    byCategory[key] = (byCategory[key] ?? 0) + amount;
+  }
+
+  return { timestamp, items: counted, total, byCategory, currency };
+}
+
+/**
+ * 把一列带时间戳的采样按「小时桶」聚合成走势点。
+ * 同一小时内的多个采样取平均 total；返回升序（旧→新），最新在最后。
+ *
+ * @param maxHours 最多保留多少个最近的小时桶（默认 24）。
+ */
+export function aggregateHourly(
+  samples: Pick<MarketVolumeSample, "timestamp" | "total">[],
+  maxHours = 24,
+): MarketVolumeHourPoint[] {
+  if (samples.length === 0) return [];
+
+  // hash -> hour 桶（ISO 整点）-> { sum, count }
+  const buckets = new Map<string, { sum: number; count: number }>();
+  for (const s of samples) {
+    const ms = Date.parse(s.timestamp);
+    if (!Number.isFinite(ms)) continue;
+    const hour = new Date(Math.floor(ms / 3600_000) * 3600_000).toISOString();
+    const b = buckets.get(hour);
+    if (b) {
+      b.sum += s.total;
+      b.count++;
+    } else {
+      buckets.set(hour, { sum: s.total, count: 1 });
+    }
+  }
+
+  const points: MarketVolumeHourPoint[] = [];
+  for (const [hour, b] of buckets) {
+    points.push({ hour, total: b.sum / b.count });
+  }
+  points.sort((a, b) => (a.hour < b.hour ? -1 : 1));
+  return points.slice(-maxHours);
+}
+
+/** 单个物品的市场交易额（交易页卡片）。 */
+export interface MarketVolumeItem {
+  /** market_hash_name。 */
+  hash: string;
+  /** 展示名（本地化；未匹配到图鉴时用 hash）。 */
+  name: string;
+  /** 交易额分类 key（与 {@link volumeCategoryKey} 一致）。 */
+  category: string;
+  /** 物品品质等级（COMMON..COSMIC）。未匹配到图鉴时为 undefined。 */
+  grade?: string;
+  /** 总交易额（目标货币）。 */
+  total: number;
+  /** 按小时的历史走势（升序，最新在最后），用于卡片小图。 */
+  points: { hour: string; price: number; volume: number; total: number }[];
+}
+
+/**
+ * 把各 hash 的 pricehistory 原始点聚合成「物品维度」的交易额卡片数据。
+ * 每个物品：总交易额 = Σ(volume × price)，小时走势 = 按小时桶累加的成交量与金额、
+ * 并以「小时内的成交量加权均价」作为该小时的 price。
+ * 只保留总交易额 > 0 的物品，按总交易额降序返回。
+ */
+export function aggregateItemVolume(
+  historyByHash: ReadonlyMap<string, readonly PriceHistoryPoint[]>,
+  itemsByHash: Map<
+    string,
+    Pick<LookupItem, "type" | "gearGroup" | "materialType" | "name" | "grade">
+  >,
+): MarketVolumeItem[] {
+  const results: MarketVolumeItem[] = [];
+  for (const [hash, points] of historyByHash) {
+    // 小时桶：累计成交量、成交额、用于计算成交量加权均价
+    const buckets = new Map<string, { volume: number; total: number }>();
+    let total = 0;
+    for (const p of points) {
+      if (!Number.isFinite(p.timestamp) || !Number.isFinite(p.price) || p.price <= 0) continue;
+      if (!Number.isFinite(p.volume) || p.volume <= 0) continue;
+      const hour = new Date(Math.floor(p.timestamp / 3600) * 3600_000).toISOString();
+      const amount = p.volume * p.price;
+      const b = buckets.get(hour) ?? { volume: 0, total: 0 };
+      b.volume += p.volume;
+      b.total += amount;
+      buckets.set(hour, b);
+      total += amount;
+    }
+    if (total <= 0) continue;
+    const item = itemsByHash.get(hash);
+    const series = [...buckets.entries()]
+      .map(([hour, b]) => ({
+        hour,
+        volume: b.volume,
+        total: b.total,
+        // 成交量加权均价：total / volume；无成交量时回退为 0
+        price: b.volume > 0 ? b.total / b.volume : 0,
+      }))
+      .sort((a, b) => (a.hour < b.hour ? -1 : 1));
+    results.push({
+      hash,
+      name: item?.name ?? hash,
+      category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
+      grade: item?.grade,
+      total,
+      points: series,
+    });
+  }
+  results.sort((a, b) => b.total - a.total);
+  return results;
+}
+
+/**
+ * 从轮询 live 映射构建物品卡片（pricehistory 未拉取时的回退）。
+ * 无小时走势（points 为空数组），总交易额 = volume × median。
+ */
+export function aggregateLiveItems(
+  itemsByHash: Map<
+    string,
+    Pick<LookupItem, "type" | "gearGroup" | "materialType" | "name" | "grade">
+  >,
+  volumeByHash: ReadonlyMap<string, VolumeHashSample>,
+): MarketVolumeItem[] {
+  const results: MarketVolumeItem[] = [];
+  for (const [hash, sample] of volumeByHash) {
+    if (!Number.isFinite(sample.volume) || sample.volume <= 0) continue;
+    if (sample.median == null || !Number.isFinite(sample.median) || sample.median <= 0) continue;
+    const item = itemsByHash.get(hash);
+    results.push({
+      hash,
+      name: item?.name ?? hash,
+      category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
+      grade: item?.grade,
+      total: sample.volume * sample.median,
+      points: [],
+    });
+  }
+  results.sort((a, b) => b.total - a.total);
+  return results;
+}
+
+/**
+ * 按小时聚合后的历史成交额序列及其覆盖的物品统计。
+ */
+export interface HistoryAggregation {
+  /** 按小时桶的成交额序列（升序，最新在最后）。 */
+  points: HourlyHistoryBucket[];
+  /** 本次统计覆盖的、有有效交易数据的物品种数。 */
+  itemCount: number;
+  /** 各分类覆盖的物品种数：类别 key -> 数量。 */
+  itemCountsByCategory: Record<string, number>;
+}
+
+/**
+ * 把多个 hash 的 pricehistory 原始序列聚合成「按小时桶」的真实成交额序列。
+ *
+ * Steam pricehistory 每个点代表一个时间段（活跃物品约 1 小时）的成交价与
+ * 成交量，因此**小时成交额 = Σ(volume × price)**，反映该小时的真实成交额增量
+ * （区别于 {@link MarketVolumeSample} 的 24h 滚动值）。同一小时的多个点累加。
+ *
+ * @param historyByHash hash -> 该物品的 pricehistory 点序列。
+ * @returns 升序（旧→新）的小时桶序列；每个点含总成交额与分类明细，并附覆盖物品数。
+ */
+export function aggregateHistoryToHourly(
+  historyByHash: ReadonlyMap<string, readonly PriceHistoryPoint[]>,
+  itemsByHash: Map<string, Pick<LookupItem, "type" | "gearGroup" | "materialType">>,
+): HistoryAggregation {
+  const buckets = new Map<string, { total: number; byCategory: Record<string, number> }>();
+  const itemHashesByCategory = new Map<string, Set<string>>();
+
+  for (const [hash, points] of historyByHash) {
+    const item = itemsByHash.get(hash);
+    const key = item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER;
+    let hasValid = false;
+    for (const p of points) {
+      if (!Number.isFinite(p.timestamp) || !Number.isFinite(p.price) || p.price <= 0) continue;
+      if (!Number.isFinite(p.volume) || p.volume <= 0) continue;
+      hasValid = true;
+      const hour = new Date(Math.floor(p.timestamp / 3600) * 3600_000).toISOString();
+      let b = buckets.get(hour);
+      if (!b) {
+        b = { total: 0, byCategory: {} };
+        buckets.set(hour, b);
+      }
+      const amount = p.volume * p.price;
+      b.total += amount;
+      b.byCategory[key] = (b.byCategory[key] ?? 0) + amount;
+    }
+    if (hasValid) {
+      let set = itemHashesByCategory.get(key);
+      if (!set) {
+        set = new Set();
+        itemHashesByCategory.set(key, set);
+      }
+      set.add(hash);
+    }
+  }
+
+  const points: HourlyHistoryBucket[] = [];
+  for (const [hour, b] of buckets) {
+    points.push({ hour, total: b.total, byCategory: b.byCategory });
+  }
+  points.sort((a, b) => (a.hour < b.hour ? -1 : 1));
+
+  const itemCountsByCategory: Record<string, number> = {};
+  let itemCount = 0;
+  for (const [key, set] of itemHashesByCategory) {
+    itemCountsByCategory[key] = set.size;
+    itemCount += set.size;
+  }
+
+  return { points, itemCount, itemCountsByCategory };
+}

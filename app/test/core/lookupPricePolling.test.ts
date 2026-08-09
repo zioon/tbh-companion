@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectPollingTargets } from "../../src/core/lookupPrice";
+import { selectPollingTargets, selectHistoryRefreshTargets } from "../../src/core/lookupPrice";
 import type { LookupPriceSnapshot } from "../../shared/types";
 
 function snapshot(prices: Record<string, number | null>): LookupPriceSnapshot {
@@ -14,162 +14,122 @@ function snapshot(prices: Record<string, number | null>): LookupPriceSnapshot {
 }
 
 describe("selectPollingTargets", () => {
-  it("returns empty when nothing owned, nothing watched, no snapshot", () => {
-    expect(
-      selectPollingTargets({
-        snapshot: null,
-        ownedHashes: [],
-        watchedHashes: [],
-        thresholdUsd: 1,
-      }),
-    ).toEqual([]);
+  it("returns empty when nothing watched", () => {
+    expect(selectPollingTargets({ watchedHashes: [] })).toEqual([]);
   });
 
-  it("includes all owned items; high-value (>= threshold) sorted first by price desc", () => {
+  it("includes only watched hashes (图鉴仅更新星标) regardless of owned/snapshot", () => {
     const snap = snapshot({ "Expensive Gem": 5.5, "Cheap Gem": 0.05, "Mid Gem": 1.0 });
+    // snapshot/threshold 不再参与目标筛选；只回星标物品
     const result = selectPollingTargets({
-      snapshot: snap,
-      ownedHashes: ["Expensive Gem", "Cheap Gem", "Mid Gem"],
-      watchedHashes: [],
-      thresholdUsd: 1.0,
+      watchedHashes: ["Expensive Gem", "Cheap Gem"],
     });
-    // 全部入选；高价值（>= 1.0）按价格降序在前，低价（< 1.0）排后
-    expect(result).toEqual(["Expensive Gem", "Mid Gem", "Cheap Gem"]);
+    expect(result).toEqual(["Expensive Gem", "Cheap Gem"]);
+    void snap;
   });
 
-  it("includes owned items with null (no listing) snapshot price, after high-value", () => {
-    const snap = snapshot({ "No Listing Item": null, "Priced Item": 2.0 });
-    const result = selectPollingTargets({
-      snapshot: snap,
-      ownedHashes: ["No Listing Item", "Priced Item"],
-      watchedHashes: [],
-      thresholdUsd: 1.0,
-    });
-    expect(result).toEqual(["Priced Item", "No Listing Item"]);
+  it("keeps watched order as given", () => {
+    const result = selectPollingTargets({ watchedHashes: ["B", "A", "C"] });
+    expect(result).toEqual(["B", "A", "C"]);
   });
 
-  it("includes owned items absent from snapshot, after high-value", () => {
-    const snap = snapshot({ "Priced Item": 2.0 });
+  it("dedupes and trims watched hashes", () => {
     const result = selectPollingTargets({
-      snapshot: snap,
-      ownedHashes: ["Priced Item", "Unknown Item"],
-      watchedHashes: [],
-      thresholdUsd: 1.0,
+      watchedHashes: ["  A  ", "", "   ", "A", "B", "B"],
     });
-    expect(result).toEqual(["Priced Item", "Unknown Item"]);
+    expect(result).toEqual(["A", "B"]);
   });
 
-  it("includes all owned items even when snapshot is null", () => {
+  it("respects maxTargets cap, keeping watched order", () => {
     const result = selectPollingTargets({
-      snapshot: null,
-      ownedHashes: ["A", "B", "C"],
-      watchedHashes: [],
-      thresholdUsd: 1.0,
+      watchedHashes: ["A", "B", "C", "D", "E"],
+      maxTargets: 3,
     });
-    // 无快照时全部算常规，按 owned 顺序入选
     expect(result).toEqual(["A", "B", "C"]);
   });
 
-  it("always includes watched hashes regardless of price/ownership", () => {
-    const snap = snapshot({ "Watched Priced": 0.05 });
-    const result = selectPollingTargets({
-      snapshot: snap,
-      ownedHashes: [],
-      watchedHashes: ["Watched Priced", "Watched Not In Snapshot"],
-      thresholdUsd: 1.0,
-    });
-    expect(result).toEqual(["Watched Priced", "Watched Not In Snapshot"]);
+  it("uses default maxTargets=50 when not specified", () => {
+    const watched = Array.from({ length: 100 }, (_, i) => `Item ${i}`);
+    const result = selectPollingTargets({ watchedHashes: watched });
+    expect(result).toHaveLength(50);
+  });
+});
+
+describe("selectHistoryRefreshTargets", () => {
+  it("returns empty when no watched and no snapshot", () => {
+    expect(
+      selectHistoryRefreshTargets({ snapshot: null, watchedHashes: [], thresholdUsd: 1 }),
+    ).toEqual([]);
   });
 
-  it("dedupes hashes that appear in both owned and watched", () => {
-    const snap = snapshot({ "Shared Hash": 5.0 });
-    const result = selectPollingTargets({
+  it("includes watched hashes regardless of price/ownership", () => {
+    const snap = snapshot({ "Watched Cheap": 0.05 });
+    const result = selectHistoryRefreshTargets({
       snapshot: snap,
-      ownedHashes: ["Shared Hash"],
-      watchedHashes: ["Shared Hash"],
+      watchedHashes: ["Watched Cheap", "Watched Missing"],
       thresholdUsd: 1.0,
     });
-    expect(result).toEqual(["Shared Hash"]);
+    expect(result).toEqual(["Watched Cheap", "Watched Missing"]);
   });
 
-  it("places watched first, then high-value owned by price desc, then regular owned", () => {
-    const snap = snapshot({
-      "Watched A": 0.05,
-      "Owned Cheap": 0.05,
-      "Owned High": 10.0,
-      "Owned Mid": 3.0,
-    });
-    const result = selectPollingTargets({
+  it("includes all snapshot items with price >= threshold, sorted by price desc", () => {
+    const snap = snapshot({ HV2: 5.0, HV1: 10.0, Cheap: 0.05, Null: null, Hit: 1.0 });
+    const result = selectHistoryRefreshTargets({
       snapshot: snap,
-      ownedHashes: ["Owned Cheap", "Owned High", "Owned Mid"],
+      watchedHashes: [],
+      thresholdUsd: 1.0,
+    });
+    // 只含价格 >= 1.0 的；按价格降序
+    expect(result).toEqual(["HV1", "HV2", "Hit"]);
+  });
+
+  it("does not include watched duplicates in the above-threshold list", () => {
+    const snap = snapshot({ "Watched High": 50.0, Other: 20.0, Cheap: 0.1 });
+    const result = selectHistoryRefreshTargets({
+      snapshot: snap,
+      watchedHashes: ["Watched High"],
+      thresholdUsd: 1.0,
+    });
+    expect(result).toEqual(["Watched High", "Other"]);
+  });
+
+  it("places watched first, then above-threshold by price desc", () => {
+    const snap = snapshot({ High: 90.0, Mid: 5.0 });
+    const result = selectHistoryRefreshTargets({
+      snapshot: snap,
       watchedHashes: ["Watched A"],
       thresholdUsd: 1.0,
     });
-    expect(result).toEqual(["Watched A", "Owned High", "Owned Mid", "Owned Cheap"]);
+    expect(result).toEqual(["Watched A", "High", "Mid"]);
   });
 
-  it("respects maxTargets cap, dropping regular owned first, then low-value high-value", () => {
-    const snap = snapshot({
-      "Watched 1": 0.05,
-      "Owned 5": 5.0,
-      "Owned 4": 4.0,
-      "Owned 3": 3.0,
-      "Owned 2": 2.0,
-      "Owned Regular": 0.05,
-    });
-    const result = selectPollingTargets({
+  it("values below threshold or null are excluded", () => {
+    const snap = snapshot({ A: 0.99, B: 1.0, C: null, D: -1 });
+    const result = selectHistoryRefreshTargets({
       snapshot: snap,
-      ownedHashes: ["Owned Regular", "Owned 5", "Owned 4", "Owned 3", "Owned 2"],
-      watchedHashes: ["Watched 1"],
-      thresholdUsd: 1.0,
-      maxTargets: 3,
-    });
-    // watched 1 个 + 高价值 owned 前 2 个 = 3，regular 被砍
-    expect(result).toEqual(["Watched 1", "Owned 5", "Owned 4"]);
-  });
-
-  it("trims and ignores empty/whitespace hashes", () => {
-    const snap = snapshot({ "Real Hash": 2.0 });
-    const result = selectPollingTargets({
-      snapshot: snap,
-      ownedHashes: ["  Real Hash  ", "", "   "],
-      watchedHashes: ["", "  "],
-      thresholdUsd: 1.0,
-    });
-    expect(result).toEqual(["Real Hash"]);
-  });
-
-  it("uses default maxTargets=50 when not specified", () => {
-    const snap = snapshot(
-      Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`Item ${i}`, 2.0])),
-    );
-    const owned = Array.from({ length: 100 }, (_, i) => `Item ${i}`);
-    const result = selectPollingTargets({
-      snapshot: snap,
-      ownedHashes: owned,
       watchedHashes: [],
       thresholdUsd: 1.0,
     });
-    // 100 个全为高价值（2.0 >= 1.0），截断到 50
-    expect(result).toHaveLength(50);
+    expect(result).toEqual(["B"]);
   });
 
-  it("includes regular owned (below threshold) up to maxTargets after high-value", () => {
-    // 5 个高价值 + 10 个常规，maxTargets=8 → 5 高价值 + 3 常规
-    const highValue = Array.from({ length: 5 }, (_, i) => [`HV ${i}`, 5.0] as const);
-    const regular = Array.from({ length: 10 }, (_, i) => [`RG ${i}`, 0.05] as const);
-    const snap = snapshot(Object.fromEntries([...highValue, ...regular]));
-    const result = selectPollingTargets({
+  it("returns only watched when snapshot is null", () => {
+    const result = selectHistoryRefreshTargets({
+      snapshot: null,
+      watchedHashes: ["A", "B"],
+      thresholdUsd: 1.0,
+    });
+    expect(result).toEqual(["A", "B"]);
+  });
+
+  it("respects optional maxTargets cap", () => {
+    const snap = snapshot({ A: 10.0, B: 9.0, C: 8.0, D: 7.0 });
+    const result = selectHistoryRefreshTargets({
       snapshot: snap,
-      ownedHashes: [...regular.map(([h]) => h), ...highValue.map(([h]) => h)],
       watchedHashes: [],
       thresholdUsd: 1.0,
-      maxTargets: 8,
+      maxTargets: 2,
     });
-    expect(result).toHaveLength(8);
-    // 前 5 个是高价值（按价格降序，都是 5.0，顺序保持 owned 输入的反转）
-    expect(result.slice(0, 5)).toEqual(highValue.map(([h]) => h));
-    // 后 3 个是常规（按 owned 输入顺序）
-    expect(result.slice(5)).toEqual(["RG 0", "RG 1", "RG 2"]);
+    expect(result).toEqual(["A", "B"]);
   });
 });

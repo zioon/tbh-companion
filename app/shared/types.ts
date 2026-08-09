@@ -769,6 +769,101 @@ export interface PollingCycleResult {
 }
 
 /**
+ * 「近期市场交易额」的一次采样快照。
+ *
+ * 成交额 = Σ(物品成交量 × 成交价)。数据来源是本地轮询（LookupPricePolling）
+ * 每次 priceoverview 返回的 24h 成交量 `volume` 与成交价中位数 `median`，
+ * 因此只覆盖「被轮询到的高价值 / 收藏物品」这一子集，是相对的市场活跃度
+ * 指标而非全市场总盘子。按类别拆分为装备组（WEAPON/ARMOR/ACCESSORY…）与
+ * 材料类型（CRAFTING/DECORATION…）。
+ */
+export interface MarketVolumeSample {
+  /** 采样时间（ISO UTC）。 */
+  timestamp: string;
+  /** 本采样覆盖的、有成交量的 hash 数量。 */
+  items: number;
+  /** 总交易额（目标货币）。 */
+  total: number;
+  /** 各类别交易额：类别 key -> 金额（目标货币）。 */
+  byCategory: Record<string, number>;
+  /** 计算交易额所用的货币代码。 */
+  currency: string;
+}
+
+/** 按小时聚合后的历史成交额走势点（基于 Steam pricehistory 的真实小时增量）。 */
+export interface MarketVolumeHourPoint {
+  /** 小时桶起始时间（ISO UTC，整点）。 */
+  hour: string;
+  /** 该小时总成交额（目标货币）。 */
+  total: number;
+  /** 该小时各类别成交额：类别 key -> 金额（目标货币）。缺失时回退为 {}。 */
+  byCategory?: Record<string, number>;
+}
+
+/** 单个物品的市场交易额（交易页卡片）。 */
+export interface MarketVolumeItem {
+  /** market_hash_name。 */
+  hash: string;
+  /** 展示名（本地化；未匹配到图鉴时用 hash）。 */
+  name: string;
+  /** 交易额分类 key（WEAPON/ARMOR/ACCESSORY/MATERIAL/COIN/OTHER）。 */
+  category: string;
+  /**
+   * 物品品质等级（COMMON..COSMIC）。用于卡片颜色染色，跨所有物品保持一致。
+   * 未匹配到图鉴时为 undefined。
+   */
+  grade?: string;
+  /** 总交易额（目标货币）。 */
+  total: number;
+  /**
+   * 按小时的历史走势（升序，最新在最后），用于卡片小图。
+   * 每个点含该小时的均价、成交量与成交额；无历史走势时为空数组。
+   */
+  points: { hour: string; price: number; volume: number; total: number }[];
+}
+
+/** 交易页物品卡片数据（按总交易额降序）。 */
+export interface MarketVolumeItemStats {
+  items: MarketVolumeItem[];
+  currency: string;
+}
+
+/** 交易页「刷新历史价格」的实时进度（主进程 push 给 renderer）。 */
+export interface MarketVolumeRefreshProgress {
+  /** 当前是否正在刷新。 */
+  running: boolean;
+  /** 待刷新的目标物品总数。 */
+  total: number;
+  /** 已处理的物品数。 */
+  done: number;
+  /** 当前正在拉取的 market_hash_name；无则 null。 */
+  currentHash: string | null;
+  /** 单个 hash 刷新完成后的最新卡片（仅当确实拉到数据时携带，供实时更新）。 */
+  updatedItem?: MarketVolumeItem;
+}
+
+/** 交易页「刷新历史价格」的返回：当前统计 + 待刷新的目标卡片（提前展示）。 */
+export interface MarketVolumeRefreshResult {
+  stats: MarketVolumeItemStats;
+  /** 待刷新目标物品的占位卡片（刷新进行中、尚未有历史数据时展示）。 */
+  pending: MarketVolumeItem[];
+}
+
+/** 市场交易额统计（供 Market 页展示）。 */
+export interface MarketVolumeStats {
+  /** 最近一次采样的交易额统计（轮询 24h 滚动快照）；尚未采样时为 null。 */
+  latest: MarketVolumeSample | null;
+  /** 按小时聚合的总交易额走势（升序，最新在最后）。基于 pricehistory 真实小时数据。 */
+  hourly: MarketVolumeHourPoint[];
+  /** 历史统计覆盖的、有有效交易数据的物品种数。 */
+  itemCount: number;
+  /** 各分类覆盖的物品种数：类别 key -> 数量。 */
+  itemCountsByCategory: Record<string, number>;
+  /** 当前货币代码。 */
+  currency: string;
+}
+
+/**
  * 主进程推给 renderer 的 polling 状态快照。`running=true` 表示当前正在跑
  * 一轮；`progress` 反映本轮实时进度。`lastCycleResult`/`lastCycleAtMs`
  * 来自上一轮结束时的快照，可能为 null（启动后从未跑过）。
@@ -801,6 +896,27 @@ export interface AppConfig {
   topmost: WindowTopmostPrefs;
   logHistoryCsv: boolean;
   currency: string;
+  /**
+   * Steam 社区 Cookie 的 `sessionid` 值（会话 ID）。与
+   * `steamCookieLoginSecure` 合成为完整 Cookie 头 `sessionid=<sessionid>;
+   * steamLoginSecure=<...>`。为空时 pricehistory（历史走势）未登录拉取会返回
+   * 400 空数据，此时仅能展示轮询采样回退走势。仅存于本地 config.json，不随 App 上传。
+   */
+  steamCookieSessionid?: string;
+  /**
+   * Steam 社区 Cookie 的 `steamLoginSecure` 值（登录态令牌）。与
+   * `steamCookieSessionid` 合成为完整 Cookie 头，供 `fetchSteamPriceHistory`
+   * 原样作为 `Cookie` 请求头。仅存于本地 config.json，不随 App 上传。
+   */
+  steamCookieLoginSecure?: string;
+  /**
+   * 合成后的完整 Steam 社区 Cookie 头（`sessionid=<...>;
+   * steamLoginSecure=<...>`），由 `steamCookieSessionid` +
+   * `steamCookieLoginSecure` 计算得出，供 `fetchSteamPriceHistory` 原样作为
+   * `Cookie` 请求头。旧版单字段配置（原始完整字符串，可能含 `id` / `sessionid` 等
+   * 键）在加载时迁移解析到新字段后同样合成到本字段。
+   */
+  steamCookie?: string;
   notificationsEnabled: boolean;
   notifyOnUpdateAvailable: boolean;
   notificationVolume: number;
@@ -1668,6 +1784,12 @@ export interface TbhApi {
   getLookupPricePollStatus(): Promise<LookupPricePollingStatus | null>;
   onLookupPricePollStatus(cb: (status: LookupPricePollingStatus) => void): () => void;
   pollLookupPrices(hash?: string): Promise<PollingCycleResult>;
+  getMarketVolume(): Promise<MarketVolumeStats>;
+  onMarketVolume(cb: (stats: MarketVolumeStats) => void): () => void;
+  getMarketVolumeItems(): Promise<MarketVolumeItemStats>;
+  onMarketVolumeItems(cb: (stats: MarketVolumeItemStats) => void): () => void;
+  refreshMarketVolumeItems(): Promise<MarketVolumeRefreshResult>;
+  onMarketVolumeRefreshProgress(cb: (progress: MarketVolumeRefreshProgress) => void): () => void;
   getLiveMemory(): Promise<LiveMemorySnapshot | null>;
   getLiveMemoryStatus(): Promise<LiveMemoryStatus | null>;
   onLiveMemory(cb: (snapshot: LiveMemorySnapshot) => void): () => void;

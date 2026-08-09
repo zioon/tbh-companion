@@ -31,6 +31,16 @@
   "steamMarket": {
     "sectionTitle": "Steam Market",
     "marketCurrency": "Market currency",
+    "cookieSessionidLabel": "Steam Cookie - sessionid",
+    "cookieSessionidHint": "Optional. Take the `sessionid` value (session ID) from your browser's logged-in cookie. Needed only for the Market page's real pricehistory trend — without it, the trend falls back to locally polled samples. The app composes it with steamLoginSecure below into a full cookie header. Stored locally only.",
+    "cookieSessionidPlaceholder": "value of sessionid",
+    "cookieSessionidSaved": "Cookie sessionid saved.",
+    "cookieSessionidCleared": "Cookie sessionid cleared.",
+    "cookieLoginSecureLabel": "Steam Cookie - steamLoginSecure",
+    "cookieLoginSecureHint": "Optional. Take the `steamLoginSecure` value (login token) from your browser's logged-in cookie. The app composes it with sessionid above into `sessionid=<...>; steamLoginSecure=<...>` as a full cookie header. Stored locally only.",
+    "cookieLoginSecurePlaceholder": "value of steamLoginSecure",
+    "cookieLoginSecureSaved": "Cookie steamLoginSecure saved.",
+    "cookieLoginSecureCleared": "Cookie steamLoginSecure cleared.",
     "polling": {
       "sectionTitle": "High-value price polling",
       "intro": "Periodically refresh Steam Market prices for items you own that are worth at least the threshold, plus any you've starred. Updates overlay the Lookup snapshot in real time.",

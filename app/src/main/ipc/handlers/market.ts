@@ -11,4 +11,7 @@ export function registerMarketHandlers(ipc: IpcMain, services: AppServices): voi
   ipc.handle(IPC.MARKET_AUTO_SCAN_TOGGLE, (_e, enabled: boolean) =>
     services.setMarketAutoScanEnabled(enabled),
   );
+  ipc.handle(IPC.GET_MARKET_VOLUME, () => services.getMarketVolume());
+  ipc.handle(IPC.GET_MARKET_VOLUME_ITEMS, () => services.getMarketVolumeItems());
+  ipc.handle(IPC.REFRESH_MARKET_VOLUME_ITEMS, () => services.refreshMarketVolumeItems());
 }

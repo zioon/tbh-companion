@@ -249,6 +249,48 @@ function sanitizeGameInstallDir(raw: unknown): string {
   return trimmed.replace(/\//g, "\\");
 }
 
+/** Coerce a single Steam cookie part (id / steamLoginSecure) to a trimmed string. */
+function sanitizeSteamCookiePart(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.trim();
+}
+
+/**
+ * Compose the two cookie parts into a full Cookie header string
+ * (`sessionid=<...>; steamLoginSecure=<...>`). Empty parts are dropped;
+ * if both are empty the result is "" (not configured).
+ */
+function composeSteamCookie(sessionid: string, loginSecure: string): string {
+  const parts: string[] = [];
+  if (sessionid) parts.push(`sessionid=${sessionid}`);
+  if (loginSecure) parts.push(`steamLoginSecure=${loginSecure}`);
+  return parts.join("; ");
+}
+
+/**
+ * Parse a legacy full cookie string (e.g. `sessionid=...;
+ * steamLoginSecure=...; id=...`) into its `sessionid` and `steamLoginSecure`
+ * parts, so old single-field configs migrate to the two new fields. Also
+ * accepts the previously-used `id` key (aliased to `sessionid`) so pre-
+ * fix configs that stored `id=<...>` still round-trip correctly.
+ * Parts not present come back empty.
+ */
+function parseSteamCookieParts(raw: string): { sessionid: string; loginSecure: string } {
+  const out = { sessionid: "", loginSecure: "" };
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim();
+    const value = part.slice(eq + 1).trim();
+    if (key === "sessionid" || key === "id") {
+      if (!out.sessionid) out.sessionid = value;
+    } else if (key === "steamLoginSecure") {
+      out.loginSecure = value;
+    }
+  }
+  return out;
+}
+
 function normalizeConfig(raw: RawConfig): AppConfig {
   const {
     chestSoundVariant: _legacy,
@@ -264,6 +306,9 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     lootRingSeconds: _ring,
     language: _language,
     gameInstallDir: _gameInstallDir,
+    steamCookie: _steamCookie,
+    steamCookieSessionid: _steamCookieSessionid,
+    steamCookieLoginSecure: _steamCookieLoginSecure,
     topmost: _topmost,
     startTopmost: _legacyTopmost,
     ...rest
@@ -284,6 +329,17 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   const lootRingSeconds = sanitizeLootRingSeconds(raw.lootRingSeconds);
   const language = sanitizeLanguage(raw.language);
   const gameInstallDir = sanitizeGameInstallDir(raw.gameInstallDir);
+  // 拆分后的两个 Cookie 字段；若两者都为空但有旧版单字段配置，则迁移解析到新字段。
+  let steamCookieSessionid = sanitizeSteamCookiePart(raw.steamCookieSessionid);
+  let steamCookieLoginSecure = sanitizeSteamCookiePart(raw.steamCookieLoginSecure);
+  if (!steamCookieSessionid && !steamCookieLoginSecure && _steamCookie) {
+    const legacy = sanitizeSteamCookiePart(_steamCookie);
+    const parsed = parseSteamCookieParts(legacy);
+    steamCookieSessionid = parsed.sessionid;
+    steamCookieLoginSecure = parsed.loginSecure;
+  }
+  // 合成完整 Cookie 头（供 pricehistory 请求原样使用）。
+  const steamCookie = composeSteamCookie(steamCookieSessionid, steamCookieLoginSecure);
   const topmost = sanitizeTopmost(raw);
   return {
     ...DEFAULTS,
@@ -300,6 +356,9 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     lootRingSeconds,
     language,
     gameInstallDir,
+    steamCookie,
+    steamCookieSessionid,
+    steamCookieLoginSecure,
     topmost,
   };
 }

@@ -31,6 +31,16 @@
   "steamMarket": {
     "sectionTitle": "Steam マーケット",
     "marketCurrency": "マーケット通貨",
+    "cookieSessionidLabel": "Steam Cookie - sessionid",
+    "cookieSessionidHint": "任意。ブラウザのログイン Cookie から `sessionid` の値（セッション ID）を入力します。Market ページの実際の pricehistory トレンドにのみ必要です。未設定の場合はローカルポーリングのサンプルにフォールバックします。下の steamLoginSecure と合わせてアプリが完全な Cookie ヘッダーに合成します。ローカルのみに保存されます。",
+    "cookieSessionidPlaceholder": "sessionid の値",
+    "cookieSessionidSaved": "Cookie sessionid を保存しました。",
+    "cookieSessionidCleared": "Cookie sessionid をクリアしました。",
+    "cookieLoginSecureLabel": "Steam Cookie - steamLoginSecure",
+    "cookieLoginSecureHint": "任意。ブラウザのログイン Cookie から `steamLoginSecure` の値（ログイン トークン）を入力します。上の sessionid と合わせてアプリが `sessionid=<...>; steamLoginSecure=<...>` の完全な Cookie ヘッダーに合成します。ローカルのみに保存されます。",
+    "cookieLoginSecurePlaceholder": "steamLoginSecure の値",
+    "cookieLoginSecureSaved": "Cookie steamLoginSecure を保存しました。",
+    "cookieLoginSecureCleared": "Cookie steamLoginSecure をクリアしました。",
     "polling": {
       "sectionTitle": "高価値アイテム価格ポーリング",
       "intro": "所持中かつ閾値以上のアイテムと、スターを付けたアイテムの Steam マーケット価格を定期的に更新します。Lookup スナップショットにリアルタイムで上書きされます。",

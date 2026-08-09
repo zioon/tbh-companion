@@ -16,6 +16,9 @@ export const IPC = {
   STAGE_RUNS: "stage-runs",
   CATALOG_STATUS: "catalog-status",
   LOOKUP_PRICES_POLL_STATUS: "lookup-prices-poll-status",
+  MARKET_VOLUME: "market:volume",
+  MARKET_VOLUME_ITEMS: "market:volume:items",
+  MARKET_VOLUME_REFRESH_PROGRESS: "market:volume-refresh-progress",
 
   // Invoke (renderer → main)
   GET_STATS: "get-stats",
@@ -56,6 +59,9 @@ export const IPC = {
   GET_LOOKUP_PRICES: "get-lookup-prices",
   GET_LOOKUP_PRICES_POLL_STATUS: "get-lookup-prices-poll-status",
   LOOKUP_PRICES_POLL: "lookup-prices-poll",
+  GET_MARKET_VOLUME: "market:get-volume",
+  GET_MARKET_VOLUME_ITEMS: "market:get-volume:items",
+  REFRESH_MARKET_VOLUME_ITEMS: "market:refresh-volume-items",
   GET_LIVE_MEMORY: "get-live-memory",
   GET_LIVE_MEMORY_STATUS: "get-live-memory-status",
   GET_STAGE_RUNS: "get-stage-runs",
@@ -122,6 +128,9 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.GET_LOOKUP_PRICES,
   IPC.GET_LOOKUP_PRICES_POLL_STATUS,
   IPC.LOOKUP_PRICES_POLL,
+  IPC.GET_MARKET_VOLUME,
+  IPC.GET_MARKET_VOLUME_ITEMS,
+  IPC.REFRESH_MARKET_VOLUME_ITEMS,
   IPC.GET_LIVE_MEMORY,
   IPC.GET_LIVE_MEMORY_STATUS,
   IPC.GET_STAGE_RUNS,
@@ -164,4 +173,7 @@ export const IPC_PUSH_CHANNELS = [
   IPC.LOOT_PROMPT_CLASSIFY,
   IPC.CATALOG_STATUS,
   IPC.LOOKUP_PRICES_POLL_STATUS,
+  IPC.MARKET_VOLUME,
+  IPC.MARKET_VOLUME_ITEMS,
+  IPC.MARKET_VOLUME_REFRESH_PROGRESS,
 ] as const;

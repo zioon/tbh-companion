@@ -31,6 +31,16 @@
   "steamMarket": {
     "sectionTitle": "Steam 마켓",
     "marketCurrency": "마켓 통화",
+    "cookieSessionidLabel": "Steam Cookie - sessionid",
+    "cookieSessionidHint": "선택 사항입니다. 브라우저의 로그인 쿠키에서 `sessionid` 값(세션 ID)을 입력하세요. Market 페이지의 실제 pricehistory 추세에만 필요합니다. 미설정 시 로컬 폴링 샘플로 대체됩니다. 아래 steamLoginSecure와 함께 앱이 전체 쿠키 헤더로 합성합니다. 로컬에만 저장됩니다.",
+    "cookieSessionidPlaceholder": "sessionid 값",
+    "cookieSessionidSaved": "쿠키 sessionid가 저장되었습니다.",
+    "cookieSessionidCleared": "쿠키 sessionid가 삭제되었습니다.",
+    "cookieLoginSecureLabel": "Steam Cookie - steamLoginSecure",
+    "cookieLoginSecureHint": "선택 사항입니다. 브라우저의 로그인 쿠키에서 `steamLoginSecure` 값(로그인 토큰)을 입력하세요. 위의 sessionid와 함께 앱이 `sessionid=<...>; steamLoginSecure=<...>` 전체 쿠키 헤더로 합성합니다. 로컬에만 저장됩니다.",
+    "cookieLoginSecurePlaceholder": "steamLoginSecure 값",
+    "cookieLoginSecureSaved": "쿠키 steamLoginSecure가 저장되었습니다.",
+    "cookieLoginSecureCleared": "쿠키 steamLoginSecure가 삭제되었습니다.",
     "polling": {
       "sectionTitle": "고가 아이템 가격 폴링",
       "intro": "보유 중이고 임계값 이상인 아이템, 그리고 별표 표시한 아이템의 Steam 마켓 가격을 주기적으로 새로고침합니다. Lookup 스냅샷에 실시간으로 덮어쓰기됩니다.",

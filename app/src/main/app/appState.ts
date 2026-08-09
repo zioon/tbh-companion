@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, type OpenDialogOptions } from "electron";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import {
   loadConfig,
@@ -18,6 +19,7 @@ import { SessionStateService } from "../services/SessionStateService";
 import { LookupService } from "../services/LookupService";
 import { LookupPriceService } from "../services/LookupPriceService";
 import { LookupPricePollingService } from "../services/LookupPricePollingService";
+import { MarketVolumeService } from "../services/MarketVolumeService";
 import { getSteamItemNameIdService } from "../services/steamItemNameId";
 import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
@@ -27,7 +29,12 @@ import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { IPC } from "../../../shared/ipc";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
-import { clearAppDataFiles, getAppDataPaths, resolveUserDataDir } from "../services/appData";
+import {
+  clearAppDataFiles,
+  getAppDataPaths,
+  LOOKUP_POLLING_CACHE_FILE,
+  resolveUserDataDir,
+} from "../services/appData";
 import { UpdateService } from "../services/UpdateService";
 import { NotificationService } from "../services/NotificationService";
 import type {
@@ -48,6 +55,8 @@ import { applyWindowTopmost } from "../windows/alwaysOnTop";
 import { changeLanguage, readGameLanguage, t } from "../i18n";
 import { resolveLanguage, type ResolvedLanguage } from "../../../shared/language";
 import { loadLocaleCatalog, mergeGameLocaleIntoCatalog } from "../../core/localeCatalog";
+import { selectHistoryRefreshTargets } from "../../core/lookupPrice";
+import { POLLING_DEFAULT_THRESHOLD_USD } from "../services/LookupPricePollingService";
 
 let config: AppConfig;
 
@@ -117,16 +126,79 @@ const boxTimers = new BoxTimerService();
 const stageRuns = new StageRunService();
 const lookup = new LookupService();
 const lookupPrices = new LookupPriceService();
+const marketVolume = new MarketVolumeService({
+  getCatalog: () => lookup.getCatalog(),
+  getCurrency: () => config.currency,
+  // 用户填写的 Steam 社区 Cookie（可为空）；带上后 pricehistory（历史走势）
+  // 才能拿到登录后的真实历史成交额，否则回退到轮询采样走势。
+  getCookie: () => config.steamCookie ?? "",
+  // 历史走势覆盖 owned ∪ watched 的物品集合（与轮询目标一致，控制 pricehistory 请求量）。
+  getTargetHashes: () => {
+    const watched = config.lookupPricePolling.watchedHashes ?? [];
+    return [...new Set([...inventory.getOwnedPriceHashes(), ...watched])];
+  },
+  // 交易页「刷新历史价格」的实时进度：转为 MarketVolumeRefreshProgress 推给 renderer。
+  onHistoryProgress: (p) => {
+    broadcast(IPC.MARKET_VOLUME_REFRESH_PROGRESS, {
+      running: p.running,
+      total: p.total,
+      done: p.done,
+      currentHash: p.current,
+      ...(p.updatedItem ? { updatedItem: p.updatedItem } : {}),
+    });
+  },
+});
 const lookupPricePolling = new LookupPricePollingService({
   lookupPrices,
-  getOwnedHashes: () => inventory.getOwnedPriceHashes(),
   getCurrency: () => config.currency,
+  // 持久化「上次成功 cycle」时间戳：6h 刷新缓存跨重启生效，避免重启/手动刷新
+  // 重跑全量 cycle（>10 个目标）触发 Steam 限流。与市场交易额的 pricehistory
+  // 缓存同理。
+  loadLastSuccessfulCycleAtMs: () => {
+    try {
+      const p = join(resolveUserDataDir(), LOOKUP_POLLING_CACHE_FILE);
+      if (!existsSync(p)) return null;
+      const raw = JSON.parse(readFileSync(p, "utf-8").replace(/^\uFEFF/, "")) as {
+        lastSuccessfulCycleAtMs?: unknown;
+      };
+      return typeof raw.lastSuccessfulCycleAtMs === "number" ? raw.lastSuccessfulCycleAtMs : null;
+    } catch {
+      return null;
+    }
+  },
+  saveLastSuccessfulCycleAtMs: (ms) => {
+    try {
+      const p = join(resolveUserDataDir(), LOOKUP_POLLING_CACHE_FILE);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, JSON.stringify({ lastSuccessfulCycleAtMs: ms }));
+    } catch {
+      // 缓存写入失败不影响轮询主流程，下次启动重新抓取即可
+    }
+  },
   // 注入共享的 nameId 单例，让 polling 在抓 buyOrder 时复用客户端已有的
   // item_nameid 缓存（bundled map + userData/steam_item_nameids.json），
   // 避免每个 hash 都重新抓 listing HTML。未注入时 polling 跳过 buyOrder。
   nameIdService: getSteamItemNameIdService(),
   broadcast: (channel, payload) => broadcast(channel, payload),
   onStatusChange: (status) => broadcast(IPC.LOOKUP_PRICES_POLL_STATUS, status),
+  // 市场交易额：把每次抓到的成交量累积进 MarketVolumeService，每轮结束聚合
+  // 一次采样并广播给 renderer。
+  onVolumeSample: (sample) =>
+    marketVolume.recordVolume(sample.hash, sample.volume, sample.median, sample.currency),
+  onCycleEnd: () => {
+    const updated = marketVolume.sampleNow();
+    if (updated) {
+      broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+      broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+    }
+    // 轮询结束后顺带刷新一次 pricehistory 历史走势（带缓存去抖，不阻塞轮询）。
+    marketVolume.refreshHistory().then((didRefresh) => {
+      if (didRefresh) {
+        broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+        broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+      }
+    });
+  },
 });
 const liveMemory = new LiveMemoryService();
 const catalogRefresh = new CatalogRefreshService(
@@ -636,7 +708,50 @@ export function getAppServices() {
     getLookupPrices: () => lookupPrices.getSnapshot(),
     getLookupPricePollStatus: () => lookupPricePolling.getPollingStatus(),
     pollLookupPrices: (hash?: string) =>
-      hash ? lookupPricePolling.pollSingleHash(hash) : lookupPricePolling.pollOnce(),
+      hash ? lookupPricePolling.pollSingleHash(hash) : lookupPricePolling.pollOnce(true), // 手动「立即刷新」绕过 6h 缓存
+    getMarketVolume: () => {
+      const stats = marketVolume.getStats();
+      // 打开 Market 页时按需刷新一次 pricehistory 历史走势（带缓存去抖）。
+      marketVolume.refreshHistory().then((didRefresh) => {
+        if (didRefresh) {
+          broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+          broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+        }
+      });
+      return stats;
+    },
+    getMarketVolumeItems: () => {
+      const items = marketVolume.getVolumeItems();
+      // 打开交易页时按需刷新一次 pricehistory 历史走势（带缓存去抖），
+      // 让物品卡片尽量带上逐小时走势；刷新成功推送新数据。
+      marketVolume.refreshHistory().then((didRefresh) => {
+        if (didRefresh) broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+      });
+      return items;
+    },
+    // 交易页「刷新历史价格」按钮：强制拉取「星标 ∪ 快照价格达到阈值」的物品的
+    // pricehistory，绕过 30min 缓存，刷新成功后推送交易额走势与物品卡片。
+    refreshMarketVolumeItems: () => {
+      const items = marketVolume.getVolumeItems();
+      const snapshot = lookupPrices.getSnapshot();
+      const polling = config.lookupPricePolling ?? {};
+      const targets = selectHistoryRefreshTargets({
+        snapshot,
+        watchedHashes: polling.watchedHashes ?? [],
+        thresholdUsd: polling.thresholdUsd ?? POLLING_DEFAULT_THRESHOLD_USD,
+      });
+      // 二次及以后刷新按交易额从高到低依次刷新：占位卡片与拉取顺序都先服务
+      // 交易额高的物品。首次刷新（尚无交易额数据）保持目标集原顺序（星标优先、
+      // 快照达标按价格降序）。
+      const orderedTargets = marketVolume.sortTargetsByVolume(targets);
+      // 待刷新目标物品的占位卡片（刷新进行中提前展示）。
+      const pending = marketVolume.buildPendingItems(orderedTargets);
+      marketVolume.refreshHistory(Date.now(), { targets: orderedTargets, force: true }).then(() => {
+        broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+        broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+      });
+      return { stats: items, pending };
+    },
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),

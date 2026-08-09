@@ -36,7 +36,6 @@ function snapshot(prices: Record<string, number | null>): LookupPriceSnapshot {
  */
 function makeService(opts: {
   snapshot?: LookupPriceSnapshot | null;
-  ownedHashes?: string[];
   fetchUsd?: (hash: string) => Promise<{ ok: boolean; usd: number | null; rateLimited: boolean }>;
   fetchLocal?: (
     hash: string,
@@ -53,7 +52,12 @@ function makeService(opts: {
   ) => Promise<{ ok: boolean; buyOrder: number | null; rateLimited: boolean }>;
   getCurrency?: () => string;
   sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  loadLastSuccessfulCycleAtMs?: () => number | null;
+  saveLastSuccessfulCycleAtMs?: (ms: number) => void;
   initialConfig?: Partial<LookupPricePollingConfig>;
+  /** 便捷字段：合并进 initialConfig.watchedHashes（图鉴仅轮询星标物品）。 */
+  watchedHashes?: string[];
 }): {
   service: LookupPricePollingService;
   broadcasts: Array<{ channel: string; payload: unknown }>;
@@ -74,16 +78,22 @@ function makeService(opts: {
   const service = new LookupPricePollingService(
     {
       lookupPrices,
-      getOwnedHashes: () => opts.ownedHashes ?? [],
       getCurrency: opts.getCurrency ?? (() => "USD"),
       broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
       fetchUsd: opts.fetchUsd,
       fetchLocal: opts.fetchLocal,
       fetchBuyOrder: opts.fetchBuyOrder,
       sleep: opts.sleep ?? (() => Promise.resolve()),
+      now: opts.now,
+      loadLastSuccessfulCycleAtMs: opts.loadLastSuccessfulCycleAtMs,
+      saveLastSuccessfulCycleAtMs: opts.saveLastSuccessfulCycleAtMs,
     },
     opts.initialConfig,
   );
+  // 便捷字段：非空时把 opts.watchedHashes 合并进 config（图鉴仅轮询星标物品）。
+  if (opts.watchedHashes && opts.watchedHashes.length > 0) {
+    service.setConfig({ watchedHashes: opts.watchedHashes });
+  }
   return { service, broadcasts };
 }
 
@@ -142,7 +152,7 @@ describe("LookupPricePollingService.pollOnce", () => {
   it("returns 0 targets when nothing owned/watched and no snapshot", async () => {
     const { service } = makeService({
       snapshot: null,
-      ownedHashes: [],
+      watchedHashes: [],
       initialConfig: { enabled: true },
     });
     const result = await service.pollOnce();
@@ -150,7 +160,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     expect(result.priced).toBe(0);
   });
 
-  it("fetches and merges prices for owned items; high-value first, regular after", async () => {
+  it("fetches and merges prices for watched (starred) items in given order", async () => {
     const snap = snapshot({ Expensive: 5.0, Cheap: 0.05 });
     const fetchUsd = vi.fn(async (hash: string) => ({
       ok: true,
@@ -159,14 +169,13 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["Expensive", "Cheap"],
+      watchedHashes: ["Expensive", "Cheap"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
 
     const result = await service.pollOnce();
-    // 新逻辑：owned + priceable 全入选，threshold 仅用于排序
-    // Expensive (5.0 >= 1.0) 高价值排前，Cheap (0.05 < 1.0) 常规排后
+    // 新逻辑：图鉴只轮询星标（watched）物品，walked 顺序保留，threshold 不参与筛选
     expect(result.targets).toBe(2);
     expect(result.priced).toBe(2); // 两个都 ok=true（Cheap 返回 null 也算 priced）
     expect(fetchUsd).toHaveBeenCalledTimes(2);
@@ -191,7 +200,6 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service } = makeService({
       snapshot: snap,
-      ownedHashes: [],
       fetchUsd,
       initialConfig: {
         enabled: true,
@@ -220,7 +228,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service } = makeService({
       snapshot: snap,
-      ownedHashes: ["A", "B", "C", "D", "E"],
+      watchedHashes: ["A", "B", "C", "D", "E"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
@@ -248,7 +256,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     });
     const { service } = makeService({
       snapshot: snap,
-      ownedHashes: ["A", "B", "C", "D"],
+      watchedHashes: ["A", "B", "C", "D"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
@@ -268,7 +276,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["A"],
+      watchedHashes: ["A"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
@@ -293,7 +301,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["A"],
+      watchedHashes: ["A"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
@@ -320,7 +328,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     });
     const { service } = makeService({
       snapshot: snap,
-      ownedHashes: ["A"],
+      watchedHashes: ["A"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
@@ -352,7 +360,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     const fetchUsd = vi.fn(async () => ({ ok: true, usd: 99, rateLimited: false }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["A", "B"],
+      watchedHashes: ["A", "B"],
       fetchLocal,
       fetchUsd,
       getCurrency: () => "BRL",
@@ -400,7 +408,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["A", "B"],
+      watchedHashes: ["A", "B"],
       fetchLocal,
       fetchBuyOrder,
       getCurrency: () => "BRL",
@@ -435,7 +443,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["A"],
+      watchedHashes: ["A"],
       fetchLocal,
       getCurrency: () => "BRL",
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
@@ -465,7 +473,7 @@ describe("LookupPricePollingService.pollOnce", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: ["A"],
+      watchedHashes: ["A"],
       fetchLocal,
       fetchBuyOrder,
       getCurrency: () => "BRL",
@@ -476,6 +484,145 @@ describe("LookupPricePollingService.pollOnce", () => {
     const payload = broadcasts[0].payload as LookupPriceSnapshot;
     // buyOrderLocal[hash] = null 表示「已确认无收购单」
     expect(payload.buyOrderLocal?.["A"]).toBeNull();
+  });
+
+  it("6h 刷新缓存：上次成功 cycle 距今不足 6h 时 pollOnce 跳过不抓取", async () => {
+    const snap = snapshot({ A: 5.0 });
+    let now = Date.UTC(2026, 7, 7, 10, 0, 0);
+    const fetchUsd = vi.fn(async () => ({ ok: true, usd: 6.0, rateLimited: false }));
+    const { service } = makeService({
+      snapshot: snap,
+      watchedHashes: ["A"],
+      fetchUsd,
+      now: () => now,
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    // 首次 cycle 成功，触发抓取
+    const first = await service.pollOnce();
+    expect(first.priced).toBe(1);
+    expect(fetchUsd).toHaveBeenCalledTimes(1);
+
+    // 3h 后再次触发：命中 6h 缓存 → 跳过，不抓取
+    now += 3 * 3600_000;
+    const second = await service.pollOnce();
+    expect(second.aborted).toBe(false);
+    expect(second.targets).toBe(0);
+    expect(fetchUsd).toHaveBeenCalledTimes(1);
+
+    // 6h 缓存过期后再次触发 → 重新抓取
+    now += 4 * 3600_000;
+    const third = await service.pollOnce();
+    expect(third.priced).toBe(1);
+    expect(fetchUsd).toHaveBeenCalledTimes(2);
+  });
+
+  it("持久化：上次成功 cycle 时间戳保存后，新实例启动即命中 6h 缓存不抓取", async () => {
+    const snap = snapshot({ A: 5.0, B: 8.0 });
+    let now = Date.UTC(2026, 7, 7, 10, 0, 0);
+    let persisted: number | null = null;
+    const fetchUsd = vi.fn(async () => ({ ok: true, usd: 6.0, rateLimited: false }));
+
+    // 第一个实例跑完整 cycle 成功，并把时间戳持久化
+    const { service: s1 } = makeService({
+      snapshot: snap,
+      watchedHashes: ["A", "B"],
+      fetchUsd,
+      now: () => now,
+      saveLastSuccessfulCycleAtMs: (ms) => {
+        persisted = ms;
+      },
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+    const first = await s1.pollOnce();
+    expect(first.priced).toBe(2);
+    expect(persisted).toBe(now);
+
+    // 模拟重启：新实例从 loadLastSuccessfulCycleAtMs 恢复时间戳，2h 后触发
+    now += 2 * 3600_000;
+    const { service: s2 } = makeService({
+      snapshot: snap,
+      watchedHashes: ["A", "B"],
+      fetchUsd,
+      now: () => now,
+      loadLastSuccessfulCycleAtMs: () => persisted,
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+    const second = await s2.pollOnce();
+    expect(second.aborted).toBe(false);
+    expect(second.targets).toBe(0);
+    expect(fetchUsd).toHaveBeenCalledTimes(2); // 仅第一次实例抓过
+
+    // 超过 6h 后新实例应重新抓取
+    now += 5 * 3600_000;
+    const { service: s3 } = makeService({
+      snapshot: snap,
+      watchedHashes: ["A", "B"],
+      fetchUsd,
+      now: () => now,
+      loadLastSuccessfulCycleAtMs: () => persisted,
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+    const third = await s3.pollOnce();
+    expect(third.priced).toBe(2);
+    expect(fetchUsd).toHaveBeenCalledTimes(4);
+  });
+
+  it("手动 force：6h 缓存未过期时 pollOnce(true) 仍抓取", async () => {
+    const snap = snapshot({ A: 5.0 });
+    let now = Date.UTC(2026, 7, 7, 10, 0, 0);
+    const fetchUsd = vi.fn(async () => ({ ok: true, usd: 6.0, rateLimited: false }));
+    const { service } = makeService({
+      snapshot: snap,
+      watchedHashes: ["A"],
+      fetchUsd,
+      now: () => now,
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    // 首次 cycle 成功，触发抓取
+    const first = await service.pollOnce();
+    expect(first.priced).toBe(1);
+    expect(fetchUsd).toHaveBeenCalledTimes(1);
+
+    // 3h 后：自动 pollOnce() 仍受 6h 缓存约束跳过
+    now += 3 * 3600_000;
+    const auto = await service.pollOnce();
+    expect(auto.targets).toBe(0);
+    expect(fetchUsd).toHaveBeenCalledTimes(1);
+
+    // 但 pollOnce(true) 手动触发绕过 cooldown，立即重新抓取
+    const forced = await service.pollOnce(true);
+    expect(forced.priced).toBe(1);
+    expect(fetchUsd).toHaveBeenCalledTimes(2);
+  });
+
+  it("pollOnce 分批：超过 10 个目标时，每批 10 个后等待 2 分钟再拉下一批", async () => {
+    const hashes = Array.from({ length: 12 }, (_, i) => "H" + String(i).padStart(2, "0"));
+    const snap = snapshot(Object.fromEntries(hashes.map((h) => [h, 5.0])));
+    const sleeps: number[] = [];
+    const fetchLocal = vi.fn(async () => ({
+      ok: true,
+      amount: 6.0,
+      median: 6.0,
+      rateLimited: false,
+    }));
+    const { service } = makeService({
+      snapshot: snap,
+      watchedHashes: hashes,
+      fetchLocal,
+      sleep: async (ms: number) => {
+        sleeps.push(ms);
+      },
+      initialConfig: { enabled: true, thresholdUsd: 1.0 },
+    });
+
+    const res = await service.pollOnce();
+    expect(res.priced).toBe(12);
+    expect(fetchLocal).toHaveBeenCalledTimes(12);
+    // 12 个目标 = 批 10 + 批 2 → 恰好 1 次 2 分钟批间等待
+    const batchGaps = sleeps.filter((ms) => ms === 2 * 60 * 1000);
+    expect(batchGaps.length).toBe(1);
   });
 });
 
@@ -529,7 +676,7 @@ describe("LookupPricePollingService.pollSingleHash", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: [], // 不 owned 也能抓
+      watchedHashes: [], // 不 owned 也能抓
       fetchLocal,
       fetchBuyOrder,
       getCurrency: () => "CNY",
@@ -570,7 +717,7 @@ describe("LookupPricePollingService.pollSingleHash", () => {
     });
     const { service } = makeService({
       snapshot: snap,
-      ownedHashes: ["A"],
+      watchedHashes: ["A"],
       fetchUsd,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
@@ -594,7 +741,7 @@ describe("LookupPricePollingService.pollSingleHash", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: [],
+      watchedHashes: [],
       fetchLocal,
       getCurrency: () => "CNY",
     });
@@ -620,7 +767,7 @@ describe("LookupPricePollingService.pollSingleHash", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: [],
+      watchedHashes: [],
       fetchLocal,
       fetchBuyOrder,
       getCurrency: () => "BRL",
@@ -649,7 +796,7 @@ describe("LookupPricePollingService.pollSingleHash", () => {
     }));
     const { service, broadcasts } = makeService({
       snapshot: snap,
-      ownedHashes: [],
+      watchedHashes: [],
       fetchLocal,
       getCurrency: () => "CNY",
     });

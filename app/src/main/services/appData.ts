@@ -14,6 +14,8 @@ export const STAGE_RUN_FILE = "stage_run_history.json";
 export const SESSION_STATE_FILE = "session_state.json";
 export const CONFIG_FILE = "config.json";
 export const LOOKUP_PRICES_FILE = "lookup_prices.json";
+/** 图鉴轮询「上次成功 cycle」时间戳缓存（6h 刷新判定跨重启生效）。 */
+export const LOOKUP_POLLING_CACHE_FILE = "lookup_polling_cache.json";
 const PRICE_CACHE_PREFIX = "prices.";
 const PRICE_CACHE_SUFFIX = ".json";
 

@@ -13,6 +13,7 @@ export type TabId =
   | "pets"
   | "lookup"
   | "market"
+  | "trading"
   | "settings"
   | "about"
   | "debug";
@@ -25,6 +26,7 @@ const TAB_IDS: TabId[] = [
   "pets",
   "lookup",
   "market",
+  "trading",
   "settings",
   "about",
 ];

@@ -262,3 +262,79 @@ describe("topmost", () => {
     ).toEqual({ main: true, overlay: true, boxTracker: true });
   });
 });
+
+describe("steamCookie", () => {
+  it("defaults all fields to empty when missing", () => {
+    const c = mod.normalizeConfigFromRaw({});
+    expect(c.steamCookie).toBe("");
+    expect(c.steamCookieSessionid).toBe("");
+    expect(c.steamCookieLoginSecure).toBe("");
+  });
+
+  it("composes cookie from the two split fields", () => {
+    const c = mod.normalizeConfigFromRaw({
+      steamCookieSessionid: " abc123 ",
+      steamCookieLoginSecure: " tok%7C%7Cxyz ",
+    });
+    expect(c.steamCookieSessionid).toBe("abc123");
+    expect(c.steamCookieLoginSecure).toBe("tok%7C%7Cxyz");
+    expect(c.steamCookie).toBe("sessionid=abc123; steamLoginSecure=tok%7C%7Cxyz");
+  });
+
+  it("drops empty split fields when composing", () => {
+    expect(mod.normalizeConfigFromRaw({ steamCookieSessionid: "sid1" }).steamCookie).toBe(
+      "sessionid=sid1",
+    );
+    expect(mod.normalizeConfigFromRaw({ steamCookieLoginSecure: "tok" }).steamCookie).toBe(
+      "steamLoginSecure=tok",
+    );
+  });
+
+  it("migrates legacy single-field cookie to the split fields (sessionid key)", () => {
+    const c = mod.normalizeConfigFromRaw({
+      steamCookie: " Steam_Language=english; sessionid=abc123; steamLoginSecure=%7C%7Ctok ",
+    });
+    expect(c.steamCookieSessionid).toBe("abc123");
+    expect(c.steamCookieLoginSecure).toBe("%7C%7Ctok");
+    expect(c.steamCookie).toBe("sessionid=abc123; steamLoginSecure=%7C%7Ctok");
+  });
+
+  it("also accepts legacy `id` key aliased to sessionid (back-compat)", () => {
+    const c = mod.normalizeConfigFromRaw({
+      steamCookie: "id=76561198000000000; steamLoginSecure=%7C%7Ctok",
+    });
+    expect(c.steamCookieSessionid).toBe("76561198000000000");
+    expect(c.steamCookieLoginSecure).toBe("%7C%7Ctok");
+    expect(c.steamCookie).toBe("sessionid=76561198000000000; steamLoginSecure=%7C%7Ctok");
+  });
+
+  it("keeps split fields when legacy is also present (split wins)", () => {
+    const c = mod.normalizeConfigFromRaw({
+      steamCookie: "sessionid=legacy; steamLoginSecure=old",
+      steamCookieSessionid: "newsid",
+      steamCookieLoginSecure: "newtok",
+    });
+    expect(c.steamCookieSessionid).toBe("newsid");
+    expect(c.steamCookieLoginSecure).toBe("newtok");
+    expect(c.steamCookie).toBe("sessionid=newsid; steamLoginSecure=newtok");
+  });
+
+  it("results in empty cookie when legacy has no sessionid/steamLoginSecure parts", () => {
+    const c = mod.normalizeConfigFromRaw({
+      steamCookie: "Steam_Language=english; webTradeEligibility=1",
+    });
+    expect(c.steamCookie).toBe("");
+    expect(c.steamCookieSessionid).toBe("");
+    expect(c.steamCookieLoginSecure).toBe("");
+  });
+
+  it("coerces non-string split fields to empty", () => {
+    const c = mod.normalizeConfigFromRaw({
+      steamCookieSessionid: 42,
+      steamCookieLoginSecure: 7,
+    } as never);
+    expect(c.steamCookie).toBe("");
+    expect(c.steamCookieSessionid).toBe("");
+    expect(c.steamCookieLoginSecure).toBe("");
+  });
+});

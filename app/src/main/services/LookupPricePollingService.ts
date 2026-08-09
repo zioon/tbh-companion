@@ -2,9 +2,11 @@
 //
 // 与图鉴共享快照（LookupPriceService，每 30 分钟从 GitHub release 拉取 CI
 // 每 6 小时构建的 prices.json）互补：开启后客户端在本地周期性调用 Steam
-// priceoverview + itemordershistogram 接口，刷新「已拥有且估值达阈值」或
-// 「用户收藏」的物品价格，并 merge 进内存中的 LookupPriceSnapshot，让图鉴
-// tab 立刻看到更新的价格。
+// priceoverview + itemordershistogram 接口，刷新「用户收藏（星标）」物品的
+// 价格，并 merge 进内存中的 LookupPriceSnapshot，让图鉴 tab 立刻看到更新的
+// 价格。图鉴页仅更新星标物品；交易页「刷新历史价格」另有全量高价值集合
+// （星标 ∪ 快照价格达阈值，见 core/lookupPrice/polling.ts 的
+// selectHistoryRefreshTargets 与 MarketVolumeService）。
 //
 // 抓取三档价格（与 UI 三行对齐）：
 //   - pricesLocal[hash]      = 最低出售价（priceoverview.lowest_price）
@@ -19,7 +21,7 @@
 //   - buyOrder 抓取需要 item_nameid；nameid 解析失败时跳过 buyOrder，不影响
 //     最低出售价和成交价的写入
 //   - 与 inventory 的「auto scan」是独立的：那个抓玩家拥有的全部物品；
-//     这个只盯「图鉴快照里 ≥ 阈值」的子集，并 merge 到图鉴快照（不进 prices.<CUR>.json）
+//     这个只盯「用户收藏（星标）」的子集，并 merge 到图鉴快照（不进 prices.<CUR>.json）
 
 import type {
   LookupPricePollingPrefs,
@@ -42,20 +44,25 @@ export const POLLING_DEFAULT_INTERVAL_MIN = 10;
 export const POLLING_DEFAULT_THRESHOLD_USD = 1.0;
 /** 单次轮询调用之间的延迟（ms）。匹配 SteamMarketProvider 的 3s 节流。 */
 const FETCH_DELAY_MS = 3000;
+/** 每批轮询最多处理的物品数（Steam priceoverview 限流较严，约超过 10 个即触发，故每批封顶 10 个）。 */
+const MAX_TARGETS_PER_BATCH = 10;
+/** 批间等待（ms）：每拉完一批（MAX_TARGETS_PER_BATCH 个）后等待 2 分钟再拉下一批，规避 Steam 限流。
+ * 与市场交易额 refreshHistory 的 HISTORY_BATCH_DELAY_MS 同理；pollOnce（周期 + 手动刷新全部）共用。 */
+const BATCH_GAP_MS = 2 * 60 * 1000;
 /** 429 后的退避乘子（延迟 × 2）。 */
 const RATE_LIMIT_BACKOFF_MS = 6000;
 /** 连续 429 次数达到此阈值则中止本轮轮询（避免反复撞 Steam 限流墙）。 */
 const MAX_CONSECUTIVE_RATE_LIMITS = 3;
+/** 全量 cycle 的最小刷新间隔（ms）：上次成功 cycle 距今 < 6h 则跳过，避免超限。 */
+const POLLING_MIN_REFRESH_MS = 6 * 3600 * 1000;
 
 // 本地配置形态（与 shared/types 的 LookupPricePollingPrefs 同形；保留独立
 // 类型名是为了让 service 内部的配置语义清晰，且能在 sanitize 时复用）。
 export type LookupPricePollingConfig = LookupPricePollingPrefs;
 
 export interface LookupPricePollingDeps {
-  /** 拿当前内存中的图鉴快照（用于 merge 与目标筛选）。 */
+  /** 拿当前内存中的图鉴快照（用于 merge）。 */
   lookupPrices: LookupPriceService;
-  /** 拿当前玩家拥有物品的 hash 列表（来自 InventoryService）。 */
-  getOwnedHashes: () => string[];
   /** 广播通道（一般绑定到 IPC.LOOKUP_PRICES 的 broadcast 函数）。 */
   broadcast: (channel: string, payload: unknown) => void;
   /**
@@ -83,6 +90,8 @@ export interface LookupPricePollingDeps {
     ok: boolean;
     amount: number | null;
     median?: number | null;
+    /** 24h 成交量（可选项，用于市场交易额统计）。 */
+    volume?: number;
     rateLimited: boolean;
   }>;
   /**
@@ -95,11 +104,38 @@ export interface LookupPricePollingDeps {
   ) => Promise<{ ok: boolean; buyOrder: number | null; rateLimited: boolean }>;
   /** 注入用于测试；默认 setTimeout。 */
   sleep?: (ms: number) => Promise<void>;
+  /** 注入用于测试；默认 Date.now。供 6h 刷新缓存判定使用。 */
+  now?: () => number;
+  /**
+   * 读取上次「成功」cycle 的时间戳（ms），供 6h 刷新缓存判定。持久化到磁盘后
+   * 重启应用仍能命中缓存，避免每次启动/手动刷新都重跑全量 cycle 触发限量。
+   * 未注入时视为无历史（null），首次 cycle 不跳过。
+   */
+  loadLastSuccessfulCycleAtMs?: () => number | null;
+  /**
+   * 持久化上次「成功」（至少抓到 1 个价格）cycle 的时间戳（ms）。与
+   * {@link loadLastSuccessfulCycleAtMs} 成对出现；未注入则仅保留内存态。
+   */
+  saveLastSuccessfulCycleAtMs?: (ms: number) => void;
   /**
    * 状态变更回调（cycle 开始/每个 item 完成/cycle 结束）。用于向 renderer
    * 广播 polling 进度（IPC.LOOKUP_PRICES_POLL_STATUS）。可选。
    */
   onStatusChange?: (status: LookupPricePollingStatus) => void;
+  /**
+   * 单次成功抓取到成交量时回调（用于市场交易额统计）。可选。
+   */
+  onVolumeSample?: (sample: {
+    hash: string;
+    volume: number;
+    median: number | null;
+    currency: string;
+  }) => void;
+  /**
+   * 一轮轮询结束（成功抓取到至少 1 个价格）时回调，供市场交易额服务
+   * 在其后聚合并持久化一次采样。可选。
+   */
+  onCycleEnd?: () => void;
 }
 
 export type { LookupPricePollingStatus, PollingCycleResult };
@@ -157,6 +193,8 @@ export class LookupPricePollingService {
   /** 上次轮询结果（供 UI 显示「上次更新时间」）。 */
   private lastCycleResult: PollingCycleResult | null = null;
   private lastCycleAtMs: number | null = null;
+  /** 上次「成功」（至少抓到 1 个价格）的 cycle 时间（6h 刷新缓存判定用）。 */
+  private lastSuccessfulCycleAtMs: number | null = null;
   /** 当前轮询的实时进度（cycle 结束后清回 null）。 */
   private currentProgress: {
     targets: number;
@@ -173,6 +211,8 @@ export class LookupPricePollingService {
     if (initialConfig) {
       this.config = sanitizePollingConfig(initialConfig);
     }
+    // 从磁盘恢复上次成功 cycle 时间，使 6h 刷新缓存跨重启生效。
+    this.lastSuccessfulCycleAtMs = deps.loadLastSuccessfulCycleAtMs?.() ?? null;
   }
 
   /** 当前配置（UI 可读，不应直接修改）。 */
@@ -286,8 +326,8 @@ export class LookupPricePollingService {
     log.info(
       `start: interval=${this.config.intervalMinutes}min threshold=$${this.config.thresholdUsd} watched=${this.config.watchedHashes.length}`,
     );
-    // 立即触发一次，让用户开开关后很快看到效果
-    void this.pollOnce();
+    // 立即触发一次，让用户开开关后很快看到效果（手动，绕过 6h 缓存）
+    void this.pollOnce(true);
     const ms = this.config.intervalMinutes * 60 * 1000;
     this.timer = setInterval(() => void this.pollOnce(), ms);
   }
@@ -304,8 +344,14 @@ export class LookupPricePollingService {
     return this.cycleRunning;
   }
 
-  /** 单轮轮询。可被测试直接调用。 */
-  async pollOnce(): Promise<PollingCycleResult> {
+  /**
+   * 单轮轮询。可被测试直接调用。
+   *
+   * @param force 手动触发（用户点击「立即刷新」、开启开关时的首次触发）传
+   *   `true`，绕过 6h 刷新缓存；周期 timer 走默认 `false`，仍受 cooldown
+   *   约束，避免反复撞 Steam 限流。
+   */
+  async pollOnce(force = false): Promise<PollingCycleResult> {
     if (this.cycleRunning) {
       log.info("skip: previous cycle still running");
       return {
@@ -319,20 +365,28 @@ export class LookupPricePollingService {
     if (!this.config.enabled) {
       return { targets: 0, priced: 0, rateLimited: 0, failed: 0, aborted: true };
     }
+    // 6h 刷新缓存：上次成功 cycle 距今不足 6h 则跳过，避免反复触发 Steam 限流。
+    // 与市场交易额的 pricehistory 缓存同理；手动「立即刷新」与周期 timer 都走
+    // 本方法，故统一受此 cooldown 约束。
+    if (
+      !force &&
+      this.lastSuccessfulCycleAtMs != null &&
+      this.nowMs() - this.lastSuccessfulCycleAtMs < POLLING_MIN_REFRESH_MS
+    ) {
+      log.info("cycle skip: within 6h refresh cache");
+      return { targets: 0, priced: 0, rateLimited: 0, failed: 0, aborted: false };
+    }
 
     this.cycleRunning = true;
     try {
-      const snapshot = this.deps.lookupPrices.getSnapshot();
-      const ownedHashes = this.deps.getOwnedHashes();
+      // 图鉴页仅更新星标（watched）物品的价格；阈值与拥有物不再参与本地轮询
+      // 目标筛选（交易页「刷新历史价格」另有全量高价值集合，见 MarketVolumeService）。
       const targets = selectPollingTargets({
-        snapshot,
-        ownedHashes,
         watchedHashes: this.config.watchedHashes,
-        thresholdUsd: this.config.thresholdUsd,
       });
 
       if (targets.length === 0) {
-        log.info("cycle: no targets (skip)");
+        log.info("cycle: no targets (no watched items)");
         const result: PollingCycleResult = {
           targets: 0,
           priced: 0,
@@ -347,7 +401,7 @@ export class LookupPricePollingService {
       }
 
       log.info(
-        `cycle start: ${targets.length} targets (owned=${ownedHashes.length} watched=${this.config.watchedHashes.length} threshold=$${this.config.thresholdUsd})`,
+        `cycle start: ${targets.length} targets (watched=${this.config.watchedHashes.length})`,
       );
 
       let consecutiveRateLimits = 0;
@@ -373,7 +427,8 @@ export class LookupPricePollingService {
       };
       this.emitStatus();
 
-      for (const hash of targets) {
+      for (let i = 0; i < targets.length; i++) {
+        const hash = targets[i];
         const result = await this.fetchOne(hash, targetCurrency);
         if (result.rateLimited) {
           rateLimited++;
@@ -410,6 +465,13 @@ export class LookupPricePollingService {
           }
           updatedFetchedUtc[hash] = new Date().toISOString();
           priced++;
+          // 上报成交量采样（供市场交易额统计）
+          this.deps.onVolumeSample?.({
+            hash,
+            volume: result.volume ?? 0,
+            median: result.median ?? result.localAmount ?? null,
+            currency: targetCurrency,
+          });
           if (this.currentProgress) this.currentProgress.priced = priced;
         } else {
           // 网络错误、HTTP 非 429 等：跳过这个 hash，下一轮再试
@@ -419,10 +481,20 @@ export class LookupPricePollingService {
         if (this.currentProgress) this.currentProgress.processed++;
         this.emitStatus();
         await this.sleep(FETCH_DELAY_MS);
+        // 批间等待：每拉完 MAX_TARGETS_PER_BATCH 个且后面还有目标时，等 BATCH_GAP_MS（2 分钟）再继续，
+        // 规避 Steam priceoverview 限流（与市场交易额 refreshHistory 的批间等待同理）。
+        if ((i + 1) % MAX_TARGETS_PER_BATCH === 0 && i + 1 < targets.length) {
+          log.info(
+            `batch pause: ${targets.length} targets, ${i + 1} done, waiting ${BATCH_GAP_MS}ms`,
+          );
+          await this.sleep(BATCH_GAP_MS);
+        }
       }
 
       // 把新价格 merge 进内存快照（如果至少抓到了一个）
       if (priced > 0) {
+        this.lastSuccessfulCycleAtMs = this.nowMs();
+        this.deps.saveLastSuccessfulCycleAtMs?.(this.lastSuccessfulCycleAtMs);
         this.mergeUpdatesIntoSnapshot(
           {
             prices: updatedPrices,
@@ -433,6 +505,8 @@ export class LookupPricePollingService {
           },
           targetCurrency,
         );
+        // 一轮结束：让市场交易额服务聚合并持久化一次采样
+        this.deps.onCycleEnd?.();
       }
 
       const cycleResult: PollingCycleResult = {
@@ -524,6 +598,14 @@ export class LookupPricePollingService {
           updates.buyOrderLocal[trimmed] = result.buyOrder;
         }
         this.mergeUpdatesIntoSnapshot(updates, targetCurrency);
+        // 上报成交量采样 + 单次结束采样
+        this.deps.onVolumeSample?.({
+          hash: trimmed,
+          volume: result.volume ?? 0,
+          median: result.median ?? result.localAmount ?? null,
+          currency: targetCurrency,
+        });
+        this.deps.onCycleEnd?.();
       } else {
         failed = 1;
       }
@@ -592,6 +674,7 @@ export class LookupPricePollingService {
     localAmount: number | null;
     median: number | null | undefined;
     buyOrder: number | null | undefined;
+    volume: number;
     rateLimited: boolean;
   }> {
     // 测试注入路径：fetchLocal 优先（同时覆盖 lowest + median）
@@ -608,6 +691,7 @@ export class LookupPricePollingService {
         localAmount: r.amount,
         median,
         buyOrder,
+        volume: r.volume ?? 0,
         rateLimited: r.rateLimited,
       };
     }
@@ -623,6 +707,7 @@ export class LookupPricePollingService {
         localAmount: r.usd,
         median,
         buyOrder,
+        volume: 0,
         rateLimited: r.rateLimited,
       };
     }
@@ -637,6 +722,7 @@ export class LookupPricePollingService {
         localAmount: null,
         median: null,
         buyOrder: null,
+        volume: 0,
         rateLimited: true,
       };
     }
@@ -647,11 +733,13 @@ export class LookupPricePollingService {
         localAmount: null,
         median: null,
         buyOrder: null,
+        volume: 0,
         rateLimited: false,
       };
     }
     const localAmount = localResponse.entry.lowest ?? null;
     const localMedian = localResponse.entry.median ?? null;
+    const volume = localResponse.entry.volume ?? 0;
 
     let usd: number | null;
     if (isUsd) {
@@ -668,6 +756,7 @@ export class LookupPricePollingService {
           localAmount,
           median: localMedian,
           buyOrder: await this.tryFetchBuyOrder(hash, targetCurrency),
+          volume,
           rateLimited: false,
         };
       }
@@ -683,6 +772,7 @@ export class LookupPricePollingService {
       localAmount,
       median: localMedian,
       buyOrder,
+      volume,
       rateLimited: false,
     };
   }
@@ -753,5 +843,9 @@ export class LookupPricePollingService {
   private async sleep(ms: number): Promise<void> {
     if (this.deps.sleep) return this.deps.sleep(ms);
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private nowMs(): number {
+    return this.deps.now ? this.deps.now() : Date.now();
   }
 }

@@ -77,6 +77,20 @@ export function createMainWindow(
 
   win.on("closed", () => setWindow(null));
 
+  // TEMP-DEBUG: forward renderer console to main process terminal.
+  win.webContents.on(
+    "console-message" as never,
+    (_e: unknown, levelOrDetails: unknown, message?: string) => {
+      const details =
+        typeof levelOrDetails === "object" && levelOrDetails !== null
+          ? (levelOrDetails as { level?: string; message?: string })
+          : null;
+      const level = details?.level ?? String(levelOrDetails);
+      const msg = details?.message ?? message;
+      console.log(`[renderer:${level}] ${msg}`);
+    },
+  );
+
   loadRenderer(win, "main");
   attachCrashRecovery(win, "main");
   setWindowIcon(win);

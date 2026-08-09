@@ -63,5 +63,38 @@
       "new": "新規",
       "delisted": "出品終了"
     }
+  },
+  "volume": {
+    "title": "最近の取引高",
+    "empty": "取引高データはまだありません。「図鑑価格ポーリング」を有効にしてしばらく実行すると、ポーリング対象アイテムの取引高統計がここに表示されます。",
+    "totalLabel": "総取引高（{{range}}）",
+    "range1d": "1日",
+    "range1w": "1週間",
+    "range1m": "1か月",
+    "range24h": "24時間",
+    "range7d": "7日間",
+    "rangeAll": "すべて",
+    "trendTitle": "カテゴリ別取引高の推移（時間別）",
+    "noTrend": "推移を表示するにはデータが不足しています。",
+    "itemCountTotal": "統計対象 {{count}} 種",
+    "category": {
+      "WEAPON": "武器",
+      "ARMOR": "防具",
+      "ACCESSORY": "装飾品",
+      "MATERIAL": "素材",
+      "COIN": "コイン",
+      "OTHER": "その他"
+    }
+  },
+  "trading": {
+    "intro": "アイテムごとの Steam マーケット取引高を表示します（データはマーケットタブと同じ pricehistory）。カードは総取引高の降順で並びます。",
+    "itemsTitle": "取引高順のアイテム",
+    "empty": "アイテムの取引高データがまだありません。「図鑑価格ポーリング」を有効にして 1 サイクル実行すると、ここに各アイテムのカードが表示されます。",
+    "count": "{{count}} 種",
+    "snapshot": "24時間スナップショット · 時間別履歴なし",
+    "refresh": "履歴を更新",
+    "refreshHistory": "スター付きアイテムと価格スナップショットの閾値以上の全アイテムの価格履歴を強制的に取得します",
+    "refreshing": "更新中 {{done}}/{{total}}",
+    "refreshingItems": "更新中のアイテム"
   }
 }

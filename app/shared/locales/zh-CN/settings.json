@@ -31,6 +31,16 @@
   "steamMarket": {
     "sectionTitle": "Steam 市场",
     "marketCurrency": "市场价格币种",
+    "cookieSessionidLabel": "Steam Cookie - sessionid",
+    "cookieSessionidHint": "可选。从浏览器登录态 Cookie 中取 `sessionid` 的值（会话 ID）。仅 Market 页的真实 pricehistory 走势需要；不填则走势回退到本地轮询采样。与下方 steamLoginSecure 由应用自动合成完整 Cookie 头。仅保存在本地。",
+    "cookieSessionidPlaceholder": "sessionid 的值",
+    "cookieSessionidSaved": "Cookie sessionid 已保存。",
+    "cookieSessionidCleared": "Cookie sessionid 已清除。",
+    "cookieLoginSecureLabel": "Steam Cookie - steamLoginSecure",
+    "cookieLoginSecureHint": "可选。从浏览器登录态 Cookie 中取 `steamLoginSecure` 的值（登录态令牌）。与上方 sessionid 由应用自动合成 `sessionid=<...>; steamLoginSecure=<...>` 完整 Cookie 头。仅保存在本地。",
+    "cookieLoginSecurePlaceholder": "steamLoginSecure 的值",
+    "cookieLoginSecureSaved": "Cookie steamLoginSecure 已保存。",
+    "cookieLoginSecureCleared": "Cookie steamLoginSecure 已清除。",
     "polling": {
       "sectionTitle": "高价值物品价格轮询",
       "intro": "周期性调用 Steam 市场接口，刷新「已拥有且估值达阈值」的物品以及你手动收藏的物品价格，并实时覆盖图鉴快照。",

@@ -1,0 +1,416 @@
+// MarketVolumeService 持久化测试：验证「保存 → 读取」往返、数据累积、
+// 采样去抖与损坏文件的恢复。使用真实临时目录，不 mock node:fs。
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { LookupItem, MarketVolumeItem } from "../../shared/types";
+import {
+  MARKET_VOLUME_FILE,
+  MarketVolumeService,
+  hasVolumeData,
+  type PriceHistoryResultLike,
+} from "../../src/main/services/MarketVolumeService";
+
+/** 真实 epoch 基准时间（10:00:00 UTC），避免被 60s 采样去抖误判。 */
+const BASE = Date.UTC(2026, 7, 7, 10, 0, 0);
+
+let dir: string;
+let file: string;
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), "market-volume-"));
+  file = join(dir, MARKET_VOLUME_FILE);
+});
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+function makeService(
+  overrides: {
+    targetHashes?: string[];
+    cookie?: string;
+    fetchHistory?: (
+      hash: string,
+      currency: string,
+      cookie?: string,
+    ) => Promise<PriceHistoryResultLike>;
+    onHistoryProgress?: (p: {
+      running: boolean;
+      total: number;
+      done: number;
+      current: string | null;
+      updatedItem?: MarketVolumeItem;
+    }) => void;
+  } = {},
+) {
+  const catalog: LookupItem[] = [];
+  return new MarketVolumeService({
+    getCatalog: () => catalog,
+    getCurrency: () => "USD",
+    getCookie: () => overrides.cookie ?? "",
+    getTargetHashes: () => overrides.targetHashes ?? [],
+    filePath: () => file,
+    fetchHistory: overrides.fetchHistory,
+    onHistoryProgress: overrides.onHistoryProgress,
+  });
+}
+
+describe("MarketVolumeService 持久化", () => {
+  it("sampleNow 落盘、新实例可从磁盘读回相同的交易额统计", () => {
+    // 首次采样（t0）
+    const svc = makeService();
+    svc.recordVolume("Copper Coin", 100, 0.5, "USD");
+    svc.recordVolume("Sword (Legendary) A", 10, 2, "USD");
+    const sample = svc.sampleNow(BASE);
+    expect(sample).not.toBeNull();
+    expect(sample!.total).toBe(100 * 0.5 + 10 * 2);
+
+    // 文件已写入
+    expect(existsSync(file)).toBe(true);
+
+    // 新实例从磁盘读取，latest 与首次采样一致
+    const reloaded = makeService();
+    const stats = reloaded.getStats();
+    expect(stats.latest?.total).toBe(sample!.total);
+    expect(stats.latest?.timestamp).toBe(sample!.timestamp);
+    expect(stats.latest?.currency).toBe("USD");
+    expect(stats.currency).toBe("USD");
+  });
+
+  it("pricehistory 历史数据可持久化并在新实例读回（跨实例往返）", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [
+          { timestamp: BASE / 1000, price: 0.5, volume: 100 },
+          { timestamp: (BASE + 3600_000) / 1000, price: 0.6, volume: 200 },
+        ],
+      }),
+    });
+    expect(await svc.refreshHistory(BASE)).toBe(true);
+    expect(svc.getStats().hourly.length).toBeGreaterThan(0);
+
+    // 新实例从磁盘读回相同的小时走势
+    const reloaded = makeService();
+    expect(reloaded.getStats().hourly).toEqual(svc.getStats().hourly);
+  });
+
+  it("原始 pricehistory 点被持久化并在新实例读回（跨实例往返）", async () => {
+    const points = [
+      { timestamp: BASE / 1000, price: 0.5, volume: 100 },
+      { timestamp: (BASE + 3600_000) / 1000, price: 0.6, volume: 200 },
+    ];
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({ ok: true, status: 200, points }),
+    });
+    await svc.refreshHistory(BASE);
+    expect(svc.getPriceHistory()["Copper Coin"]).toEqual(points);
+
+    // 新实例从磁盘读回相同的原始点
+    const reloaded = makeService();
+    expect(reloaded.getPriceHistory()["Copper Coin"]).toEqual(points);
+  });
+
+  it("聚合保留全部小时桶，不按 14 天截断（全量走势）", async () => {
+    // 构造跨 30 天、每天一小时的点（远超旧 336 小时上限）
+    const points = Array.from({ length: 30 * 24 }, (_, i) => ({
+      timestamp: (BASE - i * 3600_000) / 1000,
+      price: 1,
+      volume: 1,
+    }));
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({ ok: true, status: 200, points }),
+    });
+    await svc.refreshHistory(BASE);
+    expect(svc.getStats().hourly.length).toBe(30 * 24);
+  });
+
+  it("刷新成功后 historyFetchedAtMs 落盘，重启后在 30min 内不再重拉（跨实例命中缓存）", async () => {
+    let fetchCount = 0;
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => {
+        fetchCount += 1;
+        return {
+          ok: true,
+          status: 200,
+          points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+        };
+      },
+    });
+    // 首次刷新触发拉取
+    expect(await svc.refreshHistory(BASE)).toBe(true);
+    expect(fetchCount).toBe(1);
+
+    // 新实例（模拟重启）从磁盘读回 historyFetchedAtMs，仍在 30min 缓存内 → 不重拉
+    const reloaded = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => {
+        fetchCount += 1;
+        return {
+          ok: true,
+          status: 200,
+          points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+        };
+      },
+    });
+    expect(await reloaded.refreshHistory(BASE + 20 * 60_000)).toBe(false);
+    expect(fetchCount).toBe(1); // 未发出新请求
+  });
+
+  it("刷新失败（无数据）时不清空已有历史，且返回 false", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+      }),
+    });
+    expect(await svc.refreshHistory(BASE)).toBe(true);
+    const before = svc.getStats().hourly;
+    expect(before.length).toBeGreaterThan(0);
+
+    // 第二次：超过 30min 缓存触发拉取，但拉不到数据（空 points）→ 不覆盖已有数据
+    const svc2 = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({ ok: true, status: 200, points: [] }),
+    });
+    expect(await svc2.refreshHistory(BASE + 31 * 60_000)).toBe(false);
+    expect(svc2.getStats().hourly).toEqual(before);
+  });
+
+  it("historyHourly 为空时回退到采样快照构建走势", () => {
+    const svc = makeService();
+    svc.recordVolume("Copper Coin", 100, 0.5, "USD");
+    svc.sampleNow(BASE);
+    const stats = svc.getStats();
+    expect(stats.hourly.length).toBeGreaterThan(0);
+    expect(stats.hourly[0].total).toBe(50);
+    expect(stats.latest?.items).toBe(1);
+  });
+
+  it("refreshHistory 把用户 Cookie 透传给 fetchHistory", async () => {
+    const received: string[] = [];
+    const svc = makeService({
+      cookie: "sessionid=abc; steamLoginSecure=xyz",
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async (_hash, _currency, cookie) => {
+        received.push(cookie ?? "");
+        return { ok: true, status: 200, points: [] };
+      },
+    });
+    await svc.refreshHistory(BASE);
+    expect(received).toEqual(["sessionid=abc; steamLoginSecure=xyz"]);
+  });
+
+  it("refreshHistory 支持自定义 targets 覆盖默认目标集（交易页刷新用）", async () => {
+    const fetched: string[] = [];
+    const svc = makeService({
+      targetHashes: ["Default Only"],
+      fetchHistory: async (hash) => {
+        fetched.push(hash);
+        return { ok: true, status: 200, points: [{ timestamp: BASE / 1000, price: 1, volume: 1 }] };
+      },
+    });
+    // 传入 targets 覆盖 getTargetHashes() 的默认集合
+    await svc.refreshHistory(BASE, { targets: ["Custom A", "Custom B"] });
+    expect(fetched).toEqual(["Custom A", "Custom B"]);
+  });
+
+  it("refreshHistory force=true 绕过 30min 缓存立即重拉", async () => {
+    let fetchCount = 0;
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => {
+        fetchCount += 1;
+        return {
+          ok: true,
+          status: 200,
+          points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+        };
+      },
+    });
+    // 首次刷新
+    expect(await svc.refreshHistory(BASE)).toBe(true);
+    expect(fetchCount).toBe(1);
+    // 未过期的自动刷新被缓存拦截
+    expect(await svc.refreshHistory(BASE + 10 * 60_000)).toBe(false);
+    expect(fetchCount).toBe(1);
+    // force=true 绕过缓存，立即重拉
+    expect(await svc.refreshHistory(BASE + 11 * 60_000, { force: true })).toBe(true);
+    expect(fetchCount).toBe(2);
+  });
+
+  it("采样去抖：1 分钟内重复 sampleNow 返回 null 且不落盘", () => {
+    const svc = makeService();
+    svc.recordVolume("Copper Coin", 100, 1, "USD");
+    expect(svc.sampleNow(BASE)).not.toBeNull();
+    expect(svc.sampleNow(BASE + 1_000)).toBeNull(); // 1 秒后被拦截
+    expect(svc.sampleNow(BASE + 59_000)).toBeNull(); // 59s 仍被拦截
+    expect(svc.sampleNow(BASE + 60_000)).not.toBeNull(); // 恰好 60s（边界含 60s）可采样
+    expect(svc.sampleNow(BASE + 61_000)).toBeNull(); // 61s，距上次 1s 又被拦截
+  });
+
+  it("损坏的历史文件在加载时被清空而不抛错", () => {
+    writeFileSync(file, "{not json");
+    const svc = makeService();
+    expect(svc.getStats().latest).toBeNull();
+    expect(svc.getStats().hourly).toEqual([]);
+  });
+
+  it("hasVolumeData 仅在存在有效交易额时返回 true", () => {
+    expect(hasVolumeData(null)).toBe(false);
+    expect(
+      hasVolumeData({ timestamp: "t", items: 0, total: 0, byCategory: {}, currency: "USD" }),
+    ).toBe(false);
+    expect(
+      hasVolumeData({
+        timestamp: "t",
+        items: 1,
+        total: 5,
+        byCategory: { WEAPON: 5 },
+        currency: "USD",
+      }),
+    ).toBe(true);
+  });
+
+  it("buildPendingItems 为待刷新目标生成占位卡片（total=0、points=[]，未命中图鉴回退 hash）", () => {
+    const svc = makeService();
+    // 空 catalog：未命中图鉴 → name 回退 hash、category 回退 OTHER
+    const pending = svc.buildPendingItems(["Copper Coin", "Sword (Legendary) A", "Copper Coin"]);
+    expect(pending).toHaveLength(2); // 去重
+    expect(pending[0]).toEqual({
+      hash: "Copper Coin",
+      name: "Copper Coin",
+      category: "OTHER",
+      total: 0,
+      points: [],
+    });
+    // 保持输入顺序（去重后）
+    expect(pending[1].hash).toBe("Sword (Legendary) A");
+  });
+
+  it("buildPendingItems 复用已有 pricehistory 生成带走势的卡片而非空白占位", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A"],
+      fetchHistory: async (_hash) => ({
+        ok: true,
+        status: 200,
+        points: [
+          { timestamp: BASE / 1000, price: 0.5, volume: 100 },
+          { timestamp: BASE / 1000 - 3600, price: 0.4, volume: 50 },
+        ],
+      }),
+    });
+    // 先拉一次历史，让 priceHistory 有数据
+    await svc.refreshHistory(BASE);
+
+    const pending = svc.buildPendingItems(["Copper Coin", "Sword (Legendary) A"]);
+    // 已有历史 → 占位卡片带总交易额与小时走势（非 total=0 / points=[]）
+    expect(pending[0].total).toBeGreaterThan(0);
+    expect(pending[0].points.length).toBeGreaterThan(0);
+    expect(pending[1].total).toBeGreaterThan(0);
+    expect(pending[1].points.length).toBeGreaterThan(0);
+  });
+
+  it("buildPendingItems 无历史数据时仍回退为空白占位", async () => {
+    const svc = makeService();
+    const pending = svc.buildPendingItems(["Copper Coin"]);
+    expect(pending[0]).toEqual({
+      hash: "Copper Coin",
+      name: "Copper Coin",
+      category: "OTHER",
+      total: 0,
+      points: [],
+    });
+  });
+
+  it("sortTargetsByVolume 按已有交易额降序、无交易额数据排最后且保持相对顺序", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A"],
+      fetchHistory: async (hash) => ({
+        ok: true,
+        status: 200,
+        points: [
+          // 不同物品给不同的历史总交易额，验证排序
+          ...(hash === "Copper Coin"
+            ? [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }]
+            : [{ timestamp: BASE / 1000, price: 2, volume: 50 }]),
+        ],
+      }),
+    });
+    // 先拉一次历史，让 priceHistory 有交易额数据
+    await svc.refreshHistory(BASE);
+
+    // 目标集含一个无交易额数据的 hash（Non Listed），应排最后
+    const ordered = svc.sortTargetsByVolume(["Non Listed", "Copper Coin", "Sword (Legendary) A"]);
+    // Copper Coin total = 100*0.5 = 50；Sword total = 50*2 = 100 < 仅相对顺序无碍，验证降序
+    expect(ordered[0]).toBe("Sword (Legendary) A");
+    expect(ordered[1]).toBe("Copper Coin");
+    expect(ordered[2]).toBe("Non Listed");
+  });
+
+  it("sortTargetsByVolume 无任何交易额数据时保持原顺序", () => {
+    const svc = makeService();
+    expect(svc.sortTargetsByVolume(["B", "A", "C"])).toEqual(["B", "A", "C"]);
+  });
+
+  it("refreshHistory 通过 onHistoryProgress 上报开始/每个物品/结束的进度", async () => {
+    const calls: { running: boolean; done: number; current: string | null }[] = [];
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+      }),
+      onHistoryProgress: (p) =>
+        calls.push({ running: p.running, done: p.done, current: p.current }),
+    });
+    await svc.refreshHistory(BASE);
+
+    // 每个目标：一次「开始(携带 hash)」+ 一次「完成(hash=null)」，最后一条 running=false
+    expect(calls[0]).toEqual({ running: true, done: 0, current: "Copper Coin" });
+    expect(calls[1]).toEqual({ running: true, done: 1, current: null });
+    expect(calls[2]).toEqual({ running: true, done: 1, current: "Sword (Legendary) A" });
+    expect(calls[3]).toEqual({ running: true, done: 2, current: null });
+    expect(calls[calls.length - 1]).toEqual({ running: false, done: 2, current: null });
+  });
+
+  it("refreshHistory 每完成一个物品实时推送该物品最新卡片，并实时写入内存态", async () => {
+    const seen: (MarketVolumeItem | undefined)[] = [];
+    let priceHistoryHadDataDuringRefresh = false;
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [
+          { timestamp: BASE / 1000, price: 0.5, volume: 100 },
+          { timestamp: BASE / 1000 - 3600, price: 0.4, volume: 50 },
+        ],
+      }),
+      onHistoryProgress: (p) => {
+        seen.push(p.updatedItem);
+        // 第一个物品完成时，内存 priceHistory 应已实时写入该 hash
+        if (p.done === 1) {
+          priceHistoryHadDataDuringRefresh = Object.keys(svc.getPriceHistory()).length > 0;
+        }
+      },
+    });
+    await svc.refreshHistory(BASE);
+
+    // 两个物品都完成 → 各携带一次带走势的最新卡片（非空白占位）
+    const completed = seen.filter((it) => it && it.points.length > 0);
+    expect(completed.length).toBe(2);
+    expect(completed[0]!.total).toBeGreaterThan(0);
+    expect(priceHistoryHadDataDuringRefresh).toBe(true);
+  });
+});

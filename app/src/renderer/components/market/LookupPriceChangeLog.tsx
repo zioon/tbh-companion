@@ -1,7 +1,11 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { LuHistory } from "react-icons/lu";
 import { useLookupPriceHistory } from "../../lib/useLookupPriceHistory";
+import { useLookupCatalog } from "../../lib/useLookupCatalog";
+import { marketHashName } from "../../../core/marketName";
+import { gradeColor } from "../../lib/gradeColor";
 
 function formatUsd(usd: number | null): string {
   if (usd == null) return "—";
@@ -33,15 +37,28 @@ function changeDirection(
 /**
  * Compact "recent price changes" log for the Market tab. Renders the most
  * recent 50 changes observed on the LOOKUP_PRICES push channel (CI refresh +
- * local polling merges). Pure client-side; resets on reload.
+ * local polling merges). Pure client-side; accumulated across tab switches
+ * (the log lives in a module-level singleton), resets on a full reload.
  *
- * Shows: hash, old → new price (with arrow + color for up/down), and age.
- * Hashes are the Steam `market_hash_name` — long, but truncating keeps the
- * layout stable. Users can cross-reference by hovering to see the full hash.
+ * Each row shows the localized item name (colored by its quality grade),
+ * old → new price (with arrow + color for up/down), and age. Hovering the
+ * name reveals the full Steam `market_hash_name` for cross-referencing.
  */
 export function LookupPriceChangeLog() {
   const { t } = useTranslation("market");
   const changes = useLookupPriceHistory();
+  const items = useLookupCatalog();
+
+  // market_hash_name -> item, so the log can show the localized name and
+  // quality color instead of the raw English hash.
+  const byHash = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof items>[number]>();
+    for (const item of items ?? []) {
+      const hash = marketHashName(item);
+      if (hash) map.set(hash, item);
+    }
+    return map;
+  }, [items]);
 
   if (changes.length === 0) {
     return null;
@@ -72,10 +89,17 @@ export function LookupPriceChangeLog() {
           const dirLabel = t(`changeLog.dir.${dir}`);
           // 本地货币价格（如果有）——显示在 USD 价格右边，标注「本地」
           const hasLocal = c.oldLocal != null || c.newLocal != null;
+          const item = byHash.get(c.hash);
+          const name = item?.name ?? c.hash;
+          const nameColor = item ? gradeColor(item.grade) : undefined;
           return (
             <li key={`${c.hash}-${c.atMs}-${idx}`} className="flex items-baseline gap-2">
-              <span className="shrink-0 font-mono text-[11px] text-muted" title={c.hash}>
-                {c.hash.length > 40 ? `${c.hash.slice(0, 38)}…` : c.hash}
+              <span
+                className="shrink-0 truncate font-medium"
+                style={nameColor ? { color: nameColor } : undefined}
+                title={item ? `${name}\n${c.hash}` : c.hash}
+              >
+                {name}
               </span>
               <span className={`shrink-0 font-medium ${dirColor}`}>
                 {formatUsd(c.oldUsd)} → {formatUsd(c.newUsd)}

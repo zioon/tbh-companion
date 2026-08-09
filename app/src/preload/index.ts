@@ -20,6 +20,10 @@ import type {
   LookupPricePollingStatus,
   LookupPriceSnapshot,
   LookupSources,
+  MarketVolumeStats,
+  MarketVolumeItemStats,
+  MarketVolumeRefreshProgress,
+  MarketVolumeRefreshResult,
   OfferingsModel,
   SynthesisModel,
   NotificationSoundPayload,
@@ -226,6 +230,30 @@ const api: TbhApi = {
   },
   pollLookupPrices(hash?: string): Promise<PollingCycleResult> {
     return ipcRenderer.invoke(IPC.LOOKUP_PRICES_POLL, hash);
+  },
+  getMarketVolume(): Promise<MarketVolumeStats> {
+    return ipcRenderer.invoke(IPC.GET_MARKET_VOLUME);
+  },
+  onMarketVolume(cb: (stats: MarketVolumeStats) => void): () => void {
+    const listener = (_e: unknown, stats: MarketVolumeStats): void => cb(stats);
+    ipcRenderer.on(IPC.MARKET_VOLUME, listener);
+    return () => ipcRenderer.removeListener(IPC.MARKET_VOLUME, listener);
+  },
+  getMarketVolumeItems(): Promise<MarketVolumeItemStats> {
+    return ipcRenderer.invoke(IPC.GET_MARKET_VOLUME_ITEMS);
+  },
+  onMarketVolumeItems(cb: (stats: MarketVolumeItemStats) => void): () => void {
+    const listener = (_e: unknown, stats: MarketVolumeItemStats): void => cb(stats);
+    ipcRenderer.on(IPC.MARKET_VOLUME_ITEMS, listener);
+    return () => ipcRenderer.removeListener(IPC.MARKET_VOLUME_ITEMS, listener);
+  },
+  refreshMarketVolumeItems(): Promise<MarketVolumeRefreshResult> {
+    return ipcRenderer.invoke(IPC.REFRESH_MARKET_VOLUME_ITEMS);
+  },
+  onMarketVolumeRefreshProgress(cb: (progress: MarketVolumeRefreshProgress) => void): () => void {
+    const listener = (_e: unknown, progress: MarketVolumeRefreshProgress): void => cb(progress);
+    ipcRenderer.on(IPC.MARKET_VOLUME_REFRESH_PROGRESS, listener);
+    return () => ipcRenderer.removeListener(IPC.MARKET_VOLUME_REFRESH_PROGRESS, listener);
   },
   getLiveMemory(): Promise<LiveMemorySnapshot | null> {
     return ipcRenderer.invoke(IPC.GET_LIVE_MEMORY);

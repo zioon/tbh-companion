@@ -63,5 +63,38 @@
       "new": "新增",
       "delisted": "下架"
     }
+  },
+  "volume": {
+    "title": "近期市场交易额",
+    "empty": "暂无交易额数据。启用「图鉴价格轮询」并运行一段时间后，这里会显示被轮询物品的成交量统计。",
+    "totalLabel": "总交易额（{{range}}）",
+    "range1d": "1天",
+    "range1w": "1周",
+    "range1m": "1月",
+    "range24h": "24小时",
+    "range7d": "7天",
+    "rangeAll": "全部",
+    "trendTitle": "分类交易额走势（按小时）",
+    "noTrend": "数据不足，暂无走势。",
+    "itemCountTotal": "统计物品 {{count}} 种",
+    "category": {
+      "WEAPON": "武器",
+      "ARMOR": "防具",
+      "ACCESSORY": "饰品",
+      "MATERIAL": "材料",
+      "COIN": "硬币",
+      "OTHER": "其他"
+    }
+  },
+  "trading": {
+    "intro": "按物品展示 Steam 市场交易额，数据来源与市场页一致（pricehistory）。卡片按总交易额降序排列。",
+    "itemsTitle": "按交易额排序的物品",
+    "empty": "暂无物品交易额数据。启用「图鉴价格轮询」，运行一轮刷新后这里会显示各物品卡片。",
+    "count": "{{count}} 种物品",
+    "snapshot": "24小时快照 · 暂无逐小时走势",
+    "refresh": "刷新历史价格",
+    "refreshHistory": "强制拉取星标与快照价格达标物品的历史价格",
+    "refreshing": "刷新中 {{done}}/{{total}}",
+    "refreshingItems": "正在刷新以下物品"
   }
 }

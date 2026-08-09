@@ -460,6 +460,58 @@ export function Settings() {
             />
           </Field>
 
+          <Field
+            label={tSettings("steamMarket.cookieSessionidLabel")}
+            hint={tSettings("steamMarket.cookieSessionidHint")}
+          >
+            <input
+              type="password"
+              key={`steam-cookie-sessionid-${cfg?.steamCookieSessionid ?? ""}`}
+              defaultValue={cfg?.steamCookieSessionid ?? ""}
+              disabled={saveBusy}
+              placeholder={tSettings("steamMarket.cookieSessionidPlaceholder")}
+              aria-label={tSettings("steamMarket.cookieSessionidLabel")}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                const current = cfg?.steamCookieSessionid?.trim() ?? "";
+                if (value === current) return;
+                void savePartial(
+                  { steamCookieSessionid: value },
+                  value
+                    ? tSettings("steamMarket.cookieSessionidSaved")
+                    : tSettings("steamMarket.cookieSessionidCleared"),
+                );
+              }}
+              className="min-w-0 rounded-md border border-border bg-card px-2.5 py-1.5 text-[13px] text-fg placeholder:text-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-ideal/50 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </Field>
+
+          <Field
+            label={tSettings("steamMarket.cookieLoginSecureLabel")}
+            hint={tSettings("steamMarket.cookieLoginSecureHint")}
+          >
+            <input
+              type="password"
+              key={`steam-cookie-login-${cfg?.steamCookieLoginSecure ?? ""}`}
+              defaultValue={cfg?.steamCookieLoginSecure ?? ""}
+              disabled={saveBusy}
+              placeholder={tSettings("steamMarket.cookieLoginSecurePlaceholder")}
+              aria-label={tSettings("steamMarket.cookieLoginSecureLabel")}
+              onBlur={(e) => {
+                const value = e.target.value.trim();
+                const current = cfg?.steamCookieLoginSecure?.trim() ?? "";
+                if (value === current) return;
+                void savePartial(
+                  { steamCookieLoginSecure: value },
+                  value
+                    ? tSettings("steamMarket.cookieLoginSecureSaved")
+                    : tSettings("steamMarket.cookieLoginSecureCleared"),
+                );
+              }}
+              className="min-w-0 rounded-md border border-border bg-card px-2.5 py-1.5 text-[13px] text-fg placeholder:text-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-ideal/50 disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </Field>
+
           <div className="mt-4 flex flex-col gap-3 border-t border-border/40 pt-4">
             <div className="flex flex-col gap-1">
               <strong className="text-[13px] font-semibold">

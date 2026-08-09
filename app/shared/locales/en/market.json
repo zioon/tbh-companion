@@ -63,5 +63,38 @@
       "new": "new",
       "delisted": "delisted"
     }
+  },
+  "volume": {
+    "title": "Recent market volume",
+    "empty": "No volume data yet. Enable Lookup price polling and let it run for a while, and this will show sales-volume stats for the polled items.",
+    "totalLabel": "Total volume ({{range}})",
+    "range1d": "1d",
+    "range1w": "1w",
+    "range1m": "1m",
+    "range24h": "24h",
+    "range7d": "7d",
+    "rangeAll": "All",
+    "trendTitle": "Category volume trend (hourly)",
+    "noTrend": "Not enough data for a trend yet.",
+    "itemCountTotal": "{{count}} items tracked",
+    "category": {
+      "WEAPON": "Weapons",
+      "ARMOR": "Armor",
+      "ACCESSORY": "Accessories",
+      "MATERIAL": "Materials",
+      "COIN": "Coins",
+      "OTHER": "Other"
+    }
+  },
+  "trading": {
+    "intro": "Steam Market trading volume per item, from the same pricehistory data used on the Market tab. Cards are sorted by total trading volume (descending).",
+    "itemsTitle": "Items by trading volume",
+    "empty": "No trading-volume data yet. Enable Lookup price polling; after a refresh cycle the per-item cards will appear here.",
+    "count": "{{count}} items",
+    "snapshot": "24h snapshot · no hourly history yet",
+    "refresh": "Refresh history",
+    "refreshHistory": "Force-fetch price history for starred items and all items above the price snapshot threshold",
+    "refreshing": "Refreshing {{done}}/{{total}}",
+    "refreshingItems": "Refreshing these items"
   }
 }

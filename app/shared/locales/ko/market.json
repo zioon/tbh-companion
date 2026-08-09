@@ -63,5 +63,38 @@
       "new": "신규",
       "delisted": "상품 제거"
     }
+  },
+  "volume": {
+    "title": "최근 거래액",
+    "empty": "거래액 데이터가 아직 없습니다. '도감 가격 폴링'을 활성화하고 잠시 실행하면 폴링 대상 아이템의 거래액 통계가 여기에 표시됩니다.",
+    "totalLabel": "총 거래액({{range}})",
+    "range1d": "1일",
+    "range1w": "1주",
+    "range1m": "1개월",
+    "range24h": "24시간",
+    "range7d": "7일",
+    "rangeAll": "전체",
+    "trendTitle": "카테고리별 거래액 추이(시간별)",
+    "noTrend": "추이를 표시할 데이터가 부족합니다.",
+    "itemCountTotal": "통계 아이템 {{count}}종",
+    "category": {
+      "WEAPON": "무기",
+      "ARMOR": "방어구",
+      "ACCESSORY": "장신구",
+      "MATERIAL": "재료",
+      "COIN": "코인",
+      "OTHER": "기타"
+    }
+  },
+  "trading": {
+    "intro": "아이템별 Steam 마켓 거래액을 표시합니다(마켓 탭과 동일한 pricehistory 데이터). 카드는 총 거래액 내림차순으로 정렬됩니다.",
+    "itemsTitle": "거래액순 아이템",
+    "empty": "아이템 거래액 데이터가 아직 없습니다. '도감 가격 폴링'을 활성화하고 한 사이클 실행하면 여기에 각 아이템 카드가 표시됩니다.",
+    "count": "{{count}}종",
+    "snapshot": "24시간 스냅샷 · 시간별 이력 없음",
+    "refresh": "이력 새로고침",
+    "refreshHistory": "별표 아이템과 가격 스냅샷 임계값 이상의 모든 아이템 가격 이력을 강제로 가져옵니다",
+    "refreshing": "새로고침 {{done}}/{{total}}",
+    "refreshingItems": "새로고침 중인 아이템"
   }
 }
