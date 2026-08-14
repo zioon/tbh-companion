@@ -820,6 +820,12 @@ export interface MarketVolumeItem {
    * 每个点含该小时的均价、成交量与成交额；无历史走势时为空数组。
    */
   points: { hour: string; price: number; volume: number; total: number }[];
+  /**
+   * 数据口径：`history`=pricehistory 真实小时增量（可按区间求和）；
+   * `live`=轮询活跃度采样（24h 滚动累计，不可求和，取窗口内最新值）。
+   * 缺省视为 `history`。
+   */
+  kind?: "history" | "live";
 }
 
 /** 交易页物品卡片数据（按总交易额降序）。 */
@@ -840,6 +846,8 @@ export interface MarketVolumeRefreshProgress {
   currentHash: string | null;
   /** 单个 hash 刷新完成后的最新卡片（仅当确实拉到数据时携带，供实时更新）。 */
   updatedItem?: MarketVolumeItem;
+  /** 本次刷新开始时的待刷新占位卡片（自动/手动刷新共用，供前端展示亮环）。 */
+  pending?: MarketVolumeItem[];
 }
 
 /** 交易页「刷新历史价格」的返回：当前统计 + 待刷新的目标卡片（提前展示）。 */
@@ -980,6 +988,17 @@ export interface AppConfig {
    * loaded.
    */
   stageMetadata?: Record<number, string>;
+  /**
+   * Price history refresh: how many items to fetch per batch (Steam rate limits
+   * pricehistory requests heavily). Default: 10. Lower to be more conservative.
+   */
+  marketHistoryBatchSize: number;
+  /**
+   * Price history refresh: how many seconds to wait between batches (default
+   * 120 = 2 minutes). Increase to avoid 429 rate limits when fetching many
+   * items.
+   */
+  marketHistoryBatchDelaySec: number;
 }
 
 /** Scoped targets for Settings → Data & cache clear actions. */

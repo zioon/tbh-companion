@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuRefreshCw } from "react-icons/lu";
-import {
-  MarketVolumeSection,
-  RANGE_HOURS,
-  type VolumeRange,
-} from "../components/market/MarketVolumeSection";
+import { MarketVolumeSection } from "../components/market/MarketVolumeSection";
 import { ItemVolumeCard } from "../components/market/ItemVolumeCard";
 import { useMarketVolumeItems } from "../lib/useMarketVolumeItems";
 import { useMarketVolume } from "../lib/useMarketVolume";
+import {
+  RANGE_HOURS,
+  windowTotalOf,
+  type RefreshStatus,
+  type VolumeRange,
+} from "../lib/windowTotal";
 import { cn } from "../design-system/lib/variants";
 import { Card } from "../design-system/primitives/Card/Card";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
@@ -30,7 +32,7 @@ export function Trading() {
   const { stats, pending, refresh, refreshing, progress } = useMarketVolumeItems();
   const volumeStats = useMarketVolume();
 
-  const hourly = volumeStats?.hourly ?? [];
+  const hourly = useMemo(() => volumeStats?.hourly ?? [], [volumeStats]);
 
   // 主图表时间窗口（range + 拖动偏移），与下方卡片共享。
   const [range, setRange] = useState<VolumeRange>("1d");
@@ -45,18 +47,55 @@ export function Trading() {
   // 主图表当前显示窗口（升序切片），以及对应的时间范围（供卡片过滤）。
   const windowStartIdx = Math.max(0, hourly.length - windowWidth - clampedOffset);
   const windowEndIdx = hourly.length - clampedOffset;
-  const windowPts = hourly.slice(windowStartIdx, windowEndIdx);
-  const windowRange =
-    windowPts.length > 0
-      ? { start: windowPts[0].hour, end: windowPts[windowPts.length - 1].hour }
-      : null;
+  // 稳定引用：hourly / 窗口边界不变时，避免每次渲染都 slice 出新数组，进而
+  // 触发下方 windowRange、sortedItems 及所有卡片 useMemo 连锁失效。
+  const windowPts = useMemo(
+    () => hourly.slice(windowStartIdx, windowEndIdx),
+    [hourly, windowStartIdx, windowEndIdx],
+  );
+  const windowRange = useMemo(
+    () =>
+      windowPts.length > 0
+        ? { start: windowPts[0].hour, end: windowPts[windowPts.length - 1].hour }
+        : null,
+    [windowPts],
+  );
 
   const handleRangeChange = (r: VolumeRange) => {
     setRange(r);
     setMainOffset(0);
   };
 
-  const items = stats?.items ?? [];
+  const items = useMemo(() => stats?.items ?? [], [stats]);
+
+  // 预计算每个物品在当前窗口内的成交额，避免排序比较器里反复调用 windowTotalOf
+  // （原实现每次比较都全量扫描 points，O(n·log n) 次调用，是拖动卡顿的主因之一）。
+  const windowTotalByHash = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of items) map.set(item.hash, windowTotalOf(item, windowRange));
+    return map;
+  }, [items, windowRange]);
+
+  // 按「当前时间窗口内的成交额」降序排列（无窗口时回退到全量 total）。
+  const sortedItems = useMemo(
+    () =>
+      [...items].sort(
+        (a, b) => (windowTotalByHash.get(b.hash) ?? 0) - (windowTotalByHash.get(a.hash) ?? 0),
+      ),
+    [items, windowTotalByHash],
+  );
+
+  // 刷新批次状态：hash -> 灰（待刷新）/ 黄（当前批次）/ 绿（已刷新）。
+  // 只要 `pending` 有值就构建状态映射（不依赖 `refreshing` 时序），保证刷新期间
+  // 占位卡片与主列表卡片都能拿到亮环状态；刷新结束 hook 会清空 pending。
+  const refreshStatusByHash = useMemo(() => {
+    const map: Record<string, RefreshStatus> = {};
+    pending.forEach((it, i) => {
+      map[it.hash] =
+        i < progress.done ? "refreshed" : i === progress.done ? "refreshing" : "pending";
+    });
+    return map;
+  }, [pending, progress.done]);
 
   return (
     <TabPage>
@@ -133,6 +172,7 @@ export function Trading() {
                         item={item}
                         currency={stats?.currency ?? "USD"}
                         windowRange={windowRange}
+                        refreshStatus={refreshStatusByHash[item.hash]}
                       />
                     ))}
                   </ul>
@@ -147,12 +187,13 @@ export function Trading() {
             </Card>
           ) : (
             <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 xl:grid-cols-3">
-              {items.map((item) => (
+              {sortedItems.map((item) => (
                 <ItemVolumeCard
                   key={item.hash}
                   item={item}
                   currency={stats?.currency ?? "USD"}
                   windowRange={windowRange}
+                  refreshStatus={refreshStatusByHash[item.hash]}
                 />
               ))}
             </ul>

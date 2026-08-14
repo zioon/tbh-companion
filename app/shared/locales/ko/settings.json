@@ -57,6 +57,14 @@
       "statusLastCycle": "이전 주기: 가격 {{priced}}/{{targets}}건 획득, {{rateLimited}}건 속도 제한, {{failed}}건 실패{{aborted}}.",
       "statusAbortedSuffix": " (중단됨)",
       "statusLastCycleAt": " · {{time}}"
+    },
+    "history": {
+      "sectionTitle": "가격 기록 조회",
+      "intro": "거래 페이지의 '기록 새로고침'은 Steam pricehistory를 배치 단위로 직렬로 가져와 속도 제한을 피합니다.",
+      "batchSize": "배치당 수량",
+      "batchSizeHint": "배치당 가져올 아이템 수(범위 1–100, 기본 10). 값이 작을수록 더 보수적입니다.",
+      "batchDelay": "배치 간 대기(초)",
+      "batchDelayHint": "각 배치 후 대기할 초(기본 120). 429 속도 제한이 발생하면 늘리세요."
     }
   },
   "notifications": {

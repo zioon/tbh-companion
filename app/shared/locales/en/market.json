@@ -92,6 +92,7 @@
     "empty": "No trading-volume data yet. Enable Lookup price polling; after a refresh cycle the per-item cards will appear here.",
     "count": "{{count}} items",
     "snapshot": "24h snapshot · no hourly history yet",
+    "activity": "24h activity · polled sampling",
     "refresh": "Refresh history",
     "refreshHistory": "Force-fetch price history for starred items and all items above the price snapshot threshold",
     "refreshing": "Refreshing {{done}}/{{total}}",

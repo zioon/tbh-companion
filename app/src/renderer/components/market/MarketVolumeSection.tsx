@@ -1,19 +1,28 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuTrendingUp } from "react-icons/lu";
 import type { MarketVolumeHourPoint, MarketVolumeSample } from "../../../../shared/types";
 import { formatMoney } from "../../../core/steamPrice";
+import { downsample, type VolumeRange } from "../../lib/windowTotal";
 import { Card } from "../../design-system/primitives/Card/Card";
 
-/** 主图表时间范围。 */
-export type VolumeRange = "1d" | "1w" | "1m" | "all";
+/** 主走势图最多绘制的点数（显示宽度有限，超出即均匀降采样）。 */
+const MAX_TREND_POINTS = 120;
 
-/** 各范围对应的窗口小时数（"all" 用全量点数）。 */
-export const RANGE_HOURS: Record<Exclude<VolumeRange, "all">, number> = {
-  "1d": 24,
-  "1w": 168,
-  "1m": 720,
-};
+/** 在升序时间戳数组里二分查找最接近 `t` 的索引。 */
+function nearestIndex(times: readonly number[], t: number): number {
+  if (t <= times[0]) return 0;
+  const last = times.length - 1;
+  if (t >= times[last]) return last;
+  let lo = 0;
+  let hi = last;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return t - times[lo - 1] <= times[lo] - t ? lo - 1 : lo;
+}
 
 /** 交易额展示的 5 大分类及其堆叠顺序（自底向上）。 */
 const VOLUME_CATEGORY_ORDER = ["WEAPON", "ARMOR", "ACCESSORY", "MATERIAL", "COIN"] as const;
@@ -277,15 +286,26 @@ function VolumeTrendChart({
   // 拖拽平移当前范围。
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ startX: number; startOffset: number } | null>(null);
+  // 拖拽 rAF 节流：mousemove 触发频率远高于 60fps，若每次都给父级 setOffset，
+  // 会触发 Trading 整页重排（sortedItems）+ 所有卡片重算 SVG，导致拖动卡顿。
+  // 借助 rAF 把一帧内的多次位移合并为一次提交，仅保留最新目标 offset。
+  const rafRef = useRef<number | null>(null);
+  const pendingOffsetRef = useRef(0);
+
+  // 显示宽度有限，先把窗口点均匀降采样到可绘制规模，再计算坐标与 path，
+  // 避免 1m/全部范围下数百上千个点产生超长 path 字符串（拖动时每帧重建）。
+  const sampled = useMemo(() => downsample(points, MAX_TREND_POINTS), [points]);
 
   // 计算每个分类的小时序列、堆叠起始基线、顶层总序列与坐标映射。
   const chart = useMemo(() => {
+    // 预计算时间戳，避免 path 拼接与悬浮定位时对每个点反复 Date.parse。
+    const times = sampled.map((p) => Date.parse(p.hour));
     const tops: Record<string, number[]> = {};
     for (const cat of VOLUME_CATEGORY_ORDER) {
-      tops[cat] = points.map((p) => p.byCategory?.[cat] ?? 0);
+      tops[cat] = sampled.map((p) => p.byCategory?.[cat] ?? 0);
     }
     const baselines: Record<string, number[]> = {};
-    let acc = Array(points.length).fill(0);
+    let acc = Array(sampled.length).fill(0);
     for (const cat of VOLUME_CATEGORY_ORDER) {
       baselines[cat] = acc;
       acc = acc.map((v, i) => v + tops[cat][i]);
@@ -294,26 +314,24 @@ function VolumeTrendChart({
     const max = Math.max(1, ...acc);
     // x 按真实时间戳在首尾时间区间内的比例定位（而非按点数等距），
     // 保证横轴上每个粒度对应的时间位置准确，缺失的时间段自然留出空隙。
-    const tStart = Date.parse(points[0].hour);
-    const tSpan = Date.parse(points[points.length - 1].hour) - tStart;
+    const tStart = times[0];
+    const tSpan = times[times.length - 1] - tStart;
     const x = (i: number) =>
-      points.length === 1 || tSpan <= 0
-        ? 50
-        : ((Date.parse(points[i].hour) - tStart) / tSpan) * 100;
+      sampled.length === 1 || tSpan <= 0 ? 50 : ((times[i] - tStart) / tSpan) * 100;
     const y = (v: number) => 40 - (v / max) * 40;
     const areaPaths = VOLUME_CATEGORY_ORDER.map((cat) => {
-      const topPts = points
+      const topPts = sampled
         .map((_, i) => `${x(i)},${y(baselines[cat][i] + tops[cat][i])}`)
         .join(" L ");
-      const bottomPts = points
+      const bottomPts = sampled
         .map((_, i) => `${x(i)},${y(baselines[cat][i])}`)
         .reverse()
         .join(" L ");
       return `M ${topPts} L ${bottomPts} Z`;
     });
-    const outline = `M ${points.map((_, i) => `${x(i)},${y(totalTop[i])}`).join(" L ")}`;
-    return { areaPaths, outline, x, y, tStart, tSpan };
-  }, [points]);
+    const outline = `M ${sampled.map((_, i) => `${x(i)},${y(totalTop[i])}`).join(" L ")}`;
+    return { areaPaths, outline, x, y, times };
+  }, [sampled]);
 
   const canDrag = maxOffset > 0;
 
@@ -334,35 +352,50 @@ function VolumeTrendChart({
     if (isDragging && dragStartRef.current) {
       const deltaX = e.clientX - dragStartRef.current.startX;
       const deltaPoints = Math.round((deltaX / rect.width) * maxOffset);
-      const next = Math.max(0, Math.min(maxOffset, dragStartRef.current.startOffset + deltaPoints));
-      onOffsetChange(next);
+      pendingOffsetRef.current = Math.max(
+        0,
+        Math.min(maxOffset, dragStartRef.current.startOffset + deltaPoints),
+      );
+      // rAF 合并：本帧内只提交最新位移，避免每帧多次整页重渲染。
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          onOffsetChange(pendingOffsetRef.current);
+        });
+      }
       setHoverIndex(null);
       return;
     }
 
-    // 悬浮中：鼠标在 viewBox 0..100 内的 x 比例，反推时间戳后找最近数据点。
+    // 悬浮中：鼠标在 viewBox 0..100 内的 x 比例，反推时间戳后在预计算时间戳上二分找最近点。
     const ratio = ((e.clientX - rect.left) / rect.width) * 100;
-    const tHover = chart.tStart + (ratio / 100) * chart.tSpan;
-    let best = 0;
-    let bestDist = Infinity;
-    points.forEach((p, i) => {
-      const dist = Math.abs(Date.parse(p.hour) - tHover);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    setHoverIndex(best);
+    const times = chart.times;
+    const tHover = times[0] + (ratio / 100) * (times[times.length - 1] - times[0]);
+    setHoverIndex(nearestIndex(times, tHover));
   };
 
   const handleMouseUp = () => {
     setIsDragging(false);
     dragStartRef.current = null;
+    // 立即提交最后一次未执行的节流更新，确保松手时停在准确定位。
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      onOffsetChange(pendingOffsetRef.current);
+    }
   };
 
   const handleMouseLeave = () => {
     if (!isDragging) setHoverIndex(null);
   };
+
+  // 组件卸载时取消未执行的拖拽 rAF 回调，避免对已卸载组件提交更新。
+  useEffect(
+    () => () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
 
   if (points.length === 0) {
     return <p className="m-0 text-[13px] text-muted">{t("volume.noTrend")}</p>;
@@ -373,7 +406,7 @@ function VolumeTrendChart({
     0,
   );
 
-  const hoverPoint = hoverIndex != null ? points[hoverIndex] : null;
+  const hoverPoint = hoverIndex != null ? sampled[hoverIndex] : null;
 
   return (
     <div className="flex flex-col gap-1.5">

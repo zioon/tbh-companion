@@ -37,6 +37,8 @@ const config: AppConfig = {
   lootRingSeconds: { common: 300, stage: 420 },
   liveMemory: { enabled: false, consentAccepted: false },
   lookupPricePolling: { enabled: false, intervalMinutes: 10, thresholdUsd: 1.0, watchedHashes: [] },
+  marketHistoryBatchSize: 10,
+  marketHistoryBatchDelaySec: 120,
   language: "auto",
 };
 

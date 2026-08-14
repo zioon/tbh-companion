@@ -30,6 +30,8 @@ function baseConfig(): AppConfig {
       thresholdUsd: 1.0,
       watchedHashes: [],
     },
+    marketHistoryBatchSize: 10,
+    marketHistoryBatchDelaySec: 120,
     language: "auto",
   };
 }

@@ -57,6 +57,14 @@
       "statusLastCycle": "Last cycle: {{priced}}/{{targets}} priced, {{rateLimited}} rate-limited, {{failed}} failed{{aborted}}.",
       "statusAbortedSuffix": " (aborted)",
       "statusLastCycleAt": " · {{time}}"
+    },
+    "history": {
+      "sectionTitle": "Price history query",
+      "intro": "'Refresh history' on the Trading page fetches Steam pricehistory in batches, serially, to avoid rate limits.",
+      "batchSize": "Batch size",
+      "batchSizeHint": "Items fetched per batch (range 1–100, default 10). Steam rate-limits pricehistory heavily; lower values are more conservative.",
+      "batchDelay": "Batch-to-batch delay (s)",
+      "batchDelayHint": "Seconds to wait after each batch (default 120). Increase it if you hit 429 rate limits."
     }
   },
   "notifications": {

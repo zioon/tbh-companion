@@ -25,11 +25,14 @@ import type {
 import {
   aggregateHistoryToHourly,
   aggregateItemVolume,
+  aggregateLiveActivityItems,
   aggregateLiveItems,
   aggregateSamplesToTrend,
   aggregateVolume,
+  mergePriceHistoryPoints,
   VOLUME_CATEGORY_OTHER,
   volumeCategoryKey,
+  type LiveVolumePoint,
   type PriceHistoryPoint,
   type VolumeHashSample,
 } from "../../core/marketVolume";
@@ -43,16 +46,14 @@ const log = createLogger("marketVolume");
 export const MARKET_VOLUME_FILE = "market_volume_history.json";
 /** 最多保留多少条轮询采样（约 7 天：每 10 分钟一次 ≈ 1008 条）。 */
 export const MAX_SAMPLES = 1200;
-/** 历史缓存过期时间（ms）：30 分钟内不重复拉取 pricehistory。 */
-export const HISTORY_REFRESH_MS = 30 * 60_000;
-/** 每批历史拉取最多处理的物品数（Steam 对 pricehistory 限流较严，约超过 10 个即触发，故每批封顶 10 个）。 */
-export const MAX_HISTORY_TARGETS = 10;
+/** 历史缓存过期时间（ms）：1 小时内不重复拉取 pricehistory。 */
+export const HISTORY_REFRESH_MS = 60 * 60_000;
 /** 批内请求间隔（ms），串行拉取时避免瞬时爆发触发限流。 */
 const HISTORY_FETCH_DELAY_MS = 1500;
-/** 批间等待（ms）：每拉完一批（10 个）后等待 2 分钟再拉下一批，规避 Steam 限流。 */
-const HISTORY_BATCH_DELAY_MS = 2 * 60 * 1000;
 /** 采样间最小间隔（ms）：同一时刻附近不重复采样。 */
 const MIN_SAMPLE_INTERVAL_MS = 60 * 1000;
+/** 单个 hash 最多保留多少条活跃度采样点（约 33 小时：每 1 分钟 1 条）。 */
+export const MAX_LIVE_POINTS_PER_HASH = 2000;
 
 export interface MarketVolumeDeps {
   /** 返回当前图鉴物品目录（用于把 hash 归到类别）。 */
@@ -63,6 +64,10 @@ export interface MarketVolumeDeps {
   getTargetHashes: () => string[];
   /** 返回用户填写的 Steam 社区 Cookie（完整 Cookie 头字符串，可为空）。 */
   getCookie: () => string;
+  /** 返回每批历史拉取处理的物品数（pricehistory 限流较严，默认 10）。 */
+  getHistoryBatchSize: () => number;
+  /** 返回批间等待秒数（默认 120 秒，规避 Steam 限流）。 */
+  getHistoryBatchDelaySec: () => number;
   /** 注入用于测试；默认 userData 路径。 */
   filePath?: () => string;
   /** 注入用于测试；默认走 Steam pricehistory。 */
@@ -82,6 +87,8 @@ export interface MarketVolumeDeps {
     current: string | null;
     /** 单个 hash 刷新完成后的最新卡片（仅当确实拉到数据时携带），供前端实时更新。 */
     updatedItem?: MarketVolumeItem;
+    /** 本次刷新开始时的待刷新占位卡片（自动/手动刷新共用，供前端展示亮环）。 */
+    pending?: MarketVolumeItem[];
   }) => void;
 }
 
@@ -102,6 +109,8 @@ interface PersistedMarketVolume {
   historyHourly: MarketVolumeHourPoint[];
   /** 原始 pricehistory 点：hash -> 该物品的全部历史点（保留天/小时混合粒度），供后续按需再聚合。 */
   priceHistory: Record<string, PriceHistoryPoint[]>;
+  /** 各 hash 的活跃度采样历史（旧→新），快照卡片「不刷新也随时间范围变化」用。 */
+  liveHistory?: Record<string, LiveVolumePoint[]>;
   itemCount: number;
   itemCountsByCategory: Record<string, number>;
   /** 上次成功刷新 pricehistory 的时间（ms），持久化以便重启后仍命中 30min 缓存。 */
@@ -117,6 +126,8 @@ export class MarketVolumeService {
   private historyHourly: MarketVolumeHourPoint[] = [];
   /** 原始 pricehistory 点（hash -> 全部历史点），保留混合粒度，供后续按需再聚合。 */
   private priceHistory: Record<string, PriceHistoryPoint[]> = {};
+  /** 各 hash 的活跃度采样历史（旧→新），快照卡片「不刷新也随时间范围变化」用。 */
+  private liveHistory: Record<string, LiveVolumePoint[]> = {};
   /** 历史统计覆盖的物品种数（有有效 pricehistory 数据的 hash）。 */
   private historyItemCount = 0;
   /** 各分类覆盖的物品种数。 */
@@ -171,6 +182,18 @@ export class MarketVolumeService {
             }
           }
         }
+        if (p.liveHistory && typeof p.liveHistory === "object") {
+          this.liveHistory = {};
+          for (const [hash, pts] of Object.entries(p.liveHistory)) {
+            if (Array.isArray(pts)) {
+              const valid = pts.filter(
+                (pt): pt is LiveVolumePoint =>
+                  !!pt && Number.isFinite(pt.ts) && Number.isFinite(pt.volume),
+              );
+              if (valid.length > 0) this.liveHistory[hash] = valid;
+            }
+          }
+        }
         if (typeof p.itemCount === "number") this.historyItemCount = p.itemCount;
         if (p.itemCountsByCategory && typeof p.itemCountsByCategory === "object") {
           this.historyItemCountsByCategory = p.itemCountsByCategory;
@@ -197,6 +220,7 @@ export class MarketVolumeService {
         samples: this.samples,
         historyHourly: this.historyHourly,
         priceHistory: this.priceHistory,
+        liveHistory: this.liveHistory,
         itemCount: this.historyItemCount,
         itemCountsByCategory: this.historyItemCountsByCategory,
         historyFetchedAtMs: this.historyFetchedAtMs,
@@ -207,11 +231,25 @@ export class MarketVolumeService {
     }
   }
 
-  /** 记录一次轮询采样（hash 维度）。 */
+  /** 记录一次轮询采样（hash 维度），并累积该 hash 的活跃度采样历史。 */
   recordVolume(hash: string, volume: number, median: number | null, _currency: string): void {
     if (!hash) return;
     if (!Number.isFinite(volume) || volume < 0) return;
     this.live.set(hash, { volume, median });
+    // 累积 per-hash 活跃度采样点：同一轮询周期（< MIN_SAMPLE_INTERVAL_MS）内去重，
+    // 只更新该点数值而非新增，避免重复。裁剪到 MAX_LIVE_POINTS_PER_HASH。
+    const now = Date.now();
+    const arr = this.liveHistory[hash] ?? (this.liveHistory[hash] = []);
+    const last = arr[arr.length - 1];
+    if (last && now - last.ts < MIN_SAMPLE_INTERVAL_MS) {
+      last.volume = volume;
+      last.median = median;
+    } else {
+      arr.push({ ts: now, volume, median });
+      if (arr.length > MAX_LIVE_POINTS_PER_HASH) {
+        this.liveHistory[hash] = arr.slice(-MAX_LIVE_POINTS_PER_HASH);
+      }
+    }
   }
 
   /** 把当前轮询实时映射聚合成一次采样并持久化。 */
@@ -245,6 +283,32 @@ export class MarketVolumeService {
       if (hash) itemsByHash.set(hash, item);
     }
     return itemsByHash;
+  }
+
+  /**
+   * 清理实时映射与活跃度采样历史，仅保留 `keepHashes` 内的 hash。
+   *
+   * `live` / `liveHistory` 由轮询（watched）驱动、从不主动清理：用户取消星标
+   * 后，这些 hash 不再被轮询，但旧数据仍残留，会持续被计入采样总交易额与
+   * 兜底卡片，导致数值被高估。轮询 cycle 成功结束时调用本方法，把两者裁剪到
+   * 本轮轮询目标集，确保只统计当前仍被关注的物品。有裁剪变化时立即落盘，避免
+   * 重启后从磁盘读回已清理的旧条目。
+   */
+  pruneLive(keepHashes: ReadonlySet<string>): void {
+    let changed = false;
+    for (const hash of [...this.live.keys()]) {
+      if (!keepHashes.has(hash)) {
+        this.live.delete(hash);
+        changed = true;
+      }
+    }
+    for (const hash of Object.keys(this.liveHistory)) {
+      if (!keepHashes.has(hash)) {
+        delete this.liveHistory[hash];
+        changed = true;
+      }
+    }
+    if (changed) this.saveHistory();
   }
 
   /**
@@ -284,11 +348,23 @@ export class MarketVolumeService {
           `cookieKeys=[${cookieKeys.join(",")}], currency=${currency}`,
       );
       const historyByHash = new Map<string, PriceHistoryPoint[]>();
-      // 按每批 MAX_HISTORY_TARGETS 个分组串行拉取；批内间隔 HISTORY_FETCH_DELAY_MS，
-      // 每拉完一批等待 HISTORY_BATCH_DELAY_MS（2 分钟）再拉下一批，规避 Steam 限流。
+      // 按每批 getHistoryBatchSize() 个分组串行拉取；批内间隔 HISTORY_FETCH_DELAY_MS，
+      // 每拉完一批等待 getHistoryBatchDelaySec()（默认 120 秒 = 2 分钟）再拉下一批，规避 Steam 限流。
+      const batchSize = Math.max(1, Math.round(this.deps.getHistoryBatchSize()));
+      const batchDelayMs = Math.max(0, Math.round(this.deps.getHistoryBatchDelaySec())) * 1000;
       let done = 0;
-      for (let i = 0; i < targets.length; i += MAX_HISTORY_TARGETS) {
-        const batch = targets.slice(i, i + MAX_HISTORY_TARGETS);
+      // 构建本次待刷新目标的占位卡片，并在刷新开始时推送一次，让前端（交易页）
+      // 在自动/手动刷新时都能显示亮环提示（与 refreshMarketVolumeItems 的 pending 一致）。
+      const pending = this.buildPendingItems(targets);
+      this.deps.onHistoryProgress?.({
+        running: true,
+        total: targets.length,
+        done: 0,
+        current: null,
+        pending,
+      });
+      for (let i = 0; i < targets.length; i += batchSize) {
+        const batch = targets.slice(i, i + batchSize);
         for (const hash of batch) {
           this.deps.onHistoryProgress?.({
             running: true,
@@ -301,9 +377,12 @@ export class MarketVolumeService {
             const r = await fetchOne(hash, currency, cookie);
             if (r.ok && r.points && r.points.length > 0) {
               historyByHash.set(hash, r.points);
-              // 实时更新内存态：该 hash 立即反映最新价格，供前端实时刷新卡片
-              // （持久化在全部拉完之后统一做，避免频繁写盘）。
-              this.priceHistory[hash] = r.points;
+              // 实时更新内存态：与旧数据合并（保留更细粒度），该 hash 立即反映
+              // 最新价格，供前端实时刷新卡片（持久化在全部拉完之后统一做）。
+              this.priceHistory[hash] = mergePriceHistoryPoints(
+                this.priceHistory[hash] ?? [],
+                r.points,
+              );
               updatedItem = this.buildItemForHash(hash);
               log.info(`refreshHistory: ${hash} ok (${r.points.length} points)`);
             } else {
@@ -330,23 +409,29 @@ export class MarketVolumeService {
           });
           await new Promise((resolve) => setTimeout(resolve, HISTORY_FETCH_DELAY_MS));
         }
-        if (i + MAX_HISTORY_TARGETS < targets.length) {
-          await new Promise((resolve) => setTimeout(resolve, HISTORY_BATCH_DELAY_MS));
+        if (i + batchSize < targets.length) {
+          await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
         }
       }
-      const agg = aggregateHistoryToHourly(historyByHash, this.buildItemsByHash());
+      // 本次拉取的新数据聚合：决定返回值「本次是否刷新到了有效数据」。
+      const fetchedAgg = aggregateHistoryToHourly(historyByHash, this.buildItemsByHash());
+      // 用合并后的完整 priceHistory 重新聚合小时走势，保证包含所有已拉取过的
+      // hash（而非仅本次 targets），且粒度合并后为最细粒度。
+      const allAgg = aggregateHistoryToHourly(
+        new Map(Object.entries(this.priceHistory)),
+        this.buildItemsByHash(),
+      );
       // 诊断：刷新结束，汇总成功拉到的物品数与小时桶数，便于判断是否整体无数据。
       log.info(
-        `refreshHistory end: fetched=${historyByHash.size}/${targets.length}, hourlyBuckets=${agg.points.length}`,
+        `refreshHistory end: fetched=${historyByHash.size}/${targets.length}, hourlyBuckets=${allAgg.points.length}`,
       );
       // 一次刷新拿到该物品全部历史（仅粒度随新旧变化），故保留全部小时桶，不截断，
-      // 供全量走势展示；同时保存原始 pricehistory 点，供后续按需再聚合。
-      // 仅当确实拉到数据时才覆盖历史数组，避免失败把已有好数据清空。
-      if (agg.points.length > 0) {
-        this.historyHourly = agg.points;
-        this.priceHistory = Object.fromEntries(historyByHash);
-        this.historyItemCount = agg.itemCount;
-        this.historyItemCountsByCategory = agg.itemCountsByCategory;
+      // 供全量走势展示；priceHistory 已在循环内逐 hash 合并（保留更细粒度 + 非目标
+      // hash 保留），此处不再全量覆盖，避免失败把已有好数据清空。
+      if (allAgg.points.length > 0) {
+        this.historyHourly = allAgg.points;
+        this.historyItemCount = allAgg.itemCount;
+        this.historyItemCountsByCategory = allAgg.itemCountsByCategory;
       }
       // 无论成败都记录拉取时机，命中 30min 缓存去抖，避免每次轮询/打开页面都
       // 高频重试触发 Steam 限流。返回是否确实刷新到了新数据（决定是否广播）。
@@ -359,7 +444,7 @@ export class MarketVolumeService {
         done: targets.length,
         current: null,
       });
-      return agg.points.length > 0;
+      return fetchedAgg.points.length > 0;
     } finally {
       this.refreshing = false;
     }
@@ -403,9 +488,11 @@ export class MarketVolumeService {
    * 无有效交易额数据时回退为空白卡片（仅展示名与分类）。
    */
   private buildItemForHash(hash: string): MarketVolumeItem {
-    const item = this.buildItemsByHash().get(hash);
+    // 复用同一个 catalog 映射，避免 refreshHistory 逐 hash 调用时反复重建整个 Map。
+    const itemsByHash = this.buildItemsByHash();
+    const item = itemsByHash.get(hash);
     const pts = this.priceHistory[hash] ?? [];
-    const agg = aggregateItemVolume(new Map([[hash, pts]]), this.buildItemsByHash());
+    const agg = aggregateItemVolume(new Map([[hash, pts]]), itemsByHash);
     return (
       agg[0] ?? {
         hash,
@@ -422,21 +509,17 @@ export class MarketVolumeService {
    * 构造「待刷新」目标物品的占位卡片（交易页刷新进行中提前展示）。
    *
    * 输入为待刷新的 market_hash_name 列表（如 `selectHistoryRefreshTargets`
-   * 的结果）。若该 hash 已拉取过 pricehistory（存在历史数据），则**复用历史
-   * 数据生成带走势的卡片**（总交易额与小时 points 齐全，刷新过程中不因尚未
-   * 拉到最新数据而丢失图表）；否则生成为 `total=0`、`points=[]` 的空白占位
-   * （首次刷新 / 尚无任何历史），仅展示名与分类。按输入顺序返回（目标集已按
-   * 星标优先/价格降序排好）。
+   * 的结果）。若该 hash 已有交易额数据（合并口径：pricehistory 聚合 + 活跃度
+   * 采样历史 + live 快照），则**复用该数据生成带走势/金额的卡片**，与主列表
+   * 口径一致，刷新过程中不因尚未拉到最新数据而丢失图表或金额；否则生成为
+   * `total=0`、`points=[]` 的空白占位（首次刷新 / 尚无任何数据），仅展示名与
+   * 分类。按输入顺序返回（目标集已按星标优先/价格降序排好）。
    */
   buildPendingItems(targets: readonly string[]): MarketVolumeItem[] {
     const itemsByHash = this.buildItemsByHash();
-    // 复用已有 pricehistory 聚合出「带走势」的卡片，避免刷新过程中图表消失。
-    const existingByHash = new Map(
-      aggregateItemVolume(new Map(Object.entries(this.priceHistory)), itemsByHash).map((i) => [
-        i.hash,
-        i,
-      ]),
-    );
+    // 复用合并口径（pricehistory + 活跃度采样 + live 快照）的卡片，避免待刷新
+    // 物品在刷新期间显示为空白占位，与主列表卡片重复时口径不一致。
+    const existingByHash = new Map(this.getVolumeItems().items.map((i) => [i.hash, i]));
     const out: MarketVolumeItem[] = [];
     const seen = new Set<string>();
     for (const hash of targets) {
@@ -480,19 +563,28 @@ export class MarketVolumeService {
   /**
    * 返回「物品维度」的交易额卡片数据（交易页），按总交易额降序。
    *
-   * 合并两路数据：
+   * 合并三路数据：
    *  - pricehistory 按小时聚合（含小时走势 points），为主；
-   *  - 轮询 live 快照（volume × median，无走势）补充 pricehistory 尚未覆盖到的
-   *    物品，保证卡片尽量齐全。同一 hash 以 pricehistory 为准。
+   *  - 轮询活跃度采样历史（per-hash 采样点，`kind="live"`，含采样走势 points，
+   *    取窗口内最新值）补充 pricehistory 尚未覆盖到的物品；
+   *  - 轮询 live 快照（体积更小，无走势）兜底活动历史尚未累积的 hash。
+   * 同一 hash 以 pricehistory 优先，其次活跃度采样历史。
    */
   getVolumeItems(): MarketVolumeItemStats {
     const itemsByHash = this.buildItemsByHash();
     const currency = this.deps.getCurrency();
     const historyByHash = new Map(Object.entries(this.priceHistory));
     const historyItems = aggregateItemVolume(historyByHash, itemsByHash);
-    const liveItems = aggregateLiveItems(itemsByHash, this.live);
-    const historyHashes = new Set(historyItems.map((item) => item.hash));
-    const merged = [...historyItems, ...liveItems.filter((item) => !historyHashes.has(item.hash))];
+    const skip = new Set(historyItems.map((item) => item.hash));
+    const liveActivityItems = aggregateLiveActivityItems(
+      itemsByHash,
+      new Map(Object.entries(this.liveHistory)),
+    ).filter((item) => !skip.has(item.hash));
+    const activityHashes = new Set(liveActivityItems.map((item) => item.hash));
+    const liveFallback = aggregateLiveItems(itemsByHash, this.live).filter(
+      (item) => !skip.has(item.hash) && !activityHashes.has(item.hash),
+    );
+    const merged = [...historyItems, ...liveActivityItems, ...liveFallback];
     merged.sort((a, b) => b.total - a.total);
     return { items: merged, currency };
   }

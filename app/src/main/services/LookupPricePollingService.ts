@@ -136,6 +136,12 @@ export interface LookupPricePollingDeps {
    * 在其后聚合并持久化一次采样。可选。
    */
   onCycleEnd?: () => void;
+  /**
+   * 一轮轮询成功结束、且拿到本轮目标集时回调（在 {@link onCycleEnd} 之前）。
+   * 供市场交易额服务把实时成交量映射裁剪到本轮轮询目标集，清理已取消星标的
+   * 陈旧条目。可选。
+   */
+  onCycleComplete?: (targets: readonly string[]) => void;
 }
 
 export type { LookupPricePollingStatus, PollingCycleResult };
@@ -505,6 +511,9 @@ export class LookupPricePollingService {
           },
           targetCurrency,
         );
+        // 先通知本轮目标集（裁剪市场交易额的陈旧 live 条目），再触发 onCycleEnd 采样，
+        // 保证 sampleNow 用清理后的实时映射聚合。
+        this.deps.onCycleComplete?.(targets);
         // 一轮结束：让市场交易额服务聚合并持久化一次采样
         this.deps.onCycleEnd?.();
       }

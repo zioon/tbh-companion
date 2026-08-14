@@ -31,6 +31,16 @@ export interface VolumeHashSample {
   median: number | null;
 }
 
+/** 单个 hash 的一次「活跃度采样」历史点（来自轮询 live 快照，非 pricehistory）。 */
+export interface LiveVolumePoint {
+  /** 采样时间（epoch ms，UTC）。 */
+  ts: number;
+  /** 24h 成交量（滚动累计，非该时刻增量）。 */
+  volume: number;
+  /** 成交价中位数（目标货币）。 */
+  median: number | null;
+}
+
 /** 交易额展示的 5 大分类 key。 */
 export const VOLUME_CATEGORY_WEAPON = "WEAPON";
 export const VOLUME_CATEGORY_ARMOR = "ARMOR";
@@ -191,6 +201,12 @@ export interface MarketVolumeItem {
   total: number;
   /** 按小时的历史走势（升序，最新在最后），用于卡片小图。 */
   points: { hour: string; price: number; volume: number; total: number }[];
+  /**
+   * 数据口径：`history`=pricehistory 真实小时增量（可按区间求和）；
+   * `live`=轮询活跃度采样（24h 滚动累计，不可求和，取窗口内最新值）。
+   * 缺省视为 `history`。
+   */
+  kind?: "history" | "live";
 }
 
 /**
@@ -276,6 +292,57 @@ export function aggregateLiveItems(
 }
 
 /**
+ * 从「每个 hash 的轮询活跃度采样历史」构建物品卡片（pricehistory 未拉取时的回退）。
+ *
+ * 与 {@link aggregateLiveItems} 的区别：这里能把多轮采样的实时值累积成采样点
+ * `points`（供卡片迷你走势图与时间范围切换），但每个点都是 24h 滚动累计量而非
+ * 该时刻增量，**不可按区间求和**（会重复计算）。因此：
+ * - `total` = 最近一次有效采样的 volume × median（当前活跃度）；
+ * - `points` 仅作「活跃度随时间的采样趋势」，前端按 `kind="live"` 取窗口内最新值。
+ */
+export function aggregateLiveActivityItems(
+  itemsByHash: Map<
+    string,
+    Pick<LookupItem, "type" | "gearGroup" | "materialType" | "name" | "grade">
+  >,
+  livePointsByHash: ReadonlyMap<string, readonly LiveVolumePoint[]>,
+): MarketVolumeItem[] {
+  const results: MarketVolumeItem[] = [];
+  for (const [hash, allPoints] of livePointsByHash) {
+    const valid = allPoints.filter(
+      (p) =>
+        Number.isFinite(p.volume) &&
+        p.volume > 0 &&
+        p.median != null &&
+        Number.isFinite(p.median) &&
+        p.median > 0,
+    );
+    if (valid.length === 0) continue;
+    const last = valid[valid.length - 1];
+    const total = last.volume * (last.median as number);
+    if (total <= 0) continue;
+    const item = itemsByHash.get(hash);
+    const series = valid.map((p) => ({
+      hour: new Date(p.ts).toISOString(),
+      price: p.median as number,
+      volume: p.volume,
+      total: p.volume * (p.median as number),
+    }));
+    results.push({
+      hash,
+      name: item?.name ?? hash,
+      category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
+      grade: item?.grade,
+      kind: "live",
+      total,
+      points: series,
+    });
+  }
+  results.sort((a, b) => b.total - a.total);
+  return results;
+}
+
+/**
  * 按小时聚合后的历史成交额序列及其覆盖的物品统计。
  */
 export interface HistoryAggregation {
@@ -346,4 +413,42 @@ export function aggregateHistoryToHourly(
   }
 
   return { points, itemCount, itemCountsByCategory };
+}
+
+/**
+ * 合并新旧 pricehistory 点，按「保留更细粒度」优先。
+ *
+ * Steam pricehistory 的粒度随数据新旧变化：最近为小时粒度、更早为日粒度。随
+ * 时间推移，原本的小时粒度数据会被 Steam 降级为日粒度；若直接覆盖会丢失旧的
+ * 小时粒度细节。本函数按 UTC 天分组，比较新旧两组在同一「天」内的点数，保留
+ * 点数更多（更细）的一组；点数相等时用新数据（更新）。这样旧的小时粒度不会被
+ * 新的日粒度覆盖，同时最近的新数据仍以新值覆盖旧值。
+ */
+export function mergePriceHistoryPoints(
+  oldPoints: readonly PriceHistoryPoint[],
+  newPoints: readonly PriceHistoryPoint[],
+): PriceHistoryPoint[] {
+  if (oldPoints.length === 0) return [...newPoints];
+  if (newPoints.length === 0) return [...oldPoints];
+
+  const DAY_SECONDS = 86400;
+  const byDay = new Map<number, { old: PriceHistoryPoint[]; next: PriceHistoryPoint[] }>();
+  const bucket = (day: number) => {
+    let e = byDay.get(day);
+    if (!e) {
+      e = { old: [], next: [] };
+      byDay.set(day, e);
+    }
+    return e;
+  };
+  for (const p of oldPoints) bucket(Math.floor(p.timestamp / DAY_SECONDS)).old.push(p);
+  for (const p of newPoints) bucket(Math.floor(p.timestamp / DAY_SECONDS)).next.push(p);
+
+  const result: PriceHistoryPoint[] = [];
+  for (const { old, next } of byDay.values()) {
+    // 点数更多的一方视为更细粒度（小时 > 日）；相等时用新数据（更新）。
+    result.push(...(old.length > next.length ? old : next));
+  }
+  result.sort((a, b) => a.timestamp - b.timestamp);
+  return result;
 }

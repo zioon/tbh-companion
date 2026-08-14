@@ -1,14 +1,28 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { MarketVolumeItem } from "../../../../shared/types";
 import { formatMoney } from "../../../core/steamPrice";
+import { fmtCompact } from "../../lib/format";
+import { cn } from "../../design-system/lib/variants";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { gradeColor } from "../../lib/gradeColor";
+import { gradeLabel } from "../../lib/itemLabels";
+import { downsample, sliceWindow, windowTotalOf, type RefreshStatus } from "../../lib/windowTotal";
 
 /** 图表三色分离：价格折线=绿，成交量柱=蓝，交易额折线=红。 */
 const PRICE_COLOR = "#22c55e";
 const VOLUME_COLOR = "#3b82f6";
 const TOTAL_COLOR = "#ef4444";
+
+/** 卡片迷你走势图最多绘制的点数（高度仅 40px，超出即均匀降采样）。 */
+const MAX_CARD_POINTS = 48;
+
+/** 刷新状态亮环颜色：灰=待刷新，黄=当前批次，绿=已刷新。 */
+const RING_COLOR: Record<RefreshStatus, string> = {
+  pending: "#c3c9d4", // 灰（待刷新）—— 提亮，避免深色背景上不可见
+  refreshing: "#f5d76a", // 黄（当前批次）
+  refreshed: "#5ad17a", // 绿（已刷新）
+};
 
 /** 分类 key 的展示名（缺失时原样显示）。 */
 function categoryLabel(key: string, translate: (k: string) => string): string {
@@ -17,58 +31,72 @@ function categoryLabel(key: string, translate: (k: string) => string): string {
 }
 
 /**
- * 交易页的单物品卡片：物品名 + 总交易额 + 迷你走势图。
- * 迷你图包含三部分：
- *  - 下方成交量柱状图（蓝色，高度随量）
- *  - 上方价格折线（绿色）
- *  - 上方交易额折线（红色）
- * 名称旁色块与名称颜色由 grade 决定（跨所有卡片一致）。
- *
- * 走势图时间窗口由父级（Trading 页）统一控制：传入 `windowRange` 时，仅展示
- * 该 [start, end] 时间范围内的点，与主图表同步显示相同时间段；不传时展示全量
- * 历史点。卡片自身不再提供独立拖拽，避免与主图表窗口冲突。
+ * 交易页的单物品卡片：物品名 + 窗口成交额 + 迷你走势图。
+ * 走势图时间窗口由父级（Trading 页）统一控制。刷新批次（`refreshStatus`）驱动
+ * 的卡片会包裹一层发光亮环：灰=待刷新、黄=当前批次（呼吸动画）、绿=已刷新；
+ * 非刷新批次的卡片不显示亮环。
  */
-export function ItemVolumeCard({
+export const ItemVolumeCard = memo(function ItemVolumeCard({
   item,
   currency,
   windowRange,
+  refreshStatus,
 }: {
   item: MarketVolumeItem;
   currency: string;
   windowRange?: { start: string; end: string } | null;
+  refreshStatus?: RefreshStatus | null;
 }) {
   const { t } = useTranslation("market");
   const color = gradeColor(item.grade ?? "");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  // 按共享时间窗口过滤点集；未传窗口时展示全量。
   const points = useMemo(() => {
     if (windowRange && windowRange.start && windowRange.end) {
-      return item.points.filter((p) => p.hour >= windowRange.start && p.hour <= windowRange.end);
+      return sliceWindow(item.points, windowRange);
     }
     return item.points;
   }, [item.points, windowRange]);
 
-  // 左上角总交易额：有窗口时随窗口求和；无窗口空窗口时回退到卡片全量 total。
-  const windowTotal = useMemo(() => {
-    if (windowRange && windowRange.start && windowRange.end && points.length > 0) {
-      return points.reduce((s, p) => s + p.total, 0);
+  const windowTotal = useMemo(() => windowTotalOf(item, windowRange), [item, windowRange]);
+
+  const windowVolume = useMemo(() => {
+    // live 卡片的 volume 是 24h 滚动累计值（非小时增量），展示最新一个采样点的值。
+    if (item.kind === "live") {
+      const last = item.points[item.points.length - 1];
+      return last ? last.volume : 0;
     }
-    return item.total;
-  }, [windowRange, points, item.total]);
+    const src = windowRange && windowRange.start && windowRange.end ? points : item.points;
+    return src.reduce((s, p) => s + p.volume, 0);
+  }, [windowRange, points, item.points, item.kind]);
+
+  // 刷新状态亮环。所有状态都先给静态发光描边（保证可见），黄色「当前批次」再
+  // 叠加呼吸动画覆盖静态描边。描边 3px + 发光 18px 高不透明，深色卡片上清晰可辨。
+  const ringColor = refreshStatus ? RING_COLOR[refreshStatus] : null;
+  const isActive = refreshStatus === "refreshing";
+  const ringStyle = ringColor
+    ? ({
+        "--ring-color": ringColor,
+        "--ring-color-soft": `${ringColor}99`,
+        boxShadow: `0 0 0 3px ${ringColor}, 0 0 18px ${ringColor}dd`,
+      } as React.CSSProperties)
+    : undefined;
+
   const chart = useMemo(() => {
     if (points.length === 0) return null;
 
-    const maxVol = Math.max(1, ...points.map((p) => p.volume));
-    const maxPrice = Math.max(1, ...points.map((p) => p.price));
-    const minPrice = Math.min(maxPrice, ...points.map((p) => p.price));
+    // 卡片小图高度仅 40px，先均匀降采样，减少 path 字符串长度与节点数量。
+    const sampled = downsample(points, MAX_CARD_POINTS);
+    const maxVol = Math.max(1, ...sampled.map((p) => p.volume));
+    const maxPrice = Math.max(1, ...sampled.map((p) => p.price));
+    const minPrice = Math.min(maxPrice, ...sampled.map((p) => p.price));
     const priceRange = maxPrice - minPrice || 1;
-    const maxTotal = Math.max(1, ...points.map((p) => p.total));
-    const minTotal = Math.min(maxTotal, ...points.map((p) => p.total));
+    const maxTotal = Math.max(1, ...sampled.map((p) => p.total));
+    const minTotal = Math.min(maxTotal, ...sampled.map((p) => p.total));
     const totalRange = maxTotal - minTotal || 1;
-    const n = points.length;
-    const barAreaH = 16; // 下半区高度（viewBox y: 24..40）
-    const priceAreaH = 14; // 上半区高度（viewBox y: 4..18）
+    const n = sampled.length;
+    const barAreaH = 16;
+    const priceAreaH = 14;
     const barBottom = 40;
     const priceBottomBase = 4;
     const x = (i: number) => (n === 1 ? 50 : (i / (n - 1)) * 100);
@@ -78,21 +106,21 @@ export function ItemVolumeCard({
     const totalY = (p: number) =>
       priceBottomBase + priceAreaH - ((p - minTotal) / totalRange) * priceAreaH;
 
-    const bars = points.map((p, i) => {
+    const bars = sampled.map((p, i) => {
       const h = barHeight(p.volume);
       return { x: x(i) - 0.4, y: barBottom - h, w: 0.8, h };
     });
-    const pricePath = `M ${points.map((p, i) => `${x(i)},${priceY(p.price)}`).join(" L ")}`;
-    const totalPath = `M ${points.map((p, i) => `${x(i)},${totalY(p.total)}`).join(" L ")}`;
+    const pricePath = `M ${sampled.map((p, i) => `${x(i)},${priceY(p.price)}`).join(" L ")}`;
+    const totalPath = `M ${sampled.map((p, i) => `${x(i)},${totalY(p.total)}`).join(" L ")}`;
 
     return {
       bars,
       pricePath,
       totalPath,
       x,
-      first: points[0].hour,
-      last: points[points.length - 1].hour,
-      points,
+      first: sampled[0].hour,
+      last: sampled[sampled.length - 1].hour,
+      points: sampled,
     };
   }, [points]);
 
@@ -102,133 +130,139 @@ export function ItemVolumeCard({
     const rect = svg.getBoundingClientRect();
     if (rect.width === 0) return;
     const ratio = ((e.clientX - rect.left) / rect.width) * 100;
-    const { points: pts } = chart;
-    let best = 0;
-    let bestDist = Infinity;
-    pts.forEach((_p, i) => {
-      const pointX = chart.x(i);
-      const dist = Math.abs(pointX - ratio);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = i;
-      }
-    });
-    setHoverIndex(best);
+    // 卡片小图 x 等距，最近点索引可直接由比例算出，无需线性扫描。
+    const n = chart.points.length;
+    const idx = Math.max(0, Math.min(n - 1, Math.round((ratio / 100) * (n - 1))));
+    setHoverIndex(idx);
   };
 
   const handleMouseLeave = () => setHoverIndex(null);
 
   return (
-    <Card padding="compact" className="flex flex-col gap-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span
-              className="size-2 shrink-0 rounded-sm"
-              style={{ background: color }}
-              aria-hidden
-            />
-            <p className="m-0 truncate text-[13px] font-medium" style={{ color }} title={item.name}>
-              {item.name}
+    <div
+      className={cn("h-full", ringColor ? "rounded-lg p-0.5" : "", isActive && "animate-ring-glow")}
+      style={ringStyle}
+    >
+      <Card padding="compact" className="flex h-full flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="size-2 shrink-0 rounded-sm"
+                style={{ background: color }}
+                aria-hidden
+              />
+              <p
+                className="m-0 truncate text-[13px] font-medium"
+                style={{ color }}
+                title={item.name}
+              >
+                {item.name}
+              </p>
+            </div>
+            <p className="m-0 text-[11px] text-muted">
+              {categoryLabel(item.category, t)}
+              {item.grade ? ` · ${gradeLabel(item.grade, t)}` : ""}
+              {item.kind === "live"
+                ? ` · ${t("trading.activity")}`
+                : item.points.length > 0
+                  ? ` · ${t("volume.trendTitle")}`
+                  : ` · ${t("trading.snapshot")}`}
             </p>
           </div>
-          <p className="m-0 text-[11px] text-muted">
-            {categoryLabel(item.category, t)}
-            {item.grade ? ` · ${item.grade}` : ""}
-            {item.points.length > 0
-              ? ` · ${t("volume.trendTitle")}`
-              : ` · ${t("trading.snapshot")}`}
-          </p>
+          <div className="flex shrink-0 flex-col items-end gap-0.5">
+            <span className="text-sm font-semibold text-fg">
+              {formatMoney(windowTotal, currency)}
+            </span>
+            <span className="text-[11px] text-muted">成交量 {fmtCompact(windowVolume)}</span>
+          </div>
         </div>
-        <span className="shrink-0 text-sm font-semibold text-fg">
-          {formatMoney(windowTotal, currency)}
-        </span>
-      </div>
 
-      {chart ? (
-        <div className="flex flex-col gap-0.5">
-          <div className="relative">
-            <svg
-              viewBox="0 0 100 40"
-              preserveAspectRatio="none"
-              className="h-10 w-full"
-              role="img"
-              aria-label={`${item.name} ${t("volume.trendTitle")}`}
-              onMouseMove={handleMouseMove}
-              onMouseLeave={handleMouseLeave}
-            >
-              {chart.bars.map((b, i) => (
-                <rect
-                  key={i}
-                  x={b.x}
-                  y={b.y}
-                  width={b.w}
-                  height={Math.max(0.1, b.h)}
-                  fill={VOLUME_COLOR}
-                  fillOpacity={0.55}
+        {chart ? (
+          <div className="flex flex-col gap-0.5">
+            <div className="relative">
+              <svg
+                viewBox="0 0 100 40"
+                preserveAspectRatio="none"
+                className="h-10 w-full"
+                role="img"
+                aria-label={`${item.name} ${t("volume.trendTitle")}`}
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
+              >
+                {chart.bars.map((b, i) => (
+                  <rect
+                    key={i}
+                    x={b.x}
+                    y={b.y}
+                    width={b.w}
+                    height={Math.max(0.1, b.h)}
+                    fill={VOLUME_COLOR}
+                    fillOpacity={0.55}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ))}
+                <path
+                  d={chart.pricePath}
+                  fill="none"
+                  stroke={PRICE_COLOR}
+                  strokeWidth={1}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
                 />
-              ))}
-              <path
-                d={chart.pricePath}
-                fill="none"
-                stroke={PRICE_COLOR}
-                strokeWidth={1}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-              />
-              <path
-                d={chart.totalPath}
-                fill="none"
-                stroke={TOTAL_COLOR}
-                strokeWidth={1}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-              />
+                <path
+                  d={chart.totalPath}
+                  fill="none"
+                  stroke={TOTAL_COLOR}
+                  strokeWidth={1}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {hoverIndex != null && (
+                  <line
+                    x1={chart.x(hoverIndex)}
+                    y1={2}
+                    x2={chart.x(hoverIndex)}
+                    y2={40}
+                    stroke={color}
+                    strokeOpacity={0.6}
+                    strokeWidth={0.3}
+                    strokeDasharray="1 1"
+                  />
+                )}
+              </svg>
               {hoverIndex != null && (
-                <line
-                  x1={chart.x(hoverIndex)}
-                  y1={2}
-                  x2={chart.x(hoverIndex)}
-                  y2={40}
-                  stroke={color}
-                  strokeOpacity={0.6}
-                  strokeWidth={0.3}
-                  strokeDasharray="1 1"
+                <HoverTooltip
+                  point={chart.points[hoverIndex]}
+                  currency={currency}
+                  hoverX={chart.x(hoverIndex)}
                 />
               )}
-            </svg>
-            {hoverIndex != null && (
-              <HoverTooltip
-                point={chart.points[hoverIndex]}
-                currency={currency}
-                hoverX={chart.x(hoverIndex)}
-              />
-            )}
+            </div>
+            <div className="flex justify-between text-[10px] text-muted">
+              <span>
+                {new Date(chart.first).toLocaleDateString([], {
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                })}
+              </span>
+              <span>
+                {new Date(chart.last).toLocaleDateString([], {
+                  month: "2-digit",
+                  day: "2-digit",
+                  hour: "2-digit",
+                })}
+              </span>
+            </div>
           </div>
-          <div className="flex justify-between text-[10px] text-muted">
-            <span>
-              {new Date(chart.first).toLocaleDateString([], {
-                month: "2-digit",
-                day: "2-digit",
-                hour: "2-digit",
-              })}
-            </span>
-            <span>
-              {new Date(chart.last).toLocaleDateString([], {
-                month: "2-digit",
-                day: "2-digit",
-                hour: "2-digit",
-              })}
-            </span>
-          </div>
-        </div>
-      ) : null}
-    </Card>
+        ) : null}
+      </Card>
+    </div>
   );
-}
+});
 
 /**
  * 悬浮提示：显示该小时的时间、价格、成交量、成交额。
@@ -248,7 +282,6 @@ function HoverTooltip({
     day: "2-digit",
   })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 
-  // 提示框相对容器宽度按百分比定位，超出右边缘时向左偏移避免溢出。
   const clamped = Math.min(Math.max(hoverX, 15), 85);
   return (
     <div

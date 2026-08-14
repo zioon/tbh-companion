@@ -596,6 +596,55 @@ export function Settings() {
               />
             </Field>
           </div>
+
+          <div className="mt-4 flex flex-col gap-3 border-t border-border/40 pt-4">
+            <div className="flex flex-col gap-1">
+              <strong className="text-[13px] font-semibold">
+                {tSettings("steamMarket.history.sectionTitle")}
+              </strong>
+              <span className="text-xs text-muted">{tSettings("steamMarket.history.intro")}</span>
+            </div>
+
+            <Field
+              label={tSettings("steamMarket.history.batchSize")}
+              hint={tSettings("steamMarket.history.batchSizeHint")}
+            >
+              <NumberInput
+                min={1}
+                max={100}
+                defaultValue={cfg.marketHistoryBatchSize}
+                key={`history-batch-${cfg.marketHistoryBatchSize}`}
+                disabled={saveBusy}
+                onBlur={(e) => {
+                  const value = Math.min(
+                    100,
+                    Math.max(1, Math.round(Number(e.target.value) || 10)),
+                  );
+                  if (value === cfg.marketHistoryBatchSize) return;
+                  void savePartial({ marketHistoryBatchSize: value });
+                }}
+              />
+            </Field>
+
+            <Field
+              label={tSettings("steamMarket.history.batchDelay")}
+              hint={tSettings("steamMarket.history.batchDelayHint")}
+            >
+              <NumberInput
+                min={0}
+                max={600}
+                step={5}
+                defaultValue={cfg.marketHistoryBatchDelaySec}
+                key={`history-delay-${cfg.marketHistoryBatchDelaySec}`}
+                disabled={saveBusy}
+                onBlur={(e) => {
+                  const value = Math.max(0, Math.round(Number(e.target.value) || 0));
+                  if (value === cfg.marketHistoryBatchDelaySec) return;
+                  void savePartial({ marketHistoryBatchDelaySec: value });
+                }}
+              />
+            </Field>
+          </div>
         </Section>
 
         <Section title={tSettings("notifications.sectionTitle")}>

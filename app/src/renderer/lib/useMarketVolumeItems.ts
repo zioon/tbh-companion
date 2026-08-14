@@ -4,19 +4,17 @@ import type {
   MarketVolumeItemStats,
   MarketVolumeRefreshProgress,
 } from "../../../shared/types";
+import { useTbhContext } from "../context/tbhContext";
 import { reportIpcError } from "./reportError";
-
-const IDLE_PROGRESS: MarketVolumeRefreshProgress = {
-  running: false,
-  total: 0,
-  done: 0,
-  currentHash: null,
-};
 
 /**
  * 读取「物品维度」的市场交易额卡片数据（交易页）。订阅 IPC.MARKET_VOLUME_ITEMS
  * 推送，组件卸载时移除监听。`refresh()` 触发一次「刷新历史价格」（星标 ∪ 快照
- * 阈值以上全部物品），刷新期间订阅进度、并提前展示待刷全新品的占位卡片。
+ * 阈值以上全部物品）。
+ *
+ * 刷新进度（`progress`）与待刷新占位列表（`pending`）提升到全局 `TbhProvider`
+ * 管理，而非本 hook 的本地 state——这样切换到其他 tab（本组件卸载）再回到交易
+ * 页时，进行中的刷新进度仍能保留并继续更新，不会重置回初始状态。
  */
 export function useMarketVolumeItems(): {
   stats: MarketVolumeItemStats | null;
@@ -26,8 +24,7 @@ export function useMarketVolumeItems(): {
   progress: MarketVolumeRefreshProgress;
 } {
   const [stats, setStats] = useState<MarketVolumeItemStats | null>(null);
-  const [pending, setPending] = useState<MarketVolumeItem[]>([]);
-  const [progress, setProgress] = useState<MarketVolumeRefreshProgress>(IDLE_PROGRESS);
+  const { marketVolumeProgress, marketVolumePending, setMarketVolumePending } = useTbhContext();
 
   useEffect(() => {
     let mounted = true;
@@ -38,24 +35,9 @@ export function useMarketVolumeItems(): {
       })
       .catch(reportIpcError);
     const off = window.tbh.onMarketVolumeItems((next) => setStats(next));
-    const offProgress = window.tbh.onMarketVolumeRefreshProgress((p) => {
-      setProgress(p);
-      // 刷新过程中每完成一个物品，实时用其最新卡片替换占位卡片。
-      if (p.updatedItem) {
-        const updated = p.updatedItem;
-        setPending((prev) => {
-          const idx = prev.findIndex((it) => it.hash === updated.hash);
-          if (idx < 0) return prev;
-          const next = prev.slice();
-          next[idx] = updated;
-          return next;
-        });
-      }
-    });
     return () => {
       mounted = false;
       if (typeof off === "function") off();
-      if (typeof offProgress === "function") offProgress();
     };
   }, []);
 
@@ -63,11 +45,17 @@ export function useMarketVolumeItems(): {
     try {
       const result = await window.tbh.refreshMarketVolumeItems();
       setStats(result.stats);
-      setPending(result.pending);
+      setMarketVolumePending(result.pending);
     } catch (err) {
       reportIpcError(err, "market-volume-items:refresh");
     }
-  }, []);
+  }, [setMarketVolumePending]);
 
-  return { stats, pending, refresh, refreshing: progress.running, progress };
+  return {
+    stats,
+    pending: marketVolumePending,
+    refresh,
+    refreshing: marketVolumeProgress.running,
+    progress: marketVolumeProgress,
+  };
 }

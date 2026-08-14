@@ -132,6 +132,9 @@ const marketVolume = new MarketVolumeService({
   // 用户填写的 Steam 社区 Cookie（可为空）；带上后 pricehistory（历史走势）
   // 才能拿到登录后的真实历史成交额，否则回退到轮询采样走势。
   getCookie: () => config.steamCookie ?? "",
+  // 价格历史查询的批次数量与批间间隔（可在 Settings 调整，规避 Steam 限流）。
+  getHistoryBatchSize: () => config.marketHistoryBatchSize,
+  getHistoryBatchDelaySec: () => config.marketHistoryBatchDelaySec,
   // 历史走势覆盖 owned ∪ watched 的物品集合（与轮询目标一致，控制 pricehistory 请求量）。
   getTargetHashes: () => {
     const watched = config.lookupPricePolling.watchedHashes ?? [];
@@ -145,6 +148,7 @@ const marketVolume = new MarketVolumeService({
       done: p.done,
       currentHash: p.current,
       ...(p.updatedItem ? { updatedItem: p.updatedItem } : {}),
+      ...(p.pending ? { pending: p.pending } : {}),
     });
   },
 });
@@ -185,6 +189,9 @@ const lookupPricePolling = new LookupPricePollingService({
   // 一次采样并广播给 renderer。
   onVolumeSample: (sample) =>
     marketVolume.recordVolume(sample.hash, sample.volume, sample.median, sample.currency),
+  // 轮询成功结束时，把市场交易额的实时映射裁剪到本轮目标集，清理已取消星标的
+  // 陈旧条目，避免它们持续被计入总交易额与兜底卡片。
+  onCycleComplete: (targets) => marketVolume.pruneLive(new Set(targets)),
   onCycleEnd: () => {
     const updated = marketVolume.sampleNow();
     if (updated) {
@@ -740,10 +747,14 @@ export function getAppServices() {
         watchedHashes: polling.watchedHashes ?? [],
         thresholdUsd: polling.thresholdUsd ?? POLLING_DEFAULT_THRESHOLD_USD,
       });
+      // 无星标/快照达标物品时（目标为空），兜底为交易页主列表展示的全部物品，
+      // 保证点「刷新」必有实际目标——进而有进度条、占位卡片与刷新亮环反馈，
+      // 避免目标为空时刷新瞬间结束、页面毫无反应。
+      const fallbackTargets = targets.length > 0 ? targets : items.items.map((i) => i.hash);
       // 二次及以后刷新按交易额从高到低依次刷新：占位卡片与拉取顺序都先服务
       // 交易额高的物品。首次刷新（尚无交易额数据）保持目标集原顺序（星标优先、
       // 快照达标按价格降序）。
-      const orderedTargets = marketVolume.sortTargetsByVolume(targets);
+      const orderedTargets = marketVolume.sortTargetsByVolume(fallbackTargets);
       // 待刷新目标物品的占位卡片（刷新进行中提前展示）。
       const pending = marketVolume.buildPendingItems(orderedTargets);
       marketVolume.refreshHistory(Date.now(), { targets: orderedTargets, force: true }).then(() => {

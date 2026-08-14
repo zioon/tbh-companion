@@ -97,6 +97,10 @@ const DEFAULTS: AppConfig = {
   lootRingSeconds: DEFAULT_LOOT_RING_SECONDS,
   language: DEFAULT_LANGUAGE,
   gameInstallDir: "",
+  // 价格历史查询：每批拉取物品数（默认 10，Steam 对 pricehistory 限流较严）。
+  marketHistoryBatchSize: 10,
+  // 价格历史查询：批间等待秒数（默认 120 秒 = 2 分钟，规避 Steam 429 限流）。
+  marketHistoryBatchDelaySec: 120,
 };
 
 type RawConfig = Omit<Partial<AppConfig>, "topmost"> & {
@@ -249,6 +253,27 @@ function sanitizeGameInstallDir(raw: unknown): string {
   return trimmed.replace(/\//g, "\\");
 }
 
+/**
+ * Coerce the price-history batch size (how many items fetched per batch) to a
+ * finite integer clamped to [1, 100]. Steam rate-limits pricehistory heavily,
+ * so an absurdly large value would risk 429s. Falls back to the default (10).
+ */
+function sanitizeMarketHistoryBatchSize(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 1) return DEFAULTS.marketHistoryBatchSize;
+  return Math.min(Math.max(Math.round(n), 1), 100);
+}
+
+/**
+ * Coerce the price-history batch-to-batch delay (seconds) to a finite number
+ * clamped to [0, 10 minutes]. Falls back to the default (120).
+ */
+function sanitizeMarketHistoryBatchDelaySec(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULTS.marketHistoryBatchDelaySec;
+  return Math.min(Math.round(n), 10 * 60);
+}
+
 /** Coerce a single Steam cookie part (id / steamLoginSecure) to a trimmed string. */
 function sanitizeSteamCookiePart(raw: unknown): string {
   if (typeof raw !== "string") return "";
@@ -306,6 +331,8 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     lootRingSeconds: _ring,
     language: _language,
     gameInstallDir: _gameInstallDir,
+    marketHistoryBatchSize: _marketHistoryBatchSize,
+    marketHistoryBatchDelaySec: _marketHistoryBatchDelaySec,
     steamCookie: _steamCookie,
     steamCookieSessionid: _steamCookieSessionid,
     steamCookieLoginSecure: _steamCookieLoginSecure,
@@ -329,6 +356,10 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   const lootRingSeconds = sanitizeLootRingSeconds(raw.lootRingSeconds);
   const language = sanitizeLanguage(raw.language);
   const gameInstallDir = sanitizeGameInstallDir(raw.gameInstallDir);
+  const marketHistoryBatchSize = sanitizeMarketHistoryBatchSize(raw.marketHistoryBatchSize);
+  const marketHistoryBatchDelaySec = sanitizeMarketHistoryBatchDelaySec(
+    raw.marketHistoryBatchDelaySec,
+  );
   // 拆分后的两个 Cookie 字段；若两者都为空但有旧版单字段配置，则迁移解析到新字段。
   let steamCookieSessionid = sanitizeSteamCookiePart(raw.steamCookieSessionid);
   let steamCookieLoginSecure = sanitizeSteamCookiePart(raw.steamCookieLoginSecure);
@@ -356,6 +387,8 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     lootRingSeconds,
     language,
     gameInstallDir,
+    marketHistoryBatchSize,
+    marketHistoryBatchDelaySec,
     steamCookie,
     steamCookieSessionid,
     steamCookieLoginSecure,

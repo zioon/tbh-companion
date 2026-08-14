@@ -1,6 +1,6 @@
 // MarketVolumeService 持久化测试：验证「保存 → 读取」往返、数据累积、
 // 采样去抖与损坏文件的恢复。使用真实临时目录，不 mock node:fs。
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,6 +42,7 @@ function makeService(
       done: number;
       current: string | null;
       updatedItem?: MarketVolumeItem;
+      pending?: MarketVolumeItem[];
     }) => void;
   } = {},
 ) {
@@ -51,6 +52,8 @@ function makeService(
     getCurrency: () => "USD",
     getCookie: () => overrides.cookie ?? "",
     getTargetHashes: () => overrides.targetHashes ?? [],
+    getHistoryBatchSize: () => 10,
+    getHistoryBatchDelaySec: () => 0,
     filePath: () => file,
     fetchHistory: overrides.fetchHistory,
     onHistoryProgress: overrides.onHistoryProgress,
@@ -131,7 +134,7 @@ describe("MarketVolumeService 持久化", () => {
     expect(svc.getStats().hourly.length).toBe(30 * 24);
   });
 
-  it("刷新成功后 historyFetchedAtMs 落盘，重启后在 30min 内不再重拉（跨实例命中缓存）", async () => {
+  it("刷新成功后 historyFetchedAtMs 落盘，重启后在 60min 内不再重拉（跨实例命中缓存）", async () => {
     let fetchCount = 0;
     const svc = makeService({
       targetHashes: ["Copper Coin"],
@@ -148,7 +151,7 @@ describe("MarketVolumeService 持久化", () => {
     expect(await svc.refreshHistory(BASE)).toBe(true);
     expect(fetchCount).toBe(1);
 
-    // 新实例（模拟重启）从磁盘读回 historyFetchedAtMs，仍在 30min 缓存内 → 不重拉
+    // 新实例（模拟重启）从磁盘读回 historyFetchedAtMs，仍在 60min 缓存内 → 不重拉
     const reloaded = makeService({
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => {
@@ -177,12 +180,12 @@ describe("MarketVolumeService 持久化", () => {
     const before = svc.getStats().hourly;
     expect(before.length).toBeGreaterThan(0);
 
-    // 第二次：超过 30min 缓存触发拉取，但拉不到数据（空 points）→ 不覆盖已有数据
+    // 第二次：超过 60min 缓存触发拉取，但拉不到数据（空 points）→ 不覆盖已有数据
     const svc2 = makeService({
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({ ok: true, status: 200, points: [] }),
     });
-    expect(await svc2.refreshHistory(BASE + 31 * 60_000)).toBe(false);
+    expect(await svc2.refreshHistory(BASE + 61 * 60_000)).toBe(false);
     expect(svc2.getStats().hourly).toEqual(before);
   });
 
@@ -224,7 +227,7 @@ describe("MarketVolumeService 持久化", () => {
     expect(fetched).toEqual(["Custom A", "Custom B"]);
   });
 
-  it("refreshHistory force=true 绕过 30min 缓存立即重拉", async () => {
+  it("refreshHistory force=true 绕过 60min 缓存立即重拉", async () => {
     let fetchCount = 0;
     const svc = makeService({
       targetHashes: ["Copper Coin"],
@@ -332,6 +335,18 @@ describe("MarketVolumeService 持久化", () => {
     });
   });
 
+  it("buildPendingItems 复用 live 快照数据生成带金额的卡片（非空白占位）", () => {
+    const svc = makeService();
+    // 仅累积 live 快照（无 pricehistory），buildPendingItems 也应复用该数据，
+    // 避免待刷新物品在刷新期间显示为空白占位。
+    svc.recordVolume("Copper Coin", 100, 0.5, "USD");
+
+    const pending = svc.buildPendingItems(["Copper Coin"]);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].hash).toBe("Copper Coin");
+    expect(pending[0].total).toBeGreaterThan(0); // 100 × 0.5 = 50
+  });
+
   it("sortTargetsByVolume 按已有交易额降序、无交易额数据排最后且保持相对顺序", async () => {
     const svc = makeService({
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
@@ -362,8 +377,13 @@ describe("MarketVolumeService 持久化", () => {
     expect(svc.sortTargetsByVolume(["B", "A", "C"])).toEqual(["B", "A", "C"]);
   });
 
-  it("refreshHistory 通过 onHistoryProgress 上报开始/每个物品/结束的进度", async () => {
-    const calls: { running: boolean; done: number; current: string | null }[] = [];
+  it("refreshHistory 通过 onHistoryProgress 上报刷新开始(含 pending)/每个物品/结束的进度", async () => {
+    const calls: {
+      running: boolean;
+      done: number;
+      current: string | null;
+      pending?: MarketVolumeItem[];
+    }[] = [];
     const svc = makeService({
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
       fetchHistory: async () => ({
@@ -372,16 +392,19 @@ describe("MarketVolumeService 持久化", () => {
         points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
       }),
       onHistoryProgress: (p) =>
-        calls.push({ running: p.running, done: p.done, current: p.current }),
+        calls.push({ running: p.running, done: p.done, current: p.current, pending: p.pending }),
     });
     await svc.refreshHistory(BASE);
 
-    // 每个目标：一次「开始(携带 hash)」+ 一次「完成(hash=null)」，最后一条 running=false
-    expect(calls[0]).toEqual({ running: true, done: 0, current: "Copper Coin" });
-    expect(calls[1]).toEqual({ running: true, done: 1, current: null });
-    expect(calls[2]).toEqual({ running: true, done: 1, current: "Sword (Legendary) A" });
-    expect(calls[3]).toEqual({ running: true, done: 2, current: null });
-    expect(calls[calls.length - 1]).toEqual({ running: false, done: 2, current: null });
+    // 第一条：刷新开始，携带待刷新占位卡片（自动/手动刷新共用，驱动亮环），current=null
+    expect(calls[0]).toMatchObject({ running: true, done: 0, current: null });
+    expect(calls[0].pending).toHaveLength(2);
+    // 后续：每个目标一次「开始(携带 hash)」+ 一次「完成(hash=null)」，最后一条 running=false
+    expect(calls[1]).toMatchObject({ running: true, done: 0, current: "Copper Coin" });
+    expect(calls[2]).toMatchObject({ running: true, done: 1, current: null });
+    expect(calls[3]).toMatchObject({ running: true, done: 1, current: "Sword (Legendary) A" });
+    expect(calls[4]).toMatchObject({ running: true, done: 2, current: null });
+    expect(calls[calls.length - 1]).toMatchObject({ running: false, done: 2, current: null });
   });
 
   it("refreshHistory 每完成一个物品实时推送该物品最新卡片，并实时写入内存态", async () => {
@@ -412,5 +435,127 @@ describe("MarketVolumeService 持久化", () => {
     expect(completed.length).toBe(2);
     expect(completed[0]!.total).toBeGreaterThan(0);
     expect(priceHistoryHadDataDuringRefresh).toBe(true);
+  });
+
+  it("recordVolume 累积 per-hash 活跃度采样，getVolumeItems 返回 kind=live 卡片", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE);
+      const svc = makeService();
+      svc.recordVolume("Copper Coin", 100, 0.5, "USD");
+      // 同一轮询周期内重复采样去重（仅更新该点数值）
+      svc.recordVolume("Copper Coin", 110, 0.6, "USD");
+      // 越过 60s 去抖窗口后再采样 -> 新增一个采样点
+      vi.setSystemTime(BASE + 70_000);
+      svc.recordVolume("Copper Coin", 200, 1, "USD");
+      svc.recordVolume("Sword (Legendary) A", 10, 2, "USD");
+
+      const { items } = svc.getVolumeItems();
+      const coin = items.find((i) => i.hash === "Copper Coin")!;
+      expect(coin.kind).toBe("live");
+      expect(coin.total).toBe(200 * 1); // 最新有效采样
+      expect(coin.points).toHaveLength(2); // 去重后保留 2 个点
+      const sword = items.find((i) => i.hash === "Sword (Legendary) A");
+      expect(sword?.kind).toBe("live");
+      expect(sword?.total).toBe(10 * 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("liveHistory 随 sampleNow 持久化并在新实例读回", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE);
+      const svc = makeService();
+      svc.recordVolume("Copper Coin", 100, 0.5, "USD");
+      svc.sampleNow(BASE);
+      vi.setSystemTime(BASE + 70_000);
+      svc.recordVolume("Copper Coin", 200, 1, "USD");
+      // 越过 60s 采样间隔，触发新一轮采样并落盘
+      svc.sampleNow(BASE + 70_000);
+
+      const reloaded = makeService();
+      const coin = reloaded.getVolumeItems().items.find((i) => i.hash === "Copper Coin")!;
+      expect(coin.kind).toBe("live");
+      expect(coin.points).toHaveLength(2);
+      expect(coin.total).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pruneLive 清理不在目标集内的陈旧 live/liveHistory 条目并落盘", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE);
+      const svc = makeService();
+      svc.recordVolume("Copper Coin", 100, 0.5, "USD");
+      svc.recordVolume("Sword (Legendary) A", 10, 2, "USD");
+
+      // 裁剪到本轮目标集：只保留 Copper Coin，Sword 应被清理（模拟取消星标）
+      svc.pruneLive(new Set(["Copper Coin"]));
+
+      const { items } = svc.getVolumeItems();
+      expect(items.some((i) => i.hash === "Copper Coin")).toBe(true);
+      expect(items.some((i) => i.hash === "Sword (Legendary) A")).toBe(false);
+
+      // 落盘后重启读回：Sword 不应再从磁盘恢复
+      const reloaded = makeService();
+      const reloadedItems = reloaded.getVolumeItems().items;
+      expect(reloadedItems.some((i) => i.hash === "Sword (Legendary) A")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("getVolumeItems 去重：同一 hash 同时有 pricehistory 与 liveHistory 时只保留 history 卡片", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+      }),
+    });
+    // 先拉取 pricehistory（写入 priceHistory）
+    await svc.refreshHistory(BASE);
+    // 再累积同一 hash 的活跃度采样（写入 liveHistory / live）
+    svc.recordVolume("Copper Coin", 200, 1, "USD");
+
+    const { items } = svc.getVolumeItems();
+    const coins = items.filter((i) => i.hash === "Copper Coin");
+    // 三路合并必须去重：同一 hash 不得重复出现（否则 React 列表 key 冲突）
+    expect(coins).toHaveLength(1);
+    // history 优先：保留的应是 history 口径（kind 缺省），而非 live
+    expect(coins[0].kind).toBeUndefined();
+  });
+
+  it("refreshHistory 二次拉取日粒度时保留旧的小时粒度（合并更细粒度）", async () => {
+    const dayStart = Date.UTC(2026, 7, 7, 0, 0, 0) / 1000; // 某天 00:00 UTC（秒）
+    const hourly = Array.from({ length: 24 }, (_, i) => ({
+      timestamp: dayStart + i * 3600,
+      price: 1,
+      volume: 1,
+    }));
+
+    // 第一次：小时粒度（24 点/天）
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({ ok: true, status: 200, points: hourly }),
+    });
+    await svc.refreshHistory(BASE);
+
+    // 第二次（force 绕过缓存）：同一天变成日粒度（1 点，整天量）
+    const daily = [{ timestamp: dayStart, price: 1, volume: 24 }];
+    const svc2 = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({ ok: true, status: 200, points: daily }),
+    });
+    await svc2.refreshHistory(BASE + 31 * 60_000, { force: true });
+
+    // 合并后应保留小时粒度（24 点），而不是被日粒度（1 点）覆盖
+    const merged = svc2.getPriceHistory()["Copper Coin"];
+    expect(merged).toHaveLength(24);
   });
 });

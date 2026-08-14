@@ -57,6 +57,14 @@
       "statusLastCycle": "上一轮：{{priced}}/{{targets}} 抓到价格，{{rateLimited}} 次限流，{{failed}} 次失败{{aborted}}。",
       "statusAbortedSuffix": "（已中止）",
       "statusLastCycleAt": " · {{time}}"
+    },
+    "history": {
+      "sectionTitle": "价格历史查询",
+      "intro": "交易页「刷新历史价格」按批次串行拉取 Steam pricehistory，避免触发限流。",
+      "batchSize": "每批数量",
+      "batchSizeHint": "每批同时拉取的物品数（范围 1–100，默认 10）。Steam 对 pricehistory 限流较严，值越小越保守。",
+      "batchDelay": "批间间隔（秒）",
+      "batchDelayHint": "每拉完一批后等待的秒数（默认 120）。遭遇 429 限流时可调大。"
     }
   },
   "notifications": {

@@ -57,6 +57,14 @@
       "statusLastCycle": "前回サイクル: {{priced}}/{{targets}} 件価格取得、{{rateLimited}} 件レート制限、{{failed}} 件失敗{{aborted}}。",
       "statusAbortedSuffix": " (中止)",
       "statusLastCycleAt": " · {{time}}"
+    },
+    "history": {
+      "sectionTitle": "価格履歴の取得",
+      "intro": "取引ページの「履歴の更新」は Steam pricehistory をバッチで直列に取得し、レート制限を回避します。",
+      "batchSize": "バッチあたりの件数",
+      "batchSizeHint": "1 バッチで取得するアイテム数（範囲 1–100、既定 10）。値が小さいほど保守的です。",
+      "batchDelay": "バッチ間の待機（秒）",
+      "batchDelayHint": "各バッチ後の待機秒数（既定 120）。429 レート制限に遭ったら増やしてください。"
     }
   },
   "notifications": {
