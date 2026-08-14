@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import type { MarketVolumeItem } from "../../shared/types";
-import { trendGranularityHours, windowTotalOf } from "../../src/renderer/lib/windowTotal";
+import {
+  downsampleByStep,
+  trendGranularityHours,
+  windowTotalOf,
+} from "../../src/renderer/lib/windowTotal";
 
 function makeItem(overrides: Partial<MarketVolumeItem> = {}): MarketVolumeItem {
   return {
@@ -91,5 +95,31 @@ describe("trendGranularityHours", () => {
     expect(trendGranularityHours(0, 120)).toBe(1);
     expect(trendGranularityHours(1, 1)).toBe(1);
     expect(trendGranularityHours(100, 1)).toBe(1);
+  });
+});
+
+describe("downsampleByStep", () => {
+  it("步长为 1 或点数不足时返回全量", () => {
+    expect(downsampleByStep([1, 2, 3], 1)).toEqual([1, 2, 3]);
+    expect(downsampleByStep([1], 2)).toEqual([1]);
+  });
+
+  it("步长 2 抽样：相邻索引差恒等于 2，保留最新点", () => {
+    const arr = Array.from({ length: 168 }, (_, i) => i);
+    const out = downsampleByStep(arr, 2);
+    expect(out).toHaveLength(84);
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i] - out[i - 1]).toBe(2);
+    }
+    expect(out[out.length - 1]).toBe(167);
+  });
+
+  it("步长 6 抽样：相邻索引差恒等于 6", () => {
+    const arr = Array.from({ length: 720 }, (_, i) => i);
+    const out = downsampleByStep(arr, 6);
+    expect(out).toHaveLength(120);
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i] - out[i - 1]).toBe(6);
+    }
   });
 });

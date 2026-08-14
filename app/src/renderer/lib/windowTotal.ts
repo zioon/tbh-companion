@@ -104,6 +104,20 @@ export function downsample<T>(arr: readonly T[], maxPoints: number): T[] {
   return out;
 }
 
+/**
+ * 按固定小时步长抽样（索引步长 = stepHours，因为数据每小时一个点），保证相邻
+ * 采样点间隔严格等于步长，使每个点对应的粒度稳定一致。从最新点往回抽样，
+ * 确保最新数据点始终保留在序列里。
+ */
+export function downsampleByStep<T>(arr: readonly T[], stepHours: number): T[] {
+  if (arr.length <= 1 || stepHours <= 1) return arr.slice();
+  const out: T[] = [];
+  for (let i = arr.length - 1; i >= 0; i -= stepHours) {
+    out.push(arr[i]);
+  }
+  return out.reverse();
+}
+
 /** 有意义的时间粒度档位（小时）：1h / 2h / 6h / 12h / 1d / 2d / 7d。 */
 const GRANULARITY_STEPS_HOURS = [1, 2, 6, 12, 24, 48, 168] as const;
 

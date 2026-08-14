@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LuTrendingUp } from "react-icons/lu";
 import type { MarketVolumeHourPoint, MarketVolumeSample } from "../../../../shared/types";
 import { formatMoney } from "../../../core/steamPrice";
-import { downsample, trendGranularityHours, type VolumeRange } from "../../lib/windowTotal";
+import { downsampleByStep, trendGranularityHours, type VolumeRange } from "../../lib/windowTotal";
 import { Card } from "../../design-system/primitives/Card/Card";
 
 /** 主走势图最多绘制的点数（显示宽度有限，超出即均匀降采样）。 */
@@ -38,6 +38,24 @@ const VOLUME_CATEGORY_COLORS: Record<string, string> = {
 function hourLabel(hourIso: string): string {
   const d = new Date(hourIso);
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** 时间段标签：同一天时省略结束日期，跨天时起止都显示完整时间（数据为整点）。 */
+function formatTimeRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const dateOf = (d: Date) =>
+    d.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
+  const timeOf = (d: Date) =>
+    d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+  if (sameDay) {
+    return `${dateOf(start)} ${timeOf(start)} – ${timeOf(end)}`;
+  }
+  return `${dateOf(start)} ${timeOf(start)} – ${dateOf(end)} ${timeOf(end)}`;
 }
 
 /** 走势图坐标轴标签：按范围显示，1d 显示「日期 时间」，1w/1m/全部显示「日期」。 */
@@ -310,9 +328,15 @@ function VolumeTrendChart({
   const rafRef = useRef<number | null>(null);
   const pendingOffsetRef = useRef(0);
 
-  // 显示宽度有限，先把窗口点均匀降采样到可绘制规模，再计算坐标与 path，
-  // 避免 1m/全部范围下数百上千个点产生超长 path 字符串（拖动时每帧重建）。
-  const sampled = useMemo(() => downsample(points, MAX_TREND_POINTS), [points]);
+  // 当前范围的显示粒度（1h/2h/6h/12h/1d/2d/7d 档位），同时作为降采样步长，
+  // 保证相邻采样点间隔严格等于粒度，时间段提示才准确稳定。
+  const granularityHours = trendGranularityHours(points.length, MAX_TREND_POINTS);
+  // 按粒度步长降采样：相邻点间隔恒等于 granularityHours（小时），避免均匀降采样
+  // 四舍五入产生 1h/2h 交替导致的时间段不一致。
+  const sampled = useMemo(
+    () => downsampleByStep(points, granularityHours),
+    [points, granularityHours],
+  );
 
   // 计算每个分类的小时序列、堆叠起始基线、顶层总序列与坐标映射。
   const chart = useMemo(() => {
@@ -430,10 +454,17 @@ function VolumeTrendChart({
     0,
   );
 
-  // 当前范围的显示粒度（平均每点覆盖小时数，归一到 1h/2h/6h/12h/1d/2d/7d 档位）。
-  const granularityHours = trendGranularityHours(points.length, MAX_TREND_POINTS);
-
   const hoverPoint = hoverIndex != null ? sampled[hoverIndex] : null;
+  // 悬浮点代表的时间段：相邻采样点间隔已严格等于粒度，直接用下一个采样点作为
+  // 结束时刻；最后一个点用粒度估算结束时刻。
+  const hoverRangeEnd =
+    hoverIndex != null
+      ? hoverIndex + 1 < sampled.length
+        ? sampled[hoverIndex + 1].hour
+        : new Date(
+            Date.parse(sampled[hoverIndex].hour) + granularityHours * 3_600_000,
+          ).toISOString()
+      : null;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -491,16 +522,17 @@ function VolumeTrendChart({
             />
           )}
         </svg>
-        {hoverPoint && hoverIndex != null && (
+        {hoverPoint && hoverIndex != null && hoverRangeEnd && (
           <HoverTooltip
             point={hoverPoint}
+            rangeStart={hoverPoint.hour}
+            rangeEnd={hoverRangeEnd}
             currency={currency}
             hoverX={chart.x(hoverIndex)}
             total={VOLUME_CATEGORY_ORDER.reduce(
               (sum, cat) => sum + (hoverPoint.byCategory?.[cat] ?? 0),
               0,
             )}
-            granularityHours={granularityHours}
           />
         )}
       </div>
@@ -526,43 +558,38 @@ function VolumeTrendChart({
 }
 
 /**
- * 悬浮提示：显示该点的时间与各类别交易额。非每小时粒度（≥2h）时仅显示日期，
- * 避免大范围下「精确到小时」的误解。定位基于 SVG 的 viewBox x 比例（0..100），
- * 通过外层 relative 容器对齐。
+ * 悬浮提示：显示该点代表的时间段首尾（年/月/日 时:分）与各类别交易额。定位基于
+ * SVG 的 viewBox x 比例（0..100），通过外层 relative 容器对齐。
  */
 function HoverTooltip({
   point,
+  rangeStart,
+  rangeEnd,
   currency,
   total,
   hoverX,
-  granularityHours,
 }: {
   point: MarketVolumeHourPoint;
+  rangeStart: string;
+  rangeEnd: string;
   currency: string;
   total: number;
   hoverX: number;
-  granularityHours: number;
 }) {
   const { t } = useTranslation("market");
   const categories = VOLUME_CATEGORY_ORDER.map((cat) => ({
     cat,
     value: point.byCategory?.[cat] ?? 0,
   }));
-  // 时间本地化：非每小时粒度（≥2h）时只显示日期，不显示具体小时。
-  const d = new Date(point.hour);
-  const timeLabel =
-    granularityHours < 2
-      ? `${d.toLocaleDateString([], {
-          month: "2-digit",
-          day: "2-digit",
-        })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
-      : d.toLocaleDateString([], { month: "2-digit", day: "2-digit" });
-  // 提示框相对容器宽度按百分比定位，超出右边缘时向左偏移避免溢出。
-  const clamped = Math.min(Math.max(hoverX, 8), 92);
+  // 时间段首尾：同一天省略结束日期，缩短显示（数据为整点，分钟恒为 :00）。
+  const timeLabel = formatTimeRange(rangeStart, rangeEnd);
+  // 靠近左右边缘时改用贴边对齐，避免 tooltip 部分内容超出图表容器。
+  const alignClass =
+    hoverX < 25 ? "translate-x-0" : hoverX > 75 ? "-translate-x-full" : "-translate-x-1/2";
   return (
     <div
-      className="pointer-events-none absolute z-10 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-panel px-2.5 py-1.5 text-xs text-fg shadow-[0_8px_24px_rgb(0_0_0/0.45)]"
-      style={{ left: `${clamped}%` }}
+      className={`pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-border bg-panel px-2.5 py-1.5 text-xs text-fg shadow-[0_8px_24px_rgb(0_0_0/0.45)] ${alignClass}`}
+      style={{ left: `${hoverX}%` }}
     >
       <div className="mb-1 flex items-baseline justify-between gap-3 border-b border-border pb-1">
         <span className="text-muted">{timeLabel}</span>
