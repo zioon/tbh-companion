@@ -1079,6 +1079,25 @@ function boxOpenLogList(
 export interface ReadBoxOpenLogResult {
   opens: BoxOpenEntry[] | null;
   status: string;
+  /**
+   * Entry-level diagnostics for investigating "box opens never fire" bugs.
+   * Present only when the log was walked (i.e. `opens` is a real per-tick
+   * delta, not null). `scanned` = entries examined this tick; `parsed` =
+   * entries that decoded a valid itemKey; `nullEntry` = entry pointer read
+   * failed across all samples; `badItemKey` = entry resolved but itemKey
+   * couldn't be decoded. When `parsed` stays 0 while `scanned` grows, the
+   * `boxOpenLog.itemStringKey` offset (or the field-layout decoder) is the
+   * culprit — not the list walk.
+   */
+  debug?: {
+    scanned: number;
+    parsed: number;
+    nullEntry: number;
+    badItemKey: number;
+    count: number;
+    lastCountBefore: number;
+    start: number;
+  };
 }
 
 export interface PeekBoxOpenLogCountResult {
@@ -1195,6 +1214,10 @@ export function readRuntimeBoxOpenLog(
   const start = pin.lastCount;
   const opens: BoxOpenEntry[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
+  let scanned = 0;
+  let parsed = 0;
+  let nullEntry = 0;
+  let badItemKey = 0;
   for (let i = start; i < count; i++) {
     // Multi-sample: the game appends BoxOpenLog entries while we iterate. A
     // single sample taken mid-write may see the slot allocated but the
@@ -1202,28 +1225,47 @@ export function readRuntimeBoxOpenLog(
     // itemKey and the entry being silently dropped. Re-read up to
     // BOX_OPEN_LOG_SAMPLES times until itemKey resolves; the few-µs delay
     // between samples is enough for the writer to finish committing fields.
-    let entry: BoxOpenEntry | null = null;
+    let result: BoxOpenEntryRead = { ok: false, reason: "null-ptr" };
     for (let s = 0; s < BOX_OPEN_LOG_SAMPLES; s++) {
-      entry = readBoxOpenLogEntry(reader, first + BigInt(i * 8), o);
-      if (entry != null) break;
+      result = readBoxOpenLogEntry(reader, first + BigInt(i * 8), o);
+      if (result.ok) break;
     }
-    if (entry != null) opens.push(entry);
+    scanned++;
+    if (result.ok) {
+      opens.push(result.entry);
+      parsed++;
+    } else if (result.reason === "null-ptr") {
+      nullEntry++;
+    } else {
+      badItemKey++;
+    }
   }
   pin.lastCount = count;
-  return { opens, status: "" };
+  return {
+    opens,
+    status: "",
+    debug: { scanned, parsed, nullEntry, badItemKey, count, lastCountBefore: start, start },
+  };
 }
 
-/** Read one BoxOpenLog entry. Returns null when the entry pointer is
- *  unreadable or the itemKey field can't be decoded (caller may retry). */
+/** Outcome of reading one BoxOpenLog entry, distinguishing the two rejection
+ *  causes so the reader can report which one is dominating. */
+type BoxOpenEntryRead =
+  | { ok: true; entry: BoxOpenEntry }
+  | { ok: false; reason: "null-ptr" | "bad-itemKey" };
+
+/** Read one BoxOpenLog entry. Returns `null-ptr` when the slot pointer is
+ *  unreadable, `bad-itemKey` when the entry resolved but the itemKey field
+ *  couldn't be decoded (caller may retry). */
 function readBoxOpenLogEntry(
   reader: MemoryReader,
   slotPtr: bigint,
   o: LiveOffsets,
-): BoxOpenEntry | null {
+): BoxOpenEntryRead {
   const entryPtr = readPtr(reader, slotPtr);
-  if (entryPtr == null) return null;
+  if (entryPtr == null) return { ok: false, reason: "null-ptr" };
   const itemKey = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemStringKey, true);
-  if (itemKey == null || itemKey <= 0) return null;
+  if (itemKey == null || itemKey <= 0) return { ok: false, reason: "bad-itemKey" };
 
   const entry: BoxOpenEntry = { itemKey };
   if (o.runtime.boxOpenLog.boxType) {
@@ -1246,7 +1288,7 @@ function readBoxOpenLogEntry(
     const gradeType = readBoxOpenLogField(reader, entryPtr, o.runtime.boxOpenLog.itemGradeType);
     if (gradeType != null && gradeType >= 0) entry.gradeType = gradeType;
   }
-  return entry;
+  return { ok: true, entry };
 }
 
 /**

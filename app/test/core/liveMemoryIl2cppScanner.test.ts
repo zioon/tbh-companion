@@ -1052,6 +1052,56 @@ describe("findBoxOpenLogFields", () => {
     expect(result.itemStringKey).toBe(0x40);
     expect(result.itemGradeType).toBe(0x48);
   });
+
+  it("does not misclassify a GradeSO pointer as itemStringKey when its ObscuredInt decode lands in the itemKey range (v1.01.04)", () => {
+    // v1.01.04 regression: the GradeSO* pointer at +0x50 was misidentified as
+    // itemStringKey. The value heuristic read the byte field at +0x50; the
+    // pointer's 8 bytes, decoded via the ObscuredInt fallback, happened to
+    // decrypt to a catalog-range int (530017), so +0x50 won `itemKeyHits` and
+    // won as itemStringKey — colliding with gradeSO (also 0x50). The runtime
+    // reader then read a GradeSO pointer where it expected an itemKey → every
+    // box-open entry failed bad-itemKey → opens stayed 0.
+    //
+    // Construct a GradeSO pointer whose low 32 bits equal a plausible itemKey
+    // (530017) so the ObscuredInt fallback would decode to 530017. A provable
+    // GradeSO* must never be classified as itemStringKey/itemGradeType.
+    const m = new FakeMemory();
+    const boClass = 0x7ff600000n;
+    const boInstance = 0x7ff610000n;
+    seedClass(m, boClass, "BoxOpenLog");
+    seedFields(m, boClass, [
+      { name: "bfpa", offset: 0x40 },
+      { name: "bfpb", offset: 0x48 },
+      { name: "bfpc", offset: 0x50 },
+    ]);
+    seedInstance(m, boInstance, boClass);
+
+    // +0x40: System.String pointer → "ItemName_530017"
+    const strClass = 0x7ff620000n;
+    const strObj = 0x7ff630000n;
+    seedClass(m, strClass, "String");
+    seedInstance(m, strObj, strClass);
+    const str = "ItemName_530017";
+    m.writeI32(strObj + 0x10n, str.length);
+    m.writeBytes(strObj + 0x14n, Buffer.from(str, "utf16le"));
+    m.writePtr(boInstance + 0x40n, strObj);
+
+    // +0x48: itemGradeType = 0 (plain int32)
+    m.writeI32(boInstance + 0x48n, 0);
+
+    // +0x50: GradeSO pointer whose low 32 bits are the plausible itemKey
+    // 530017 — exactly the value that previously made the ObscuredInt decode
+    // misclassify this offset as itemStringKey.
+    const gradeClass = 0x7ff640000n;
+    const gradeObj = 0x81741n; // low32 = 530017
+    seedClass(m, gradeClass, "GradeSO");
+    seedInstance(m, gradeObj, gradeClass);
+    m.writePtr(boInstance + 0x50n, gradeObj);
+
+    const result = findBoxOpenLogFields(new ScanContext(m), [], boInstance);
+    expect(result.itemStringKey).toBe(0x40);
+    expect(result.itemGradeType).toBe(0x48);
+  });
 });
 
 // ── findCurrencyManager ───────────────────────────────────────────────────────

@@ -106,8 +106,17 @@ import type { WinProcess } from "./winProcess";
  *  5. StageManager-availability transition (worker Path 1.6) resets the
  *     CRITICAL budget when the player enters a stage — the recovery signal
  *     for the budget-exhausted deadlock.
+ * Rev 14: box-open derivation fix — `identifyBoxOpenLogFieldsByValue` no
+ * longer misclassifies a GradeSO\* reference as `itemStringKey`. The value
+ * heuristic read each BoxOpenLog field; for a GradeSO* pointer its 8 bytes,
+ * decoded via the ObscuredInt fallback, could coincidentally land in the
+ * catalog-id range, pinning the grade-pointer offset as `itemStringKey`
+ * (v1.01.04 regression: itemStringKey=0x50 == gradeSO → every box-open entry
+ * failed bad-itemKey → opens stayed 0). Now a field provably pointing at a
+ * GradeSO skips the ObscuredInt fallback and can never be itemStringKey or
+ * itemGradeType. Bump invalidates the wrongly-derived v1.01.04 cache.
  */
-export const EXTRACTOR_REVISION = 13;
+export const EXTRACTOR_REVISION = 14;
 
 /**
  * Module-level flag: `dumpSaveListHolders` has run once this process lifetime.

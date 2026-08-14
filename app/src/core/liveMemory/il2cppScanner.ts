@@ -1084,94 +1084,95 @@ function identifyBoxOpenLogFieldsByValue(
       let v = readI32(ctx.reader, ptr + BigInt(off));
       let decodeMode = "i32";
       let isString = false;
+      // Set when the field provably points at a GradeSO ScriptableObject. A
+      // GradeSO* reference can NEVER be `itemStringKey` or `itemGradeType` —
+      // it's the v1.00.28+ grade pointer. We record it so the ObscuredInt
+      // fallback (which decodes ~any non-zero 8 bytes into a garbage int that
+      // can coincidentally look like a plausible itemKey) is skipped for this
+      // offset. Without this, a GradeSO*'s 8 bytes occasionally decode into a
+      // catalog-range int, the offset gets misclassified as itemStringKey, and
+      // the runtime reader reads a pointer where it expects an itemKey
+      // (v1.01.04 regression: itemStringKey wrongly pinned to gradeSO's 0x50 →
+      // every box-open entry fails with bad-itemKey → opens stays 0).
+      let isGradeSO = false;
       const diagParts: string[] = [];
-      // If int32 read is implausible, the field may be:
-      //   - a pointer (v1.00.28 BoxOpenLog.itemStringKey is a System.String
-      //     pointer, not an int)
-      //   - an ACTk ObscuredInt struct (hiddenValue + currentCryptoKey)
-      // Try pointer → IL2CPP String → number first, then ObscuredInt.
-      //
-      // "Implausible" covers three cases:
-      //   1. v == null (read failed)
-      //   2. v < 0 (high bit set — typical for pointers whose low 32 bits
-      //      exceed 0x7FFFFFFF, e.g. GradeSO* 0x1fdf23f2700 → i32 = -230742786)
-      //   3. v >= 0 but neither a plausible itemKey nor a plausible grade
-      //      (e.g. a System.String pointer whose low 32 bits happen to be
-      //      positive, like 0x1fe57509000 → i32 = 0x57509000 = 1464897536).
-      //      Without this third case, the scanner treats the pointer's low
-      //      bits as a plain int32 and never tries the String path — the
-      //      field is silently misidentified and itemKeyHits stays 0.
-      if (v == null || v < 0 || (!isPlausibleItemKey(v) && !isPlausibleGrade(v))) {
-        const ptrVal = readPtr(ctx.reader, ptr + BigInt(off));
-        if (ptrVal == null) {
-          diagParts.push("ptr=null");
-        } else if (!isPlausibleHeapPtr(ptrVal)) {
-          diagParts.push(`ptr=0x${ptrVal.toString(16)}[impl]`);
-        } else {
-          // Read the klass at the pointer target so we can see WHAT the
-          // pointer points at (System.String vs some other managed object).
-          // Without this, a non-String pointer silently falls through to the
-          // ObscuredInt path and produces a garbage int32 that masks the real
-          // layout (root cause of the v1.00.28 "[obsc]" misdiagnosis).
-          const klass = readPtr(ctx.reader, ptrVal);
-          const klassName =
-            klass != null && isPlausibleHeapPtr(klass) ? ctx.className(klass) : null;
-          diagParts.push(`ptr=0x${ptrVal.toString(16)}[klass=${klassName ?? "null"}]`);
-          // v1.00.28: grade moved from a plain int field to a GradeSO
-          // ScriptableObject reference. Dump GradeSO's class fields + instance
-          // bytes so we can find the grade enum/int offset inside it.
-          if (klassName != null && classNameMatches(klassName, "GradeSO")) {
-            const gradeFields = ctx.classFields(klass!);
-            if (gradeFields != null && gradeFields.size > 0) {
-              const fl: string[] = [];
-              for (const [fn, fo] of gradeFields) {
-                fl.push(`${fn}=0x${fo.toString(16)}`);
-              }
-              diagParts.push(`gradeSO.fields=[${fl.join(",")}]`);
-              // Dump first 0x40 bytes of the GradeSO instance to see field values.
-              const soBuf = ctx.reader.readBytes(ptrVal, 0x40);
-              if (soBuf != null && soBuf.length === 0x40) {
-                const hex: string[] = [];
-                for (let i = 0; i < soBuf.length; i += 8) {
-                  const lo = soBuf.readUInt32LE(i);
-                  const hi = soBuf.readUInt32LE(i + 4);
-                  hex.push(
-                    `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
-                  );
-                }
-                diagParts.push(`gradeSO.inst=[${hex.join(" ")}]`);
-              }
-            } else {
-              diagParts.push("gradeSO.fields=null");
+      // Probe what this field points at. A BoxOpenLog field may be a pointer:
+      //   - System.String (v1.00.28 itemStringKey is a String pointer)
+      //   - GradeSO* (v1.00.28+ grade reference)
+      // The probe runs ALWAYS, not only when the int32 read is implausible: a
+      // GradeSO*'s low 32 bits can coincidentally read as a plain plausible
+      // itemKey (v1.01.04: gradeSO's 0x50 low dword = 530017), and if the probe
+      // were gated on "int32 implausible" we'd never resolve the GradeSO klass
+      // behind it and would misclassify the grade offset as itemStringKey.
+      const ptrVal = readPtr(ctx.reader, ptr + BigInt(off));
+      let klassName: string | null;
+      if (ptrVal == null) {
+        diagParts.push("ptr=null");
+      } else if (!isPlausibleHeapPtr(ptrVal)) {
+        diagParts.push(`ptr=0x${ptrVal.toString(16)}[impl]`);
+      } else {
+        // Read the klass at the pointer target so we can see WHAT the pointer
+        // points at (System.String vs GradeSO vs some other managed object).
+        const klass = readPtr(ctx.reader, ptrVal);
+        klassName = klass != null && isPlausibleHeapPtr(klass) ? ctx.className(klass) : null;
+        diagParts.push(`ptr=0x${ptrVal.toString(16)}[klass=${klassName ?? "null"}]`);
+        if (klassName != null && classNameMatches(klassName, "GradeSO")) {
+          // A provably-GradeSO offset is never itemStringKey nor itemGradeType.
+          // Mark it so the plain-int32/ObscuredInt classification below is
+          // skipped for it (its pointer bytes are not a real ObscuredInt and
+          // decoding them manufactures a fake itemKey — the v1.01.04 bug).
+          isGradeSO = true;
+          const gradeFields = ctx.classFields(klass!);
+          if (gradeFields != null && gradeFields.size > 0) {
+            const fl: string[] = [];
+            for (const [fn, fo] of gradeFields) {
+              fl.push(`${fn}=0x${fo.toString(16)}`);
             }
+            diagParts.push(`gradeSO.fields=[${fl.join(",")}]`);
+            // Dump first 0x40 bytes of the GradeSO instance to see field values.
+            const soBuf = ctx.reader.readBytes(ptrVal, 0x40);
+            if (soBuf != null && soBuf.length === 0x40) {
+              const hex: string[] = [];
+              for (let i = 0; i < soBuf.length; i += 8) {
+                const lo = soBuf.readUInt32LE(i);
+                const hi = soBuf.readUInt32LE(i + 4);
+                hex.push(
+                  `${i.toString(16).padStart(2, "0")}:${lo.toString(16).padStart(8, "0")}${hi.toString(16).padStart(8, "0")}`,
+                );
+              }
+              diagParts.push(`gradeSO.inst=[${hex.join(" ")}]`);
+            }
+          } else {
+            diagParts.push("gradeSO.fields=null");
           }
-          if (klassName != null && classNameMatches(klassName, "String")) {
-            const s = readIl2CppString(ctx.reader, ptrVal);
-            if (s == null) {
-              const len = readI32(ctx.reader, ptrVal + 0x10n);
-              diagParts.push(`str=null[len=${len ?? "null"}]`);
-            } else {
-              diagParts.push(`str="${s.length > 32 ? s.slice(0, 32) + "…" : s}"`);
-              // v1.00.28 itemStringKey is a localization key like "ItemName_530017",
-              // not a pure-numeric string. Accept either pure digits OR extract
-              // the trailing digit run as the catalog itemKey.
-              const direct = /^[0-9]+$/.test(s) ? s : (s.match(/(\d+)$/) ?? [])[1];
-              if (direct != null) {
-                const parsed = Number.parseInt(direct, 10);
-                if (Number.isSafeInteger(parsed) && parsed > 0) {
-                  v = parsed;
-                  decodeMode = "str";
-                  isString = true;
-                }
+        } else if (klassName != null && classNameMatches(klassName, "String")) {
+          const s = readIl2CppString(ctx.reader, ptrVal);
+          if (s == null) {
+            const len = readI32(ctx.reader, ptrVal + 0x10n);
+            diagParts.push(`str=null[len=${len ?? "null"}]`);
+          } else {
+            diagParts.push(`str="${s.length > 32 ? s.slice(0, 32) + "…" : s}"`);
+            // v1.00.28 itemStringKey is a localization key like "ItemName_530017",
+            // not a pure-numeric string. Accept either pure digits OR extract
+            // the trailing digit run as the catalog itemKey.
+            const direct = /^[0-9]+$/.test(s) ? s : (s.match(/(\d+)$/) ?? [])[1];
+            if (direct != null) {
+              const parsed = Number.parseInt(direct, 10);
+              if (Number.isSafeInteger(parsed) && parsed > 0) {
+                v = parsed;
+                decodeMode = "str";
+                isString = true;
               }
             }
           }
         }
-        // Still no luck — try ObscuredInt decode (8-byte struct).
-        // NOTE: this path returns non-null for almost any non-zero 8 bytes, so
-        // the resulting int32 is often garbage when the field is actually a
-        // pointer. The diagParts above let us distinguish "real ObscuredInt"
-        // from "pointer misread as ObscuredInt" in the log.
+      }
+      // If the int32 read is implausible (and the field isn't a provable GradeSO
+      // pointer), try the ACTk ObscuredInt decode (8-byte struct). Skipped for
+      // GradeSO offsets — their pointer bytes aren't a real ObscuredInt, and
+      // decoding them manufactures a fake itemKey that pins the offset as
+      // itemStringKey (v1.01.04 misidentification).
+      if (!isGradeSO && (v == null || v < 0 || (!isPlausibleItemKey(v) && !isPlausibleGrade(v)))) {
         if (v == null || v < 0) {
           const buf = ctx.reader.readBytes(ptr + BigInt(off), 8);
           if (buf != null && buf.length >= 8) {
@@ -1182,6 +1183,14 @@ function identifyBoxOpenLogFieldsByValue(
             }
           }
         }
+      }
+      // A provably-GradeSO offset is never itemStringKey nor itemGradeType —
+      // skip it even if its low 32 bits happen to read as a plausible itemKey
+      // (v1.01.04: at 0x50 the int32 read returned 530017, a valid catalog id,
+      // so the offset was wrongly counted as itemStringKey alongside gradeSO).
+      if (isGradeSO) {
+        samples0.push(`+0x${off.toString(16)}=GradeSO*[${diagParts.join(",")}]`);
+        continue;
       }
       if (v == null) {
         samples0.push(`+0x${off.toString(16)}=null[${diagParts.join(",")}]`);

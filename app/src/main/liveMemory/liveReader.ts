@@ -324,6 +324,12 @@ export class LiveMemoryReader {
   // cheap (a few pointer reads) and only runs while enrichment is incomplete.
   private boxOpenCountPrev: number | null = null;
   private boxOpenEventPending = false;
+  /**
+   * Signature of the last box-open diagnostic line emitted. Only logs on
+   * change (opens length / status / pin tail / primed / rejection counters)
+   * so the 25 Hz tick loop doesn't flood the log. Cleared on detach.
+   */
+  private boxOpenLogSig: string | null = null;
 
   constructor(userDataDir: string = resolveLiveMemoryUserDataDir()) {
     this.userDataDir = userDataDir;
@@ -959,6 +965,7 @@ export class LiveMemoryReader {
     this.boxTypeCatalogMap = null;
     this.boxOpenCountPrev = null;
     this.boxOpenEventPending = false;
+    this.boxOpenLogSig = null;
     // Reset cache-pollution detector state — a fresh attach should not
     // inherit the previous session's failure streak or forced-reextract flag.
     this.dictFailSince = null;
@@ -1044,6 +1051,18 @@ export class LiveMemoryReader {
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
     const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
+    // Box-open diagnostic: emit only on change so the 25 Hz tick doesn't flood
+    // the log. When `opens` is a real delta but `parsed` stays 0 while
+    // `scanned` grows, the itemStringKey offset/decoder is wrong; when `scanned`
+    // is 0 too, the list walk itself yields nothing.
+    {
+      const bo = boxOpenResult;
+      const sig = `opens=${bo.opens?.length ?? "null"} status="${bo.status}" pinLast=${this.boxOpenPin.lastCount} primed=${this.boxOpenPin.primed}${bo.debug ? ` [scanned=${bo.debug.scanned} parsed=${bo.debug.parsed} nullPtr=${bo.debug.nullEntry} badKey=${bo.debug.badItemKey}]` : ""}`;
+      if (sig !== this.boxOpenLogSig) {
+        this.boxOpenLogSig = sig;
+        this.log(`DBG box-opens: ${sig}`);
+      }
+    }
 
     // LogManager name-scan fallback: when the bundled/cache RVA for LogManager
     // is stale (fallback table from a neighboring version), `resolveLogManager`
