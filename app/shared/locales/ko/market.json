@@ -74,7 +74,9 @@
     "range24h": "24시간",
     "range7d": "7일",
     "rangeAll": "전체",
-    "trendTitle": "카테고리별 거래액 추이(시간별)",
+    "trendTitle": "카테고리별 거래액 추이",
+    "granularityHour": "{{count}}시간마다",
+    "granularityDay": "{{count}}일마다",
     "noTrend": "추이를 표시할 데이터가 부족합니다.",
     "itemCountTotal": "통계 아이템 {{count}}종",
     "category": {

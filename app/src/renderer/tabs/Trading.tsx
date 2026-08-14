@@ -37,6 +37,8 @@ export function Trading() {
   // 主图表时间窗口（range + 拖动偏移），与下方卡片共享。
   const [range, setRange] = useState<VolumeRange>("1d");
   const [mainOffset, setMainOffset] = useState(0);
+  // 松手时提交的 offset：驱动排序与所有卡片的时间区间（拖动期间保持上一区间）。
+  const [committedOffset, setCommittedOffset] = useState(0);
 
   // 窗口宽度 = 当前范围内的小时点数（"all" 展示全量）。若历史数据不足范围，
   // 宽度回缩到实际点数，此时无偏移余地（maxOffset=0）。
@@ -44,26 +46,41 @@ export function Trading() {
   const maxOffset = Math.max(0, hourly.length - windowWidth);
   const clampedOffset = Math.min(mainOffset, maxOffset);
 
-  // 主图表当前显示窗口（升序切片），以及对应的时间范围（供卡片过滤）。
+  // 主图表当前显示窗口（升序切片）。主图表跟随 mainOffset 急迫更新，保证拖动跟手。
   const windowStartIdx = Math.max(0, hourly.length - windowWidth - clampedOffset);
   const windowEndIdx = hourly.length - clampedOffset;
-  // 稳定引用：hourly / 窗口边界不变时，避免每次渲染都 slice 出新数组，进而
-  // 触发下方 windowRange、sortedItems 及所有卡片 useMemo 连锁失效。
   const windowPts = useMemo(
     () => hourly.slice(windowStartIdx, windowEndIdx),
     [hourly, windowStartIdx, windowEndIdx],
   );
+
+  // 拖动是高频交互：真正卡顿的不是主图表重画，而是「窗口成交额求和 → 全量排序 →
+  // 每张卡片迷你 SVG 重建」这条链。因此把 offset 拆成两级：
+  // - `mainOffset`：急迫值，拖动期间每帧驱动主图表跟手平移；
+  // - `committedOffset`：松手时才提交，驱动排序与所有卡片的时间区间。
+  // 拖动过程中卡片保持上一提交区间不重渲染，松手时一次性同步到最终区间。
+  const committedClampedOffset = Math.min(committedOffset, maxOffset);
+  const committedStartIdx = Math.max(0, hourly.length - windowWidth - committedClampedOffset);
+  const committedEndIdx = hourly.length - committedClampedOffset;
+  const committedWindowPts = useMemo(
+    () => hourly.slice(committedStartIdx, committedEndIdx),
+    [hourly, committedStartIdx, committedEndIdx],
+  );
   const windowRange = useMemo(
     () =>
-      windowPts.length > 0
-        ? { start: windowPts[0].hour, end: windowPts[windowPts.length - 1].hour }
+      committedWindowPts.length > 0
+        ? {
+            start: committedWindowPts[0].hour,
+            end: committedWindowPts[committedWindowPts.length - 1].hour,
+          }
         : null,
-    [windowPts],
+    [committedWindowPts],
   );
 
   const handleRangeChange = (r: VolumeRange) => {
     setRange(r);
     setMainOffset(0);
+    setCommittedOffset(0);
   };
 
   const items = useMemo(() => stats?.items ?? [], [stats]);
@@ -112,6 +129,7 @@ export function Trading() {
           maxOffset={maxOffset}
           onRangeChange={handleRangeChange}
           onOffsetChange={setMainOffset}
+          onOffsetCommit={setCommittedOffset}
         />
 
         <div className="flex flex-col gap-1.5 border-t border-border pt-3.5">

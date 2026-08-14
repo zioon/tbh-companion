@@ -103,3 +103,21 @@ export function downsample<T>(arr: readonly T[], maxPoints: number): T[] {
   }
   return out;
 }
+
+/** 有意义的时间粒度档位（小时）：1h / 2h / 6h / 12h / 1d / 2d / 7d。 */
+const GRANULARITY_STEPS_HOURS = [1, 2, 6, 12, 24, 48, 168] as const;
+
+/**
+ * 走势图显示粒度：平均每个显示点覆盖的小时数（= 窗口点数 / 显示点数），
+ * 向上归一到有意义的档位（1h/2h/6h/12h/1d/2d/7d），避免出现「1.4 小时」这类
+ * 无意义的中间值。用于在 UI 上明确标识当前范围的最小时间粒度。
+ */
+export function trendGranularityHours(pointCount: number, maxPoints: number): number {
+  const samples = Math.max(1, Math.min(pointCount, maxPoints));
+  if (pointCount <= 1 || samples <= 1) return 1;
+  const rawHours = pointCount / samples;
+  return (
+    GRANULARITY_STEPS_HOURS.find((step) => rawHours <= step) ??
+    GRANULARITY_STEPS_HOURS[GRANULARITY_STEPS_HOURS.length - 1]
+  );
+}

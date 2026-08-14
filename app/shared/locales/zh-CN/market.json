@@ -74,7 +74,9 @@
     "range24h": "24小时",
     "range7d": "7天",
     "rangeAll": "全部",
-    "trendTitle": "分类交易额走势（按小时）",
+    "trendTitle": "分类交易额走势",
+    "granularityHour": "每 {{count}} 小时",
+    "granularityDay": "每 {{count}} 天",
     "noTrend": "数据不足，暂无走势。",
     "itemCountTotal": "统计物品 {{count}} 种",
     "category": {

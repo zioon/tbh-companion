@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LuTrendingUp } from "react-icons/lu";
 import type { MarketVolumeHourPoint, MarketVolumeSample } from "../../../../shared/types";
 import { formatMoney } from "../../../core/steamPrice";
-import { downsample, type VolumeRange } from "../../lib/windowTotal";
+import { downsample, trendGranularityHours, type VolumeRange } from "../../lib/windowTotal";
 import { Card } from "../../design-system/primitives/Card/Card";
 
 /** 主走势图最多绘制的点数（显示宽度有限，超出即均匀降采样）。 */
@@ -50,6 +50,16 @@ function axisLabel(hourIso: string, range: VolumeRange): string {
   return date;
 }
 
+/** 把粒度小时数（已归一为 1/2/6/12/24/48/168）格式化为「每 N 小时 / 每 N 天」。 */
+function granularityLabel(
+  hours: number,
+  t: ReturnType<typeof useTranslation<"market">>["t"],
+): string {
+  return hours >= 24
+    ? t("volume.granularityDay", { count: hours / 24 })
+    : t("volume.granularityHour", { count: hours });
+}
+
 /** 把类别 key（gearGroup/materialType）翻译成展示名，未知 key 原样显示。 */
 function categoryLabel(key: string, translate: (k: string) => string): string {
   const label = translate(`volume.category.${key}`);
@@ -90,6 +100,7 @@ export function MarketVolumeSection({
   maxOffset,
   onRangeChange,
   onOffsetChange,
+  onOffsetCommit,
 }: {
   /** 主图表当前显示窗口的小时点（升序）。 */
   windowPts: MarketVolumeHourPoint[];
@@ -103,6 +114,7 @@ export function MarketVolumeSection({
   maxOffset: number;
   onRangeChange: (r: VolumeRange) => void;
   onOffsetChange: (o: number) => void;
+  onOffsetCommit: (o: number) => void;
 }) {
   const { t } = useTranslation("market");
   const agg = useMemo(() => sumRange(windowPts), [windowPts]);
@@ -140,7 +152,10 @@ export function MarketVolumeSection({
           {offset > 0 && (
             <button
               type="button"
-              onClick={() => onOffsetChange(0)}
+              onClick={() => {
+                onOffsetChange(0);
+                onOffsetCommit(0);
+              }}
               className="rounded bg-muted/20 px-1.5 py-0.5 text-[10px] text-muted hover:bg-muted/40 hover:text-fg"
               title="重置到最新时间范围"
             >
@@ -164,6 +179,7 @@ export function MarketVolumeSection({
         offset={offset}
         maxOffset={maxOffset}
         onOffsetChange={onOffsetChange}
+        onOffsetCommit={onOffsetCommit}
       />
     </div>
   );
@@ -270,6 +286,7 @@ function VolumeTrendChart({
   offset,
   maxOffset,
   onOffsetChange,
+  onOffsetCommit,
 }: {
   points: MarketVolumeHourPoint[];
   itemCountsByCategory?: Record<string, number>;
@@ -278,6 +295,7 @@ function VolumeTrendChart({
   offset: number;
   maxOffset: number;
   onOffsetChange: (o: number) => void;
+  onOffsetCommit: (o: number) => void;
 }) {
   const { t } = useTranslation("market");
   const svgRef = useRef<SVGSVGElement>(null);
@@ -335,23 +353,25 @@ function VolumeTrendChart({
 
   const canDrag = maxOffset > 0;
 
-  const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handlePointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (points.length === 0 || !canDrag) return;
+    // 捕获指针：拖出 SVG 之外仍持续收到 move/up，避免松手丢失导致的「卡拖」。
+    e.currentTarget.setPointerCapture(e.pointerId);
     dragStartRef.current = { startX: e.clientX, startOffset: offset };
     setIsDragging(true);
     setHoverIndex(null);
   };
 
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
     const svg = svgRef.current;
     if (!svg || points.length === 0) return;
     const rect = svg.getBoundingClientRect();
     if (rect.width === 0) return;
 
-    // 拖拽中：根据鼠标水平位移平移时间窗口。向左拖（deltaX<0）→ 内容露出更早 → offset 增大。
+    // 拖拽中：按鼠标水平位移 1:1 平移窗口。向右拖（deltaX>0）→ 露出更早数据 → offset 增大。
     if (isDragging && dragStartRef.current) {
       const deltaX = e.clientX - dragStartRef.current.startX;
-      const deltaPoints = Math.round((deltaX / rect.width) * maxOffset);
+      const deltaPoints = Math.round((deltaX / rect.width) * points.length);
       pendingOffsetRef.current = Math.max(
         0,
         Math.min(maxOffset, dragStartRef.current.startOffset + deltaPoints),
@@ -374,18 +394,22 @@ function VolumeTrendChart({
     setHoverIndex(nearestIndex(times, tHover));
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     setIsDragging(false);
     dragStartRef.current = null;
-    // 立即提交最后一次未执行的节流更新，确保松手时停在准确定位。
+    // 立即提交最后一次未执行的节流更新，确保主图表停在准确定位；并把最终 offset
+    // 同步给父级，让卡片时间区间在松手时一次性对齐到最终窗口。
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       onOffsetChange(pendingOffsetRef.current);
+      onOffsetCommit(pendingOffsetRef.current);
+    } else {
+      onOffsetCommit(offset);
     }
   };
 
-  const handleMouseLeave = () => {
+  const handlePointerLeave = () => {
     if (!isDragging) setHoverIndex(null);
   };
 
@@ -406,12 +430,20 @@ function VolumeTrendChart({
     0,
   );
 
+  // 当前范围的显示粒度（平均每点覆盖小时数，归一到 1h/2h/6h/12h/1d/2d/7d 档位）。
+  const granularityHours = trendGranularityHours(points.length, MAX_TREND_POINTS);
+
   const hoverPoint = hoverIndex != null ? sampled[hoverIndex] : null;
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted">{t("volume.trendTitle")}</span>
+        <span className="flex items-center gap-1.5 text-xs text-muted">
+          {t("volume.trendTitle")}
+          <span className="rounded bg-muted/20 px-1.5 py-0.5 text-[10px] leading-none">
+            {granularityLabel(granularityHours, t)}
+          </span>
+        </span>
         <span className="text-xs text-muted">
           {t("volume.itemCountTotal", { count: totalItemCount })}
         </span>
@@ -424,10 +456,10 @@ function VolumeTrendChart({
           className={`h-28 w-full ${isDragging ? "cursor-grabbing" : canDrag ? "cursor-grab" : ""}`}
           role="img"
           aria-label={t("volume.trendTitle")}
-          onMouseMove={handleMouseMove}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseLeave}
+          onPointerMove={handlePointerMove}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerLeave}
         >
           {VOLUME_CATEGORY_ORDER.map((cat, i) => (
             <path
@@ -468,6 +500,7 @@ function VolumeTrendChart({
               (sum, cat) => sum + (hoverPoint.byCategory?.[cat] ?? 0),
               0,
             )}
+            granularityHours={granularityHours}
           />
         )}
       </div>
@@ -493,31 +526,37 @@ function VolumeTrendChart({
 }
 
 /**
- * 悬浮提示：显示该小时的时间与各类别交易额。
- * 定位基于 SVG 的 viewBox x 比例（0..100），通过外层 relative 容器对齐。
+ * 悬浮提示：显示该点的时间与各类别交易额。非每小时粒度（≥2h）时仅显示日期，
+ * 避免大范围下「精确到小时」的误解。定位基于 SVG 的 viewBox x 比例（0..100），
+ * 通过外层 relative 容器对齐。
  */
 function HoverTooltip({
   point,
   currency,
   total,
   hoverX,
+  granularityHours,
 }: {
   point: MarketVolumeHourPoint;
   currency: string;
   total: number;
   hoverX: number;
+  granularityHours: number;
 }) {
   const { t } = useTranslation("market");
   const categories = VOLUME_CATEGORY_ORDER.map((cat) => ({
     cat,
     value: point.byCategory?.[cat] ?? 0,
   }));
-  // 时间本地化：完整显示日期 + 时间。
+  // 时间本地化：非每小时粒度（≥2h）时只显示日期，不显示具体小时。
   const d = new Date(point.hour);
-  const timeLabel = `${d.toLocaleDateString([], {
-    month: "2-digit",
-    day: "2-digit",
-  })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  const timeLabel =
+    granularityHours < 2
+      ? `${d.toLocaleDateString([], {
+          month: "2-digit",
+          day: "2-digit",
+        })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`
+      : d.toLocaleDateString([], { month: "2-digit", day: "2-digit" });
   // 提示框相对容器宽度按百分比定位，超出右边缘时向左偏移避免溢出。
   const clamped = Math.min(Math.max(hoverX, 8), 92);
   return (

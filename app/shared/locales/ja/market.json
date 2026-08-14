@@ -74,7 +74,9 @@
     "range24h": "24時間",
     "range7d": "7日間",
     "rangeAll": "すべて",
-    "trendTitle": "カテゴリ別取引高の推移（時間別）",
+    "trendTitle": "カテゴリ別取引高の推移",
+    "granularityHour": "{{count}}時間ごと",
+    "granularityDay": "{{count}}日ごと",
     "noTrend": "推移を表示するにはデータが不足しています。",
     "itemCountTotal": "統計対象 {{count}} 種",
     "category": {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { MarketVolumeItem } from "../../shared/types";
-import { windowTotalOf } from "../../src/renderer/lib/windowTotal";
+import { trendGranularityHours, windowTotalOf } from "../../src/renderer/lib/windowTotal";
 
 function makeItem(overrides: Partial<MarketVolumeItem> = {}): MarketVolumeItem {
   return {
@@ -63,5 +63,33 @@ describe("windowTotalOf", () => {
       points: [{ hour: "2026-08-10T10:00:00.000Z", price: 1, volume: 50, total: 50 }],
     });
     expect(windowTotalOf(item, RANGE)).toBe(0);
+  });
+});
+
+describe("trendGranularityHours", () => {
+  it("点数未超过上限时不降采样，粒度为 1 小时", () => {
+    expect(trendGranularityHours(24, 120)).toBe(1);
+    expect(trendGranularityHours(1, 120)).toBe(1);
+  });
+
+  it("1 周窗口（168 点）向上归一到 2 小时档位", () => {
+    expect(trendGranularityHours(168, 120)).toBe(2);
+  });
+
+  it("1 月窗口（720 点）归一到 6 小时档位", () => {
+    expect(trendGranularityHours(720, 120)).toBe(6);
+  });
+
+  it("向上归一到有意义档位：12h / 1d / 2d / 7d", () => {
+    expect(trendGranularityHours(1440, 120)).toBe(12);
+    expect(trendGranularityHours(2880, 120)).toBe(24);
+    expect(trendGranularityHours(5760, 120)).toBe(48);
+    expect(trendGranularityHours(10000, 120)).toBe(168);
+  });
+
+  it("点数不足 2 个或上限为 1 时返回 1，避免除零", () => {
+    expect(trendGranularityHours(0, 120)).toBe(1);
+    expect(trendGranularityHours(1, 1)).toBe(1);
+    expect(trendGranularityHours(100, 1)).toBe(1);
   });
 });
