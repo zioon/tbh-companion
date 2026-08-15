@@ -105,6 +105,26 @@ export function downsample<T>(arr: readonly T[], maxPoints: number): T[] {
 }
 
 /**
+ * 按「当前时间窗口内的成交额」对物品卡片降序排序（无窗口/空窗口时回退到全量
+ * `total`）。预计算每个 hash 的窗口成交额再排序，避免比较器里反复调用
+ * `windowTotalOf`（每次比较都全量扫描 points，O(n·log n) 次调用）。
+ *
+ * 主列表与刷新期间的待刷新占位卡片共用本函数，保证「卡片展示金额」与
+ * 「排列顺序」的口径一致——否则待刷新列表按目标集顺序（全量交易额）排列、
+ * 卡片却展示窗口金额，看起来像「更新后没有按交易额排序」。
+ */
+export function sortItemsByWindowTotal<T extends MarketVolumeItem>(
+  items: readonly T[],
+  windowRange?: { start: string; end: string } | null,
+): T[] {
+  const windowTotalByHash = new Map<string, number>();
+  for (const item of items) windowTotalByHash.set(item.hash, windowTotalOf(item, windowRange));
+  return [...items].sort(
+    (a, b) => (windowTotalByHash.get(b.hash) ?? 0) - (windowTotalByHash.get(a.hash) ?? 0),
+  );
+}
+
+/**
  * 按固定小时步长抽样（索引步长 = stepHours，因为数据每小时一个点），保证相邻
  * 采样点间隔严格等于步长，使每个点对应的粒度稳定一致。从最新点往回抽样，
  * 确保最新数据点始终保留在序列里。

@@ -7,7 +7,7 @@ import { useMarketVolumeItems } from "../lib/useMarketVolumeItems";
 import { useMarketVolume } from "../lib/useMarketVolume";
 import {
   RANGE_HOURS,
-  windowTotalOf,
+  sortItemsByWindowTotal,
   type RefreshStatus,
   type VolumeRange,
 } from "../lib/windowTotal";
@@ -17,8 +17,8 @@ import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 
 /**
- * 「交易」页：市场总交易额走势 + 按总交易额降序排列的单物品卡片（每张卡片带
- * 该物品的小型成交额走势图）。
+ * 「交易」页：市场总交易额走势 + 按「当前时间窗口内成交额」降序排列的单物品卡片
+ * （每张卡片带该物品的小型成交额走势图）。
  *
  * 时间窗口在此统一管理：主图表与所有卡片共享同一个 `range`（1d/1w/1m/全部）
  * 与 `offset`（拖动偏移）。主图表可拖拽平移、卡片走势图显示与主图表完全相同
@@ -85,21 +85,20 @@ export function Trading() {
 
   const items = useMemo(() => stats?.items ?? [], [stats]);
 
+  // 按「当前时间窗口内的成交额」降序排列（无窗口/空窗口时回退到全量 total）。
   // 预计算每个物品在当前窗口内的成交额，避免排序比较器里反复调用 windowTotalOf
   // （原实现每次比较都全量扫描 points，O(n·log n) 次调用，是拖动卡顿的主因之一）。
-  const windowTotalByHash = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of items) map.set(item.hash, windowTotalOf(item, windowRange));
-    return map;
-  }, [items, windowRange]);
-
-  // 按「当前时间窗口内的成交额」降序排列（无窗口时回退到全量 total）。
   const sortedItems = useMemo(
-    () =>
-      [...items].sort(
-        (a, b) => (windowTotalByHash.get(b.hash) ?? 0) - (windowTotalByHash.get(a.hash) ?? 0),
-      ),
-    [items, windowTotalByHash],
+    () => sortItemsByWindowTotal(items, windowRange),
+    [items, windowRange],
+  );
+
+  // 待刷新占位卡片同样按「当前时间窗口内的成交额」降序展示（与主列表同口径）。
+  // 刷新期间 `updatedItem` 就地替换占位卡片时顺序不应停留在目标集顺序
+  // （`sortTargetsByVolume` 按全量 total 排序），否则卡片金额与排列顺序不一致。
+  const sortedPending = useMemo(
+    () => sortItemsByWindowTotal(pending, windowRange),
+    [pending, windowRange],
   );
 
   // 刷新批次状态：hash -> 灰（待刷新）/ 黄（当前批次）/ 绿（已刷新）。
@@ -184,7 +183,7 @@ export function Trading() {
                     {t("trading.refreshingItems")}
                   </h4>
                   <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 xl:grid-cols-3">
-                    {pending.map((item) => (
+                    {sortedPending.map((item) => (
                       <ItemVolumeCard
                         key={item.hash}
                         item={item}

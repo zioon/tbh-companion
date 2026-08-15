@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { MarketVolumeItem } from "../../shared/types";
 import {
   downsampleByStep,
+  sortItemsByWindowTotal,
   trendGranularityHours,
   windowTotalOf,
 } from "../../src/renderer/lib/windowTotal";
@@ -67,6 +68,79 @@ describe("windowTotalOf", () => {
       points: [{ hour: "2026-08-10T10:00:00.000Z", price: 1, volume: 50, total: 50 }],
     });
     expect(windowTotalOf(item, RANGE)).toBe(0);
+  });
+});
+
+describe("sortItemsByWindowTotal", () => {
+  const H = (day: number, hour: number) => new Date(Date.UTC(2026, 7, day, hour)).toISOString();
+  const range = { start: H(13, 0), end: H(13, 1) };
+
+  it("按窗口内成交额降序排列，不修改原数组", () => {
+    const items = [
+      makeItem({
+        hash: "low",
+        total: 999,
+        points: [
+          { hour: H(13, 0), price: 1, volume: 10, total: 10 },
+          { hour: H(13, 1), price: 1, volume: 10, total: 10 },
+        ],
+      }),
+      makeItem({
+        hash: "high",
+        total: 10,
+        points: [
+          { hour: H(13, 0), price: 1, volume: 100, total: 100 },
+          { hour: H(13, 1), price: 1, volume: 100, total: 100 },
+        ],
+      }),
+    ];
+    const original = items.slice();
+    const sorted = sortItemsByWindowTotal(items, range);
+    // 窗口额：low=20 < high=200，即使全量 total 相反也应 high 在前
+    expect(sorted.map((i) => i.hash)).toEqual(["high", "low"]);
+    expect(items).toEqual(original);
+  });
+
+  it("窗口为空（null）时回退到全量 total 降序", () => {
+    const items = [makeItem({ hash: "small", total: 5 }), makeItem({ hash: "big", total: 500 })];
+    const sorted = sortItemsByWindowTotal(items, null);
+    expect(sorted.map((i) => i.hash)).toEqual(["big", "small"]);
+  });
+
+  it("窗口内无任何点（区间外）的物品按 0 排最后", () => {
+    const items = [
+      makeItem({
+        hash: "outside",
+        total: 999,
+        points: [{ hour: H(10, 0), price: 1, volume: 50, total: 50 }],
+      }),
+      makeItem({
+        hash: "inside",
+        total: 1,
+        points: [{ hour: H(13, 0), price: 1, volume: 30, total: 30 }],
+      }),
+    ];
+    const sorted = sortItemsByWindowTotal(items, range);
+    expect(sorted.map((i) => i.hash)).toEqual(["inside", "outside"]);
+  });
+
+  it("live 卡片按窗口内最新采样点 total 排序", () => {
+    const items = [
+      makeItem({
+        hash: "liveLow",
+        kind: "live",
+        total: 10,
+        points: [{ hour: H(13, 1), price: 1, volume: 10, total: 10 }],
+      }),
+      makeItem({
+        hash: "liveHigh",
+        kind: "live",
+        total: 300,
+        points: [{ hour: H(13, 1), price: 1, volume: 300, total: 300 }],
+      }),
+    ];
+    const sorted = sortItemsByWindowTotal(items, range);
+    expect(sorted.map((i) => i.hash)).toEqual(["liveHigh", "liveLow"]);
   });
 });
 
