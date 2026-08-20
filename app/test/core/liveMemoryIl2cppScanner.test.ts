@@ -3,6 +3,7 @@ import {
   collectClassEntries,
   collectLogManagerDiagnostics,
   dumpSaveListHolders,
+  findBoxDataStructurally,
   findBoxOpenLogDictDirect,
   findBoxOpenLogFields,
   findCurrencyManager,
@@ -1945,5 +1946,162 @@ describe("dumpSaveListHolders", () => {
     expect(petLine).toContain("SaveDataHolder");
     expect(petLine).toContain("+0x40");
     expect(petLine).toContain("count=7");
+  });
+});
+
+// ── findBoxDataStructurally (Rev 15 production BoxData capture) ───────────────
+
+describe("findBoxDataStructurally", () => {
+  /** Seed a CommonSaveData class whose instance lives at a header offset
+   *  (v1.01.02+ signature: static_fields +0xb0 is null, instance found via
+   *  header-block scan). The instance carries a BoxData-shaped field. */
+  function seedCommonSaveDataWithBoxData(m: FakeMemory): {
+    csdEntry: ClassEntry;
+    holder: bigint;
+    boxDataObj: bigint;
+  } {
+    const csdClass = 0x7ff6a0000n;
+    const csdInst = 0x7ff6b0000n;
+    const blockPtr = 0x7ff6c0000n;
+    const boxDataObj = 0x7ff6d0000n;
+    const typesList = 0x7ff6d1000n;
+    const typesArr = 0x7ff6d2000n;
+    const qtyList = 0x7ff6d3000n;
+    const qtyArr = 0x7ff6d4000n;
+
+    seedClass(m, csdClass, "CommonSaveData");
+    // static_fields +0xb0 left 0 → staticSlots empty; header +0x40 holds the
+    // instance block (same layout probeClassLayout found on v1.01.02).
+    m.writePtr(csdClass + 0x40n, blockPtr);
+    m.writePtr(blockPtr + 0x90n, csdInst);
+    seedInstance(m, csdInst, csdClass);
+    // csdInst+0x40 → BoxData instance with twin List<int> (count 2 each)
+    m.writePtr(csdInst + 0x40n, boxDataObj);
+    m.writePtr(boxDataObj + 0x18n, typesList);
+    m.writePtr(typesList + 0x10n, typesArr);
+    m.writeI32(typesList + 0x18n, 2);
+    m.writeI32(typesArr + 0x20n, 141001);
+    m.writePtr(boxDataObj + 0x20n, qtyList);
+    m.writePtr(qtyList + 0x10n, qtyArr);
+    m.writeI32(qtyList + 0x18n, 2);
+    m.writeI32(qtyArr + 0x20n, 3);
+
+    const csdEntry = entry(m, csdClass, 0x8000n, "CommonSaveData");
+    return { csdEntry, holder: csdInst, boxDataObj };
+  }
+
+  it("derives boxData/boxTypes/boxQuantity from a CommonSaveData instance found via header scan", () => {
+    // v1.01.02+ signature: findPlayerSaveData returns null (no name-matched
+    // save lists on the metadata-only CommonSaveData), but the BoxData
+    // instance is still reachable from the singleton → structural capture
+    // recovers the offsets so live chest slots work.
+    const m = new FakeMemory();
+    const { csdEntry, holder, boxDataObj } = seedCommonSaveDataWithBoxData(m);
+
+    const result = findBoxDataStructurally(new ScanContext(m), [csdEntry]);
+    expect(result).not.toBeNull();
+    expect(result!.boxData).toBe(0x40);
+    expect(result!.boxTypes).toBe(0x18);
+    expect(result!.boxQuantity).toBe(0x20);
+    expect(result!.holderInstance).toBe(holder);
+    expect(result!.boxDataInstance).toBe(boxDataObj);
+    expect(result!.holderClassName).toBe("CommonSaveData");
+  });
+
+  it("derives from a CommonSaveData instance in a standard static block too", () => {
+    const m = new FakeMemory();
+    const csdClass = 0x7ff6a0000n;
+    const csdInst = 0x7ff6b0000n;
+    const boxDataObj = 0x7ff6d0000n;
+    const typesList = 0x7ff6d1000n;
+    const typesArr = 0x7ff6d2000n;
+    const qtyList = 0x7ff6d3000n;
+    const qtyArr = 0x7ff6d4000n;
+
+    seedClass(m, csdClass, "CommonSaveData");
+    const block = seedStaticBlock(m, csdClass, 0x7ff6c0000n);
+    m.writePtr(block + 0x10n, csdInst);
+    seedInstance(m, csdInst, csdClass);
+    m.writePtr(csdInst + 0x50n, boxDataObj);
+    m.writePtr(boxDataObj + 0x18n, typesList);
+    m.writePtr(typesList + 0x10n, typesArr);
+    m.writeI32(typesList + 0x18n, 2);
+    m.writeI32(typesArr + 0x20n, 510017);
+    m.writePtr(boxDataObj + 0x20n, qtyList);
+    m.writePtr(qtyList + 0x10n, qtyArr);
+    m.writeI32(qtyList + 0x18n, 2);
+    m.writeI32(qtyArr + 0x20n, 7);
+
+    const csdEntry = entry(m, csdClass, 0x8000n, "CommonSaveData");
+    const result = findBoxDataStructurally(new ScanContext(m), [csdEntry]);
+    expect(result).not.toBeNull();
+    expect(result!.boxData).toBe(0x50);
+    expect(result!.boxTypes).toBe(0x18);
+    expect(result!.boxQuantity).toBe(0x20);
+  });
+
+  it("returns null when the BoxData lists are empty (player owns no chests)", () => {
+    // count=0 lists fail the twin-List<int> equal-count signature → null.
+    // The reader degrades to the save path; a box-open event re-runs the
+    // extractor once the lists become non-empty.
+    const m = new FakeMemory();
+    const csdClass = 0x7ff6a0000n;
+    const csdInst = 0x7ff6b0000n;
+    const blockPtr = 0x7ff6c0000n;
+    const boxDataObj = 0x7ff6d0000n;
+    const typesList = 0x7ff6d1000n;
+    const qtyList = 0x7ff6d3000n;
+
+    seedClass(m, csdClass, "CommonSaveData");
+    m.writePtr(csdClass + 0x40n, blockPtr);
+    m.writePtr(blockPtr + 0x90n, csdInst);
+    seedInstance(m, csdInst, csdClass);
+    m.writePtr(csdInst + 0x40n, boxDataObj);
+    m.writePtr(boxDataObj + 0x18n, typesList);
+    m.writeI32(typesList + 0x18n, 0); // empty
+    m.writePtr(boxDataObj + 0x20n, qtyList);
+    m.writeI32(qtyList + 0x18n, 0); // empty
+
+    const csdEntry = entry(m, csdClass, 0x8000n, "CommonSaveData");
+    expect(findBoxDataStructurally(new ScanContext(m), [csdEntry])).toBeNull();
+  });
+
+  it("does NOT pick up twin-List<int> lookalikes on unrelated static objects", () => {
+    // Regression for the whole-heap false positive: on v1.01.05 the old
+    // whole-heap fallback matched an `IEnumerable`1` object whose offsets are
+    // meaningless for readRuntimeChestSlots (it dereferences the CommonSaveData
+    // singleton + boxData). The production capture must only trust name-matched
+    // holders, so unrelated static objects with two equal-length int lists are
+    // ignored.
+    const m = new FakeMemory();
+    const csdClass = 0x7ff6a0000n;
+    const unrelatedClass = 0x7ff6e0000n;
+    const unrelatedInst = 0x7ff6e1000n;
+    const unrelatedList1 = 0x7ff6e2000n;
+    const unrelatedArr1 = 0x7ff6e3000n;
+    const unrelatedList2 = 0x7ff6e4000n;
+    const unrelatedArr2 = 0x7ff6e5000n;
+
+    // A named CommonSaveData class with NO instance (static block empty) —
+    // models v1.01.05 where the class exists but the runtime singleton is a
+    // metadata-only object without BoxData.
+    const csdEntry = entry(m, csdClass, 0x8000n, "CommonSaveData");
+
+    // An unrelated static object with two equal-length List<int> fields.
+    const unrelatedEntry = entry(m, unrelatedClass, 0x9000n, "vb.zzz");
+    const block = seedStaticBlock(m, unrelatedClass, 0x7ff6f0000n);
+    m.writePtr(block + 0x10n, unrelatedInst);
+    seedInstance(m, unrelatedInst, unrelatedClass);
+    m.writePtr(unrelatedInst + 0x18n, unrelatedList1);
+    m.writePtr(unrelatedList1 + 0x10n, unrelatedArr1);
+    m.writeI32(unrelatedList1 + 0x18n, 2);
+    m.writeI32(unrelatedArr1 + 0x20n, 100);
+    m.writePtr(unrelatedInst + 0x20n, unrelatedList2);
+    m.writePtr(unrelatedList2 + 0x10n, unrelatedArr2);
+    m.writeI32(unrelatedList2 + 0x18n, 2);
+    m.writeI32(unrelatedArr2 + 0x20n, 200);
+
+    const result = findBoxDataStructurally(new ScanContext(m), [csdEntry, unrelatedEntry]);
+    expect(result).toBeNull();
   });
 });

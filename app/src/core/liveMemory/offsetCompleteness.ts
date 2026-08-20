@@ -59,12 +59,17 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
   //
   // Known unsupported versions:
   // - v1.00.28: field name is obfuscated, extractor can't fill it.
-  // - v1.01.02: CommonSaveData is serialized as an ES3 byte stream (type
-  //   "System.Object", namespace "TaskbarHero"). Field values are stored as
-  //   binary blobs, not pointer-walkable object graphs. Live memory reader
+  // - v1.01.02 / v1.01.05: CommonSaveData is serialized as an ES3 byte stream
+  //   (type "System.Object", namespace "TaskbarHero"). Field values are stored
+  //   as binary blobs, not pointer-walkable object graphs. Live memory reader
   //   cannot deserialize ES3 streams, so boxData/petSaveDatas/itemSaveDatas
   //   are all non-derivable. Live chest slots/pets/inventory fall back to
-  //   the save-snapshot path.
+  //   the save-snapshot path. Verified live on v1.01.05: CommonSaveData is a
+  //   metadata-only class (version/playTime/… 16 fields, no save lists); the
+  //   Rev 15 `findBoxDataStructurally` name-matched holder scan returns null
+  //   here, and a whole-heap scan is intentionally NOT used (lookalike
+  //   offsets are invalid for readRuntimeChestSlots — see BUSINESS-FLOWS 5.8.5.1).
+  //   v1.01.05 has a bundled table (V1_01_05) whose boxData stays 0.
   //
   // `enrichmentAlreadyAttempted` (worker.ts Path 2 guard) prevents the 30s
   // fallback timer from re-running the extractor forever after the first

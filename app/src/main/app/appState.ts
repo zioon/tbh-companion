@@ -1,6 +1,5 @@
 import { app, BrowserWindow, dialog, type OpenDialogOptions } from "electron";
-import { dirname, join } from "node:path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 import {
   loadConfig,
@@ -29,12 +28,7 @@ import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { IPC } from "../../../shared/ipc";
 import { clearDiagnosticLogs, createLogger, logRendererError } from "../log";
-import {
-  clearAppDataFiles,
-  getAppDataPaths,
-  LOOKUP_POLLING_CACHE_FILE,
-  resolveUserDataDir,
-} from "../services/appData";
+import { clearAppDataFiles, getAppDataPaths, resolveUserDataDir } from "../services/appData";
 import { UpdateService } from "../services/UpdateService";
 import { NotificationService } from "../services/NotificationService";
 import type {
@@ -155,30 +149,6 @@ const marketVolume = new MarketVolumeService({
 const lookupPricePolling = new LookupPricePollingService({
   lookupPrices,
   getCurrency: () => config.currency,
-  // 持久化「上次成功 cycle」时间戳：6h 刷新缓存跨重启生效，避免重启/手动刷新
-  // 重跑全量 cycle（>10 个目标）触发 Steam 限流。与市场交易额的 pricehistory
-  // 缓存同理。
-  loadLastSuccessfulCycleAtMs: () => {
-    try {
-      const p = join(resolveUserDataDir(), LOOKUP_POLLING_CACHE_FILE);
-      if (!existsSync(p)) return null;
-      const raw = JSON.parse(readFileSync(p, "utf-8").replace(/^\uFEFF/, "")) as {
-        lastSuccessfulCycleAtMs?: unknown;
-      };
-      return typeof raw.lastSuccessfulCycleAtMs === "number" ? raw.lastSuccessfulCycleAtMs : null;
-    } catch {
-      return null;
-    }
-  },
-  saveLastSuccessfulCycleAtMs: (ms) => {
-    try {
-      const p = join(resolveUserDataDir(), LOOKUP_POLLING_CACHE_FILE);
-      mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, JSON.stringify({ lastSuccessfulCycleAtMs: ms }));
-    } catch {
-      // 缓存写入失败不影响轮询主流程，下次启动重新抓取即可
-    }
-  },
   // 注入共享的 nameId 单例，让 polling 在抓 buyOrder 时复用客户端已有的
   // item_nameid 缓存（bundled map + userData/steam_item_nameids.json），
   // 避免每个 hash 都重新抓 listing HTML。未注入时 polling 跳过 buyOrder。
@@ -715,7 +685,7 @@ export function getAppServices() {
     getLookupPrices: () => lookupPrices.getSnapshot(),
     getLookupPricePollStatus: () => lookupPricePolling.getPollingStatus(),
     pollLookupPrices: (hash?: string) =>
-      hash ? lookupPricePolling.pollSingleHash(hash) : lookupPricePolling.pollOnce(true), // 手动「立即刷新」绕过 6h 缓存
+      hash ? lookupPricePolling.pollSingleHash(hash) : lookupPricePolling.pollOnce(),
     getMarketVolume: () => {
       const stats = marketVolume.getStats();
       // 打开 Market 页时按需刷新一次 pricehistory 历史走势（带缓存去抖）。

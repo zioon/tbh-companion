@@ -14,6 +14,7 @@ import {
   dumpSaveListHolders,
   findBoxOpenLogDictDirect,
   findBoxOpenLogFields,
+  findBoxDataStructurally,
   findCurrencyManager,
   findCurrencyManagerStatic,
   findLogManager,
@@ -115,8 +116,17 @@ import type { WinProcess } from "./winProcess";
  * failed bad-itemKey → opens stayed 0). Now a field provably pointing at a
  * GradeSO skips the ObscuredInt fallback and can never be itemStringKey or
  * itemGradeType. Bump invalidates the wrongly-derived v1.01.04 cache.
+ * Rev 15: BoxData structural capture — `findBoxDataStructurally` recovers
+ * `player.boxData` + `boxData.boxTypes/boxQuantity` on versions where
+ * `findPlayerSaveData` returns null (v1.01.02+ ES3 byte-stream save layer:
+ * CommonSaveData static fields unreadable, so the named "BoxData" match never
+ * runs). The structural anchor scans the holder singleton's pointer fields
+ * for the twin-`List<int>` equal-count BoxData signature (same shape the
+ * runtime name-scan fallback relies on), restoring live chest slots without
+ * a bundled table. Bump invalidates v1.01.02–v1.01.05 caches that were
+ * written with boxData=0 so they re-derive once the player owns chests.
  */
-export const EXTRACTOR_REVISION = 14;
+export const EXTRACTOR_REVISION = 15;
 
 /**
  * Module-level flag: `dumpSaveListHolders` has run once this process lifetime.
@@ -398,6 +408,20 @@ export function extractOffsets(
   if (player?.boxDataDiagnostics) {
     log(player.boxDataDiagnostics);
   }
+  // BoxData structural capture ("better auto-capture"): when the player anchor
+  // is unreachable (CommonSaveData static fields unreadable — v1.01.02+ ES3
+  // byte-stream save layer) OR the named "BoxData" field match failed, hunt
+  // for a BoxData-shaped object (two List<int> of equal count) reachable from
+  // the holder singleton / static objects. This restores live chest slots on
+  // versions where findPlayerSaveData returns null, using the same
+  // pure-shape signature as the runtime name-scan fallback.
+  const boxDataAnchor =
+    player == null || (player.boxData ?? 0) === 0 ? findBoxDataStructurally(ctx, entries) : null;
+  if (boxDataAnchor) {
+    log(
+      `extract: boxData structural anchor holder="${boxDataAnchor.holderClassName ?? "?"}" boxData=0x${boxDataAnchor.boxData.toString(16)} boxTypes=0x${boxDataAnchor.boxTypes.toString(16)} boxQuantity=0x${boxDataAnchor.boxQuantity.toString(16)} (instance 0x${boxDataAnchor.boxDataInstance.toString(16)})`,
+    );
+  }
   // Diagnostic: when the player anchor couldn't be derived at all (holder
   // class restructured — v1.01.02 signature), dump every static-reachable
   // List<*> field + recurse one level into CommonSaveData's sub-objects so
@@ -463,12 +487,15 @@ export function extractOffsets(
         petSaveDatas: player?.petSaveDatas ?? STRUCT_PET_SAVE_DATAS,
         itemSaveDatas: player?.itemSaveDatas ?? STRUCT_ITEM_SAVE_DATAS,
         aggregates: player?.aggregateSaveDatas ?? STRUCT_AGGREGATE_SAVE_DATAS,
-        boxData: player?.boxData ?? 0,
+        // boxDataAnchor fills the gap when the player anchor is unreachable
+        // (v1.01.02+ ES3 byte-stream save layer) — see the structural capture
+        // above. `boxData` is the holder field offset pointing at BoxData.
+        boxData: player?.boxData ?? boxDataAnchor?.boxData ?? 0,
       },
 
       boxData: {
-        boxTypes: player?.boxTypes ?? 0,
-        boxQuantity: player?.boxQuantity ?? 0,
+        boxTypes: player?.boxTypes ?? boxDataAnchor?.boxTypes ?? 0,
+        boxQuantity: player?.boxQuantity ?? boxDataAnchor?.boxQuantity ?? 0,
       },
 
       common: {

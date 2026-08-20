@@ -33,6 +33,12 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 - 修复 XP 历史表显示原始 stageKey 而非本地化名的回归（`HistoryEntry.stageName`
   现由 main 端 `buildStats` 填充）。
+- **价格轮询按设置间隔刷新**：移除自动周期的 6 小时固定冷却——此前开启「高价值
+  物品价格轮询」后，成功一轮周期之后的 6 小时内所有自动触发都被跳过（日志
+  `cycle skip: within 6h refresh cache`），导致设置里的「轮询间隔（5–60 分钟）」
+  形同虚设，市场/图鉴价格与交易页成交量长时间不更新。现在自动周期严格按
+  `intervalMinutes` 触发，限流保护由互斥锁、逐项 3s 间隔、每 10 个一批 + 2 分钟
+  批间等待与 429 熔断承担。
 
 ## [1.18.0] - 2026-06-30
 

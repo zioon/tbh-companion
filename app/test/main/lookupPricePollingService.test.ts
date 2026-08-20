@@ -52,9 +52,6 @@ function makeService(opts: {
   ) => Promise<{ ok: boolean; buyOrder: number | null; rateLimited: boolean }>;
   getCurrency?: () => string;
   sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
-  loadLastSuccessfulCycleAtMs?: () => number | null;
-  saveLastSuccessfulCycleAtMs?: (ms: number) => void;
   initialConfig?: Partial<LookupPricePollingConfig>;
   /** 便捷字段：合并进 initialConfig.watchedHashes（图鉴仅轮询星标物品）。 */
   watchedHashes?: string[];
@@ -84,9 +81,6 @@ function makeService(opts: {
       fetchLocal: opts.fetchLocal,
       fetchBuyOrder: opts.fetchBuyOrder,
       sleep: opts.sleep ?? (() => Promise.resolve()),
-      now: opts.now,
-      loadLastSuccessfulCycleAtMs: opts.loadLastSuccessfulCycleAtMs,
-      saveLastSuccessfulCycleAtMs: opts.saveLastSuccessfulCycleAtMs,
     },
     opts.initialConfig,
   );
@@ -486,114 +480,25 @@ describe("LookupPricePollingService.pollOnce", () => {
     expect(payload.buyOrderLocal?.["A"]).toBeNull();
   });
 
-  it("6h 刷新缓存：上次成功 cycle 距今不足 6h 时 pollOnce 跳过不抓取", async () => {
+  it("自动周期：连续 pollOnce 每次都重新抓取（不再被固定冷却拦截）", async () => {
     const snap = snapshot({ A: 5.0 });
-    let now = Date.UTC(2026, 7, 7, 10, 0, 0);
     const fetchUsd = vi.fn(async () => ({ ok: true, usd: 6.0, rateLimited: false }));
     const { service } = makeService({
       snapshot: snap,
       watchedHashes: ["A"],
       fetchUsd,
-      now: () => now,
       initialConfig: { enabled: true, thresholdUsd: 1.0 },
     });
 
-    // 首次 cycle 成功，触发抓取
+    // 第一次周期成功抓取
     const first = await service.pollOnce();
     expect(first.priced).toBe(1);
     expect(fetchUsd).toHaveBeenCalledTimes(1);
 
-    // 3h 后再次触发：命中 6h 缓存 → 跳过，不抓取
-    now += 3 * 3600_000;
+    // 第二次周期（如 intervalMinutes 到期的 timer tick）应立即重新抓取，
+    // 而不是被 6h 之类的固定冷却跳过——否则「轮询间隔」设置形同虚设。
     const second = await service.pollOnce();
-    expect(second.aborted).toBe(false);
-    expect(second.targets).toBe(0);
-    expect(fetchUsd).toHaveBeenCalledTimes(1);
-
-    // 6h 缓存过期后再次触发 → 重新抓取
-    now += 4 * 3600_000;
-    const third = await service.pollOnce();
-    expect(third.priced).toBe(1);
-    expect(fetchUsd).toHaveBeenCalledTimes(2);
-  });
-
-  it("持久化：上次成功 cycle 时间戳保存后，新实例启动即命中 6h 缓存不抓取", async () => {
-    const snap = snapshot({ A: 5.0, B: 8.0 });
-    let now = Date.UTC(2026, 7, 7, 10, 0, 0);
-    let persisted: number | null = null;
-    const fetchUsd = vi.fn(async () => ({ ok: true, usd: 6.0, rateLimited: false }));
-
-    // 第一个实例跑完整 cycle 成功，并把时间戳持久化
-    const { service: s1 } = makeService({
-      snapshot: snap,
-      watchedHashes: ["A", "B"],
-      fetchUsd,
-      now: () => now,
-      saveLastSuccessfulCycleAtMs: (ms) => {
-        persisted = ms;
-      },
-      initialConfig: { enabled: true, thresholdUsd: 1.0 },
-    });
-    const first = await s1.pollOnce();
-    expect(first.priced).toBe(2);
-    expect(persisted).toBe(now);
-
-    // 模拟重启：新实例从 loadLastSuccessfulCycleAtMs 恢复时间戳，2h 后触发
-    now += 2 * 3600_000;
-    const { service: s2 } = makeService({
-      snapshot: snap,
-      watchedHashes: ["A", "B"],
-      fetchUsd,
-      now: () => now,
-      loadLastSuccessfulCycleAtMs: () => persisted,
-      initialConfig: { enabled: true, thresholdUsd: 1.0 },
-    });
-    const second = await s2.pollOnce();
-    expect(second.aborted).toBe(false);
-    expect(second.targets).toBe(0);
-    expect(fetchUsd).toHaveBeenCalledTimes(2); // 仅第一次实例抓过
-
-    // 超过 6h 后新实例应重新抓取
-    now += 5 * 3600_000;
-    const { service: s3 } = makeService({
-      snapshot: snap,
-      watchedHashes: ["A", "B"],
-      fetchUsd,
-      now: () => now,
-      loadLastSuccessfulCycleAtMs: () => persisted,
-      initialConfig: { enabled: true, thresholdUsd: 1.0 },
-    });
-    const third = await s3.pollOnce();
-    expect(third.priced).toBe(2);
-    expect(fetchUsd).toHaveBeenCalledTimes(4);
-  });
-
-  it("手动 force：6h 缓存未过期时 pollOnce(true) 仍抓取", async () => {
-    const snap = snapshot({ A: 5.0 });
-    let now = Date.UTC(2026, 7, 7, 10, 0, 0);
-    const fetchUsd = vi.fn(async () => ({ ok: true, usd: 6.0, rateLimited: false }));
-    const { service } = makeService({
-      snapshot: snap,
-      watchedHashes: ["A"],
-      fetchUsd,
-      now: () => now,
-      initialConfig: { enabled: true, thresholdUsd: 1.0 },
-    });
-
-    // 首次 cycle 成功，触发抓取
-    const first = await service.pollOnce();
-    expect(first.priced).toBe(1);
-    expect(fetchUsd).toHaveBeenCalledTimes(1);
-
-    // 3h 后：自动 pollOnce() 仍受 6h 缓存约束跳过
-    now += 3 * 3600_000;
-    const auto = await service.pollOnce();
-    expect(auto.targets).toBe(0);
-    expect(fetchUsd).toHaveBeenCalledTimes(1);
-
-    // 但 pollOnce(true) 手动触发绕过 cooldown，立即重新抓取
-    const forced = await service.pollOnce(true);
-    expect(forced.priced).toBe(1);
+    expect(second.priced).toBe(1);
     expect(fetchUsd).toHaveBeenCalledTimes(2);
   });
 

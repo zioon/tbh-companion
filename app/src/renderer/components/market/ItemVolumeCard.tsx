@@ -124,6 +124,12 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
     };
   }, [points]);
 
+  // hoverIndex 可能因 Fast Refresh 状态保留或 points 收缩（实时刷新/切换窗口）而
+  // 超出当前 chart.points 范围：渲染时钳制到有效区间，避免把 undefined 传给
+  // HoverTooltip 读 .hour 崩溃。
+  const safeHoverIndex =
+    hoverIndex != null && chart != null ? Math.min(hoverIndex, chart.points.length - 1) : null;
+
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!chart || chart.points.length === 0) return;
     const svg = e.currentTarget;
@@ -220,11 +226,11 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
                 />
-                {hoverIndex != null && (
+                {safeHoverIndex != null && (
                   <line
-                    x1={chart.x(hoverIndex)}
+                    x1={chart.x(safeHoverIndex)}
                     y1={2}
-                    x2={chart.x(hoverIndex)}
+                    x2={chart.x(safeHoverIndex)}
                     y2={40}
                     stroke={color}
                     strokeOpacity={0.6}
@@ -233,11 +239,11 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
                   />
                 )}
               </svg>
-              {hoverIndex != null && (
+              {safeHoverIndex != null && (
                 <HoverTooltip
-                  point={chart.points[hoverIndex]}
+                  point={chart.points[safeHoverIndex]}
                   currency={currency}
-                  hoverX={chart.x(hoverIndex)}
+                  hoverX={chart.x(safeHoverIndex)}
                 />
               )}
             </div>

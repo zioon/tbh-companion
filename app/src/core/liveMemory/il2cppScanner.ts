@@ -1649,6 +1649,117 @@ export function findBoxDataFields(ctx: ScanContext, obj: bigint): BoxDataFieldOf
   return null;
 }
 
+/**
+ * Result of {@link findBoxDataStructurally}: the BoxData field offset within
+ * the holder instance (CommonSaveData / PlayerSaveData) plus the twin
+ * `List<int>` field offsets inside the BoxData instance. `boxData` is the
+ * holder's field offset that points at the BoxData instance (NOT within
+ * PlayerSaveData's naming — it is the raw field offset in the live holder
+ * object reached via `playerPtrOverride` / name-scan).
+ */
+export interface BoxDataStructuralAnchor {
+  /** Holder instance field offset pointing at the BoxData instance. */
+  boxData: number;
+  /** BoxData.BoxTypes field offset (within the BoxData instance). */
+  boxTypes: number;
+  /** BoxData.BoxQuantity field offset (within the BoxData instance). */
+  boxQuantity: number;
+  /** Live holder instance pointer (CommonSaveData/PlayerSaveData). */
+  holderInstance: bigint;
+  /** Live BoxData instance pointer. */
+  boxDataInstance: bigint;
+  /** Holder class name (diagnostics). */
+  holderClassName: string | null;
+}
+
+/**
+ * Production BoxData structural capture — the "better auto-capture" path for
+ * versions where `findPlayerSaveData` returns null (CommonSaveData static
+ * fields unreadable / ES3 byte-stream save layer, e.g. v1.01.02+). The
+ * extractor's named-field match can't reach BoxData on those versions, but
+ * the BoxData instance may still live in the managed heap reachable from the
+ * holder singleton.
+ *
+ * Strategy (pure shape detection, no field-name matching — survives
+ * obfuscation):
+ *  1. Resolve the holder class (CommonSaveData / PlayerSaveData) by name
+ *     from the class index, then find its live instance via the standard
+ *     static block AND the header-block scan fallback (`+0xb0 = 0` on
+ *     v1.01.02+ — instance stored at a non-standard header offset).
+ *  2. Scan the holder's pointer fields (0x10..INSTANCE_SCAN_MAX) for a
+ *     sub-object that satisfies the BoxData signature (two `List<int>` with
+ *     equal count, via {@link findBoxDataFields}).
+ *
+ * IMPORTANT: only the name-matched holder's offsets are emitted. A whole-heap
+ * scan would find "twin-List<int>" lookalikes on unrelated objects (e.g. any
+ * container with two equal-length int lists) whose offsets are meaningless for
+ * `readRuntimeChestSlots` — it dereferences `playerPtr + player.boxData`
+ * where `playerPtr` is the CommonSaveData singleton, so `boxData` MUST be an
+ * offset on that exact instance. Verified on v1.01.05: CommonSaveData was
+ * restructured to a metadata-only class (version/playTime/… 16 fields, no
+ * save lists) — BoxData lives in the ES3 byte stream and is genuinely
+ * underivable at runtime, matching v1.01.02. The whole-heap candidate scan
+ * remains available as a diagnostic via `dumpSaveListHolders` (Pass H) gated
+ * by TBH_DUMP_SAVE_LIST_HOLDERS=1.
+ *
+ * Returns the first matching anchor on a name-matched holder, or null when
+ * no BoxData-shaped object is reachable from it (player owns no chests yet →
+ * twin lists empty → signature fails; the reader degrades to the
+ * save-snapshot path, and the box-open event detector re-triggers extraction
+ * once lists become non-empty).
+ */
+export function findBoxDataStructurally(
+  ctx: ScanContext,
+  entries: readonly ClassEntry[],
+): BoxDataStructuralAnchor | null {
+  const scanHolder = (
+    holder: bigint,
+    holderClassName: string | null,
+  ): BoxDataStructuralAnchor | null => {
+    for (let foff = 0x10; foff <= INSTANCE_SCAN_MAX; foff += 8) {
+      const subPtr = readPtr(ctx.reader, holder + BigInt(foff));
+      if (subPtr == null || !isPlausibleHeapPtr(subPtr)) continue;
+      const bd = findBoxDataFields(ctx, subPtr);
+      if (bd != null) {
+        return {
+          boxData: foff,
+          boxTypes: bd.boxTypes,
+          boxQuantity: bd.boxQuantity,
+          holderInstance: holder,
+          boxDataInstance: subPtr,
+          holderClassName,
+        };
+      }
+    }
+    return null;
+  };
+
+  // Name-matched holder classes (CommonSaveData / PlayerSaveData). Only these
+  // holders' offsets are usable by readRuntimeChestSlots (playerPtr = the
+  // CommonSaveData singleton resolved by name-scan / static field walk).
+  const holderClasses = entries.filter(
+    (e) =>
+      e.name != null &&
+      (classNameMatches(e.name, "CommonSaveData") || classNameMatches(e.name, "PlayerSaveData")),
+  );
+  for (const holder of holderClasses) {
+    const seen = new Set<bigint>();
+    for (const { value: inst } of ctx.staticSlots(holder.classPtr)) {
+      if (inst == null || !isPlausibleHeapPtr(inst) || seen.has(inst)) continue;
+      seen.add(inst);
+      const anchor = scanHolder(inst, holder.name);
+      if (anchor) return anchor;
+    }
+    // Header-block scan fallback (v1.01.02+ signature: static_fields null).
+    const headerInst = findInstanceViaHeaderScan(ctx, holder.classPtr);
+    if (headerInst != null && !seen.has(headerInst)) {
+      const anchor = scanHolder(headerInst, holder.name);
+      if (anchor) return anchor;
+    }
+  }
+  return null;
+}
+
 export interface PlayerAnchor {
   /** TypeInfo slot RVA of the class whose static block holds the player object. */
   commonSaveData: bigint;
@@ -2941,7 +3052,7 @@ function recurseForSaveLists(
  * `classPtr` itself as a block candidate (header+0x40 points back to
  * classPtr on that build).
  */
-function findInstanceViaHeaderScan(ctx: ScanContext, classPtr: bigint): bigint | null {
+export function findInstanceViaHeaderScan(ctx: ScanContext, classPtr: bigint): bigint | null {
   const HEADER_SCAN_MAX = 0xc0;
   const BLOCK_SCAN_MAX = 0x400;
   // Read header ptr-like values one qword at a time (compatible with

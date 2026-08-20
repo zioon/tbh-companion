@@ -53,8 +53,6 @@ const BATCH_GAP_MS = 2 * 60 * 1000;
 const RATE_LIMIT_BACKOFF_MS = 6000;
 /** 连续 429 次数达到此阈值则中止本轮轮询（避免反复撞 Steam 限流墙）。 */
 const MAX_CONSECUTIVE_RATE_LIMITS = 3;
-/** 全量 cycle 的最小刷新间隔（ms）：上次成功 cycle 距今 < 6h 则跳过，避免超限。 */
-const POLLING_MIN_REFRESH_MS = 6 * 3600 * 1000;
 
 // 本地配置形态（与 shared/types 的 LookupPricePollingPrefs 同形；保留独立
 // 类型名是为了让 service 内部的配置语义清晰，且能在 sanitize 时复用）。
@@ -104,19 +102,6 @@ export interface LookupPricePollingDeps {
   ) => Promise<{ ok: boolean; buyOrder: number | null; rateLimited: boolean }>;
   /** 注入用于测试；默认 setTimeout。 */
   sleep?: (ms: number) => Promise<void>;
-  /** 注入用于测试；默认 Date.now。供 6h 刷新缓存判定使用。 */
-  now?: () => number;
-  /**
-   * 读取上次「成功」cycle 的时间戳（ms），供 6h 刷新缓存判定。持久化到磁盘后
-   * 重启应用仍能命中缓存，避免每次启动/手动刷新都重跑全量 cycle 触发限量。
-   * 未注入时视为无历史（null），首次 cycle 不跳过。
-   */
-  loadLastSuccessfulCycleAtMs?: () => number | null;
-  /**
-   * 持久化上次「成功」（至少抓到 1 个价格）cycle 的时间戳（ms）。与
-   * {@link loadLastSuccessfulCycleAtMs} 成对出现；未注入则仅保留内存态。
-   */
-  saveLastSuccessfulCycleAtMs?: (ms: number) => void;
   /**
    * 状态变更回调（cycle 开始/每个 item 完成/cycle 结束）。用于向 renderer
    * 广播 polling 进度（IPC.LOOKUP_PRICES_POLL_STATUS）。可选。
@@ -199,8 +184,6 @@ export class LookupPricePollingService {
   /** 上次轮询结果（供 UI 显示「上次更新时间」）。 */
   private lastCycleResult: PollingCycleResult | null = null;
   private lastCycleAtMs: number | null = null;
-  /** 上次「成功」（至少抓到 1 个价格）的 cycle 时间（6h 刷新缓存判定用）。 */
-  private lastSuccessfulCycleAtMs: number | null = null;
   /** 当前轮询的实时进度（cycle 结束后清回 null）。 */
   private currentProgress: {
     targets: number;
@@ -217,8 +200,6 @@ export class LookupPricePollingService {
     if (initialConfig) {
       this.config = sanitizePollingConfig(initialConfig);
     }
-    // 从磁盘恢复上次成功 cycle 时间，使 6h 刷新缓存跨重启生效。
-    this.lastSuccessfulCycleAtMs = deps.loadLastSuccessfulCycleAtMs?.() ?? null;
   }
 
   /** 当前配置（UI 可读，不应直接修改）。 */
@@ -332,8 +313,8 @@ export class LookupPricePollingService {
     log.info(
       `start: interval=${this.config.intervalMinutes}min threshold=$${this.config.thresholdUsd} watched=${this.config.watchedHashes.length}`,
     );
-    // 立即触发一次，让用户开开关后很快看到效果（手动，绕过 6h 缓存）
-    void this.pollOnce(true);
+    // 立即触发一次，让用户开开关后很快看到效果
+    void this.pollOnce();
     const ms = this.config.intervalMinutes * 60 * 1000;
     this.timer = setInterval(() => void this.pollOnce(), ms);
   }
@@ -353,11 +334,13 @@ export class LookupPricePollingService {
   /**
    * 单轮轮询。可被测试直接调用。
    *
-   * @param force 手动触发（用户点击「立即刷新」、开启开关时的首次触发）传
-   *   `true`，绕过 6h 刷新缓存；周期 timer 走默认 `false`，仍受 cooldown
-   *   约束，避免反复撞 Steam 限流。
+   * 自动周期 timer 与「立即刷新」按钮都走本方法：只要 enabled 且没有
+   * cycle 在跑，就按当前配置（watchedHashes + 用户货币）抓取一轮三档
+   * 价格。限流保护由 cycleRunning 互斥锁、逐项 3s 间隔、每 10 个一批
+   * 的 2 分钟批间等待与 429 熔断共同承担，不额外做固定时长冷却——
+   * 否则 intervalMinutes 设置（5–60 分钟）形同虚设。
    */
-  async pollOnce(force = false): Promise<PollingCycleResult> {
+  async pollOnce(): Promise<PollingCycleResult> {
     if (this.cycleRunning) {
       log.info("skip: previous cycle still running");
       return {
@@ -370,17 +353,6 @@ export class LookupPricePollingService {
     }
     if (!this.config.enabled) {
       return { targets: 0, priced: 0, rateLimited: 0, failed: 0, aborted: true };
-    }
-    // 6h 刷新缓存：上次成功 cycle 距今不足 6h 则跳过，避免反复触发 Steam 限流。
-    // 与市场交易额的 pricehistory 缓存同理；手动「立即刷新」与周期 timer 都走
-    // 本方法，故统一受此 cooldown 约束。
-    if (
-      !force &&
-      this.lastSuccessfulCycleAtMs != null &&
-      this.nowMs() - this.lastSuccessfulCycleAtMs < POLLING_MIN_REFRESH_MS
-    ) {
-      log.info("cycle skip: within 6h refresh cache");
-      return { targets: 0, priced: 0, rateLimited: 0, failed: 0, aborted: false };
     }
 
     this.cycleRunning = true;
@@ -499,8 +471,6 @@ export class LookupPricePollingService {
 
       // 把新价格 merge 进内存快照（如果至少抓到了一个）
       if (priced > 0) {
-        this.lastSuccessfulCycleAtMs = this.nowMs();
-        this.deps.saveLastSuccessfulCycleAtMs?.(this.lastSuccessfulCycleAtMs);
         this.mergeUpdatesIntoSnapshot(
           {
             prices: updatedPrices,
@@ -852,9 +822,5 @@ export class LookupPricePollingService {
   private async sleep(ms: number): Promise<void> {
     if (this.deps.sleep) return this.deps.sleep(ms);
     return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  private nowMs(): number {
-    return this.deps.now ? this.deps.now() : Date.now();
   }
 }

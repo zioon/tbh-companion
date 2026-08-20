@@ -33,6 +33,28 @@ describe("offsetsForVersion", () => {
     expect(o?.player.itemSaveDatas).toBe(0xa8);
   });
 
+  it("returns the bundled table for v1.01.05 (captured baseline for the 1.01.x line)", () => {
+    // v1.01.05 is a captured table (extractor Rev 15) — it must be an EXACT
+    // match (no fallback marker) so 1.01.x users stop falling back to the
+    // v1.01.01 baseline.
+    const o = offsetsForVersion("1.01.05");
+    expect(o).not.toBeNull();
+    expect(o?.gameVersion).toBe("1.01.05");
+    expect(o?._fallbackFromVersion).toBeUndefined();
+    // TypeInfo RVAs re-derived for the v1.01.05 build (differ from v1.01.01).
+    expect(o?.typeInfoRva.stageManager).toBe(0x5ec54e8n);
+    expect(o?.typeInfoRva.stageCacheManager).toBe(0x5ec9190n);
+    expect(o?.typeInfoRva.logManager).toBe(0x5ec3208n);
+    expect(o?.typeInfoRva.monsterSpawnManager).toBe(0x5ea55d8n);
+    // boxOpenLog offsets derived live from LogManager dict entries.
+    expect(o?.runtime.boxOpenLog.itemStringKey).toBe(0x40);
+    expect(o?.runtime.boxOpenLog.itemGradeType).toBe(0x48);
+    // Struct offsets inherited from the 1.01.x layout.
+    expect(o?.runtime.stage.stageKey).toBe(0x30);
+    expect(o?.heroRuntime.expHidden).toBe(0x118);
+    expect(o?.unit.cache).toBe(0x3b0);
+  });
+
   it("returns null for an absent/invalid version (degraded mode — LMR-07)", () => {
     // Different major.minor — no fallback available.
     expect(offsetsForVersion("9.99.99")).toBeNull();
@@ -66,6 +88,7 @@ describe("offsetsForVersion", () => {
   it("lists the supported versions", () => {
     expect(supportedVersions()).toContain("1.00.21");
     expect(supportedVersions()).toContain("1.00.23");
+    expect(supportedVersions()).toContain("1.01.05");
   });
 
   it("exposes the complete shared schema shape (locked for Phase 3)", () => {
@@ -115,11 +138,17 @@ describe("offsetsForVersion", () => {
     expect(fb.fallback).toBe(true);
     expect(fb.table._fallbackFromVersion).toBe("1.00.28");
 
-    // v1.01.02 (not in table) falls back to v1.01.01 → fallback=true, marker set
+    // v1.01.02 (not in table) falls back to v1.01.01 (nearest 1.01.x) → marker set
     const v102 = offsetsForVersionMeta("1.01.02")!;
     expect(v102.table.gameVersion).toBe("1.01.02");
     expect(v102.fallback).toBe(true);
     expect(v102.table._fallbackFromVersion).toBe("1.01.01");
+
+    // v1.01.04 (not in table) falls back to v1.01.05 (nearest 1.01.x) → marker set
+    const v104 = offsetsForVersionMeta("1.01.04")!;
+    expect(v104.table.gameVersion).toBe("1.01.04");
+    expect(v104.fallback).toBe(true);
+    expect(v104.table._fallbackFromVersion).toBe("1.01.05");
 
     // Different major.minor → null (no fallback available)
     expect(offsetsForVersionMeta("9.99.99")).toBeNull();

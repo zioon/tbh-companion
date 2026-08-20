@@ -454,15 +454,20 @@ function VolumeTrendChart({
     0,
   );
 
-  const hoverPoint = hoverIndex != null ? sampled[hoverIndex] : null;
+  // hoverIndex 可能因 Fast Refresh 状态保留或 points 收缩（切换窗口/拖拽范围）
+  // 而超出当前 sampled 范围：渲染时钳制到有效区间，避免取到 undefined 点崩溃。
+  const safeHoverIndex =
+    hoverIndex != null && sampled.length > 0 ? Math.min(hoverIndex, sampled.length - 1) : null;
+
+  const hoverPoint = safeHoverIndex != null ? sampled[safeHoverIndex] : null;
   // 悬浮点代表的时间段：相邻采样点间隔已严格等于粒度，直接用下一个采样点作为
   // 结束时刻；最后一个点用粒度估算结束时刻。
   const hoverRangeEnd =
-    hoverIndex != null
-      ? hoverIndex + 1 < sampled.length
-        ? sampled[hoverIndex + 1].hour
+    safeHoverIndex != null
+      ? safeHoverIndex + 1 < sampled.length
+        ? sampled[safeHoverIndex + 1].hour
         : new Date(
-            Date.parse(sampled[hoverIndex].hour) + granularityHours * 3_600_000,
+            Date.parse(sampled[safeHoverIndex].hour) + granularityHours * 3_600_000,
           ).toISOString()
       : null;
 
@@ -510,11 +515,11 @@ function VolumeTrendChart({
             strokeLinecap="round"
           />
           {/* 悬浮指示竖线：定位到鼠标最近的数据点 */}
-          {hoverIndex != null && (
+          {safeHoverIndex != null && (
             <line
-              x1={chart.x(hoverIndex)}
+              x1={chart.x(safeHoverIndex)}
               y1={0}
-              x2={chart.x(hoverIndex)}
+              x2={chart.x(safeHoverIndex)}
               y2={40}
               stroke="#666"
               strokeWidth={0.5}
@@ -522,13 +527,13 @@ function VolumeTrendChart({
             />
           )}
         </svg>
-        {hoverPoint && hoverIndex != null && hoverRangeEnd && (
+        {hoverPoint && safeHoverIndex != null && hoverRangeEnd && (
           <HoverTooltip
             point={hoverPoint}
             rangeStart={hoverPoint.hour}
             rangeEnd={hoverRangeEnd}
             currency={currency}
-            hoverX={chart.x(hoverIndex)}
+            hoverX={chart.x(safeHoverIndex)}
             total={VOLUME_CATEGORY_ORDER.reduce(
               (sum, cat) => sum + (hoverPoint.byCategory?.[cat] ?? 0),
               0,
