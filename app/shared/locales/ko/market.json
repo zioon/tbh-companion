@@ -98,6 +98,23 @@
     "refresh": "이력 새로고침",
     "refreshHistory": "별표 아이템과 가격 스냅샷 임계값 이상의 모든 아이템 가격 이력을 강제로 가져옵니다",
     "refreshing": "새로고침 {{done}}/{{total}}",
-    "refreshingItems": "새로고침 중인 아이템"
+    "stopRefresh": "중지",
+    "cookieExpired": "Steam 쿠키가 만료되어 가격 이력 새로고침이 중지되었습니다. '설정 → Steam 마켓'에서 sessionid와 steamLoginSecure를 업데이트한 후 다시 시도하세요.",
+    "emptyFiltered": "이 필터 조건과 일치하는 아이템이 없습니다.",
+    "filters": {
+      "searchItems": "아이템 검색…",
+      "grade": "품질",
+      "allGrades": "모든 품질",
+      "gearType": "부위",
+      "allGearTypes": "모든 부위",
+      "materialKind": "종류",
+      "allMaterialKinds": "모든 종류",
+      "level": "레벨",
+      "total": "거래액",
+      "volume": "거래량",
+      "price": "가격",
+      "unitCount": "개",
+      "shownCount": "{{count}}종"
+    }
   }
 }

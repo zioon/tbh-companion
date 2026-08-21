@@ -18,6 +18,9 @@ const ITEM: MarketVolumeItem = {
   hash: "test-item",
   name: "Test Item",
   category: "WEAPON",
+  level: 50,
+  gearType: "SWORD",
+  materialType: null,
   total: 1234,
   points: POINTS,
 };

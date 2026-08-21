@@ -19,9 +19,11 @@ import { reportIpcError } from "./reportError";
 export function useMarketVolumeItems(): {
   stats: MarketVolumeItemStats | null;
   pending: MarketVolumeItem[];
-  refresh: () => Promise<void>;
+  refresh: (cardOrder?: string[]) => Promise<void>;
   refreshing: boolean;
   progress: MarketVolumeRefreshProgress;
+  refreshItem: (hash: string) => Promise<void>;
+  cancelRefresh: () => void;
 } {
   const [stats, setStats] = useState<MarketVolumeItemStats | null>(null);
   const { marketVolumeProgress, marketVolumePending, setMarketVolumePending } = useTbhContext();
@@ -41,15 +43,30 @@ export function useMarketVolumeItems(): {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(
+    async (cardOrder?: string[]) => {
+      try {
+        const result = await window.tbh.refreshMarketVolumeItems(cardOrder);
+        setStats(result.stats);
+        setMarketVolumePending(result.pending);
+      } catch (err) {
+        reportIpcError(err, "market-volume-items:refresh");
+      }
+    },
+    [setMarketVolumePending],
+  );
+
+  // 单物品卡片手动更新：结果经 MARKET_VOLUME/MARKET_VOLUME_ITEMS 广播回传，此处只触发。
+  const refreshItem = useCallback(async (hash: string) => {
     try {
-      const result = await window.tbh.refreshMarketVolumeItems();
-      setStats(result.stats);
-      setMarketVolumePending(result.pending);
+      await window.tbh.refreshMarketVolumeItem(hash);
     } catch (err) {
-      reportIpcError(err, "market-volume-items:refresh");
+      reportIpcError(err, "market-volume-items:refresh-item");
     }
-  }, [setMarketVolumePending]);
+  }, []);
+
+  // 手动终止整次历史刷新（send，无响应）。
+  const cancelRefresh = useCallback(() => window.tbh.cancelHistoryRefresh(), []);
 
   return {
     stats,
@@ -57,5 +74,7 @@ export function useMarketVolumeItems(): {
     refresh,
     refreshing: marketVolumeProgress.running,
     progress: marketVolumeProgress,
+    refreshItem,
+    cancelRefresh,
   };
 }

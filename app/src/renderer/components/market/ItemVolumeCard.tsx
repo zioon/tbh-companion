@@ -1,5 +1,6 @@
 import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { LuRefreshCw } from "react-icons/lu";
 import type { MarketVolumeItem } from "../../../../shared/types";
 import { formatMoney } from "../../../core/steamPrice";
 import { fmtCompact } from "../../lib/format";
@@ -41,15 +42,30 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
   currency,
   windowRange,
   refreshStatus,
+  onRefresh,
 }: {
   item: MarketVolumeItem;
   currency: string;
   windowRange?: { start: string; end: string } | null;
   refreshStatus?: RefreshStatus | null;
+  /** 传入时卡片右上角显示小型「手动刷新」按钮；未传入则不显示。 */
+  onRefresh?: (hash: string) => Promise<void> | void;
 }) {
   const { t } = useTranslation("market");
   const color = gradeColor(item.grade ?? "");
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  // 单卡片手动刷新期间的本卡加载态（不进入整批刷新的 running 进度流）。
+  const [refreshingCard, setRefreshingCard] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefresh || refreshingCard) return;
+    setRefreshingCard(true);
+    try {
+      await onRefresh(item.hash);
+    } finally {
+      setRefreshingCard(false);
+    }
+  };
 
   const points = useMemo(() => {
     if (windowRange && windowRange.start && windowRange.end) {
@@ -176,11 +192,28 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
                   : ` · ${t("trading.snapshot")}`}
             </p>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-0.5">
-            <span className="text-sm font-semibold text-fg">
-              {formatMoney(windowTotal, currency)}
-            </span>
-            <span className="text-[11px] text-muted">成交量 {fmtCompact(windowVolume)}</span>
+          <div className="flex shrink-0 items-start gap-1.5">
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={refreshingCard}
+                title={t("trading.refresh")}
+                aria-label={t("trading.refresh")}
+                className="rounded p-0.5 text-muted transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <LuRefreshCw
+                  className={cn("size-3", refreshingCard && "animate-spin")}
+                  aria-hidden
+                />
+              </button>
+            )}
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-sm font-semibold text-fg">
+                {formatMoney(windowTotal, currency)}
+              </span>
+              <span className="text-[11px] text-muted">成交量 {fmtCompact(windowVolume)}</span>
+            </div>
           </div>
         </div>
 

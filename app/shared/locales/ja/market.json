@@ -98,6 +98,23 @@
     "refresh": "履歴を更新",
     "refreshHistory": "スター付きアイテムと価格スナップショットの閾値以上の全アイテムの価格履歴を強制的に取得します",
     "refreshing": "更新中 {{done}}/{{total}}",
-    "refreshingItems": "更新中のアイテム"
+    "stopRefresh": "停止",
+    "cookieExpired": "Steam Cookie の有効期限が切れたため、価格履歴の更新を停止しました。「設定 → Steam マーケット」で sessionid と steamLoginSecure を更新してから再試行してください。",
+    "emptyFiltered": "これらのフィルター条件に一致するアイテムはありません。",
+    "filters": {
+      "searchItems": "アイテムを検索…",
+      "grade": "品質",
+      "allGrades": "すべての品質",
+      "gearType": "部位",
+      "allGearTypes": "すべての部位",
+      "materialKind": "種類",
+      "allMaterialKinds": "すべての種類",
+      "level": "レベル",
+      "total": "取引高",
+      "volume": "取引量",
+      "price": "価格",
+      "unitCount": "件",
+      "shownCount": "{{count}} 種"
+    }
   }
 }

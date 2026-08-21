@@ -813,6 +813,12 @@ export interface MarketVolumeItem {
    * 未匹配到图鉴时为 undefined。
    */
   grade?: string;
+  /** 物品等级（1..LEVEL_MAX）。材料/未匹配到图鉴时为 null。用于等级筛选。 */
+  level: number | null;
+  /** 装备部位（仅 GEAR 物品有值，如 MAIN_WEAPON/HELMET…）。材料或未匹配时为 null。 */
+  gearType: string | null;
+  /** 材料种类（仅 MATERIAL 物品有值，如 OFFERING/CRAFTING…）。装备或未匹配时为 null。 */
+  materialType: string | null;
   /** 总交易额（目标货币）。 */
   total: number;
   /**
@@ -848,6 +854,11 @@ export interface MarketVolumeRefreshProgress {
   updatedItem?: MarketVolumeItem;
   /** 本次刷新开始时的待刷新占位卡片（自动/手动刷新共用，供前端展示亮环）。 */
   pending?: MarketVolumeItem[];
+  /**
+   * 本次刷新因 Steam Cookie 失效（pricehistory 返回 400）被提前终止时为 true。
+   * 前端应收起刷新状态并提示用户前往设置更新 Cookie。
+   */
+  cookieExpired?: boolean;
 }
 
 /** 交易页「刷新历史价格」的返回：当前统计 + 待刷新的目标卡片（提前展示）。 */
@@ -1807,8 +1818,10 @@ export interface TbhApi {
   onMarketVolume(cb: (stats: MarketVolumeStats) => void): () => void;
   getMarketVolumeItems(): Promise<MarketVolumeItemStats>;
   onMarketVolumeItems(cb: (stats: MarketVolumeItemStats) => void): () => void;
-  refreshMarketVolumeItems(): Promise<MarketVolumeRefreshResult>;
+  refreshMarketVolumeItems(cardOrder?: string[]): Promise<MarketVolumeRefreshResult>;
   onMarketVolumeRefreshProgress(cb: (progress: MarketVolumeRefreshProgress) => void): () => void;
+  refreshMarketVolumeItem(hash: string): Promise<void>;
+  cancelHistoryRefresh(): void;
   getLiveMemory(): Promise<LiveMemorySnapshot | null>;
   getLiveMemoryStatus(): Promise<LiveMemoryStatus | null>;
   onLiveMemory(cb: (snapshot: LiveMemorySnapshot) => void): () => void;

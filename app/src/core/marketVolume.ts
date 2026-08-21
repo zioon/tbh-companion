@@ -197,6 +197,12 @@ export interface MarketVolumeItem {
   category: string;
   /** 物品品质等级（COMMON..COSMIC）。未匹配到图鉴时为 undefined。 */
   grade?: string;
+  /** 物品等级（1..LEVEL_MAX）。材料/未匹配到图鉴时为 null。用于等级筛选。 */
+  level: number | null;
+  /** 装备部位（仅 GEAR 物品有值，如 MAIN_WEAPON/HELMET…）。材料或未匹配时为 null。 */
+  gearType: string | null;
+  /** 材料种类（仅 MATERIAL 物品有值，如 OFFERING/CRAFTING…）。装备或未匹配时为 null。 */
+  materialType: string | null;
   /** 总交易额（目标货币）。 */
   total: number;
   /** 按小时的历史走势（升序，最新在最后），用于卡片小图。 */
@@ -219,7 +225,10 @@ export function aggregateItemVolume(
   historyByHash: ReadonlyMap<string, readonly PriceHistoryPoint[]>,
   itemsByHash: Map<
     string,
-    Pick<LookupItem, "type" | "gearGroup" | "materialType" | "name" | "grade">
+    Pick<
+      LookupItem,
+      "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+    >
   >,
 ): MarketVolumeItem[] {
   const results: MarketVolumeItem[] = [];
@@ -254,6 +263,9 @@ export function aggregateItemVolume(
       name: item?.name ?? hash,
       category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
       grade: item?.grade,
+      level: item?.level ?? null,
+      gearType: item?.gearType ?? null,
+      materialType: item?.materialType ?? null,
       total,
       points: series,
     });
@@ -269,7 +281,10 @@ export function aggregateItemVolume(
 export function aggregateLiveItems(
   itemsByHash: Map<
     string,
-    Pick<LookupItem, "type" | "gearGroup" | "materialType" | "name" | "grade">
+    Pick<
+      LookupItem,
+      "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+    >
   >,
   volumeByHash: ReadonlyMap<string, VolumeHashSample>,
 ): MarketVolumeItem[] {
@@ -283,6 +298,9 @@ export function aggregateLiveItems(
       name: item?.name ?? hash,
       category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
       grade: item?.grade,
+      level: item?.level ?? null,
+      gearType: item?.gearType ?? null,
+      materialType: item?.materialType ?? null,
       total: sample.volume * sample.median,
       points: [],
     });
@@ -303,7 +321,10 @@ export function aggregateLiveItems(
 export function aggregateLiveActivityItems(
   itemsByHash: Map<
     string,
-    Pick<LookupItem, "type" | "gearGroup" | "materialType" | "name" | "grade">
+    Pick<
+      LookupItem,
+      "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+    >
   >,
   livePointsByHash: ReadonlyMap<string, readonly LiveVolumePoint[]>,
 ): MarketVolumeItem[] {
@@ -333,6 +354,9 @@ export function aggregateLiveActivityItems(
       name: item?.name ?? hash,
       category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
       grade: item?.grade,
+      level: item?.level ?? null,
+      gearType: item?.gearType ?? null,
+      materialType: item?.materialType ?? null,
       kind: "live",
       total,
       points: series,

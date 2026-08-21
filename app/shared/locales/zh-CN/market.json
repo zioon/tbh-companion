@@ -98,6 +98,23 @@
     "refresh": "刷新历史价格",
     "refreshHistory": "强制拉取星标与快照价格达标物品的历史价格",
     "refreshing": "刷新中 {{done}}/{{total}}",
-    "refreshingItems": "正在刷新以下物品"
+    "stopRefresh": "停止",
+    "cookieExpired": "Steam Cookie 已过期，历史价格刷新已停止。请前往「设置 → Steam 市场」更新 sessionid 与 steamLoginSecure 后重试。",
+    "emptyFiltered": "没有物品匹配这些筛选条件。",
+    "filters": {
+      "searchItems": "搜索物品…",
+      "grade": "品质",
+      "allGrades": "全部品质",
+      "gearType": "部位",
+      "allGearTypes": "全部部位",
+      "materialKind": "种类",
+      "allMaterialKinds": "全部种类",
+      "level": "等级",
+      "total": "成交额",
+      "volume": "成交量",
+      "price": "价格",
+      "unitCount": "件",
+      "shownCount": "{{count}} 个物品"
+    }
   }
 }

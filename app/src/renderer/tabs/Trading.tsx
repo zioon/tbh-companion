@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LuRefreshCw } from "react-icons/lu";
 import { MarketVolumeSection } from "../components/market/MarketVolumeSection";
 import { ItemVolumeCard } from "../components/market/ItemVolumeCard";
+import { TradingFilters } from "../components/market/TradingFilters";
 import { useMarketVolumeItems } from "../lib/useMarketVolumeItems";
 import { useMarketVolume } from "../lib/useMarketVolume";
 import {
@@ -11,8 +12,20 @@ import {
   type RefreshStatus,
   type VolumeRange,
 } from "../lib/windowTotal";
+import {
+  DEFAULT_TRADING_FILTER,
+  aggregateFilteredToHourly,
+  filterVolumeItems,
+  gearTypeOptionsFromVolumeItems,
+  gradeOptionsFromVolumeItems,
+  hasActiveTradingFilter,
+  itemCountsByCategoryFromItems,
+  materialKindOptionsFromVolumeItems,
+  type TradingFilterState,
+} from "../lib/tradingFilters";
 import { cn } from "../design-system/lib/variants";
 import { Card } from "../design-system/primitives/Card/Card";
+import { HintBanner } from "../design-system/primitives/HintBanner/HintBanner";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 
@@ -24,12 +37,14 @@ import { TabPage } from "../design-system/primitives/TabPage/TabPage";
  * 与 `offset`（拖动偏移）。主图表可拖拽平移、卡片走势图显示与主图表完全相同
  * 的时间段。数据源与 Market 页一致（pricehistory 按小时聚合，未拉取到历史时
  * 回退到轮询快照）。右上角「刷新历史价格」按钮会强制拉取星标 ∪ 快照价格达标
- * 物品的 pricehistory，并实时展示刷新进度与待刷新的物品占位卡片。
+ * 物品的 pricehistory，并实时展示刷新进度；待刷新的物品就地在主卡片列表中展示
+ * （带刷新亮环），筛选与排序对全部卡片统一生效。
  */
 export function Trading() {
   const { t: tTabs } = useTranslation("tabs");
   const { t } = useTranslation("market");
-  const { stats, pending, refresh, refreshing, progress } = useMarketVolumeItems();
+  const { stats, pending, refresh, refreshing, progress, refreshItem, cancelRefresh } =
+    useMarketVolumeItems();
   const volumeStats = useMarketVolume();
 
   const hourly = useMemo(() => volumeStats?.hourly ?? [], [volumeStats]);
@@ -46,13 +61,11 @@ export function Trading() {
   const maxOffset = Math.max(0, hourly.length - windowWidth);
   const clampedOffset = Math.min(mainOffset, maxOffset);
 
-  // 主图表当前显示窗口（升序切片）。主图表跟随 mainOffset 急迫更新，保证拖动跟手。
+  // 主图表当前显示窗口的起止索引（基于全量 hourly 长度决定窗口位置；升序切片）。
+  // 主图表跟随 mainOffset 急迫更新，保证拖动跟手。展示内容见下方 `chartWindowPts`
+  // （筛选激活时基于筛选子集重聚合），此处只负责定位窗口位置。
   const windowStartIdx = Math.max(0, hourly.length - windowWidth - clampedOffset);
   const windowEndIdx = hourly.length - clampedOffset;
-  const windowPts = useMemo(
-    () => hourly.slice(windowStartIdx, windowEndIdx),
-    [hourly, windowStartIdx, windowEndIdx],
-  );
 
   // 拖动是高频交互：真正卡顿的不是主图表重画，而是「窗口成交额求和 → 全量排序 →
   // 每张卡片迷你 SVG 重建」这条链。因此把 offset 拆成两级：
@@ -85,20 +98,67 @@ export function Trading() {
 
   const items = useMemo(() => stats?.items ?? [], [stats]);
 
-  // 按「当前时间窗口内的成交额」降序排列（无窗口/空窗口时回退到全量 total）。
-  // 预计算每个物品在当前窗口内的成交额，避免排序比较器里反复调用 windowTotalOf
-  // （原实现每次比较都全量扫描 points，O(n·log n) 次调用，是拖动卡顿的主因之一）。
-  const sortedItems = useMemo(
-    () => sortItemsByWindowTotal(items, windowRange),
+  // 物品卡排序：主列表当前展示的全部卡片（含 kind=live）按「当前时间窗口成交额」
+  // 降序的 hash 顺序。点「刷新历史价格」时传给 main 作为严格刷新顺序，使逐个更新
+  // 的顺序与卡片排序完全一致（忽略筛选，保证刷新覆盖全部有数据的卡片）。
+  const cardOrder = useMemo(
+    () => sortItemsByWindowTotal(items, windowRange).map((i) => i.hash),
     [items, windowRange],
   );
 
-  // 待刷新占位卡片同样按「当前时间窗口内的成交额」降序展示（与主列表同口径）。
-  // 刷新期间 `updatedItem` 就地替换占位卡片时顺序不应停留在目标集顺序
-  // （`sortTargetsByVolume` 按全量 total 排序），否则卡片金额与排列顺序不一致。
-  const sortedPending = useMemo(
-    () => sortItemsByWindowTotal(pending, windowRange),
-    [pending, windowRange],
+  // 卡片筛选状态：名称 / 品质 / 部位 / 种类 / 等级。选项从 items 全量推导，
+  // 保证选项在筛选过程中不随已选条件收缩（与 Lookup 页一致）。
+  const [filter, setFilter] = useState<TradingFilterState>(DEFAULT_TRADING_FILTER);
+  const gradeOptions = useMemo(() => gradeOptionsFromVolumeItems(items), [items]);
+  const gearTypeOptions = useMemo(() => gearTypeOptionsFromVolumeItems(items), [items]);
+  const materialKindOptions = useMemo(() => materialKindOptionsFromVolumeItems(items), [items]);
+
+  // 刷新期间待刷新的目标物品（pending）就地合并进主卡片列表，不再单独开占位网格
+  // 展示——按 hash 去重：目标若已有交易额数据（`stats.items` 已含），复用其最新
+  // 版本；尚无任何数据的目标（首次刷新）保留 `total=0` 的占位卡片。这样同一物品
+  // 只出现一次，避免两处展示造成视觉重复；筛选与排序也因此对全部卡片（含待刷新
+  // 目标）统一生效。刷新结束 pending 清空后收敛回全量单列表。
+  const pendingByHash = useMemo(() => new Map(pending.map((p) => [p.hash, p])), [pending]);
+  const displayItems = useMemo(() => {
+    if (pendingByHash.size === 0) return items;
+    const seen = new Set(items.map((i) => i.hash));
+    const out = [...items];
+    for (const p of pending) {
+      if (!seen.has(p.hash)) out.push(p);
+    }
+    return out;
+  }, [items, pending, pendingByHash]);
+
+  // 按筛选状态过滤全部卡片（含待刷新目标），再按「当前时间窗口内的成交额」降序
+  // 排列。排序器预计算窗口成交额避免反复全量扫描 points。数值筛选（成交额/成交量
+  // 取当前时段、价格取最新价）随 `windowRange` 联动。
+  const filteredItems = useMemo(
+    () => filterVolumeItems(displayItems, filter, windowRange),
+    [displayItems, filter, windowRange],
+  );
+  const sortedItems = useMemo(
+    () => sortItemsByWindowTotal(filteredItems, windowRange),
+    [filteredItems, windowRange],
+  );
+
+  // 上方大图表跟随筛选联动：筛选激活时，基于筛选后的物品子集重聚合小时走势与
+  // 分类物品种数（只聚合 history 卡片，与主进程 hourly 口径一致）；未筛选时保持
+  // 主进程聚合的原始 hourly，行为不变。窗口位置仍由上方 range/offset 控制。
+  const hasActiveFilter = useMemo(() => hasActiveTradingFilter(filter), [filter]);
+  const filteredHourly = useMemo(
+    () => (hasActiveFilter ? aggregateFilteredToHourly(filteredItems) : hourly),
+    [hasActiveFilter, filteredItems, hourly],
+  );
+  const chartWindowPts = useMemo(
+    () => filteredHourly.slice(windowStartIdx, windowEndIdx),
+    [filteredHourly, windowStartIdx, windowEndIdx],
+  );
+  const chartCountsByCategory = useMemo(
+    () =>
+      hasActiveFilter
+        ? itemCountsByCategoryFromItems(filteredItems)
+        : (volumeStats?.itemCountsByCategory ?? {}),
+    [hasActiveFilter, filteredItems, volumeStats],
   );
 
   // 刷新批次状态：hash -> 灰（待刷新）/ 黄（当前批次）/ 绿（已刷新）。
@@ -119,9 +179,9 @@ export function Trading() {
 
       <div className="flex flex-col gap-3.5">
         <MarketVolumeSection
-          windowPts={windowPts}
-          latest={volumeStats?.latest ?? null}
-          itemCountsByCategory={volumeStats?.itemCountsByCategory ?? {}}
+          windowPts={chartWindowPts}
+          latest={hasActiveFilter ? null : (volumeStats?.latest ?? null)}
+          itemCountsByCategory={chartCountsByCategory}
           currency={volumeStats?.currency ?? "USD"}
           range={range}
           offset={clampedOffset}
@@ -137,12 +197,12 @@ export function Trading() {
             <div className="flex items-center gap-2">
               {stats && items.length > 0 ? (
                 <span className="text-[13px] text-muted">
-                  {t("trading.count", { count: items.length })}
+                  {t("trading.count", { count: filteredItems.length })}
                 </span>
               ) : null}
               <button
                 type="button"
-                onClick={refresh}
+                onClick={() => refresh(cardOrder)}
                 disabled={refreshing}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:text-fg",
@@ -157,10 +217,57 @@ export function Trading() {
                   ? t("trading.refreshing", { done: progress.done, total: progress.total })
                   : t("trading.refresh")}
               </button>
+              {refreshing && (
+                <button
+                  type="button"
+                  onClick={cancelRefresh}
+                  className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:text-fg"
+                  title={t("trading.stopRefresh")}
+                  aria-label={t("trading.stopRefresh")}
+                >
+                  {t("trading.stopRefresh")}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* 刷新历史价格期间的实时进度提示（含待刷新的物品占位卡片）。 */}
+          {/* 卡片筛选：名称 / 品质 / 部位 / 种类 / 等级。 */}
+          {items.length > 0 && (
+            <TradingFilters
+              query={filter.query}
+              gradeFilter={filter.gradeFilter}
+              gearTypeFilter={filter.gearTypeFilter}
+              materialKindFilter={filter.materialKindFilter}
+              levelRange={filter.levelRange}
+              minTotal={filter.minTotal}
+              minVolume={filter.minVolume}
+              minPrice={filter.minPrice}
+              currency={stats?.currency ?? "USD"}
+              gradeOptions={gradeOptions}
+              gearTypeOptions={gearTypeOptions}
+              materialKindOptions={materialKindOptions}
+              shownCount={filteredItems.length}
+              onQueryChange={(q) => setFilter((f) => ({ ...f, query: q }))}
+              onGradeFilterChange={(g) => setFilter((f) => ({ ...f, gradeFilter: g }))}
+              onGearTypeFilterChange={(g) => setFilter((f) => ({ ...f, gearTypeFilter: g }))}
+              onMaterialKindFilterChange={(m) =>
+                setFilter((f) => ({ ...f, materialKindFilter: m }))
+              }
+              onLevelRangeChange={(range) => setFilter((f) => ({ ...f, levelRange: range }))}
+              onMinTotalChange={(v) => setFilter((f) => ({ ...f, minTotal: v }))}
+              onMinVolumeChange={(v) => setFilter((f) => ({ ...f, minVolume: v }))}
+              onMinPriceChange={(v) => setFilter((f) => ({ ...f, minPrice: v }))}
+            />
+          )}
+
+          {/* 刷新历史价格期间 Steam Cookie 失效（pricehistory 返回 400）：刷新已终止，提示去设置更新。 */}
+          {progress.cookieExpired && (
+            <HintBanner className="mt-1.5 border-l-danger" aria-live="polite">
+              {t("trading.cookieExpired")}
+            </HintBanner>
+          )}
+
+          {/* 刷新历史价格期间的实时进度条；待刷新目标卡片已合并进下方主列表（带亮环），不再单独展示。 */}
           {refreshing && progress.total > 0 && (
             <div className="mt-1.5 flex flex-col gap-1.5">
               <div
@@ -177,30 +284,16 @@ export function Trading() {
                   }}
                 />
               </div>
-              {pending.length > 0 && (
-                <>
-                  <h4 className="m-0 text-xs font-medium text-muted">
-                    {t("trading.refreshingItems")}
-                  </h4>
-                  <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 xl:grid-cols-3">
-                    {sortedPending.map((item) => (
-                      <ItemVolumeCard
-                        key={item.hash}
-                        item={item}
-                        currency={stats?.currency ?? "USD"}
-                        windowRange={windowRange}
-                        refreshStatus={refreshStatusByHash[item.hash]}
-                      />
-                    ))}
-                  </ul>
-                </>
-              )}
             </div>
           )}
 
-          {items.length === 0 ? (
+          {displayItems.length === 0 ? (
             <Card padding="compact" className="text-muted">
               {t("trading.empty")}
+            </Card>
+          ) : sortedItems.length === 0 ? (
+            <Card padding="compact" className="text-muted">
+              {t("trading.emptyFiltered")}
             </Card>
           ) : (
             <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 xl:grid-cols-3">
@@ -211,6 +304,7 @@ export function Trading() {
                   currency={stats?.currency ?? "USD"}
                   windowRange={windowRange}
                   refreshStatus={refreshStatusByHash[item.hash]}
+                  onRefresh={refreshStatusByHash[item.hash] ? undefined : refreshItem}
                 />
               ))}
             </ul>

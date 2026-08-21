@@ -98,6 +98,23 @@
     "refresh": "Refresh history",
     "refreshHistory": "Force-fetch price history for starred items and all items above the price snapshot threshold",
     "refreshing": "Refreshing {{done}}/{{total}}",
-    "refreshingItems": "Refreshing these items"
+    "stopRefresh": "Stop",
+    "cookieExpired": "Steam cookies have expired, so history refresh was stopped. Update sessionid and steamLoginSecure under Settings → Steam Market, then retry.",
+    "emptyFiltered": "No items match these filters.",
+    "filters": {
+      "searchItems": "Search items…",
+      "grade": "Grade",
+      "allGrades": "All grades",
+      "gearType": "Slot",
+      "allGearTypes": "All slots",
+      "materialKind": "Material",
+      "allMaterialKinds": "All materials",
+      "level": "Level",
+      "total": "Total",
+      "volume": "Volume",
+      "price": "Price",
+      "unitCount": "units",
+      "shownCount": "{{count}} items"
+    }
   }
 }

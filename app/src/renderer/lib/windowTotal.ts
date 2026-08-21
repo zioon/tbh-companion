@@ -77,6 +77,59 @@ export function windowTotalOf(
 }
 
 /**
+ * 计算某物品在给定时间窗口内的成交量（与 {@link windowTotalOf} 口径对称）。
+ *
+ * - 未指定窗口（"all" 或数据为空）：history 卡片对各点 `volume` 求和、
+ *   live 卡片取最新一个采样点的 `volume`（24h 滚动累计，不可求和）。
+ * - 指定窗口但区间内无历史价格点：返回 0。
+ * - `kind === "live"` 卡片：取区间内最新一个采样点的 `volume`。
+ * - history 卡片（真实小时增量，可求和）：对区间内各点 `volume` 求和。
+ */
+export function windowVolumeOf(
+  item: MarketVolumeItem,
+  windowRange?: { start: string; end: string } | null,
+): number {
+  const pts = item.points;
+  if (!windowRange || !windowRange.start || !windowRange.end) {
+    if (item.kind === "live") {
+      const last = pts[pts.length - 1];
+      return last ? last.volume : 0;
+    }
+    return pts.reduce((s, p) => s + p.volume, 0);
+  }
+  const startIdx = lowerBound(pts, windowRange.start);
+  const endIdx = upperBound(pts, windowRange.end);
+  if (startIdx > endIdx) return 0;
+  if (item.kind === "live") return pts[endIdx].volume;
+  let sum = 0;
+  for (let i = startIdx; i <= endIdx; i++) sum += pts[i].volume;
+  return sum;
+}
+
+/**
+ * 计算某物品在给定时间窗口内的最新价格（与 {@link windowTotalOf} 口径对称）。
+ *
+ * - 未指定窗口（"all" 或数据为空）：取全部走势的最后一个点 `price`。
+ * - 指定窗口：取窗口内最后一个点的 `price`（当前时段最新价）。
+ * - 无走势点（或 price 无效）时返回 null（设了价格下限时被过滤）。
+ */
+export function windowLatestPriceOf(
+  item: MarketVolumeItem,
+  windowRange?: { start: string; end: string } | null,
+): number | null {
+  const pts = item.points;
+  let idx = pts.length - 1;
+  if (windowRange && windowRange.start && windowRange.end) {
+    const startIdx = lowerBound(pts, windowRange.start);
+    const endIdx = upperBound(pts, windowRange.end);
+    if (startIdx > endIdx) return null;
+    idx = endIdx;
+  }
+  const p = pts[idx];
+  return p && Number.isFinite(p.price) ? p.price : null;
+}
+
+/**
  * 按 `[start, end]` 闭区间二分切片升序 points，返回窗口内的新数组（含端点）。
  * 供卡片走势图取当前窗口的点序列，替代 `filter` 全量扫描。
  */
