@@ -13,5 +13,11 @@ export function registerMarketHandlers(ipc: IpcMain, services: AppServices): voi
   );
   ipc.handle(IPC.GET_MARKET_VOLUME, () => services.getMarketVolume());
   ipc.handle(IPC.GET_MARKET_VOLUME_ITEMS, () => services.getMarketVolumeItems());
-  ipc.handle(IPC.REFRESH_MARKET_VOLUME_ITEMS, () => services.refreshMarketVolumeItems());
+  ipc.handle(IPC.REFRESH_MARKET_VOLUME_ITEMS, (_e, cardOrder?: string[]) =>
+    services.refreshMarketVolumeItems(cardOrder),
+  );
+  ipc.handle(IPC.REFRESH_MARKET_VOLUME_ITEM, (_e, hash: string) =>
+    services.refreshMarketVolumeItem(hash),
+  );
+  ipc.on(IPC.CANCEL_MARKET_VOLUME_REFRESH, () => services.cancelHistoryRefresh());
 }

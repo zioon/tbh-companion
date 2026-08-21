@@ -141,9 +141,15 @@ const marketVolume = new MarketVolumeService({
       total: p.total,
       done: p.done,
       currentHash: p.current,
+      ...(p.cookieExpired ? { cookieExpired: true } : {}),
       ...(p.updatedItem ? { updatedItem: p.updatedItem } : {}),
       ...(p.pending ? { pending: p.pending } : {}),
     });
+    // 该物品成功返回并已并入 priceHistory 时，同步广播顶部交易额走势，
+    // 让最上方走势图的时间范围随每个成功物品实时更新（而非等整批结束）。
+    if (p.trendChanged) {
+      broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+    }
   },
 });
 const lookupPricePolling = new LookupPricePollingService({
@@ -708,23 +714,30 @@ export function getAppServices() {
     },
     // 交易页「刷新历史价格」按钮：强制拉取「星标 ∪ 快照价格达到阈值」的物品的
     // pricehistory，绕过 30min 缓存，刷新成功后推送交易额走势与物品卡片。
-    refreshMarketVolumeItems: () => {
+    refreshMarketVolumeItems: (cardOrder?: string[]) => {
       const items = marketVolume.getVolumeItems();
-      const snapshot = lookupPrices.getSnapshot();
-      const polling = config.lookupPricePolling ?? {};
-      const targets = selectHistoryRefreshTargets({
-        snapshot,
-        watchedHashes: polling.watchedHashes ?? [],
-        thresholdUsd: polling.thresholdUsd ?? POLLING_DEFAULT_THRESHOLD_USD,
-      });
-      // 无星标/快照达标物品时（目标为空），兜底为交易页主列表展示的全部物品，
-      // 保证点「刷新」必有实际目标——进而有进度条、占位卡片与刷新亮环反馈，
-      // 避免目标为空时刷新瞬间结束、页面毫无反应。
-      const fallbackTargets = targets.length > 0 ? targets : items.items.map((i) => i.hash);
-      // 二次及以后刷新按交易额从高到低依次刷新：占位卡片与拉取顺序都先服务
-      // 交易额高的物品。首次刷新（尚无交易额数据）保持目标集原顺序（星标优先、
-      // 快照达标按价格降序）。
-      const orderedTargets = marketVolume.sortTargetsByVolume(fallbackTargets);
+      let orderedTargets: string[];
+      if (cardOrder && cardOrder.length > 0) {
+        // renderer 传入的「物品卡排序」（当前窗口成交额降序）：严格按此顺序刷新，
+        // 使逐个更新的顺序与交易页物品卡片当前排序完全一致。
+        orderedTargets = [...new Set(cardOrder.filter(Boolean))];
+      } else {
+        const snapshot = lookupPrices.getSnapshot();
+        const polling = config.lookupPricePolling ?? {};
+        const targets = selectHistoryRefreshTargets({
+          snapshot,
+          watchedHashes: polling.watchedHashes ?? [],
+          thresholdUsd: polling.thresholdUsd ?? POLLING_DEFAULT_THRESHOLD_USD,
+        });
+        // 无星标/快照达标物品时（目标为空），兜底为交易页主列表展示的全部物品，
+        // 保证点「刷新」必有实际目标——进而有进度条、占位卡片与刷新亮环反馈，
+        // 避免目标为空时刷新瞬间结束、页面毫无反应。
+        const fallbackTargets = targets.length > 0 ? targets : items.items.map((i) => i.hash);
+        // 二次及以后刷新按交易额从高到低依次刷新：占位卡片与拉取顺序都先服务
+        // 交易额高的物品。首次刷新（尚无交易额数据）保持目标集原顺序（星标优先、
+        // 快照达标按价格降序）。
+        orderedTargets = marketVolume.sortTargetsByVolume(fallbackTargets);
+      }
       // 待刷新目标物品的占位卡片（刷新进行中提前展示）。
       const pending = marketVolume.buildPendingItems(orderedTargets);
       marketVolume.refreshHistory(Date.now(), { targets: orderedTargets, force: true }).then(() => {
@@ -733,6 +746,25 @@ export function getAppServices() {
       });
       return { stats: items, pending };
     },
+    // 交易页单物品卡片上的「手动刷新」：只拉取该 hash 的历史价格并实时并入，
+    // 更新后推送整体数据（卡片与顶部走势实时刷新）。遇 Cookie 失效走进度通道
+    // 让交易页提示横幅，与整批刷新行为一致。
+    refreshMarketVolumeItem: async (hash: string) => {
+      const result = await marketVolume.refreshItem(hash);
+      broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+      broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+      if (result.cookieExpired) {
+        broadcast(IPC.MARKET_VOLUME_REFRESH_PROGRESS, {
+          running: false,
+          total: 1,
+          done: 1,
+          currentHash: null,
+          cookieExpired: true,
+        });
+      }
+    },
+    // 手动终止当前整次历史价格刷新。
+    cancelHistoryRefresh: () => marketVolume.abortHistoryRefresh(),
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),

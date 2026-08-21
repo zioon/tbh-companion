@@ -32,12 +32,12 @@
           {
             "stat": "FireResistance",
             "mod": "FLAT",
-            "tier": 1,
-            "rawMin": 5,
-            "rawMax": 10,
-            "displayMin": 0.5,
-            "displayMax": 1,
-            "displayText": "Fire Resistance +0.5~1%"
+            "tier": 2,
+            "rawMin": 10,
+            "rawMax": 15,
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Fire Resistance +10~15%"
           }
         ]
       },
@@ -563,12 +563,12 @@
           {
             "stat": "FireResistance",
             "mod": "FLAT",
-            "tier": 3,
-            "rawMin": 15,
-            "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Fire Resistance +1.5~2%"
+            "tier": 4,
+            "rawMin": 20,
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Fire Resistance +20~30%"
           }
         ]
       },
@@ -622,12 +622,12 @@
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
-            "tier": 3,
-            "rawMin": 15,
-            "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Cold Resistance +1.5~2%"
+            "tier": 4,
+            "rawMin": 20,
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Cold Resistance +20~30%"
           }
         ]
       },
@@ -681,12 +681,12 @@
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
-            "tier": 3,
-            "rawMin": 15,
-            "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Lightning Resistance +1.5~2%"
+            "tier": 4,
+            "rawMin": 20,
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Lightning Resistance +20~30%"
           }
         ]
       },
@@ -740,12 +740,12 @@
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
-            "tier": 3,
-            "rawMin": 15,
-            "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Chaos Resistance +1.5~2%"
+            "tier": 4,
+            "rawMin": 20,
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Chaos Resistance +20~30%"
           }
         ]
       },
@@ -1097,9 +1097,9 @@
             "tier": 5,
             "rawMin": 13,
             "rawMax": 15,
-            "displayMin": 1.3,
-            "displayMax": 1.5,
-            "displayText": "All Elemental Resistance +1.3~1.5%"
+            "displayMin": 13,
+            "displayMax": 15,
+            "displayText": "All Elemental Resistance +13~15%"
           }
         ]
       },
@@ -1390,11 +1390,11 @@
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Lightning Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Lightning Resistance +40~50%"
           }
         ]
       },
@@ -1449,11 +1449,11 @@
             "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Fire Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Fire Resistance +40~50%"
           }
         ]
       },
@@ -1508,11 +1508,11 @@
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Cold Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Cold Resistance +40~50%"
           }
         ]
       },
@@ -1628,9 +1628,9 @@
             "tier": 7,
             "rawMin": 17,
             "rawMax": 19,
-            "displayMin": 1.7,
-            "displayMax": 1.9,
-            "displayText": "All Elemental Resistance +1.7~1.9%"
+            "displayMin": 17,
+            "displayMax": 19,
+            "displayText": "All Elemental Resistance +17~19%"
           }
         ]
       },
@@ -1685,11 +1685,11 @@
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Chaos Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Chaos Resistance +50~60%"
           }
         ]
       },
@@ -2100,9 +2100,9 @@
             "tier": 10,
             "rawMin": 25,
             "rawMax": 30,
-            "displayMin": 2.5,
-            "displayMax": 3,
-            "displayText": "All Elemental Resistance +2.5~3%"
+            "displayMin": 25,
+            "displayMax": 30,
+            "displayText": "All Elemental Resistance +25~30%"
           }
         ]
       },
@@ -2166,22 +2166,22 @@
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
-            "tier": 1,
-            "rawMin": 5,
-            "rawMax": 10,
-            "displayMin": 0.5,
-            "displayMax": 1,
-            "displayText": "Cold Resistance +0.5~1%"
+            "tier": 2,
+            "rawMin": 10,
+            "rawMax": 15,
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Cold Resistance +10~15%"
           },
           {
             "stat": "FireResistance",
             "mod": "FLAT",
-            "tier": 1,
-            "rawMin": 5,
-            "rawMax": 10,
-            "displayMin": 0.5,
-            "displayMax": 1,
-            "displayText": "Fire Resistance +0.5~1%"
+            "tier": 2,
+            "rawMin": 10,
+            "rawMax": 15,
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Fire Resistance +10~15%"
           }
         ]
       },
@@ -2436,9 +2436,9 @@
             "tier": 2,
             "rawMin": 10,
             "rawMax": 15,
-            "displayMin": 1,
-            "displayMax": 1.5,
-            "displayText": "Lightning Resistance +1~1.5%"
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Lightning Resistance +10~15%"
           },
           {
             "stat": "Armor",
@@ -2525,9 +2525,9 @@
             "tier": 2,
             "rawMin": 10,
             "rawMax": 15,
-            "displayMin": 1,
-            "displayMax": 1.5,
-            "displayText": "Cold Resistance +1~1.5%"
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Cold Resistance +10~15%"
           },
           {
             "stat": "CooldownReduction",
@@ -2891,9 +2891,9 @@
             "tier": 3,
             "rawMin": 15,
             "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Cold Resistance +1.5~2%"
+            "displayMin": 15,
+            "displayMax": 20,
+            "displayText": "Cold Resistance +15~20%"
           }
         ]
       },
@@ -2980,9 +2980,9 @@
             "tier": 3,
             "rawMin": 15,
             "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Lightning Resistance +1.5~2%"
+            "displayMin": 15,
+            "displayMax": 20,
+            "displayText": "Lightning Resistance +15~20%"
           }
         ]
       },
@@ -3143,24 +3143,24 @@
         "gearGroup": "ARMOR",
         "outcomes": [
           {
-            "stat": "LightningResistance",
+            "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Lightning Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Fire Resistance +20~30%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Chaos Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Chaos Resistance +20~30%"
           }
         ]
       },
@@ -3325,10 +3325,10 @@
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Cold Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Cold Resistance +20~30%"
           },
           {
             "stat": "MaxHp",
@@ -3414,20 +3414,20 @@
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Lightning Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Lightning Resistance +20~30%"
           },
           {
-            "stat": "ColdResistance",
+            "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Cold Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Chaos Resistance +20~30%"
           }
         ]
       },
@@ -3591,11 +3591,11 @@
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 5,
-            "rawMin": 25,
-            "rawMax": 30,
-            "displayMin": 2.5,
-            "displayMax": 3,
-            "displayText": "Cold Resistance +2.5~3%"
+            "rawMin": 30,
+            "rawMax": 40,
+            "displayMin": 30,
+            "displayMax": 40,
+            "displayText": "Cold Resistance +30~40%"
           },
           {
             "stat": "Armor",
@@ -3855,14 +3855,14 @@
         "gearGroup": "ARMOR",
         "outcomes": [
           {
-            "stat": "LightningResistance",
+            "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Lightning Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Fire Resistance +40~50%"
           },
           {
             "stat": "HpRegenPerSec",
@@ -3947,11 +3947,11 @@
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Lightning Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Lightning Resistance +40~50%"
           },
           {
             "stat": "MaxHp",
@@ -4300,14 +4300,14 @@
         "gearGroup": "ARMOR",
         "outcomes": [
           {
-            "stat": "LightningResistance",
+            "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Lightning Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Cold Resistance +50~60%"
           },
           {
             "stat": "DodgeChance",
@@ -4392,11 +4392,11 @@
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Lightning Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Lightning Resistance +50~60%"
           },
           {
             "stat": "DamageReduction",
@@ -4488,14 +4488,14 @@
             "displayText": "Damage Reduction +8.5~10%"
           },
           {
-            "stat": "ColdResistance",
+            "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Cold Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Chaos Resistance +50~60%"
           }
         ]
       },
@@ -4659,21 +4659,21 @@
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 8,
-            "rawMin": 40,
-            "rawMax": 45,
-            "displayMin": 4,
-            "displayMax": 4.5,
-            "displayText": "Cold Resistance +4~4.5%"
+            "rawMin": 60,
+            "rawMax": 70,
+            "displayMin": 60,
+            "displayMax": 70,
+            "displayText": "Cold Resistance +60~70%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 8,
-            "rawMin": 40,
-            "rawMax": 45,
-            "displayMin": 4,
-            "displayMax": 4.5,
-            "displayText": "Chaos Resistance +4~4.5%"
+            "rawMin": 60,
+            "rawMax": 70,
+            "displayMin": 60,
+            "displayMax": 70,
+            "displayText": "Chaos Resistance +60~70%"
           }
         ]
       },
@@ -4745,14 +4745,14 @@
         "gearGroup": "ARMOR",
         "outcomes": [
           {
-            "stat": "ChaosResistance",
+            "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 9,
-            "rawMin": 45,
-            "rawMax": 50,
-            "displayMin": 4.5,
-            "displayMax": 5,
-            "displayText": "Chaos Resistance +4.5~5%"
+            "rawMin": 70,
+            "rawMax": 80,
+            "displayMin": 70,
+            "displayMax": 80,
+            "displayText": "Fire Resistance +70~80%"
           },
           {
             "stat": "HpRegenPerSec",
@@ -5012,14 +5012,14 @@
         "gearGroup": "ARMOR",
         "outcomes": [
           {
-            "stat": "FireResistance",
+            "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 10,
-            "rawMin": 50,
-            "rawMax": 55,
-            "displayMin": 5,
-            "displayMax": 5.5,
-            "displayText": "Fire Resistance +5~5.5%"
+            "rawMin": 80,
+            "rawMax": 90,
+            "displayMin": 80,
+            "displayMax": 90,
+            "displayText": "Chaos Resistance +80~90%"
           },
           {
             "stat": "CooldownReduction",
@@ -5201,9 +5201,9 @@
             "tier": 1,
             "rawMin": 5,
             "rawMax": 10,
-            "displayMin": 0.5,
-            "displayMax": 1,
-            "displayText": "Fire Resistance +0.5~1%"
+            "displayMin": 5,
+            "displayMax": 10,
+            "displayText": "Fire Resistance +5~10%"
           },
           {
             "stat": "ColdResistance",
@@ -5211,9 +5211,9 @@
             "tier": 1,
             "rawMin": 5,
             "rawMax": 10,
-            "displayMin": 0.5,
-            "displayMax": 1,
-            "displayText": "Cold Resistance +0.5~1%"
+            "displayMin": 5,
+            "displayMax": 10,
+            "displayText": "Cold Resistance +5~10%"
           },
           {
             "stat": "LightningResistance",
@@ -5221,9 +5221,9 @@
             "tier": 1,
             "rawMin": 5,
             "rawMax": 10,
-            "displayMin": 0.5,
-            "displayMax": 1,
-            "displayText": "Lightning Resistance +0.5~1%"
+            "displayMin": 5,
+            "displayMax": 10,
+            "displayText": "Lightning Resistance +5~10%"
           },
           {
             "stat": "AddHpPerKill",
@@ -5380,9 +5380,9 @@
             "tier": 2,
             "rawMin": 10,
             "rawMax": 15,
-            "displayMin": 1,
-            "displayMax": 1.5,
-            "displayText": "Fire Resistance +1~1.5%"
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Fire Resistance +10~15%"
           },
           {
             "stat": "ColdResistance",
@@ -5390,9 +5390,9 @@
             "tier": 2,
             "rawMin": 10,
             "rawMax": 15,
-            "displayMin": 1,
-            "displayMax": 1.5,
-            "displayText": "Cold Resistance +1~1.5%"
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Cold Resistance +10~15%"
           },
           {
             "stat": "LightningResistance",
@@ -5400,9 +5400,9 @@
             "tier": 2,
             "rawMin": 10,
             "rawMax": 15,
-            "displayMin": 1,
-            "displayMax": 1.5,
-            "displayText": "Lightning Resistance +1~1.5%"
+            "displayMin": 10,
+            "displayMax": 15,
+            "displayText": "Lightning Resistance +10~15%"
           },
           {
             "stat": "HpRegenPerSec",
@@ -5559,9 +5559,9 @@
             "tier": 3,
             "rawMin": 15,
             "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Fire Resistance +1.5~2%"
+            "displayMin": 15,
+            "displayMax": 20,
+            "displayText": "Fire Resistance +15~20%"
           },
           {
             "stat": "ColdResistance",
@@ -5569,9 +5569,9 @@
             "tier": 3,
             "rawMin": 15,
             "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Cold Resistance +1.5~2%"
+            "displayMin": 15,
+            "displayMax": 20,
+            "displayText": "Cold Resistance +15~20%"
           },
           {
             "stat": "LightningResistance",
@@ -5579,9 +5579,9 @@
             "tier": 3,
             "rawMin": 15,
             "rawMax": 20,
-            "displayMin": 1.5,
-            "displayMax": 2,
-            "displayText": "Lightning Resistance +1.5~2%"
+            "displayMin": 15,
+            "displayMax": 20,
+            "displayText": "Lightning Resistance +15~20%"
           },
           {
             "stat": "AddHpPerHit",
@@ -5757,30 +5757,30 @@
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Fire Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Fire Resistance +20~30%"
           },
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Cold Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Cold Resistance +20~30%"
           },
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 4,
             "rawMin": 20,
-            "rawMax": 25,
-            "displayMin": 2,
-            "displayMax": 2.5,
-            "displayText": "Lightning Resistance +2~2.5%"
+            "rawMax": 30,
+            "displayMin": 20,
+            "displayMax": 30,
+            "displayText": "Lightning Resistance +20~30%"
           },
           {
             "stat": "HpRegenPerSec",
@@ -5925,31 +5925,31 @@
             "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 5,
-            "rawMin": 25,
-            "rawMax": 30,
-            "displayMin": 2.5,
-            "displayMax": 3,
-            "displayText": "Fire Resistance +2.5~3%"
+            "rawMin": 30,
+            "rawMax": 40,
+            "displayMin": 30,
+            "displayMax": 40,
+            "displayText": "Fire Resistance +30~40%"
           },
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 5,
-            "rawMin": 25,
-            "rawMax": 30,
-            "displayMin": 2.5,
-            "displayMax": 3,
-            "displayText": "Cold Resistance +2.5~3%"
+            "rawMin": 30,
+            "rawMax": 40,
+            "displayMin": 30,
+            "displayMax": 40,
+            "displayText": "Cold Resistance +30~40%"
           },
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 5,
-            "rawMin": 25,
-            "rawMax": 30,
-            "displayMin": 2.5,
-            "displayMax": 3,
-            "displayText": "Lightning Resistance +2.5~3%"
+            "rawMin": 30,
+            "rawMax": 40,
+            "displayMin": 30,
+            "displayMax": 40,
+            "displayText": "Lightning Resistance +30~40%"
           },
           {
             "stat": "HpLeech",
@@ -6104,41 +6104,41 @@
             "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Fire Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Fire Resistance +40~50%"
           },
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Cold Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Cold Resistance +40~50%"
           },
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Lightning Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Lightning Resistance +40~50%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 6,
-            "rawMin": 30,
-            "rawMax": 35,
-            "displayMin": 3,
-            "displayMax": 3.5,
-            "displayText": "Chaos Resistance +3~3.5%"
+            "rawMin": 40,
+            "rawMax": 50,
+            "displayMin": 40,
+            "displayMax": 50,
+            "displayText": "Chaos Resistance +40~50%"
           },
           {
             "stat": "HpRegenPerSec",
@@ -6303,41 +6303,41 @@
             "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Fire Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Fire Resistance +50~60%"
           },
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Cold Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Cold Resistance +50~60%"
           },
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Lightning Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Lightning Resistance +50~60%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 7,
-            "rawMin": 35,
-            "rawMax": 40,
-            "displayMin": 3.5,
-            "displayMax": 4,
-            "displayText": "Chaos Resistance +3.5~4%"
+            "rawMin": 50,
+            "rawMax": 60,
+            "displayMin": 50,
+            "displayMax": 60,
+            "displayText": "Chaos Resistance +50~60%"
           },
           {
             "stat": "AddHpPerKill",
@@ -6492,41 +6492,41 @@
             "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 8,
-            "rawMin": 40,
-            "rawMax": 45,
-            "displayMin": 4,
-            "displayMax": 4.5,
-            "displayText": "Fire Resistance +4~4.5%"
+            "rawMin": 60,
+            "rawMax": 70,
+            "displayMin": 60,
+            "displayMax": 70,
+            "displayText": "Fire Resistance +60~70%"
           },
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 8,
-            "rawMin": 40,
-            "rawMax": 45,
-            "displayMin": 4,
-            "displayMax": 4.5,
-            "displayText": "Cold Resistance +4~4.5%"
+            "rawMin": 60,
+            "rawMax": 70,
+            "displayMin": 60,
+            "displayMax": 70,
+            "displayText": "Cold Resistance +60~70%"
           },
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 8,
-            "rawMin": 40,
-            "rawMax": 45,
-            "displayMin": 4,
-            "displayMax": 4.5,
-            "displayText": "Lightning Resistance +4~4.5%"
+            "rawMin": 60,
+            "rawMax": 70,
+            "displayMin": 60,
+            "displayMax": 70,
+            "displayText": "Lightning Resistance +60~70%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 8,
-            "rawMin": 40,
-            "rawMax": 45,
-            "displayMin": 4,
-            "displayMax": 4.5,
-            "displayText": "Chaos Resistance +4~4.5%"
+            "rawMin": 60,
+            "rawMax": 70,
+            "displayMin": 60,
+            "displayMax": 70,
+            "displayText": "Chaos Resistance +60~70%"
           },
           {
             "stat": "AddHpPerHit",
@@ -6671,41 +6671,41 @@
             "stat": "FireResistance",
             "mod": "FLAT",
             "tier": 9,
-            "rawMin": 45,
-            "rawMax": 50,
-            "displayMin": 4.5,
-            "displayMax": 5,
-            "displayText": "Fire Resistance +4.5~5%"
+            "rawMin": 70,
+            "rawMax": 80,
+            "displayMin": 70,
+            "displayMax": 80,
+            "displayText": "Fire Resistance +70~80%"
           },
           {
             "stat": "ColdResistance",
             "mod": "FLAT",
             "tier": 9,
-            "rawMin": 45,
-            "rawMax": 50,
-            "displayMin": 4.5,
-            "displayMax": 5,
-            "displayText": "Cold Resistance +4.5~5%"
+            "rawMin": 70,
+            "rawMax": 80,
+            "displayMin": 70,
+            "displayMax": 80,
+            "displayText": "Cold Resistance +70~80%"
           },
           {
             "stat": "LightningResistance",
             "mod": "FLAT",
             "tier": 9,
-            "rawMin": 45,
-            "rawMax": 50,
-            "displayMin": 4.5,
-            "displayMax": 5,
-            "displayText": "Lightning Resistance +4.5~5%"
+            "rawMin": 70,
+            "rawMax": 80,
+            "displayMin": 70,
+            "displayMax": 80,
+            "displayText": "Lightning Resistance +70~80%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 9,
-            "rawMin": 45,
-            "rawMax": 50,
-            "displayMin": 4.5,
-            "displayMax": 5,
-            "displayText": "Chaos Resistance +4.5~5%"
+            "rawMin": 70,
+            "rawMax": 80,
+            "displayMin": 70,
+            "displayMax": 80,
+            "displayText": "Chaos Resistance +70~80%"
           },
           {
             "stat": "HpRegenPerSec",
@@ -6902,19 +6902,19 @@
             "tier": 10,
             "rawMin": 25,
             "rawMax": 30,
-            "displayMin": 2.5,
-            "displayMax": 3,
-            "displayText": "All Elemental Resistance +2.5~3%"
+            "displayMin": 25,
+            "displayMax": 30,
+            "displayText": "All Elemental Resistance +25~30%"
           },
           {
             "stat": "ChaosResistance",
             "mod": "FLAT",
             "tier": 10,
-            "rawMin": 50,
-            "rawMax": 55,
-            "displayMin": 5,
-            "displayMax": 5.5,
-            "displayText": "Chaos Resistance +5~5.5%"
+            "rawMin": 80,
+            "rawMax": 90,
+            "displayMin": 80,
+            "displayMax": 90,
+            "displayText": "Chaos Resistance +80~90%"
           },
           {
             "stat": "HpLeech",

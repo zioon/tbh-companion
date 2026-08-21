@@ -62,6 +62,7 @@ export const IPC = {
   GET_MARKET_VOLUME: "market:get-volume",
   GET_MARKET_VOLUME_ITEMS: "market:get-volume:items",
   REFRESH_MARKET_VOLUME_ITEMS: "market:refresh-volume-items",
+  REFRESH_MARKET_VOLUME_ITEM: "market:refresh-volume-item",
   GET_LIVE_MEMORY: "get-live-memory",
   GET_LIVE_MEMORY_STATUS: "get-live-memory-status",
   GET_STAGE_RUNS: "get-stage-runs",
@@ -85,6 +86,7 @@ export const IPC = {
   SHOW_MAIN: "show-main",
   CLOSE_OVERLAY: "close-overlay",
   PRICES_CANCEL: "prices-cancel",
+  CANCEL_MARKET_VOLUME_REFRESH: "market:cancel-volume-refresh",
 } as const;
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC];
@@ -131,6 +133,7 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.GET_MARKET_VOLUME,
   IPC.GET_MARKET_VOLUME_ITEMS,
   IPC.REFRESH_MARKET_VOLUME_ITEMS,
+  IPC.REFRESH_MARKET_VOLUME_ITEM,
   IPC.GET_LIVE_MEMORY,
   IPC.GET_LIVE_MEMORY_STATUS,
   IPC.GET_STAGE_RUNS,
@@ -153,6 +156,7 @@ export const IPC_SEND_CHANNELS = [
   IPC.SHOW_MAIN,
   IPC.CLOSE_OVERLAY,
   IPC.PRICES_CANCEL,
+  IPC.CANCEL_MARKET_VOLUME_REFRESH,
   IPC.LOOT_PROMPT_RESOLVE,
 ] as const;
 

@@ -89,6 +89,16 @@ export interface MarketVolumeDeps {
     updatedItem?: MarketVolumeItem;
     /** 本次刷新开始时的待刷新占位卡片（自动/手动刷新共用，供前端展示亮环）。 */
     pending?: MarketVolumeItem[];
+    /**
+     * 检测到 Steam Cookie 失效（pricehistory 返回 400）时为 true，刷新已被终止，
+     * 前端应收起并提示用户前往设置更新 Cookie。
+     */
+    cookieExpired?: boolean;
+    /**
+     * 该 hash 成功返回并已实时并入 priceHistory，顶部交易额走势（historyHourly）
+     * 已随之重算，为 true 时前端应同步刷新最上方的走势图。
+     */
+    trendChanged?: boolean;
   }) => void;
 }
 
@@ -135,6 +145,8 @@ export class MarketVolumeService {
   private lastSampleAtMs = 0;
   private historyFetchedAtMs = 0;
   private refreshing = false;
+  /** 用户手动终止整次历史刷新：置 true 后刷新循环尽快安全退出。 */
+  private historyAbortRequested = false;
   private readonly filePath: () => string;
 
   constructor(private readonly deps: MarketVolumeDeps) {
@@ -312,6 +324,65 @@ export class MarketVolumeService {
   }
 
   /**
+   * 请求终止当前进行中的整次历史刷新。置位后刷新循环在下一个安全退出点（每个
+   * 物品处理完、批间等待被唤醒时）尽快退出并正常收尾（广播 running=false）。
+   * 未在刷新时调用会被下一次刷新开始时重置，无副作用。
+   */
+  abortHistoryRefresh(): void {
+    this.historyAbortRequested = true;
+  }
+
+  /**
+   * 可中断的等待：每隔固定小步长唤醒检查是否被请求终止，以毫秒粒度尽快对「停止」
+   * 做出响应（批间等待最长可达数分钟，若用一个长 setTimeout 无法即时中止）。
+   * @returns 等待期间是否收到了终止请求。
+   */
+  private async waitOrAbort(ms: number): Promise<boolean> {
+    const STEP = 250;
+    let waited = 0;
+    while (waited < ms) {
+      if (this.historyAbortRequested) return true;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(STEP, ms - waited)));
+      waited += STEP;
+    }
+    return this.historyAbortRequested;
+  }
+
+  /**
+   * 手动更新单个物品的历史价格（交易页卡片上的刷新按钮）。
+   *
+   * 只拉取该 hash 的 pricehistory，成功后实时并入 `priceHistory` 并重算顶部走势、
+   * 落盘；返回该物品的最新卡片（供前端实时更新）与是否触发 Cookie 失效。不参与
+   * 整批刷新的 running/pending 进度流，避免误触顶部「刷新中」状态。
+   */
+  async refreshItem(
+    hash: string,
+    now = Date.now(),
+  ): Promise<{ updated?: MarketVolumeItem; cookieExpired: boolean }> {
+    const currency = this.deps.getCurrency();
+    const cookie = this.deps.getCookie();
+    const fetchOne = this.deps.fetchHistory ?? fetchSteamPriceHistory;
+    const r = await fetchOne(hash, currency, cookie);
+    if (r.ok && r.points && r.points.length > 0) {
+      this.priceHistory[hash] = mergePriceHistoryPoints(this.priceHistory[hash] ?? [], r.points);
+      this.recomputeHistoryTrend();
+      this.historyFetchedAtMs = now;
+      this.saveHistory();
+      log.info(`refreshItem: ${hash} ok (${r.points.length} points)`);
+      return { updated: this.buildItemForHash(hash), cookieExpired: false };
+    }
+    const view = r as { status?: number; reason?: string };
+    if (view.status === 400 || view.reason === "unauthorized") {
+      log.warn(`refreshItem: ${hash} cookie expired (status=400)`);
+      return { cookieExpired: true };
+    }
+    log.warn(
+      `refreshItem: ${hash} no data (status=${view.status ?? 0}, reason=${view.reason ?? "no_data"})`,
+    );
+    return { cookieExpired: false };
+  }
+
+  /**
    * 按需拉取 pricehistory 并刷新小时走势数据。
    *
    * 缓存过期（HISTORY_REFRESH_MS）且未在刷新时才真正拉取（除非 `force`）；
@@ -327,6 +398,8 @@ export class MarketVolumeService {
     if (!opts?.force && now - this.historyFetchedAtMs < HISTORY_REFRESH_MS) return false;
     if (this.refreshing) return false;
     this.refreshing = true;
+    // 新一轮刷新开始：清掉可能残留的「终止」请求，保证本次可正常执行。
+    this.historyAbortRequested = false;
     try {
       const currency = this.deps.getCurrency();
       const cookie = this.deps.getCookie();
@@ -363,9 +436,13 @@ export class MarketVolumeService {
         current: null,
         pending,
       });
-      for (let i = 0; i < targets.length; i += batchSize) {
+      // 每次刷新是否检测到 Cookie 失效（pricehistory 返回 400）：一旦命中说明
+      // 登录态整体失效，继续拉取只会白白触发限流，立即终止本次价格刷新。
+      let cookieExpired = false;
+      outer: for (let i = 0; i < targets.length && !this.historyAbortRequested; i += batchSize) {
         const batch = targets.slice(i, i + batchSize);
         for (const hash of batch) {
+          if (this.historyAbortRequested) break;
           this.deps.onHistoryProgress?.({
             running: true,
             total: targets.length,
@@ -384,11 +461,27 @@ export class MarketVolumeService {
                 r.points,
               );
               updatedItem = this.buildItemForHash(hash);
+              // 该物品实时并入 priceHistory 后立即重算顶部交易额走势，让最上方的
+              // 时间范围随每个成功返回的物品同步更新（而非等整批刷新结束）。
+              this.recomputeHistoryTrend();
               log.info(`refreshHistory: ${hash} ok (${r.points.length} points)`);
             } else {
               // 诊断：拉取「完成」但无数据时要能看出原因（400 无 Cookie / 429 限流 / 网络错误 / 该物品无成交）。
               // 用宽松查看避免判别联合窄化问题（PriceHistoryResultLike.ok 为 boolean）。
               const view = r as { status?: number; reason?: string; retryAfterMs?: number };
+              // 400 = 未登录 / Steam Cookie 失效：登录态整体失效，终止整次刷新。
+              if (view.status === 400 || view.reason === "unauthorized") {
+                cookieExpired = true;
+                log.warn(`refreshHistory: ${hash} cookie expired (status=400), aborting refresh`);
+                this.deps.onHistoryProgress?.({
+                  running: true,
+                  total: targets.length,
+                  done,
+                  current: null,
+                  cookieExpired: true,
+                });
+                break outer;
+              }
               const reason = view.reason ?? (r.ok ? "no_data" : "failed");
               const retry = view.retryAfterMs ? `, retryAfter=${view.retryAfterMs}ms` : "";
               log.warn(
@@ -406,11 +499,14 @@ export class MarketVolumeService {
             done,
             current: null,
             updatedItem,
+            ...(updatedItem ? { trendChanged: true } : {}),
           });
-          await new Promise((resolve) => setTimeout(resolve, HISTORY_FETCH_DELAY_MS));
+          // 批内物品间隔（可被手动终止中断）
+          if (await this.waitOrAbort(HISTORY_FETCH_DELAY_MS)) break outer;
         }
         if (i + batchSize < targets.length) {
-          await new Promise((resolve) => setTimeout(resolve, batchDelayMs));
+          // 批间等待（默认 120 秒，可被手动终止中断）
+          if (await this.waitOrAbort(batchDelayMs)) break;
         }
       }
       // 本次拉取的新数据聚合：决定返回值「本次是否刷新到了有效数据」。
@@ -441,12 +537,30 @@ export class MarketVolumeService {
       this.deps.onHistoryProgress?.({
         running: false,
         total: targets.length,
-        done: targets.length,
+        done,
         current: null,
+        ...(cookieExpired ? { cookieExpired: true } : {}),
       });
       return fetchedAgg.points.length > 0;
     } finally {
       this.refreshing = false;
+    }
+  }
+
+  /**
+   * 依据当前内存态 priceHistory 重算顶部交易额走势（historyHourly / itemCount /
+   * itemCountsByCategory）。刷新过程中每个成功返回的物品并入 priceHistory 后调用，
+   * 让最上方的走势时间范围随单品更新实时刷新；忽略无数据的结果（失败不清空已有好数据）。
+   */
+  private recomputeHistoryTrend(): void {
+    const agg = aggregateHistoryToHourly(
+      new Map(Object.entries(this.priceHistory)),
+      this.buildItemsByHash(),
+    );
+    if (agg.points.length > 0) {
+      this.historyHourly = agg.points;
+      this.historyItemCount = agg.itemCount;
+      this.historyItemCountsByCategory = agg.itemCountsByCategory;
     }
   }
 
@@ -499,6 +613,9 @@ export class MarketVolumeService {
         name: item?.name ?? hash,
         category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
         grade: item?.grade,
+        level: item?.level ?? null,
+        gearType: item?.gearType ?? null,
+        materialType: item?.materialType ?? null,
         total: 0,
         points: [],
       }
@@ -532,6 +649,9 @@ export class MarketVolumeService {
           name: item?.name ?? hash,
           category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
           grade: item?.grade,
+          level: item?.level ?? null,
+          gearType: item?.gearType ?? null,
+          materialType: item?.materialType ?? null,
           total: 0,
           points: [],
         },

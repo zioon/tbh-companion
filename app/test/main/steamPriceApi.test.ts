@@ -154,6 +154,20 @@ describe("fetchSteamPriceHistory", () => {
     expect(result).toEqual({ ok: false, status: 200, reason: "parse" });
   });
 
+  it("classifies HTTP 400 as unauthorized (Cookie 失效/未登录)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: async () => `{"success":false}`,
+      } as Response),
+    );
+
+    const result = await fetchSteamPriceHistory("Iron Ingot", "USD", "sessionid=expired");
+    expect(result).toEqual({ ok: false, status: 400, reason: "unauthorized" });
+  });
+
   it("sends the configured Cookie header when a cookie is provided", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

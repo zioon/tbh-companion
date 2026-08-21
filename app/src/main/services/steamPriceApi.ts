@@ -8,7 +8,13 @@ const APP_ID = 3678970;
 const PRICEOVERVIEW = "https://steamcommunity.com/market/priceoverview/";
 const PRICEHISTORY = "https://steamcommunity.com/market/pricehistory/";
 
-export type SteamPriceFailReason = "network" | "http" | "no_listing" | "no_sell_price" | "parse";
+export type SteamPriceFailReason =
+  | "network"
+  | "http"
+  | "unauthorized"
+  | "no_listing"
+  | "no_sell_price"
+  | "parse";
 
 export type SteamPriceFetchResult =
   | { ok: true; status: number; entry: PriceEntry }
@@ -28,6 +34,8 @@ export function describeSteamPriceFailure(
       return "network error or timeout";
     case "http":
       return `HTTP ${result.status}`;
+    case "unauthorized":
+      return "HTTP 400 unauthorized (Cookie 失效/未登录)";
     case "no_listing":
       return "no Steam market listing (success=false)";
     case "no_sell_price":
@@ -181,6 +189,11 @@ export async function fetchSteamPriceHistory(
     return { ok: false, status: 0, reason: "network" };
   }
   if (!res.ok) {
+    // 400 = 未登录 / Cookie 失效：Steam pricehistory 在无有效登录 Cookie 时返回
+    // HTTP 400 且响应体无数据节点。归类为 unauthorized，供上层识别并终止价格刷新。
+    if (res.status === 400) {
+      return { ok: false, status: res.status, reason: "unauthorized" };
+    }
     return res.status === 429
       ? { ok: false, status: res.status, reason: "http", retryAfterMs: parseRetryAfterMs(res) }
       : { ok: false, status: res.status, reason: "http" };

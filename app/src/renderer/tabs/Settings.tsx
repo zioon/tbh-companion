@@ -465,7 +465,7 @@ export function Settings() {
             hint={tSettings("steamMarket.cookieSessionidHint")}
           >
             <input
-              type="password"
+              type="text"
               key={`steam-cookie-sessionid-${cfg?.steamCookieSessionid ?? ""}`}
               defaultValue={cfg?.steamCookieSessionid ?? ""}
               disabled={saveBusy}

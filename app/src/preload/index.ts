@@ -247,13 +247,19 @@ const api: TbhApi = {
     ipcRenderer.on(IPC.MARKET_VOLUME_ITEMS, listener);
     return () => ipcRenderer.removeListener(IPC.MARKET_VOLUME_ITEMS, listener);
   },
-  refreshMarketVolumeItems(): Promise<MarketVolumeRefreshResult> {
-    return ipcRenderer.invoke(IPC.REFRESH_MARKET_VOLUME_ITEMS);
+  refreshMarketVolumeItems(cardOrder?: string[]): Promise<MarketVolumeRefreshResult> {
+    return ipcRenderer.invoke(IPC.REFRESH_MARKET_VOLUME_ITEMS, cardOrder);
   },
   onMarketVolumeRefreshProgress(cb: (progress: MarketVolumeRefreshProgress) => void): () => void {
     const listener = (_e: unknown, progress: MarketVolumeRefreshProgress): void => cb(progress);
     ipcRenderer.on(IPC.MARKET_VOLUME_REFRESH_PROGRESS, listener);
     return () => ipcRenderer.removeListener(IPC.MARKET_VOLUME_REFRESH_PROGRESS, listener);
+  },
+  refreshMarketVolumeItem(hash: string): Promise<void> {
+    return ipcRenderer.invoke(IPC.REFRESH_MARKET_VOLUME_ITEM, hash);
+  },
+  cancelHistoryRefresh(): void {
+    ipcRenderer.send(IPC.CANCEL_MARKET_VOLUME_REFRESH);
   },
   getLiveMemory(): Promise<LiveMemorySnapshot | null> {
     return ipcRenderer.invoke(IPC.GET_LIVE_MEMORY);

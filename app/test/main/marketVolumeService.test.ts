@@ -43,6 +43,7 @@ function makeService(
       current: string | null;
       updatedItem?: MarketVolumeItem;
       pending?: MarketVolumeItem[];
+      cookieExpired?: boolean;
     }) => void;
   } = {},
 ) {
@@ -293,6 +294,9 @@ describe("MarketVolumeService 持久化", () => {
       hash: "Copper Coin",
       name: "Copper Coin",
       category: "OTHER",
+      level: null,
+      gearType: null,
+      materialType: null,
       total: 0,
       points: [],
     });
@@ -330,6 +334,9 @@ describe("MarketVolumeService 持久化", () => {
       hash: "Copper Coin",
       name: "Copper Coin",
       category: "OTHER",
+      level: null,
+      gearType: null,
+      materialType: null,
       total: 0,
       points: [],
     });
@@ -435,6 +442,133 @@ describe("MarketVolumeService 持久化", () => {
     expect(completed.length).toBe(2);
     expect(completed[0]!.total).toBeGreaterThan(0);
     expect(priceHistoryHadDataDuringRefresh).toBe(true);
+  });
+
+  it("refreshHistory 每个成功物品并入后实时重算顶部走势（getStats().hourly 立即反映）", async () => {
+    const seenTrendOnFirstDone: { hourlyLen: number; firstHour: number }[] = [];
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A"],
+      fetchHistory: async (hash) => {
+        // 第一个物品带更早的历史点（扩展走势时间范围），第二个物品稍晚
+        const ts = hash === "Copper Coin" ? BASE / 1000 - 48 * 3600 : BASE / 1000 - 3600;
+        return {
+          ok: true,
+          status: 200,
+          points: [{ timestamp: ts, price: 0.5, volume: 100 }],
+        };
+      },
+      onHistoryProgress: (p) => {
+        // 第一个物品完成（done=1）时，顶部走势应已实时包含该物品的早间历史点
+        if (p.done === 1 && p.current === null) {
+          const stats = svc.getStats();
+          seenTrendOnFirstDone.push({
+            hourlyLen: stats.hourly.length,
+            firstHour: stats.hourly[0]?.hour ? new Date(stats.hourly[0]!.hour).getTime() : 0,
+          });
+        }
+      },
+    });
+    await svc.refreshHistory(BASE);
+
+    // 第一个物品完成时顶部走势已重算：非空，且时间范围已延伸到 48 小时前
+    expect(seenTrendOnFirstDone).toHaveLength(1);
+    const { hourlyLen, firstHour } = seenTrendOnFirstDone[0]!;
+    expect(hourlyLen).toBeGreaterThan(0);
+    expect(firstHour).toBe((Math.floor(BASE / 1000 / 3600) - 48) * 3600 * 1000);
+  });
+
+  it("refreshHistory 检测到 400（Cookie 失效）时终止刷新并通过 cookieExpired 上报", async () => {
+    const calls: {
+      running: boolean;
+      done: number;
+      cookieExpired?: boolean;
+    }[] = [];
+    // 第一批第一个目标即返回 400，后续目标不应再被请求（刷新被终止）。
+    const fetched: string[] = [];
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A", "Iron Ingot"],
+      fetchHistory: async (hash) => {
+        fetched.push(hash);
+        if (hash === "Copper Coin") {
+          return { ok: false, status: 400, reason: "unauthorized" };
+        }
+        return {
+          ok: true,
+          status: 200,
+          points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+        };
+      },
+      onHistoryProgress: (p) =>
+        calls.push({ running: p.running, done: p.done, cookieExpired: p.cookieExpired }),
+    });
+    await svc.refreshHistory(BASE);
+
+    // 只拉取了首个目标，且刷新已被提前终止
+    expect(fetched).toEqual(["Copper Coin"]);
+    // 结束进度带 cookieExpired=true，running=false
+    expect(calls[calls.length - 1]).toMatchObject({ running: false, cookieExpired: true });
+    // 首次检测到 400 时也上报了一次 cookieExpired=true（running=true）
+    expect(calls.some((c) => c.running === true && c.cookieExpired === true)).toBe(true);
+    // 无任何成功数据
+    expect(svc.getStats().hourly.length).toBe(0);
+  });
+
+  it("refreshHistory 收到 abortHistoryRefresh 后尽快终止整次刷新", async () => {
+    const fetched: string[] = [];
+    const svc = makeService({
+      targetHashes: ["Copper Coin", "Sword (Legendary) A", "Iron Ingot"],
+      fetchHistory: async (hash) => {
+        fetched.push(hash);
+        return {
+          ok: true,
+          status: 200,
+          points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+        };
+      },
+      onHistoryProgress: (p) => {
+        // 第一个物品完成时请求终止，后续物品不应再被拉取
+        if (p.done === 1 && p.current === null) svc.abortHistoryRefresh();
+      },
+    });
+    await svc.refreshHistory(BASE);
+
+    // 仅在首个 items 完成后即被终止，不再继续拉取后续目标
+    expect(fetched).toHaveLength(1);
+  });
+
+  it("refreshItem 手动刷新单个物品并入 priceHistory 并重算走势", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [{ timestamp: BASE / 1000 - 48 * 3600, price: 0.5, volume: 100 }],
+      }),
+    });
+    const result = await svc.refreshItem("Copper Coin", BASE);
+
+    expect(result.cookieExpired).toBe(false);
+    expect(result.updated).toBeDefined();
+    expect(result.updated!.hash).toBe("Copper Coin");
+    expect(result.updated!.points.length).toBeGreaterThan(0);
+    // 已并入 priceHistory 并重算顶部走势，时间范围延伸到 48 小时前
+    expect(svc.getPriceHistory()["Copper Coin"]).toBeDefined();
+    expect(svc.getStats().hourly.length).toBeGreaterThan(0);
+    expect(svc.getStats().hourly[0]!.hour).toBe(
+      new Date((Math.floor(BASE / 1000 / 3600) - 48) * 3600_000).toISOString(),
+    );
+  });
+
+  it("refreshItem 遇 400 时返回 cookieExpired=true 且不改写数据", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({ ok: false, status: 400, reason: "unauthorized" }),
+    });
+    const result = await svc.refreshItem("Copper Coin", BASE);
+
+    expect(result.cookieExpired).toBe(true);
+    expect(result.updated).toBeUndefined();
+    expect(svc.getPriceHistory()["Copper Coin"]).toBeUndefined();
   });
 
   it("recordVolume 累积 per-hash 活跃度采样，getVolumeItems 返回 kind=live 卡片", () => {
