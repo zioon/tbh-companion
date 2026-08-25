@@ -217,6 +217,8 @@ describe("IPC channel registry", () => {
     expect(IPC_PUSH_CHANNELS).toContain(IPC.MARKET_VOLUME_ITEMS);
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.REFRESH_MARKET_VOLUME_ITEMS);
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.REFRESH_MARKET_VOLUME_ITEM);
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.EXPORT_MARKET_VOLUME);
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.IMPORT_MARKET_VOLUME);
     expect(IPC_SEND_CHANNELS).toContain(IPC.CANCEL_MARKET_VOLUME_REFRESH);
     expect(IPC_PUSH_CHANNELS).toContain(IPC.MARKET_VOLUME_REFRESH_PROGRESS);
     const preload = readFileSync(join(__dirname, "../../src/preload/index.ts"), "utf-8");
@@ -227,12 +229,16 @@ describe("IPC channel registry", () => {
     expect(preload).toContain("IPC.REFRESH_MARKET_VOLUME_ITEMS");
     expect(preload).toContain("IPC.MARKET_VOLUME_REFRESH_PROGRESS");
     expect(preload).toContain("IPC.REFRESH_MARKET_VOLUME_ITEM");
+    expect(preload).toContain("IPC.EXPORT_MARKET_VOLUME");
+    expect(preload).toContain("IPC.IMPORT_MARKET_VOLUME");
     expect(preload).toContain("IPC.CANCEL_MARKET_VOLUME_REFRESH");
     const market = readHandler("market");
     expect(market).toContain("IPC.GET_MARKET_VOLUME");
     expect(market).toContain("IPC.GET_MARKET_VOLUME_ITEMS");
     expect(market).toContain("IPC.REFRESH_MARKET_VOLUME_ITEMS");
     expect(market).toContain("IPC.REFRESH_MARKET_VOLUME_ITEM");
+    expect(market).toContain("IPC.EXPORT_MARKET_VOLUME");
+    expect(market).toContain("IPC.IMPORT_MARKET_VOLUME");
     expect(market).toContain("IPC.CANCEL_MARKET_VOLUME_REFRESH");
   });
 });

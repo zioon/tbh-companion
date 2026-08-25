@@ -868,6 +868,30 @@ export interface MarketVolumeRefreshResult {
   pending: MarketVolumeItem[];
 }
 
+/** 交易页「导出历史数据」的结果。 */
+export interface ExportMarketVolumeResult {
+  /** 导出成功并写入文件。 */
+  ok?: boolean;
+  /** 用户取消对话框（无 ok 字段）。 */
+  canceled?: boolean;
+  /** 导出写入的文件路径（仅 ok=true 时）。 */
+  path?: string;
+  /** 失败原因（仅 ok=false 时）。 */
+  reason?: string;
+}
+
+/** 交易页「导入历史数据」的结果。 */
+export interface ImportMarketVolumeResult {
+  /** 导入成功并已整体替换（无 ok 字段时为用户取消）。 */
+  ok?: boolean;
+  /** 用户取消对话框。 */
+  canceled?: boolean;
+  /** 导入后历史统计覆盖的物品种数（仅 ok=true 时）。 */
+  itemCount?: number;
+  /** 失败原因（仅 ok=false 时，如 "invalid_backup"）。 */
+  reason?: string;
+}
+
 /** 市场交易额统计（供 Market 页展示）。 */
 export interface MarketVolumeStats {
   /** 最近一次采样的交易额统计（轮询 24h 滚动快照）；尚未采样时为 null。 */
@@ -1634,6 +1658,9 @@ export interface LiveMemorySnapshot {
   stageWave: number | null;
   /** Total waves in the current stage (from StageInfoData). */
   stageWaveTotal: number | null;
+  /** Live alive-monster count from StageManager (wave-clear signal when
+   *  monster-HP offsets are unavailable, e.g. v1.01.05). Null otherwise. */
+  stageAlive: number | null;
   /** Live current gold (null ⇒ fall back to save value). */
   gold: number | null;
   /** Live hero XP/level for all party members (null ⇒ fall back to save). */
@@ -1821,6 +1848,8 @@ export interface TbhApi {
   refreshMarketVolumeItems(cardOrder?: string[]): Promise<MarketVolumeRefreshResult>;
   onMarketVolumeRefreshProgress(cb: (progress: MarketVolumeRefreshProgress) => void): () => void;
   refreshMarketVolumeItem(hash: string): Promise<void>;
+  exportMarketVolumeHistory(): Promise<ExportMarketVolumeResult>;
+  importMarketVolumeHistory(): Promise<ImportMarketVolumeResult>;
   cancelHistoryRefresh(): void;
   getLiveMemory(): Promise<LiveMemorySnapshot | null>;
   getLiveMemoryStatus(): Promise<LiveMemoryStatus | null>;
