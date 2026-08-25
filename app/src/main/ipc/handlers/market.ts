@@ -19,5 +19,7 @@ export function registerMarketHandlers(ipc: IpcMain, services: AppServices): voi
   ipc.handle(IPC.REFRESH_MARKET_VOLUME_ITEM, (_e, hash: string) =>
     services.refreshMarketVolumeItem(hash),
   );
+  ipc.handle(IPC.EXPORT_MARKET_VOLUME, () => services.exportMarketVolumeHistory());
+  ipc.handle(IPC.IMPORT_MARKET_VOLUME, () => services.importMarketVolumeHistory());
   ipc.on(IPC.CANCEL_MARKET_VOLUME_REFRESH, () => services.cancelHistoryRefresh());
 }

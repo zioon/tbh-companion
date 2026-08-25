@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, type OpenDialogOptions } from "electron";
+import { app, BrowserWindow, dialog, type OpenDialogOptions, type SaveDialogOptions } from "electron";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import {
@@ -35,6 +36,8 @@ import type {
   AppDataClearTarget,
   BoxTrackerSortOrder,
   ClassifyPromptResolvePayload,
+  ExportMarketVolumeResult,
+  ImportMarketVolumeResult,
   RendererLogPayload,
   SessionUiSnapshot,
   WindowLayoutPrefs,
@@ -765,6 +768,56 @@ export function getAppServices() {
     },
     // 手动终止当前整次历史价格刷新。
     cancelHistoryRefresh: () => marketVolume.abortHistoryRefresh(),
+    // 交易页「导出历史数据」：保存对话框选择路径后写入完整历史快照 JSON。
+    exportMarketVolumeHistory: async (): Promise<ExportMarketVolumeResult> => {
+      const parent =
+        mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+      const options: SaveDialogOptions = {
+        title: t("dialogs:exportMarketVolumeTitle"),
+        defaultPath: `market_volume_history_${new Date()
+          .toISOString()
+          .slice(0, 10)
+          .replace(/-/g, "")}.json`,
+        filters: [{ name: t("dialogs:jsonFilter"), extensions: ["json"] }],
+      };
+      const result = parent
+        ? await dialog.showSaveDialog(parent, options)
+        : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return { canceled: true };
+      try {
+        writeFileSync(result.filePath, JSON.stringify(marketVolume.exportHistory(), null, 2));
+        return { ok: true, path: result.filePath };
+      } catch (err) {
+        appDataLog.warn(`Failed to export market volume history: ${(err as Error).message}`);
+        return { ok: false, reason: (err as Error).message };
+      }
+    },
+    // 交易页「导入历史数据」：打开对话框读 JSON，整体替换历史数据并广播刷新。
+    importMarketVolumeHistory: async (): Promise<ImportMarketVolumeResult> => {
+      const parent =
+        mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
+      const options: OpenDialogOptions = {
+        title: t("dialogs:importMarketVolumeTitle"),
+        properties: ["openFile"],
+        filters: [{ name: t("dialogs:jsonFilter"), extensions: ["json"] }],
+      };
+      const result = parent
+        ? await dialog.showOpenDialog(parent, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length === 0) return { canceled: true };
+      const filePath = result.filePaths[0] ?? "";
+      let json: string;
+      try {
+        json = readFileSync(filePath, "utf-8");
+      } catch (err) {
+        return { ok: false, reason: (err as Error).message };
+      }
+      const itemCount = marketVolume.importHistory(json);
+      if (itemCount === null) return { ok: false, reason: "invalid_backup" };
+      broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+      broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+      return { ok: true, itemCount };
+    },
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),
