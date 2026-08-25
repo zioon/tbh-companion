@@ -210,7 +210,6 @@ describe("aggregateHistoryToHourly", () => {
   });
 });
 
-
 describe("parseMarketVolumeHistory", () => {
   it("解析合法快照并逐字段过滤", () => {
     const parsed = parseMarketVolumeHistory({
@@ -219,10 +218,7 @@ describe("parseMarketVolumeHistory", () => {
         { timestamp: "2026-08-25T00:00:00Z", items: 1, total: 10, byCategory: {}, currency: "USD" },
         { timestamp: 123 },
       ],
-      historyHourly: [
-        { hour: "2026-08-25T00:00:00Z", total: 5 },
-        { hour: 123 },
-      ],
+      historyHourly: [{ hour: "2026-08-25T00:00:00Z", total: 5 }, { hour: 123 }],
       priceHistory: {
         "Copper Coin": [
           { timestamp: 1720000000, price: 1.2, volume: 340 },

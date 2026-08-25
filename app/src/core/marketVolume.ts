@@ -514,7 +514,6 @@ export function calibratePricesWithMedian(
   return { applied, points: scaled };
 }
 
-
 /** 解析后的交易页历史数据快照（结构兼容 main 的 PersistedMarketVolume）。 */
 export interface ParsedMarketVolumeHistory {
   /** 备份格式版本；当前恒为 1。解析时保留，供未来迁移。 */
@@ -540,7 +539,9 @@ function isMarketVolumeHourPoint(h: unknown): h is MarketVolumeHourPoint {
 
 function isPriceHistoryPoint(pt: unknown): pt is PriceHistoryPoint {
   const v = pt as PriceHistoryPoint;
-  return !!pt && Number.isFinite(v.timestamp) && Number.isFinite(v.price) && Number.isFinite(v.volume);
+  return (
+    !!pt && Number.isFinite(v.timestamp) && Number.isFinite(v.price) && Number.isFinite(v.volume)
+  );
 }
 
 function isLiveVolumePoint(pt: unknown): pt is LiveVolumePoint {

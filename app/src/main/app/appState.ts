@@ -1,4 +1,10 @@
-import { app, BrowserWindow, dialog, type OpenDialogOptions, type SaveDialogOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  type OpenDialogOptions,
+  type SaveDialogOptions,
+} from "electron";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
