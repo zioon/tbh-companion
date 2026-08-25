@@ -99,6 +99,13 @@
     "refreshHistory": "スター付きアイテムと価格スナップショットの閾値以上の全アイテムの価格履歴を強制的に取得します",
     "refreshing": "更新中 {{done}}/{{total}}",
     "stopRefresh": "停止",
+    "exportHistory": "履歴をエクスポート",
+    "importHistory": "履歴をインポート",
+    "exportSuccess": "{{path}} にエクスポートしました",
+    "exportFailed": "エクスポート失敗：{{reason}}",
+    "importConfirm": "インポートすると現在の取引履歴がバックアップで置き換わります。続行しますか？",
+    "importSuccess": "{{count}} 件のアイテムをインポートしました",
+    "importFailed": "インポート失敗：{{reason}}",
     "cookieExpired": "Steam Cookie の有効期限が切れたため、価格履歴の更新を停止しました。「設定 → Steam マーケット」で sessionid と steamLoginSecure を更新してから再試行してください。",
     "emptyFiltered": "これらのフィルター条件に一致するアイテムはありません。",
     "filters": {

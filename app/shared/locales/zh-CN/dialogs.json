@@ -1,6 +1,9 @@
 {
   "chooseSaveFile": "选择 TBH 存档文件",
   "saveFileFilter": "TBH 存档",
+  "exportMarketVolumeTitle": "导出交易页历史数据",
+  "importMarketVolumeTitle": "导入交易页历史数据",
+  "jsonFilter": "JSON 文件",
   "fatalErrorTitle": "TBH 助手 — 启动失败",
   "fatalErrorBody": "物品目录加载失败，请重新安装或更新应用。\n\n{{detail}}"
 }

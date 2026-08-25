@@ -99,6 +99,13 @@
     "refreshHistory": "强制拉取星标与快照价格达标物品的历史价格",
     "refreshing": "刷新中 {{done}}/{{total}}",
     "stopRefresh": "停止",
+    "exportHistory": "导出历史数据",
+    "importHistory": "导入历史数据",
+    "exportSuccess": "已导出 {{path}}",
+    "exportFailed": "导出失败：{{reason}}",
+    "importConfirm": "导入将用备份数据整体替换当前交易页历史数据，确定继续？",
+    "importSuccess": "导入成功，共 {{count}} 种物品",
+    "importFailed": "导入失败：{{reason}}",
     "cookieExpired": "Steam Cookie 已过期，历史价格刷新已停止。请前往「设置 → Steam 市场」更新 sessionid 与 steamLoginSecure 后重试。",
     "emptyFiltered": "没有物品匹配这些筛选条件。",
     "filters": {

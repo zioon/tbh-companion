@@ -99,6 +99,13 @@
     "refreshHistory": "별표 아이템과 가격 스냅샷 임계값 이상의 모든 아이템 가격 이력을 강제로 가져옵니다",
     "refreshing": "새로고침 {{done}}/{{total}}",
     "stopRefresh": "중지",
+    "exportHistory": "내역 내보내기",
+    "importHistory": "내역 가져오기",
+    "exportSuccess": "{{path}}에 내보냈습니다",
+    "exportFailed": "내보내기 실패: {{reason}}",
+    "importConfirm": "가져오면 현재 거래 기록이 백업으로 교체됩니다. 계속할까요?",
+    "importSuccess": "{{count}}개 항목을 가져왔습니다",
+    "importFailed": "가져오기 실패: {{reason}}",
     "cookieExpired": "Steam 쿠키가 만료되어 가격 이력 새로고침이 중지되었습니다. '설정 → Steam 마켓'에서 sessionid와 steamLoginSecure를 업데이트한 후 다시 시도하세요.",
     "emptyFiltered": "이 필터 조건과 일치하는 아이템이 없습니다.",
     "filters": {

@@ -1,6 +1,9 @@
 {
   "chooseSaveFile": "TBH セーブファイルを選択",
   "saveFileFilter": "TBH セーブ",
+  "exportMarketVolumeTitle": "取引履歴をエクスポート",
+  "importMarketVolumeTitle": "取引履歴をインポート",
+  "jsonFilter": "JSON ファイル",
   "fatalErrorTitle": "TBH コンパニオン — 起動失敗",
   "fatalErrorBody": "アイテムカタログを読み込めませんでした。アプリを再インストールまたは更新してください。\n\n{{detail}}"
 }

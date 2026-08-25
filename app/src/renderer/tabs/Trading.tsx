@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LuRefreshCw } from "react-icons/lu";
+import { LuDownload, LuRefreshCw, LuUpload } from "react-icons/lu";
 import { MarketVolumeSection } from "../components/market/MarketVolumeSection";
 import { ItemVolumeCard } from "../components/market/ItemVolumeCard";
 import { TradingFilters } from "../components/market/TradingFilters";
@@ -21,6 +21,7 @@ import {
   hasActiveTradingFilter,
   itemCountsByCategoryFromItems,
   materialKindOptionsFromVolumeItems,
+  topItemByHourAndCategory,
   type TradingFilterState,
 } from "../lib/tradingFilters";
 import { cn } from "../design-system/lib/variants";
@@ -54,6 +55,9 @@ export function Trading() {
   const [mainOffset, setMainOffset] = useState(0);
   // 松手时提交的 offset：驱动排序与所有卡片的时间区间（拖动期间保持上一区间）。
   const [committedOffset, setCommittedOffset] = useState(0);
+  // 导出/导入操作的结果提示与导入进行中状态。
+  const [historyNotice, setHistoryNotice] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   // 窗口宽度 = 当前范围内的小时点数（"all" 展示全量）。若历史数据不足范围，
   // 宽度回缩到实际点数，此时无偏移余地（maxOffset=0）。
@@ -121,8 +125,12 @@ export function Trading() {
   const pendingByHash = useMemo(() => new Map(pending.map((p) => [p.hash, p])), [pending]);
   const displayItems = useMemo(() => {
     if (pendingByHash.size === 0) return items;
+    // 已存在的目标卡片优先采用 `pending` 中的最新版本：批量刷新过程中 main 会通过
+    // 进度通道逐物品推送 `updatedItem`（含拉取到的最新小时走势）替换占位卡片。若这里
+    // 沿用 `items` 里的旧版本，卡片时间轴在整次（可能很长）刷新期间都不会跟随商品
+    // 实时更新，导致「今天」部分显示为空/为零——单卡片手动刷新因即时广播 ITEMS 而正常。
     const seen = new Set(items.map((i) => i.hash));
-    const out = [...items];
+    const out = items.map((i) => pendingByHash.get(i.hash) ?? i);
     for (const p of pending) {
       if (!seen.has(p.hash)) out.push(p);
     }
@@ -161,6 +169,13 @@ export function Trading() {
     [hasActiveFilter, filteredItems, volumeStats],
   );
 
+  // 大图表 tooltip 里「每分类第一交易额物品」的查询表（hour -> 分类 -> 物品名）。
+  // 跟随筛选联动：筛选激活时基于筛选子集（与上方重聚合口径一致），否则用全量物品集。
+  const chartTopItems = useMemo(
+    () => topItemByHourAndCategory(hasActiveFilter ? filteredItems : items),
+    [hasActiveFilter, filteredItems, items],
+  );
+
   // 刷新批次状态：hash -> 灰（待刷新）/ 黄（当前批次）/ 绿（已刷新）。
   // 只要 `pending` 有值就构建状态映射（不依赖 `refreshing` 时序），保证刷新期间
   // 占位卡片与主列表卡片都能拿到亮环状态；刷新结束 hook 会清空 pending。
@@ -173,6 +188,29 @@ export function Trading() {
     return map;
   }, [pending, progress.done]);
 
+  // 导出：调主进程保存对话框写入历史快照 JSON，结果以提示条展示。
+  const handleExportHistory = async () => {
+    const res = await window.tbh.exportMarketVolumeHistory();
+    if (res.canceled) return;
+    if (res.ok && res.path) setHistoryNotice(t("trading.exportSuccess", { path: res.path }));
+    else setHistoryNotice(t("trading.exportFailed", { reason: res.reason ?? "unknown" }));
+  };
+
+  // 导入：确认后整体替换交易页历史数据，结果以提示条展示。
+  const handleImportHistory = async () => {
+    if (!window.confirm(t("trading.importConfirm"))) return;
+    setImporting(true);
+    try {
+      const res = await window.tbh.importMarketVolumeHistory();
+      if (res.canceled) return;
+      if (res.ok && res.itemCount !== undefined)
+        setHistoryNotice(t("trading.importSuccess", { count: res.itemCount }));
+      else setHistoryNotice(t("trading.importFailed", { reason: res.reason ?? "unknown" }));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <TabPage>
       <TabHeader title={tTabs("trading")} intro={t("trading.intro")} />
@@ -180,6 +218,7 @@ export function Trading() {
       <div className="flex flex-col gap-3.5">
         <MarketVolumeSection
           windowPts={chartWindowPts}
+          topItemsByCategory={chartTopItems}
           latest={hasActiveFilter ? null : (volumeStats?.latest ?? null)}
           itemCountsByCategory={chartCountsByCategory}
           currency={volumeStats?.currency ?? "USD"}
@@ -216,6 +255,30 @@ export function Trading() {
                 {refreshing && progress.total > 0
                   ? t("trading.refreshing", { done: progress.done, total: progress.total })
                   : t("trading.refresh")}
+              </button>
+              <button
+                type="button"
+                onClick={handleExportHistory}
+                className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:text-fg"
+                title={t("trading.exportHistory")}
+                aria-label={t("trading.exportHistory")}
+              >
+                <LuDownload className="size-3" aria-hidden />
+                {t("trading.exportHistory")}
+              </button>
+              <button
+                type="button"
+                onClick={handleImportHistory}
+                disabled={importing}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:text-fg",
+                  importing && "cursor-not-allowed opacity-60",
+                )}
+                title={t("trading.importHistory")}
+                aria-label={t("trading.importHistory")}
+              >
+                <LuUpload className="size-3" aria-hidden />
+                {t("trading.importHistory")}
               </button>
               {refreshing && (
                 <button
@@ -285,6 +348,12 @@ export function Trading() {
                 />
               </div>
             </div>
+          )}
+
+          {historyNotice && (
+            <p className="m-0 mt-1.5 text-[12px] text-muted" aria-live="polite">
+              {historyNotice}
+            </p>
           )}
 
           {displayItems.length === 0 ? (

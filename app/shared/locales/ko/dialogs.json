@@ -1,6 +1,9 @@
 {
   "chooseSaveFile": "TBH 세이브 파일 선택",
   "saveFileFilter": "TBH 세이브",
+  "exportMarketVolumeTitle": "거래 기록 내보내기",
+  "importMarketVolumeTitle": "거래 기록 가져오기",
+  "jsonFilter": "JSON 파일",
   "fatalErrorTitle": "TBH Companion — 시작 실패",
   "fatalErrorBody": "아이템 카탈로그를 불러오지 못했습니다. 앱을 재설치하거나 업데이트해 주세요.\n\n{{detail}}"
 }
