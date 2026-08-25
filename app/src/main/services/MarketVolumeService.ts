@@ -29,7 +29,9 @@ import {
   aggregateLiveItems,
   aggregateSamplesToTrend,
   aggregateVolume,
+  calibratePricesWithMedian,
   mergePriceHistoryPoints,
+  parseMarketVolumeHistory,
   VOLUME_CATEGORY_OTHER,
   volumeCategoryKey,
   type LiveVolumePoint,
@@ -39,7 +41,7 @@ import {
 import { marketHashName } from "../../core/marketName";
 import { createLogger } from "../log";
 import { resolveUserDataDir } from "./appData";
-import { fetchSteamPriceHistory } from "./steamPriceApi";
+import { fetchSteamPrice, fetchSteamPriceHistory } from "./steamPriceApi";
 
 const log = createLogger("marketVolume");
 
@@ -77,6 +79,11 @@ export interface MarketVolumeDeps {
     cookie?: string,
   ) => Promise<PriceHistoryResultLike>;
   /**
+   * 注入用于测试；默认走 Steam priceoverview。返回 hash 在 `currency` 下的
+   * 成交价中位数，作为把 pricehistory 价格换算到显示货币的锚。
+   */
+  fetchAnchorMedian?: (hash: string, currency: string) => Promise<number | null>;
+  /**
    * 历史拉取进度回调（每处理完一个 hash 调用一次）。交易页利用它推送
    * 「刷新历史价格」的实时进度。可选。
    */
@@ -106,6 +113,8 @@ export interface MarketVolumeDeps {
 export interface PriceHistoryResultLike {
   ok: boolean;
   points?: PriceHistoryPoint[];
+  /** pricehistory 实际返回的货币（由 price_prefix 判定）；null 表示无法判定。 */
+  currency?: string | null;
   /** HTTP 状态码；0 表示网络错误。 */
   status?: number;
   /** 失败原因（network/http/no_listing/parse 等，仅失败时）。 */
@@ -115,6 +124,8 @@ export interface PriceHistoryResultLike {
 }
 
 interface PersistedMarketVolume {
+  /** 备份格式版本；当前恒为 1。 */
+  version?: number;
   samples: MarketVolumeSample[];
   historyHourly: MarketVolumeHourPoint[];
   /** 原始 pricehistory 点：hash -> 该物品的全部历史点（保留天/小时混合粒度），供后续按需再聚合。 */
@@ -126,6 +137,13 @@ interface PersistedMarketVolume {
   /** 上次成功刷新 pricehistory 的时间（ms），持久化以便重启后仍命中 30min 缓存。 */
   historyFetchedAtMs?: number;
 }
+
+/** 默认的显示货币中位价查询：走 Steam priceoverview。 */
+const defaultFetchAnchorMedian = async (hash: string, currency: string): Promise<number | null> => {
+  const r = await fetchSteamPrice(hash, currency);
+  if (!r.ok) return null;
+  return r.entry.median ?? null;
+};
 
 export class MarketVolumeService {
   /** hash -> 最近一次成交量/成交价采样（实时累积，内存态）。 */
@@ -154,65 +172,28 @@ export class MarketVolumeService {
     this.loadHistory();
   }
 
-  /** 从磁盘加载历史（兼容旧版纯数组格式）。 */
+  /** 从磁盘加载历史（兼容旧版纯数组格式；解析复用 core 的 parseMarketVolumeHistory）。 */
   private loadHistory(): void {
     try {
       const path = this.filePath();
       if (!existsSync(path)) return;
       const raw = JSON.parse(readFileSync(path, "utf-8").replace(/^\uFEFF/, "")) as unknown;
-      if (Array.isArray(raw)) {
-        // 旧版格式：纯 MarketVolumeSample[]。
-        this.samples = raw.filter(
-          (s): s is MarketVolumeSample =>
-            !!s && typeof s.timestamp === "string" && typeof s.total === "number",
-        );
-      } else if (raw && typeof raw === "object") {
-        const p = raw as PersistedMarketVolume;
-        if (Array.isArray(p.samples)) {
-          this.samples = p.samples.filter(
-            (s): s is MarketVolumeSample =>
-              !!s && typeof s.timestamp === "string" && typeof s.total === "number",
-          );
-        }
-        if (Array.isArray(p.historyHourly)) {
-          this.historyHourly = p.historyHourly.filter(
-            (h): h is MarketVolumeHourPoint =>
-              !!h && typeof h.hour === "string" && typeof h.total === "number",
-          );
-        }
-        if (p.priceHistory && typeof p.priceHistory === "object") {
-          this.priceHistory = {};
-          for (const [hash, pts] of Object.entries(p.priceHistory)) {
-            if (Array.isArray(pts)) {
-              this.priceHistory[hash] = pts.filter(
-                (pt): pt is PriceHistoryPoint =>
-                  !!pt &&
-                  Number.isFinite(pt.timestamp) &&
-                  Number.isFinite(pt.price) &&
-                  Number.isFinite(pt.volume),
-              );
-            }
-          }
-        }
-        if (p.liveHistory && typeof p.liveHistory === "object") {
-          this.liveHistory = {};
-          for (const [hash, pts] of Object.entries(p.liveHistory)) {
-            if (Array.isArray(pts)) {
-              const valid = pts.filter(
-                (pt): pt is LiveVolumePoint =>
-                  !!pt && Number.isFinite(pt.ts) && Number.isFinite(pt.volume),
-              );
-              if (valid.length > 0) this.liveHistory[hash] = valid;
-            }
-          }
-        }
-        if (typeof p.itemCount === "number") this.historyItemCount = p.itemCount;
-        if (p.itemCountsByCategory && typeof p.itemCountsByCategory === "object") {
-          this.historyItemCountsByCategory = p.itemCountsByCategory;
-        }
-        if (typeof p.historyFetchedAtMs === "number")
-          this.historyFetchedAtMs = p.historyFetchedAtMs;
+      const parsed = parseMarketVolumeHistory(raw);
+      if (!parsed) {
+        this.samples = [];
+        this.historyHourly = [];
+        this.priceHistory = {};
+        this.historyItemCount = 0;
+        this.historyItemCountsByCategory = {};
+        return;
       }
+      this.samples = parsed.samples;
+      this.historyHourly = parsed.historyHourly;
+      this.priceHistory = parsed.priceHistory;
+      this.liveHistory = parsed.liveHistory ?? {};
+      this.historyItemCount = parsed.itemCount;
+      this.historyItemCountsByCategory = parsed.itemCountsByCategory;
+      this.historyFetchedAtMs = parsed.historyFetchedAtMs ?? 0;
     } catch (err) {
       log.warn(`Failed to load market volume history: ${(err as Error).message}`);
       this.samples = [];
@@ -241,6 +222,44 @@ export class MarketVolumeService {
     } catch (err) {
       log.warn(`Failed to save market volume history: ${(err as Error).message}`);
     }
+  }
+
+  /** 返回当前完整历史快照（供导出备份；结构即落盘 payload，含备份版本号）。 */
+  exportHistory(): PersistedMarketVolume {
+    return {
+      version: 1,
+      samples: this.samples,
+      historyHourly: this.historyHourly,
+      priceHistory: this.priceHistory,
+      liveHistory: this.liveHistory,
+      itemCount: this.historyItemCount,
+      itemCountsByCategory: this.historyItemCountsByCategory,
+      historyFetchedAtMs: this.historyFetchedAtMs,
+    };
+  }
+
+  /**
+   * 用备份 JSON 整体替换当前历史数据。解析/校验失败返回 null 且不改动现有数据；
+   * 成功返回导入后的 itemCount 并立即落盘。
+   */
+  importHistory(json: string): number | null {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(json.replace(/^\uFEFF/, ""));
+    } catch {
+      return null;
+    }
+    const parsed = parseMarketVolumeHistory(raw);
+    if (!parsed) return null;
+    this.samples = parsed.samples;
+    this.historyHourly = parsed.historyHourly;
+    this.priceHistory = parsed.priceHistory;
+    this.liveHistory = parsed.liveHistory ?? {};
+    this.historyItemCount = parsed.itemCount;
+    this.historyItemCountsByCategory = parsed.itemCountsByCategory;
+    this.historyFetchedAtMs = parsed.historyFetchedAtMs ?? 0;
+    this.saveHistory();
+    return this.historyItemCount;
   }
 
   /** 记录一次轮询采样（hash 维度），并累积该 hash 的活跃度采样历史。 */
@@ -349,6 +368,49 @@ export class MarketVolumeService {
   }
 
   /**
+   * 把 pricehistory 本次拉到的点换算到显示货币（若返回货币与显示货币不一致）。
+   *
+   * Steam `pricehistory` 忽略 `currency` 参数，返回区域锁定货币（价格列单位靠
+   * `price_prefix` 判定）。本方法用该物品 priceoverview 的成交中位价（显示货币）
+   * 作锚，把整条序列等比校正到显示货币。货币解析不出来 / 与显示货币一致 / 锚
+   * 不可用时都保守地不换算（保留原值）。
+   */
+  private async maybeCalibrateHistory(
+    hash: string,
+    points: PriceHistoryPoint[],
+    resCurrency: string | null | undefined,
+  ): Promise<PriceHistoryPoint[]> {
+    if (!resCurrency) return points;
+    if (resCurrency.toUpperCase() === this.deps.getCurrency().toUpperCase()) return points;
+
+    // 取最近一个有成交量的点，作为与锚中位价对应的原货币价格。
+    let sourcePrice: number | null = null;
+    for (let i = points.length - 1; i >= 0; i--) {
+      if (points[i].volume > 0) {
+        sourcePrice = points[i].price;
+        break;
+      }
+    }
+    if (sourcePrice == null || sourcePrice <= 0) return points;
+
+    let median: number | null = null;
+    try {
+      const fetchMedian = this.deps.fetchAnchorMedian ?? defaultFetchAnchorMedian;
+      median = await fetchMedian(hash, this.deps.getCurrency());
+    } catch (err) {
+      log.warn(`calibrate history ${hash}: median fetch failed: ${(err as Error).message}`);
+    }
+
+    const cal = calibratePricesWithMedian(points, median, sourcePrice);
+    if (cal.applied && median != null) {
+      log.info(
+        `calibrate history ${hash}: ${resCurrency} -> ${this.deps.getCurrency()} scale=${(median / sourcePrice).toFixed(4)}`,
+      );
+    }
+    return cal.points;
+  }
+
+  /**
    * 手动更新单个物品的历史价格（交易页卡片上的刷新按钮）。
    *
    * 只拉取该 hash 的 pricehistory，成功后实时并入 `priceHistory` 并重算顶部走势、
@@ -364,7 +426,8 @@ export class MarketVolumeService {
     const fetchOne = this.deps.fetchHistory ?? fetchSteamPriceHistory;
     const r = await fetchOne(hash, currency, cookie);
     if (r.ok && r.points && r.points.length > 0) {
-      this.priceHistory[hash] = mergePriceHistoryPoints(this.priceHistory[hash] ?? [], r.points);
+      const calibrated = await this.maybeCalibrateHistory(hash, r.points, r.currency);
+      this.priceHistory[hash] = mergePriceHistoryPoints(this.priceHistory[hash] ?? [], calibrated);
       this.recomputeHistoryTrend();
       this.historyFetchedAtMs = now;
       this.saveHistory();
@@ -453,12 +516,13 @@ export class MarketVolumeService {
           try {
             const r = await fetchOne(hash, currency, cookie);
             if (r.ok && r.points && r.points.length > 0) {
-              historyByHash.set(hash, r.points);
+              const calibrated = await this.maybeCalibrateHistory(hash, r.points, r.currency);
+              historyByHash.set(hash, calibrated);
               // 实时更新内存态：与旧数据合并（保留更细粒度），该 hash 立即反映
               // 最新价格，供前端实时刷新卡片（持久化在全部拉完之后统一做）。
               this.priceHistory[hash] = mergePriceHistoryPoints(
                 this.priceHistory[hash] ?? [],
-                r.points,
+                calibrated,
               );
               updatedItem = this.buildItemForHash(hash);
               // 该物品实时并入 priceHistory 后立即重算顶部交易额走势，让最上方的
