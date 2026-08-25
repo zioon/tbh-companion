@@ -3,6 +3,7 @@ import {
   aggregateHistoryToHourly,
   aggregateHourly,
   aggregateVolume,
+  parseMarketVolumeHistory,
   volumeCategoryKey,
   type PriceHistoryPoint,
 } from "../../src/core/marketVolume";
@@ -206,5 +207,71 @@ describe("aggregateHistoryToHourly", () => {
     expect(agg.points).toEqual([]);
     expect(agg.itemCount).toBe(0);
     expect(agg.itemCountsByCategory).toEqual({});
+  });
+});
+
+
+describe("parseMarketVolumeHistory", () => {
+  it("解析合法快照并逐字段过滤", () => {
+    const parsed = parseMarketVolumeHistory({
+      version: 1,
+      samples: [
+        { timestamp: "2026-08-25T00:00:00Z", items: 1, total: 10, byCategory: {}, currency: "USD" },
+        { timestamp: 123 },
+      ],
+      historyHourly: [
+        { hour: "2026-08-25T00:00:00Z", total: 5 },
+        { hour: 123 },
+      ],
+      priceHistory: {
+        "Copper Coin": [
+          { timestamp: 1720000000, price: 1.2, volume: 340 },
+          { timestamp: NaN, price: 1, volume: 1 },
+        ],
+      },
+      liveHistory: {
+        "Copper Coin": [
+          { ts: 1720000000000, volume: 340, median: 1.2 },
+          { ts: "x", volume: 1 },
+        ],
+      },
+      itemCount: 1,
+      itemCountsByCategory: { WEAPON: 1 },
+      historyFetchedAtMs: 1720000000000,
+    });
+
+    expect(parsed).not.toBeNull();
+    expect(parsed!.samples).toHaveLength(1);
+    expect(parsed!.historyHourly).toHaveLength(1);
+    expect(parsed!.priceHistory["Copper Coin"]).toHaveLength(1);
+    expect(parsed!.liveHistory!["Copper Coin"]).toHaveLength(1);
+    expect(parsed!.itemCount).toBe(1);
+    expect(parsed!.historyFetchedAtMs).toBe(1720000000000);
+  });
+
+  it("顶层非法（null / string / number）返回 null", () => {
+    expect(parseMarketVolumeHistory(null)).toBeNull();
+    expect(parseMarketVolumeHistory("nope")).toBeNull();
+    expect(parseMarketVolumeHistory(42)).toBeNull();
+  });
+
+  it("接受旧版纯数组格式并解析为 samples", () => {
+    const parsed = parseMarketVolumeHistory([
+      { timestamp: "2026-08-25T00:00:00Z", items: 1, total: 10, byCategory: {}, currency: "USD" },
+      { total: 1 },
+    ]);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.samples).toHaveLength(1);
+    expect(parsed!.historyHourly).toEqual([]);
+  });
+
+  it("部分字段缺失时回退为安全默认值", () => {
+    const parsed = parseMarketVolumeHistory({ priceHistory: "bad" });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.samples).toEqual([]);
+    expect(parsed!.historyHourly).toEqual([]);
+    expect(parsed!.priceHistory).toEqual({});
+    expect(parsed!.itemCount).toBe(0);
+    expect(parsed!.itemCountsByCategory).toEqual({});
   });
 });

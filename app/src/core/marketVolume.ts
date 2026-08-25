@@ -476,3 +476,126 @@ export function mergePriceHistoryPoints(
   result.sort((a, b) => a.timestamp - b.timestamp);
   return result;
 }
+
+/**
+ * 按 priceoverview 的中位价锚把 pricehistory 的整条价格线等比换算到显示货币。
+ *
+ * Steam `pricehistory` 忽略 `currency` 参数，价格列返回的是区域锁定货币（如
+ * 巴西用户拿到的是 `R$`）。这里用「同物品、同货币权威的 priceoverview 中位价
+ * `anchorMedian`（显示货币）÷ 对应时的 pricehistory 价格 `sourcePrice`（原货币）」
+ * 得出单一换算系数，把整条序列等比校正到显示货币。
+ *
+ * @param points       原始 pricehistory 点（price 为价格列原值，货币与显示货币不一致）。
+ * @param anchorMedian priceoverview 中位价（显示货币），作为换算锚。
+ * @param sourcePrice  pricehistory 序列中与 `anchorMedian` 同一时段的原货币价格
+ *                     （一般取序列里最近一个有成交量的点）。
+ * @returns `applied` 表示是否实际进行过换算；未换算时返回原副本。
+ */
+export function calibratePricesWithMedian(
+  points: readonly PriceHistoryPoint[],
+  anchorMedian: number | null,
+  sourcePrice: number | null,
+): { applied: boolean; points: PriceHistoryPoint[] } {
+  if (
+    points.length === 0 ||
+    anchorMedian == null ||
+    anchorMedian <= 0 ||
+    sourcePrice == null ||
+    sourcePrice <= 0
+  ) {
+    return { applied: false, points: [...points] };
+  }
+  const scale = anchorMedian / sourcePrice;
+  if (!Number.isFinite(scale) || scale <= 0) {
+    return { applied: false, points: [...points] };
+  }
+  const applied = Math.abs(scale - 1) > 1e-6;
+  const scaled: PriceHistoryPoint[] = points.map((p) => ({ ...p, price: p.price * scale }));
+  return { applied, points: scaled };
+}
+
+
+/** 解析后的交易页历史数据快照（结构兼容 main 的 PersistedMarketVolume）。 */
+export interface ParsedMarketVolumeHistory {
+  /** 备份格式版本；当前恒为 1。解析时保留，供未来迁移。 */
+  version?: number;
+  samples: MarketVolumeSample[];
+  historyHourly: MarketVolumeHourPoint[];
+  priceHistory: Record<string, PriceHistoryPoint[]>;
+  liveHistory?: Record<string, LiveVolumePoint[]>;
+  itemCount: number;
+  itemCountsByCategory: Record<string, number>;
+  historyFetchedAtMs?: number;
+}
+
+function isMarketVolumeSample(s: unknown): s is MarketVolumeSample {
+  const v = s as MarketVolumeSample;
+  return !!s && typeof v.timestamp === "string" && typeof v.total === "number";
+}
+
+function isMarketVolumeHourPoint(h: unknown): h is MarketVolumeHourPoint {
+  const v = h as MarketVolumeHourPoint;
+  return !!h && typeof v.hour === "string" && typeof v.total === "number";
+}
+
+function isPriceHistoryPoint(pt: unknown): pt is PriceHistoryPoint {
+  const v = pt as PriceHistoryPoint;
+  return !!pt && Number.isFinite(v.timestamp) && Number.isFinite(v.price) && Number.isFinite(v.volume);
+}
+
+function isLiveVolumePoint(pt: unknown): pt is LiveVolumePoint {
+  const v = pt as LiveVolumePoint;
+  return !!pt && Number.isFinite(v.ts) && Number.isFinite(v.volume);
+}
+
+/**
+ * 把任意 JSON 解析为交易页历史快照（校验 + 逐字段过滤）。与旧 loadHistory
+ * 的过滤规则一致；顶层非法返回 null。旧版纯数组格式解析为仅含 samples 的快照。
+ */
+export function parseMarketVolumeHistory(raw: unknown): ParsedMarketVolumeHistory | null {
+  if (Array.isArray(raw)) {
+    return {
+      samples: raw.filter(isMarketVolumeSample),
+      historyHourly: [],
+      priceHistory: {},
+      itemCount: 0,
+      itemCountsByCategory: {},
+    };
+  }
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+
+  const result: ParsedMarketVolumeHistory = {
+    samples: Array.isArray(p.samples) ? p.samples.filter(isMarketVolumeSample) : [],
+    historyHourly: Array.isArray(p.historyHourly)
+      ? p.historyHourly.filter(isMarketVolumeHourPoint)
+      : [],
+    priceHistory: {},
+    itemCount: typeof p.itemCount === "number" ? p.itemCount : 0,
+    itemCountsByCategory:
+      p.itemCountsByCategory && typeof p.itemCountsByCategory === "object"
+        ? (p.itemCountsByCategory as Record<string, number>)
+        : {},
+  };
+
+  if (p.priceHistory && typeof p.priceHistory === "object") {
+    for (const [hash, pts] of Object.entries(p.priceHistory as Record<string, unknown>)) {
+      if (Array.isArray(pts)) {
+        result.priceHistory[hash] = pts.filter(isPriceHistoryPoint);
+      }
+    }
+  }
+  if (p.liveHistory && typeof p.liveHistory === "object") {
+    const liveHistory: Record<string, LiveVolumePoint[]> = {};
+    for (const [hash, pts] of Object.entries(p.liveHistory as Record<string, unknown>)) {
+      if (Array.isArray(pts)) {
+        const valid = pts.filter(isLiveVolumePoint);
+        if (valid.length > 0) liveHistory[hash] = valid;
+      }
+    }
+    result.liveHistory = liveHistory;
+  }
+  if (typeof p.version === "number") result.version = p.version;
+  if (typeof p.historyFetchedAtMs === "number") result.historyFetchedAtMs = p.historyFetchedAtMs;
+  return result;
+}
