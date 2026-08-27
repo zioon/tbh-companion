@@ -168,3 +168,31 @@ export function itemCountsByCategoryFromItems(
   for (const item of items) counts[item.category] = (counts[item.category] ?? 0) + 1;
   return counts;
 }
+
+/**
+ * 每个小时、每个分类内交易额最高的物品：`hour` -> 分类 key -> `{ name, total }`。
+ *
+ * 供大图表走势 tooltip 使用：鼠标悬停在某个小时点时，除展示该分类的汇总金额外，
+ * 还显示该分类内「第一交易额」的物品名及其金额、占该分类汇总金额的比例。
+ * 只聚合 `kind !== "live"` 的卡片（live 为 24h 滚动累计、不可求和，与
+ * `aggregateFilteredToHourly` 口径一致）；同一小时内金额更高的物品覆盖前一名。
+ */
+export function topItemByHourAndCategory(
+  items: readonly MarketVolumeItem[],
+): Record<string, Record<string, { name: string; total: number }>> {
+  const best: Record<string, Record<string, { name: string; total: number }>> = {};
+  for (const item of items) {
+    if (item.kind === "live") continue;
+    for (const p of item.points) {
+      if (!Number.isFinite(p.total) || p.total <= 0) continue;
+      // 惰性建桶，只对出现的小时点预留结构。
+      const categoryTop = (best[p.hour] ??= {});
+      const cat = item.category;
+      const prev = categoryTop[cat]?.total ?? 0;
+      if (p.total > prev) {
+        categoryTop[cat] = { name: item.name, total: p.total };
+      }
+    }
+  }
+  return best;
+}

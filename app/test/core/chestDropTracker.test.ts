@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   ChestDropTracker,
   LiveChestDropAggregator,
@@ -194,12 +194,39 @@ describe("ChestDropTracker", () => {
   });
 
   it("uses the actual time window when drops happened long ago", () => {
-    // 1 drop recorded 1 hour ago → perHour = 1 / (3600/3600) = 1/hr.
-    const oneHourAgo = Date.now() / 1000 - 3600;
-    const tracker = new ChestDropTracker();
-    tracker.recordLogDrop(910151, oneHourAgo);
-    const stats = tracker.getStats(3600);
-    expect(stats.commonPerHour).toBe(1);
+    // 1 drop recorded 1 hour ago (relative to a fixed clock) → perHour = 1.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000); // tracking starts at t = 1000s
+      const tracker = new ChestDropTracker();
+      vi.setSystemTime(1_000_000 + 3600 * 1000); // now = t + 1h
+      tracker.recordLogDrop(910151, 1_000); // drop wallTime = t (1h ago)
+      const stats = tracker.getStats(3600);
+      expect(stats.commonPerHour).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts the wait since tracking started, not since the first drop", () => {
+    // Regression: a fresh tracker anchors the rate to when tracking began, so
+    // the time spent waiting for the first box counts toward the window. Prior
+    // behavior anchored to the first-drop moment and (with the 60s floor)
+    // showed a misleading 60/hr for a box that truly arrived 6 minutes later.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const tracker = new ChestDropTracker();
+      // Player launches and waits 6 minutes before the first common box drops.
+      vi.setSystemTime(1_000_000 + 360 * 1000);
+      tracker.recordLogDrop(910151);
+      const stats = tracker.getStats(0);
+      // 1 drop across a 360s (0.1h) window → 1/0.1 = 10/hr, not 60/hr.
+      expect(stats.commonTotal).toBe(1);
+      expect(stats.commonPerHour).toBe(10);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -342,14 +369,16 @@ describe("LiveChestDropAggregator", () => {
     expect(agg.feed([], 2.7)).toEqual(["rare"]);
   });
 
-  it("suppresses a stray singleton riding another category's cross-tick burst", () => {
-    // One common drop (5 entries split across ticks) + 1 stray rare entry in
-    // the middle tick. The rare singleton must be suppressed as noise.
+  it("keeps a lone stage-boss singleton riding another category's burst", () => {
+    // One common drop (5 entries split across ticks) + 1 real rare entry in the
+    // middle tick. The rare singleton must NOT be dropped — a stage-boss chest
+    // can legitimately produce a single GetBoxLog entry, and suppressing it
+    // caused real boss drops to be missed ("sometimes fails to recognize").
     const agg = new LiveChestDropAggregator(0.5);
     agg.feed(["common", "common", "common"], 1.0);
     agg.feed(["common", "common", "rare"], 1.04);
     agg.feed(["common"], 1.08);
-    expect(agg.feed([], 1.7)).toEqual(["common"]);
+    expect(agg.feed([], 1.7)).toEqual(["common", "rare"]);
   });
 
   it("keeps a genuine 1:1 mix as two distinct drops", () => {

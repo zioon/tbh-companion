@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { LuDownload, LuRefreshCw, LuUpload } from "react-icons/lu";
+import { LuRefreshCw, LuDownload, LuUpload } from "react-icons/lu";
 import { MarketVolumeSection } from "../components/market/MarketVolumeSection";
 import { ItemVolumeCard } from "../components/market/ItemVolumeCard";
 import { TradingFilters } from "../components/market/TradingFilters";
 import { useMarketVolumeItems } from "../lib/useMarketVolumeItems";
 import { useMarketVolume } from "../lib/useMarketVolume";
+import { useLookupCatalog } from "../lib/useLookupCatalog";
+import { useEntityPanel } from "../context/entityPanelContext";
+import { marketHashName } from "../../core/marketName";
 import {
   RANGE_HOURS,
   sortItemsByWindowTotal,
@@ -47,6 +50,28 @@ export function Trading() {
   const { stats, pending, refresh, refreshing, progress, refreshItem, cancelRefresh } =
     useMarketVolumeItems();
   const volumeStats = useMarketVolume();
+  const catalog = useLookupCatalog();
+  const { open } = useEntityPanel();
+
+  // market_hash_name -> 图鉴 item id：交易卡片点击时据此打开与图鉴同款的物品详情。
+  // 复用 LookupPriceChangeLog 的映射方式（marketName.marketHashName）。
+  const itemIdByHash = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of catalog ?? []) {
+      const hash = marketHashName(item);
+      if (hash) map.set(hash, item.id);
+    }
+    return map;
+  }, [catalog]);
+
+  // 卡片点击打开详情：hash 能反查到图鉴 item（可交易）才打开，否则无操作。
+  const openItemDetail = useCallback(
+    (hash: string) => {
+      const id = itemIdByHash.get(hash);
+      if (id != null) open({ type: "item", id });
+    },
+    [itemIdByHash, open],
+  );
 
   const hourly = useMemo(() => volumeStats?.hourly ?? [], [volumeStats]);
 
@@ -374,6 +399,7 @@ export function Trading() {
                   windowRange={windowRange}
                   refreshStatus={refreshStatusByHash[item.hash]}
                   onRefresh={refreshStatusByHash[item.hash] ? undefined : refreshItem}
+                  onOpenDetail={openItemDetail}
                 />
               ))}
             </ul>

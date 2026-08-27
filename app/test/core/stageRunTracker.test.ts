@@ -88,4 +88,57 @@ describe("StageRunTracker", () => {
     expect(tracker.getStats().history).toHaveLength(20);
     expect(tracker.getStats().history[0].wallTime).toBe(1204); // visible: most recent first
   });
+
+  it("records a failed run with its furthest wave and zero XP/gold", () => {
+    const tracker = new StageRunTracker();
+    tracker.recordFailure(2305, 7, 1500);
+
+    expect(tracker.getStats().history).toEqual([
+      {
+        wallTime: 1500,
+        stageKey: 2305,
+        outcome: "fail",
+        clearTimeSec: 0,
+        xpGained: 0,
+        goldGained: 0,
+        failedWave: 7,
+      },
+    ]);
+  });
+
+  it("ignores invalid failed-run input", () => {
+    const tracker = new StageRunTracker();
+    tracker.recordFailure(0, 5, 1000);
+    tracker.recordFailure(2305, 0, 1001);
+    tracker.recordFailure(-1, 5, 1002);
+    expect(tracker.getStats().history).toEqual([]);
+  });
+
+  it("round-trips failed-run entries through captureSnapshot/applySnapshot", () => {
+    const tracker = new StageRunTracker();
+    tracker.recordClear(2305, 85, 400, 12_000, 1000);
+    tracker.recordFailure(2305, 9, 1001);
+
+    const restored = new StageRunTracker();
+    restored.applySnapshot(tracker.captureSnapshot());
+
+    expect(restored.getStats()).toEqual(tracker.getStats());
+  });
+
+  it("applySnapshot keeps valid failed entries and drops malformed ones", () => {
+    const fail = {
+      wallTime: 1001,
+      stageKey: 2305,
+      outcome: "fail",
+      clearTimeSec: 0,
+      xpGained: 0,
+      goldGained: 0,
+      failedWave: 9,
+    };
+    const badFail = { ...fail, failedWave: undefined }; // fail requires a wave
+    const tracker = new StageRunTracker();
+    tracker.applySnapshot({ history: [fail, badFail] as never[] });
+
+    expect(tracker.captureSnapshot().history).toEqual([fail]);
+  });
 });

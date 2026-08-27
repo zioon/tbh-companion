@@ -9,6 +9,7 @@ import {
   hasActiveTradingFilter,
   itemCountsByCategoryFromItems,
   materialKindOptionsFromVolumeItems,
+  topItemByHourAndCategory,
 } from "../../src/renderer/lib/tradingFilters";
 
 function makeItem(overrides: Partial<MarketVolumeItem> = {}): MarketVolumeItem {
@@ -259,5 +260,62 @@ describe("aggregateFilteredToHourly / itemCountsByCategoryFromItems", () => {
       WEAPON: 2,
       MATERIAL: 1,
     });
+  });
+});
+
+describe("topItemByHourAndCategory", () => {
+  it("每小时每分类返回交易额最高的物品（名称+金额），金额更高的覆盖前一名", () => {
+    const items = [
+      makeItem({
+        name: "劲剑",
+        category: "WEAPON",
+        points: [
+          { hour: "h1", price: 10, volume: 1, total: 10 },
+          { hour: "h2", price: 20, volume: 1, total: 20 },
+        ],
+      }),
+      makeItem({
+        name: "霸剑",
+        category: "WEAPON",
+        points: [{ hour: "h2", price: 50, volume: 1, total: 50 }],
+      }),
+      makeItem({
+        name: "火符",
+        category: "MATERIAL",
+        points: [{ hour: "h2", price: 5, volume: 1, total: 30 }],
+      }),
+    ];
+    expect(topItemByHourAndCategory(items)).toEqual({
+      h1: { WEAPON: { name: "劲剑", total: 10 } },
+      h2: { WEAPON: { name: "霸剑", total: 50 }, MATERIAL: { name: "火符", total: 30 } },
+    });
+  });
+
+  it("跳过低额的 live 卡片与零成交额点", () => {
+    const live = makeItem({
+      name: "高活跃卡",
+      category: "MATERIAL",
+      kind: "live",
+      total: 500,
+      points: [{ hour: "h1", price: 5, volume: 100, total: 500 }],
+    });
+    const history = makeItem({
+      name: "真卡",
+      category: "MATERIAL",
+      points: [{ hour: "h1", price: 5, volume: 1, total: 20 }],
+    });
+    const zero = makeItem({
+      name: "零额卡",
+      category: "WEAPON",
+      points: [{ hour: "h1", price: 1, volume: 0, total: 0 }],
+    });
+    expect(topItemByHourAndCategory([live, history, zero])).toEqual({
+      h1: { MATERIAL: { name: "真卡", total: 20 } },
+    });
+  });
+
+  it("无有效点时返回空对象", () => {
+    expect(topItemByHourAndCategory([])).toEqual({});
+    expect(topItemByHourAndCategory([makeItem({ points: [] })])).toEqual({});
   });
 });

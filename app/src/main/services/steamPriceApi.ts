@@ -1,4 +1,4 @@
-import { currencyCode, parseMoney } from "../../core/steamPrice";
+import { currencyCode, parseMoney, priceHistoryCurrency } from "../../core/steamPrice";
 import type { PriceHistoryPoint } from "../../core/marketVolume";
 import type { PriceEntry } from "./priceCache";
 import { getProxyDispatcher } from "./proxyResolver";
@@ -113,7 +113,7 @@ function buildEntry(
 }
 
 export type SteamPriceHistoryResult =
-  | { ok: true; status: number; points: PriceHistoryPoint[] }
+  | { ok: true; status: number; points: PriceHistoryPoint[]; currency: string | null }
   | { ok: false; status: number; reason: SteamPriceFailReason; retryAfterMs?: number };
 
 /** 英文月份缩写 -> 月份索引（0 起）。用于解析 pricehistory 的格式化时间字符串。 */
@@ -211,7 +211,9 @@ export async function fetchSteamPriceHistory(
   const json = brace >= 0 ? text.slice(brace) : text;
   let data: {
     success?: boolean;
-    prices?: Array<[number | string, string, number | string]>;
+    prices?: Array<[number | string, string | number, number | string]>;
+    price_prefix?: string;
+    price_suffix?: string;
   };
   try {
     data = JSON.parse(json) as typeof data;
@@ -235,5 +237,9 @@ export async function fetchSteamPriceHistory(
     points.push({ timestamp: ts, price, volume });
   }
 
-  return { ok: true, status: res.status, points };
+  // pricehistory 会用响应里的 price_prefix/price_suffix 标明实际货币，但它会忽略
+  // 请求的 currency 参数（返回区域锁定货币）。解析出来供调用方判断要不要换算。
+  const priceCurrency = priceHistoryCurrency(data.price_prefix, data.price_suffix);
+
+  return { ok: true, status: res.status, points, currency: priceCurrency };
 }

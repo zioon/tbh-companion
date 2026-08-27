@@ -8,6 +8,13 @@ import type {
 } from "../../shared/types";
 import { Trading } from "../../src/renderer/tabs/Trading";
 import { useMarketVolumeItems } from "../../src/renderer/lib/useMarketVolumeItems";
+import { EntityPanelContext } from "../../src/renderer/context/entityPanelContext";
+
+// Trading 通过 useLookupCatalog/useEntityPanel 依赖 window.tbh，需在此 mock。
+Object.defineProperty(window, "tbh", {
+  value: { getLookupCatalog: vi.fn(async () => []) },
+  configurable: true,
+});
 
 const ITEMS: MarketVolumeItem[] = [
   {
@@ -77,9 +84,19 @@ vi.mock("../../src/renderer/lib/useMarketVolume", () => ({
   useMarketVolume: () => VOLUME,
 }));
 
+function renderTrading() {
+  return render(
+    <EntityPanelContext.Provider
+      value={{ node: null, open: () => {}, navigate: () => {}, close: () => {}, isOpen: false }}
+    >
+      <Trading />
+    </EntityPanelContext.Provider>,
+  );
+}
+
 describe("Trading 卡片筛选 → 数量联动", () => {
   it("名称搜索后下方卡片随之减少（卡片根元素是 div，按文本断言）", () => {
-    render(<Trading />);
+    renderTrading();
     expect(screen.getByText("Ancient Blade")).toBeInTheDocument();
     expect(screen.getByText("Igneous Helm")).toBeInTheDocument();
     expect(screen.getByText("Fire Rune")).toBeInTheDocument();
@@ -93,7 +110,7 @@ describe("Trading 卡片筛选 → 数量联动", () => {
   });
 
   it("筛选无命中时显示 emptyFiltered 空态而非卡片", () => {
-    render(<Trading />);
+    renderTrading();
     const search = screen.getByPlaceholderText("Search items…");
     fireEvent.change(search, { target: { value: "NoSuchItem" } });
 
@@ -112,7 +129,7 @@ describe("Trading 筛选栏多语言", () => {
   it("英文 locale：三个数值筛选显示英文 label，等级滑杆用 Lv 前缀", async () => {
     const { changeLanguage } = await import("i18next");
     await changeLanguage("en");
-    render(<Trading />);
+    renderTrading();
 
     // 三个数值筛选 + 等级的 label（Title Case 原始文本，CSS uppercase 不影响 textContent）
     expect(screen.getByText("Total")).toBeInTheDocument();
@@ -128,7 +145,7 @@ describe("Trading 筛选栏多语言", () => {
   it("中文 locale：三个数值筛选显示中文 label，等级滑杆用「等级」前缀", async () => {
     const { changeLanguage } = await import("i18next");
     await changeLanguage("zh-CN");
-    render(<Trading />);
+    renderTrading();
 
     expect(screen.getByText("成交额")).toBeInTheDocument();
     expect(screen.getByText("成交量")).toBeInTheDocument();
@@ -161,7 +178,7 @@ describe("Trading 刷新期间待刷新目标合并进主卡片列表", () => {
       refreshing: true,
       progress: { running: true, total: 1, done: 0, currentHash: "rune" },
     });
-    render(<Trading />);
+    renderTrading();
 
     expect(screen.getByText("Ancient Blade")).toBeInTheDocument();
     expect(screen.getAllByText("Fire Rune")).toHaveLength(1);
@@ -187,7 +204,7 @@ describe("Trading 刷新期间待刷新目标合并进主卡片列表", () => {
       refreshing: true,
       progress: { running: true, total: 1, done: 0, currentHash: "rune" },
     });
-    render(<Trading />);
+    renderTrading();
     expect(screen.getByText("Fire Rune")).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Search items…"), {

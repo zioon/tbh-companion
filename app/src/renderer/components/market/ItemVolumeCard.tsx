@@ -43,6 +43,7 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
   windowRange,
   refreshStatus,
   onRefresh,
+  onOpenDetail,
 }: {
   item: MarketVolumeItem;
   currency: string;
@@ -50,6 +51,8 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
   refreshStatus?: RefreshStatus | null;
   /** 传入时卡片右上角显示小型「手动刷新」按钮；未传入则不显示。 */
   onRefresh?: (hash: string) => Promise<void> | void;
+  /** 传入时整张卡片可点击，触发打开图鉴同款物品详情。 */
+  onOpenDetail?: (hash: string) => void;
 }) {
   const { t } = useTranslation("market");
   const color = gradeColor(item.grade ?? "");
@@ -57,7 +60,9 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
   // 单卡片手动刷新期间的本卡加载态（不进入整批刷新的 running 进度流）。
   const [refreshingCard, setRefreshingCard] = useState(false);
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (e: { stopPropagation: () => void }) => {
+    // 阻止冒泡，避免点击刷新按钮同时触发卡片打开详情。
+    e.stopPropagation();
     if (!onRefresh || refreshingCard) return;
     setRefreshingCard(true);
     try {
@@ -101,71 +106,107 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
   const chart = useMemo(() => {
     if (points.length === 0) return null;
 
-    // 卡片小图高度仅 40px，先均匀降采样，减少 path 字符串长度与节点数量。
-    const sampled = downsample(points, MAX_CARD_POINTS);
-    const maxVol = Math.max(1, ...sampled.map((p) => p.volume));
-    const maxPrice = Math.max(1, ...sampled.map((p) => p.price));
-    const minPrice = Math.min(maxPrice, ...sampled.map((p) => p.price));
+    const times = points.map((p) => Date.parse(p.hour));
+
+    // x 基准：优先取共享时间窗口 [start, end]，使跨物品卡片同一时刻落到同一横坐标
+    // （某物品缺数据的时段自然留出空隙，而非按点数把缺失时段压缩掉）；无窗口时
+    // 回退到该物品自身数据区间的首尾。
+    const hasWindowRef = !!(windowRange && windowRange.start && windowRange.end);
+    const tStart = hasWindowRef ? Date.parse(windowRange!.start) : times[0];
+    const tEnd = hasWindowRef ? Date.parse(windowRange!.end) : times[times.length - 1];
+    const tSpan = tEnd - tStart;
+    const xOf = (t: number) => (tSpan <= 0 ? 50 : ((t - tStart) / tSpan) * 100);
+
+    // 卡片高度仅 40px，总点数超标时先对索引均匀降采样。x 仍按真实时间戳定位，
+    // 因此缺失的时段在横轴上留出空隙与时俱进的对齐保持不变；但价格/交易额折线
+    // 始终把所有有数据的点连成一条连续路径，不在缺失时段间断。
+    const sampledIdx =
+      points.length <= MAX_CARD_POINTS
+        ? Array.from({ length: points.length }, (_, i) => i)
+        : downsample(
+            Array.from({ length: points.length }, (_, i) => i),
+            MAX_CARD_POINTS,
+          );
+
+    const maxVol = Math.max(1, ...points.map((p) => p.volume));
+    const maxPrice = Math.max(1, ...points.map((p) => p.price));
+    const minPrice = Math.min(maxPrice, ...points.map((p) => p.price));
     const priceRange = maxPrice - minPrice || 1;
-    const maxTotal = Math.max(1, ...sampled.map((p) => p.total));
-    const minTotal = Math.min(maxTotal, ...sampled.map((p) => p.total));
+    const maxTotal = Math.max(1, ...points.map((p) => p.total));
+    const minTotal = Math.min(maxTotal, ...points.map((p) => p.total));
     const totalRange = maxTotal - minTotal || 1;
-    const n = sampled.length;
+
     const barAreaH = 16;
     const priceAreaH = 14;
     const barBottom = 40;
     const priceBottomBase = 4;
-    const x = (i: number) => (n === 1 ? 50 : (i / (n - 1)) * 100);
     const barHeight = (v: number) => (v / maxVol) * barAreaH;
     const priceY = (p: number) =>
       priceBottomBase + priceAreaH - ((p - minPrice) / priceRange) * priceAreaH;
     const totalY = (p: number) =>
       priceBottomBase + priceAreaH - ((p - minTotal) / totalRange) * priceAreaH;
 
-    const bars = sampled.map((p, i) => {
-      const h = barHeight(p.volume);
-      return { x: x(i) - 0.4, y: barBottom - h, w: 0.8, h };
+    const bars = sampledIdx.map((i) => {
+      const h = barHeight(points[i].volume);
+      return { x: xOf(times[i]) - 0.4, y: barBottom - h, w: 0.8, h };
     });
-    const pricePath = `M ${sampled.map((p, i) => `${x(i)},${priceY(p.price)}`).join(" L ")}`;
-    const totalPath = `M ${sampled.map((p, i) => `${x(i)},${totalY(p.total)}`).join(" L ")}`;
+    const pricePath = `M ${sampledIdx
+      .map((i) => `${xOf(times[i])},${priceY(points[i].price)}`)
+      .join(" L ")}`;
+    const totalPath = `M ${sampledIdx
+      .map((i) => `${xOf(times[i])},${totalY(points[i].total)}`)
+      .join(" L ")}`;
 
     return {
       bars,
       pricePath,
       totalPath,
-      x,
-      first: sampled[0].hour,
-      last: sampled[sampled.length - 1].hour,
-      points: sampled,
+      tStart,
+      tSpan,
+      times,
+      first: points[0].hour,
+      last: points[points.length - 1].hour,
     };
-  }, [points]);
+  }, [points, windowRange]);
 
   // hoverIndex 可能因 Fast Refresh 状态保留或 points 收缩（实时刷新/切换窗口）而
-  // 超出当前 chart.points 范围：渲染时钳制到有效区间，避免把 undefined 传给
+  // 超出当前 chart.times 范围：渲染时钳制到有效区间，避免把 undefined 传给
   // HoverTooltip 读 .hour 崩溃。
   const safeHoverIndex =
-    hoverIndex != null && chart != null ? Math.min(hoverIndex, chart.points.length - 1) : null;
+    hoverIndex != null && chart != null ? Math.min(hoverIndex, chart.times.length - 1) : null;
 
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!chart || chart.points.length === 0) return;
+    if (!chart || chart.times.length === 0) return;
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
     if (rect.width === 0) return;
     const ratio = ((e.clientX - rect.left) / rect.width) * 100;
-    // 卡片小图 x 等距，最近点索引可直接由比例算出，无需线性扫描。
-    const n = chart.points.length;
-    const idx = Math.max(0, Math.min(n - 1, Math.round((ratio / 100) * (n - 1))));
-    setHoverIndex(idx);
+    // 反推鼠标处的绝对时间戳，再二分找最近数据点；x 按真实时间定位（非等距），
+    // 所以不能像旧实现那样直接用比例整除索引。
+    const tHover = chart.tSpan <= 0 ? chart.tStart : chart.tStart + (ratio / 100) * chart.tSpan;
+    setHoverIndex(nearestIndex(chart.times, tHover));
   };
 
   const handleMouseLeave = () => setHoverIndex(null);
+
+  // hover 竖线与提示的 x 位置：按该点的真实时间戳映射到横坐标（与折线段一致）。
+  const cardHoverX =
+    safeHoverIndex != null && chart != null
+      ? chart.tSpan <= 0
+        ? 50
+        : ((chart.times[safeHoverIndex] - chart.tStart) / chart.tSpan) * 100
+      : null;
 
   return (
     <div
       className={cn("h-full", ringColor ? "rounded-lg p-0.5" : "", isActive && "animate-ring-glow")}
       style={ringStyle}
     >
-      <Card padding="compact" className="flex h-full flex-col gap-2">
+      <Card
+        padding="compact"
+        className={cn("flex h-full flex-col gap-2", onOpenDetail && "cursor-pointer")}
+        onClick={onOpenDetail ? () => onOpenDetail(item.hash) : undefined}
+      >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -259,11 +300,11 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
                   strokeLinecap="round"
                   vectorEffect="non-scaling-stroke"
                 />
-                {safeHoverIndex != null && (
+                {safeHoverIndex != null && cardHoverX != null && (
                   <line
-                    x1={chart.x(safeHoverIndex)}
+                    x1={cardHoverX}
                     y1={2}
-                    x2={chart.x(safeHoverIndex)}
+                    x2={cardHoverX}
                     y2={40}
                     stroke={color}
                     strokeOpacity={0.6}
@@ -272,11 +313,11 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
                   />
                 )}
               </svg>
-              {safeHoverIndex != null && (
+              {safeHoverIndex != null && cardHoverX != null && (
                 <HoverTooltip
-                  point={chart.points[safeHoverIndex]}
+                  point={points[safeHoverIndex]}
                   currency={currency}
-                  hoverX={chart.x(safeHoverIndex)}
+                  hoverX={cardHoverX}
                 />
               )}
             </div>
@@ -302,6 +343,23 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
     </div>
   );
 });
+
+/**
+ * 在升序时间戳数组里二分查找最接近 `t` 的索引。
+ */
+function nearestIndex(times: readonly number[], t: number): number {
+  const last = times.length - 1;
+  if (times.length === 1 || t <= times[0]) return 0;
+  if (t >= times[last]) return last;
+  let lo = 0;
+  let hi = last;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return t - times[lo - 1] <= times[lo] - t ? lo - 1 : lo;
+}
 
 /**
  * 悬浮提示：显示该小时的时间、价格、成交量、成交额。

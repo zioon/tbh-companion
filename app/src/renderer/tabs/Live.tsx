@@ -25,6 +25,7 @@ import { MetricHero } from "../design-system/primitives/MetricHero/MetricHero";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { Tooltip } from "../design-system/primitives/Tooltip/Tooltip";
+import { ProgressBar } from "../design-system/primitives/ProgressBar/ProgressBar";
 import { ChestDropPanel } from "../components/live/ChestDropPanel";
 import { StageRunPanel } from "../components/live/StageRunPanel";
 import {
@@ -464,6 +465,25 @@ export function Live() {
       {liveActive ? (
         <section className="grid grid-cols-6 gap-2.5">
           <StatCard label={t("dps")} value={fmtCompact(stats.dps ?? 0)} title={t("dpsTitle")} />
+          <StatCard
+            label={t("wave")}
+            value={
+              stats.stageWaveTotal > 0
+                ? `${stats.stageWave}/${stats.stageWaveTotal}`
+                : String(stats.stageWave)
+            }
+            title={t("waveTitle")}
+            detail={
+              stats.stageWaveTotal > 0 ? (
+                <ProgressBar
+                  percent={Math.min(
+                    100,
+                    Math.max(0, (stats.stageWave / stats.stageWaveTotal) * 100),
+                  )}
+                />
+              ) : undefined
+            }
+          />
           <StatCard
             label={t("alive")}
             value={String(stats.aliveMonsters ?? 0)}

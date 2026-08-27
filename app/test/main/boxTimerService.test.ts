@@ -140,10 +140,22 @@ describe("BoxTimerService", () => {
     expect(svc.getState().rows.find((r) => r.boxId === 920801)?.status).toBe("cooldown");
   });
 
-  it("ignores live memory stage key when that box level is not tracked", async () => {
+  it("auto-enables the matching level box when a live stage drop is not otherwise tracked", async () => {
+    const svc = await loadService();
+    // Only Lv15 (920151) is enabled; 4103 is a Lv80 (920801) ideal stage.
+    svc.setEnabledBoxIds([920151]);
+    expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(true);
+    // The Lv80 box was auto-added to enabled routes and its timer armed.
+    expect(svc.getState().rows.find((r) => r.boxId === 920801)?.status).toBe("cooldown");
+    expect(svc.getState().enabledCount).toBe(2);
+  });
+
+  it("falls back to auto-enabling box when a lower-level box is enabled but boss stage maps higher", async () => {
     const svc = await loadService();
     svc.setEnabledBoxIds([920151]);
-    expect(svc.tryMarkDroppedFromLiveStage(4103)).toBe(false);
+    // 4309 also maps to Lv80 (920801) — auto-enabled even with Lv15 on.
+    expect(svc.tryMarkDroppedFromLiveStage(4309)).toBe(true);
+    expect(svc.getState().rows.find((r) => r.boxId === 920801)?.status).toBe("cooldown");
   });
 
   it("does not reset cooldown or re-fire callback on duplicate live stage drop", async () => {

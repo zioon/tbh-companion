@@ -47,8 +47,51 @@ export class DpsTracker {
   private _wavesCleared = 0;
   private _wasAlive = false;
 
+  // Stage-end detection from the alive count alone (fallback for missed
+  // stage-clear events, see trackStageEndFromAlive). A run's settlement screen
+  // keeps alive at 0 for ~1-2s, far longer than a normal wave gap (sub-second,
+  // often < 1 reader tick), so a sustained alive=0 marks the run finished and
+  // the next run's first monsters reset the wave counter.
+  // Run-end threshold. A run's settlement screen keeps alive at 0 for ~1-2s.
+  // Raised from 0.5s to 2s (2026-08-25): 0.5s misfired on builds with few
+  // monsters per wave (e.g. v1.01.05, 3-monster batches) where the inter-wave
+  // gap can exceed 0.5s — every gap was misread as "run ended", resetting
+  // _wavesCleared each wave so the UI wave counter bounced between 0 and 1.
+  // 2s keeps real settlements (1-2s) detectable while no longer firing on
+  // typical sub-second wave gaps.
+  private static readonly STAGE_END_ALIVE_ZERO_SEC = 2;
+  private lastAliveZeroAt: number | null = null;
+  private _stageEnded = false;
+
   constructor(windowSeconds = 5) {
     this.windowSeconds = windowSeconds;
+  }
+
+  /**
+   * Detect a run (stage) boundary purely from the alive-monster count.
+   *
+   * Normal wave gaps see alive drop to 0 for only a fraction of a second
+   * (often a single 25Hz tick or less). The settlement screen between runs
+   * keeps alive at 0 for ~1-2s. When alive stays 0 past the threshold we mark
+   * `stageEnded`; the next time monsters spawn (alive > 0) we reset the wave
+   * counter so the new run starts at wave 1. This is the safety net when a
+   * stage-clear event is missed by the log tailer (which would otherwise let
+   * `_wavesCleared` accumulate across runs, e.g. "30/16").
+   */
+  private trackStageEndFromAlive(alive: number, timestamp: number): void {
+    if (alive === 0) {
+      if (this.lastAliveZeroAt == null) this.lastAliveZeroAt = timestamp;
+      if (timestamp - this.lastAliveZeroAt >= DpsTracker.STAGE_END_ALIVE_ZERO_SEC) {
+        this._stageEnded = true;
+      }
+    } else {
+      if (this._stageEnded) {
+        this._wavesCleared = 0;
+        this._wasAlive = false;
+      }
+      this._stageEnded = false;
+      this.lastAliveZeroAt = null;
+    }
   }
 
   /**
@@ -99,6 +142,7 @@ export class DpsTracker {
       this._wavesCleared++;
     }
     this._wasAlive = this._alive > 0;
+    this.trackStageEndFromAlive(this._alive, timestamp);
 
     // Monsters gone since the previous tick = died → account remaining HP as killing blow
     for (const [addr, prevHp] of this.lastHp) {
@@ -156,11 +200,46 @@ export class DpsTracker {
   beginMap(timestamp: number = Date.now() / 1000): void {
     this._wavesCleared = 0;
     this._wasAlive = false;
+    this.lastAliveZeroAt = null;
+    this._stageEnded = false;
     this._pendingMapReset = {
       delayUntil: timestamp + DpsTracker.MAP_RESET_DELAY_SECONDS,
       damageBase: this.sessionDamage,
       killsBase: this.sessionMobsKilled,
     };
+  }
+
+  /**
+   * Mark the current run as over (e.g. the deployed party withdrew after a
+   * clear or a defeat). The wave counter is reset immediately so the next run
+   * starts at wave 1 again — independent of the alive-based stage-end fallback
+   * (`trackStageEndFromAlive`), which only fires after alive stays 0 past
+   * {@link STAGE_END_ALIVE_ZERO_SEC} and therefore misses fast auto-retries.
+   * Unlike {@link beginMap}, the delayed per-map damage/kill reset is NOT
+   * touched here, so the UI can still show this run's final damage while it
+   * settles.
+   */
+  onRunEnd(): void {
+    this._wavesCleared = 0;
+    this._wasAlive = false;
+    this.lastAliveZeroAt = null;
+    this._stageEnded = false;
+  }
+
+  /**
+   * Feed only an alive-monster count when HP data is unavailable (e.g. builds
+   * whose monster-HP offsets aren't derived, like v1.01.05). This keeps
+   * wave-clear detection alive so {@link currentWave} still advances in real
+   * time; DPS/damage stats stay at their last `update()` values (0 on such
+   * builds). Mirrors the alive/wave portion of {@link update}.
+   */
+  updateAlive(alive: number, timestamp: number): void {
+    this._alive = alive;
+    if (this._wasAlive && this._alive === 0) {
+      this._wavesCleared++;
+    }
+    this._wasAlive = this._alive > 0;
+    this.trackStageEndFromAlive(alive, timestamp);
   }
 
   /** Number of currently alive monsters (from the last tick). */
@@ -227,6 +306,8 @@ export class DpsTracker {
     this._alive = 0;
     this._wavesCleared = 0;
     this._wasAlive = false;
+    this.lastAliveZeroAt = null;
+    this._stageEnded = false;
     this._mapDamageBase = 0;
     this._mapKillsBase = 0;
     this._pendingMapReset = null;

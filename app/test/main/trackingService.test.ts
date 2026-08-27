@@ -205,6 +205,7 @@ describe("TrackingService.resolveBoxOpenEntry grade", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: [
         { itemKey: 530017, boxType: 0, level: 5, gradeType: 0 },
         { itemKey: 530017, boxType: 0, level: 5, gradeType: 2 },
@@ -244,6 +245,7 @@ describe("TrackingService.resolveBoxOpenEntry grade", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: [{ itemKey: 530017, boxType: 0, level: 5 }],
       petData: null,
       monsterHp: null,
@@ -305,6 +307,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -340,6 +343,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -385,6 +389,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -426,6 +431,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -445,7 +451,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     expect(onLiveStageBossDrop).not.toHaveBeenCalled();
   });
 
-  it("suppresses a stray rare singleton riding a common-chest burst", () => {
+  it("keeps a lone rare entry riding a common-chest burst (prevents missed boss drops)", () => {
     const onLiveStageBossDrop = vi.fn();
     const svc = new TrackingService(
       vi.fn(),
@@ -470,6 +476,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -482,10 +489,13 @@ describe("TrackingService.onLiveMemoryToggled", () => {
     // Empty tick >0.5s later flushes the burst so collapse runs.
     svc.ingestLiveFrame({ ...frame, chestDrops: [], at: 2700 });
 
+    // A lone rare entry is a real stage-boss chest (a boss chest can produce a
+    // single GetBoxLog entry); keeping it fires onLiveStageBossDrop once. The
+    // old "suppress singleton" behavior dropped real boss drops.
     const stats = svc.getStats().chestDrops;
     expect(stats.commonTotal).toBe(1);
-    expect(stats.rareTotal).toBe(0);
-    expect(onLiveStageBossDrop).not.toHaveBeenCalled();
+    expect(stats.rareTotal).toBe(1);
+    expect(onLiveStageBossDrop).toHaveBeenCalledTimes(1);
   });
 
   it("records a rare burst as one stage-boss drop and fires onLiveStageBossDrop once", () => {
@@ -512,6 +522,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -562,6 +573,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: [{ act: 1, stage: 3, clearTimeSec: 42, valid: true }],
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -603,6 +615,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: [{ act: 1, stage: 3, clearTimeSec: 42, valid: true }],
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -626,6 +639,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
         { act: 1, stage: 3, clearTimeSec: 63, valid: true },
       ],
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -669,6 +683,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: [{ act: 0, stage: 0, clearTimeSec: 85, valid: false }],
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -714,6 +729,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -738,6 +754,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: [{ act: 3, stage: 1, clearTimeSec: 85, valid: true }],
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -778,6 +795,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -798,6 +816,7 @@ describe("TrackingService.onLiveMemoryToggled", () => {
       inventoryItems: null,
       stageClears: [{ act: 0, stage: 0, clearTimeSec: 85, valid: false }],
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -841,6 +860,7 @@ describe("TrackingService live-frame broadcast throttling", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: null,
       petData: null,
       monsterHp: null,
@@ -914,6 +934,7 @@ describe("TrackingService with LocaleCatalog", () => {
   it("uses initialCatalog passed to the constructor to localize names", () => {
     const svc = new TrackingService(
       vi.fn(),
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -995,6 +1016,7 @@ describe("TrackingService with LocaleCatalog", () => {
       inventoryItems: null,
       stageClears: null,
       stageWaveTotal: null,
+      stageAlive: null,
       boxOpens: [{ itemKey: 530017, boxType: 0, level: 5, gradeType: 0 }],
       petData: null,
       monsterHp: null,
@@ -1016,6 +1038,339 @@ describe("TrackingService with LocaleCatalog", () => {
     stats = svc.getStats().boxOpens;
     expect(stats[0].breakdown[0].name).toBe("哥布林兽皮");
     expect(stats[0].history[0].itemName).toBe("哥布林兽皮");
+    svc.stop();
+  });
+});
+
+describe("TrackingService wave from StageManager alive when monsterHp is unavailable", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  it("advances currentWave via updateAlive when monsterHp is null (v1.01.05)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    function frame(at: number, stageAlive: number): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        // Drifted StageManager runtimeWave offset reads 0 on v1.01.05 — the
+        // live stageWave must NOT be trusted, so stats falls back to the
+        // DpsTracker estimate driven by stageAlive below.
+        stageWave: 0,
+        stageWaveTotal: 31,
+        stageAlive,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: null,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // First live frame: alive=3 → wave estimate 1.
+    svc.ingestLiveFrame(frame(1000, 3));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    // Wave cleared: alive 3 → 0 → 3 → estimate 2.
+    svc.ingestLiveFrame(frame(1040, 0));
+    svc.ingestLiveFrame(frame(1080, 3));
+    expect(svc.getStats().stageWave).toBe(2);
+
+    svc.stop();
+  });
+
+  it("resets the wave counter when alive hits 0 at the stage total (wave-total run-end catch)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    function frame(at: number, stageAlive: number): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0, // drifted runtimeWave
+        stageWaveTotal: 31,
+        stageAlive,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: null,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // Wave 1.
+    svc.ingestLiveFrame(frame(1000, 3));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    // Advance 30 wave-clear cycles (alive 3 → 0 → 3). Each 0 frame increments
+    // wavesCleared; after 30 clears with monsters alive the estimate = 31.
+    for (let w = 0; w < 30; w++) {
+      svc.ingestLiveFrame(frame(1100 + w, 0)); // wave cleared
+      svc.ingestLiveFrame(frame(1100 + w + 1, 3)); // next wave alive
+    }
+    expect(svc.getStats().stageWave).toBe(31);
+
+    // Last wave clears: alive 3 → 0 with currentWave 31 >= stageWaveTotal 31.
+    // The wave-total run-end catch fires and resets the counter — without it
+    // the estimate would stay 31 and the next run would start at 32 instead
+    // of 1 (the "stuck at 31/31" symptom on fast auto-retry builds).
+    svc.ingestLiveFrame(frame(3000, 0));
+    expect(svc.getStats().stageWave).toBe(1); // fallback to save (reset to 0)
+
+    // Next run's first wave: back at wave 1, not 32.
+    svc.ingestLiveFrame(frame(3001, 3));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    svc.stop();
+  });
+
+  it("resets the wave counter at a run boundary detected via sustained alive=0 (missed stage-clear fallback)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    function frame(at: number, stageAlive: number): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 1209,
+        stageWave: 0, // drifted runtimeWave on v1.01.05
+        stageWaveTotal: 16,
+        stageAlive,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: null,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // Wave 1.
+    svc.ingestLiveFrame(frame(1000, 3));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    // One wave cleared.
+    svc.ingestLiveFrame(frame(1001, 0));
+    expect(svc.getStats().stageWave).toBe(1); // 1 cleared + 0 alive
+
+    // alive stays 0 for > 2s (settlement screen) — marks the run finished
+    // even though no stage-clear event arrived (log tailer missed it).
+    svc.ingestLiveFrame(frame(4000, 0));
+    expect(svc.getStats().stageWave).toBe(1); // cleared + 0 alive
+
+    // New run spawns monsters → wave counter resets and starts at 1 again,
+    // instead of accumulating to 2.
+    svc.ingestLiveFrame(frame(4001, 3));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    svc.stop();
+  });
+
+  it("records a stage-run failure when the party leaves without a clear (wave >= 2)", () => {
+    const onLiveStageFail = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageFail,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const party: LiveMemorySnapshot["heroes"] = [{ heroKey: 101, level: 5, exp: 500 }];
+    function frame(
+      at: number,
+      stageAlive: number,
+      heroes: LiveMemorySnapshot["heroes"],
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0, // drifted runtimeWave
+        stageWaveTotal: 31,
+        stageAlive,
+        gold: null,
+        heroes,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: null,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // Wave 1 → wave 2, then the party withdraws (run ends) with no stage-clear
+    // in between — a failed run.
+    svc.ingestLiveFrame(frame(1000, 3, party));
+    svc.ingestLiveFrame(frame(1001, 0, party)); // wave cleared
+    svc.ingestLiveFrame(frame(1200, 3, party)); // wave 2 begins
+    svc.ingestLiveFrame(frame(1201, 0, party)); // wave 2 cleared → waves=2
+    svc.ingestLiveFrame(frame(2000, 0, null)); // heroes gone, no clear
+
+    expect(onLiveStageFail).toHaveBeenCalledTimes(1);
+    expect(onLiveStageFail).toHaveBeenCalledWith(3205, 2);
+
+    // A fresh run heals the detector — a menu gap without a deployed hero must
+    // not re-fire (no prior run in flight).
+    svc.ingestLiveFrame(frame(2001, 0, null));
+    svc.ingestLiveFrame(frame(2300, 0, null));
+    expect(onLiveStageFail).toHaveBeenCalledTimes(1);
+
+    svc.stop();
+  });
+
+  it("does not record a failure when the run ended by clearing the stage", () => {
+    const onLiveStageFail = vi.fn();
+    const onLiveStageClear = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageClear,
+      onLiveStageFail,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    function frame(
+      at: number,
+      stageAlive: number,
+      stageClears: LiveMemorySnapshot["stageClears"] = null,
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0,
+        stageWaveTotal: 31,
+        stageAlive,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears,
+        boxOpens: null,
+        petData: null,
+        monsterHp: null,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // Clear the stage (records a win) then the settlement alive=0 lasts past
+    // the run-end threshold.
+    svc.ingestLiveFrame(frame(1000, 3, [{ act: 2, stage: 5, clearTimeSec: 42, valid: true }]));
+    svc.ingestLiveFrame(frame(1001, 0));
+    svc.ingestLiveFrame(frame(4000, 0));
+
+    expect(onLiveStageClear).toHaveBeenCalledTimes(1);
+    // A successful clear must never be misread as a failure.
+    expect(onLiveStageFail).not.toHaveBeenCalled();
+
+    svc.stop();
+  });
+
+  it("resets the wave counter to 1 when the party withdraws (fast retry)", () => {
+    const onLiveStageFail = vi.fn();
+    const svc = new TrackingService(
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onLiveStageFail,
+    );
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const party: LiveMemorySnapshot["heroes"] = [{ heroKey: 101, level: 5, exp: 500 }];
+    function frame(
+      at: number,
+      stageAlive: number,
+      heroes: LiveMemorySnapshot["heroes"],
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0,
+        stageWaveTotal: 31,
+        stageAlive,
+        gold: null,
+        heroes,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: null,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // Two waves cleared, then the party leaves (run ends) without a clear.
+    svc.ingestLiveFrame(frame(1000, 3, party));
+    svc.ingestLiveFrame(frame(1001, 0, party));
+    svc.ingestLiveFrame(frame(1200, 3, party));
+    svc.ingestLiveFrame(frame(1201, 0, party));
+    svc.ingestLiveFrame(frame(2000, 0, null)); // heroes gone
+
+    expect(onLiveStageFail).toHaveBeenCalledTimes(1); // judged a failure at wave 2
+    expect(onLiveStageFail).toHaveBeenCalledWith(3205, 2);
+
+    // A fast retry re-deploys the party: the wave counter must be back at 1,
+    // not continuing to accumulate from the failed run.
+    svc.ingestLiveFrame(frame(2100, 3, party));
+    expect(svc.getStats().stageWave).toBe(1);
+
     svc.stop();
   });
 });

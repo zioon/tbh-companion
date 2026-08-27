@@ -86,6 +86,36 @@ export const STEAM_CURRENCIES: SteamCurrency[] = [
 
 const BY_ISO = new Map(STEAM_CURRENCIES.map((c) => [c.iso, c]));
 
+/**
+ * 由货币显示前缀反查 ISO 码。用于 `pricehistory` 响应里的 `price_prefix`
+ * （pricehistory 会忽略 `currency` 参数，价格列货币仅能靠前缀/后缀识别）。
+ *
+ * 无法唯一归一的歧义前缀（如 `¥` = JPY/CNY、`kr ` = NOK/DKK、前缀为空的
+ * PLN/VND/UAH）返回 null，调用方应保守地不做换算，而不是猜错货币。
+ */
+const PREFIX_TO_ISO: ReadonlyMap<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const c of STEAM_CURRENCIES) {
+    const p = c.prefix.trim().toUpperCase();
+    if (!p) continue; // 前缀为空的后缀货币（PLN/VND/UAH），不参与前缀判定
+    if (m.has(p))
+      m.set(p, "__AMBIG__"); // 同一前缀对应多个 ISO
+    else m.set(p, c.iso);
+  }
+  return m;
+})();
+
+/** 由 pricehistory 的 `price_prefix` 判定其货币 ISO 码；无法唯一判定时返回 null。 */
+export function priceHistoryCurrency(
+  prefix: string | null | undefined,
+  _suffix?: string | null,
+): string | null {
+  const p = (prefix ?? "").trim().toUpperCase();
+  if (!p) return null;
+  const iso = PREFIX_TO_ISO.get(p);
+  return iso && iso !== "__AMBIG__" ? iso : null;
+}
+
 export function currencyByIso(iso: string): SteamCurrency {
   return BY_ISO.get(iso.toUpperCase()) ?? STEAM_CURRENCIES[0];
 }

@@ -52,6 +52,8 @@ function makeService(
      * transitions. Takes precedence over `inventoryStatus`.
      */
     inventoryStatusRef?: { value: { used: number; capacity: number } | null };
+    /** Optional onLiveStageBossDrop hook (invoked when a missed rare drop is recovered). */
+    onLiveStageBossDrop?: (stageKey: number) => void;
   } = {},
 ) {
   const broadcasts: Array<{ channel: string; payload: unknown }> = [];
@@ -87,6 +89,7 @@ function makeService(
       broadcasts.push({ channel, payload });
       opts.broadcast?.(channel, payload);
     },
+    onLiveStageBossDrop: opts.onLiveStageBossDrop,
   });
   if (opts.enabled) service.setEnabled(true);
   return { service, chestDropTracker, boxOpenTracker, broadcasts };
@@ -848,6 +851,79 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       String(c[0]).includes("backfilled 5 common"),
     ).length;
     expect(reloggedCount).toBe(1); // first call after re-enable logs again
+  });
+
+  it("recoverDrops: records a missed rare drop + arms BoxTimer on save slot increase, no double-queue", () => {
+    const onLiveStageBossDrop = vi.fn();
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+      onLiveStageBossDrop,
+    });
+    // First reconcile: prev == null → pre-existing chests are NOT counted as drops.
+    service.reconcileWithChestSlots({ common: 0, rare: 2, act: 0 });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
+    expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(2);
+
+    // Second reconcile: rare slots 2→3, queue rare still 2 → deficit 1, increase 1.
+    // The recovered drop must be recorded (rareTotal 0→1), BoxTimer armed, and the
+    // queue must NOT double-enqueue (rare count 2→3, not 4).
+    service.reconcileWithChestSlots({ common: 0, rare: 3, act: 0 });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
+    expect(onLiveStageBossDrop).toHaveBeenCalledTimes(1);
+    expect(onLiveStageBossDrop).toHaveBeenCalledWith(1105);
+    expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(3);
+  });
+
+  it("recoverDrops: caps recovered count at the slot increase, not the full backlog deficit", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Establish baseline: rare slots = 2 (2 pre-existing chests backfilled).
+    service.reconcileWithChestSlots({ common: 0, rare: 2, act: 0 });
+    // rare slots 2→4 (increase 2): both are new drops missed live → record 2.
+    service.reconcileWithChestSlots({ common: 0, rare: 4, act: 0 });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(2);
+  });
+
+  it("recoverDrops: does NOT record when slot count decreases or is unchanged", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 3, act: 0 });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0); // first reconcile: no record
+
+    // rare 3→2 (a chest opened) → decrease, no recovery.
+    service.reconcileWithChestSlots({ common: 0, rare: 2, act: 0 });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
+
+    // rare 2→2 (unchanged) but queue short by 1 (opened chest not yet reflected) →
+    // increase = 0 → no recovery (inherent save ambiguity, not a reader miss).
+    // Simulate queue already correct: reconcile identical slots.
+    service.reconcileWithChestSlots({ common: 0, rare: 2, act: 0 });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
+  });
+
+  it("recoverDrops: does NOT record common chests (only rare/act boss chests)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 3, rare: 0, act: 0 });
+    expect(chestDropTracker.getStats(100).commonTotal).toBe(0);
+    // common 3→5 (increase 2) but recovery is rare/act-only → still 0.
+    service.reconcileWithChestSlots({ common: 5, rare: 0, act: 0 });
+    expect(chestDropTracker.getStats(100).commonTotal).toBe(0);
   });
 });
 

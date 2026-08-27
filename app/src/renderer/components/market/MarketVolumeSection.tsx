@@ -9,6 +9,9 @@ import { Card } from "../../design-system/primitives/Card/Card";
 /** 主走势图最多绘制的点数（显示宽度有限，超出即均匀降采样）。 */
 const MAX_TREND_POINTS = 120;
 
+/** 交接给 VolumeTrendChart / HoverTooltip 的「每分类第一交易额物品」查询表类型。 */
+type TopItemsByCategoryMap = Record<string, Record<string, { name: string; total: number }>>;
+
 /** 在升序时间戳数组里二分查找最接近 `t` 的索引。 */
 function nearestIndex(times: readonly number[], t: number): number {
   if (t <= times[0]) return 0;
@@ -110,6 +113,7 @@ function sumRange(points: MarketVolumeHourPoint[]): {
  */
 export function MarketVolumeSection({
   windowPts,
+  topItemsByCategory = {},
   latest,
   itemCountsByCategory = {},
   currency,
@@ -122,6 +126,8 @@ export function MarketVolumeSection({
 }: {
   /** 主图表当前显示窗口的小时点（升序）。 */
   windowPts: MarketVolumeHourPoint[];
+  /** 大图表 tooltip 中每分类第一交易额物品的查询表：hour -> 分类 -> { name, total }。 */
+  topItemsByCategory?: TopItemsByCategoryMap;
   /** 最近一次轮询采样（24h 滚动快照）；无历史时回退展示。 */
   latest: MarketVolumeSample | null;
   /** 各分类覆盖的物品种数：类别 key -> 数量。 */
@@ -191,6 +197,7 @@ export function MarketVolumeSection({
       />
       <VolumeTrendChart
         points={windowPts}
+        topItemsByCategory={topItemsByCategory}
         itemCountsByCategory={itemCountsByCategory}
         currency={currency}
         range={range}
@@ -298,6 +305,7 @@ function VolumeBreakdown({
  */
 function VolumeTrendChart({
   points,
+  topItemsByCategory = {},
   itemCountsByCategory = {},
   currency,
   range = "1d",
@@ -307,6 +315,8 @@ function VolumeTrendChart({
   onOffsetCommit,
 }: {
   points: MarketVolumeHourPoint[];
+  /** 大图表 tooltip 中每分类第一交易额物品的查询表：hour -> 分类 -> { name, total }。 */
+  topItemsByCategory?: TopItemsByCategoryMap;
   itemCountsByCategory?: Record<string, number>;
   currency: string;
   range?: VolumeRange;
@@ -530,6 +540,7 @@ function VolumeTrendChart({
         {hoverPoint && safeHoverIndex != null && hoverRangeEnd && (
           <HoverTooltip
             point={hoverPoint}
+            topItemsByCategory={topItemsByCategory}
             rangeStart={hoverPoint.hour}
             rangeEnd={hoverRangeEnd}
             currency={currency}
@@ -568,6 +579,7 @@ function VolumeTrendChart({
  */
 function HoverTooltip({
   point,
+  topItemsByCategory = {},
   rangeStart,
   rangeEnd,
   currency,
@@ -575,6 +587,8 @@ function HoverTooltip({
   hoverX,
 }: {
   point: MarketVolumeHourPoint;
+  /** 每分类第一交易额物品的查询表：hour -> 分类 -> { name, total }。 */
+  topItemsByCategory?: TopItemsByCategoryMap;
   rangeStart: string;
   rangeEnd: string;
   currency: string;
@@ -582,10 +596,16 @@ function HoverTooltip({
   hoverX: number;
 }) {
   const { t } = useTranslation("market");
-  const categories = VOLUME_CATEGORY_ORDER.map((cat) => ({
-    cat,
-    value: point.byCategory?.[cat] ?? 0,
-  }));
+  // 当前小时点内，各分类交易额第一的物品（名称 + 金额）；该分类无物品时为 undefined。
+  const topItemByCat = topItemsByCategory[point.hour];
+  // 该小时点内，各分类第一物品占该分类总金额的比例（分类金额为 0 时无占比）。
+  const share = (topItem?: { name: string; total: number }, total = 0): number | null =>
+    topItem && total > 0 ? (topItem.total / total) * 100 : null;
+  const categories = VOLUME_CATEGORY_ORDER.map((cat) => {
+    const total = point.byCategory?.[cat] ?? 0;
+    const topItem = topItemByCat?.[cat];
+    return { cat, total, topItem, share: share(topItem, total) };
+  });
   // 时间段首尾：同一天省略结束日期，缩短显示（数据为整点，分钟恒为 :00）。
   const timeLabel = formatTimeRange(rangeStart, rangeEnd);
   // 靠近左右边缘时改用贴边对齐，避免 tooltip 部分内容超出图表容器。
@@ -601,7 +621,7 @@ function HoverTooltip({
         <span className="font-semibold">{formatMoney(total, currency)}</span>
       </div>
       <ul className="m-0 space-y-0.5 p-0" style={{ listStyle: "none" }}>
-        {categories.map(({ cat, value }) => (
+        {categories.map(({ cat, total, topItem, share }) => (
           <li key={cat} className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-1.5 text-muted">
               <span
@@ -610,7 +630,20 @@ function HoverTooltip({
               />
               {categoryLabel(cat, t)}
             </span>
-            <span className="font-medium text-fg">{formatMoney(value, currency)}</span>
+            <span className="flex items-baseline gap-2">
+              {topItem ? (
+                <span
+                  className="max-w-[12rem] truncate text-[11px] text-muted"
+                  title={topItem.name}
+                >
+                  {topItem.name}
+                  {share != null ? (
+                    <span className="text-muted/70"> · {share.toFixed(1)}%</span>
+                  ) : null}
+                </span>
+              ) : null}
+              <span className="font-medium text-fg">{formatMoney(total, currency)}</span>
+            </span>
           </li>
         ))}
       </ul>

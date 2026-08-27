@@ -1112,14 +1112,25 @@ export interface ClearAppDataResult {
 
 // --- Stage runs (live stage clear history: per-run duration + XP/gold) ---
 
+/** Outcome of a stage run recorded in stage-clear history. */
+export type StageRunOutcome = "clear" | "fail";
+
 export interface StageRunHistoryEntry {
   wallTime: number;
   stageKey: number;
   stageName?: string; // localized stage name; absent on entries cached before v1.19.x
+  /**
+   * Absent on clear/legacy entries (defaults to "clear"); set to "fail" only
+   * on stage runs inferred to have failed. Keeping it absent on clears keeps
+   * the persisted `stage_run_history.json` and old tests/snapshots unchanged.
+   */
+  outcome?: StageRunOutcome;
   clearTimeSec: number;
   /** XP/gold gained since the previous recorded clear (this run's take). */
   xpGained: number;
   goldGained: number;
+  /** Furthest wave reached on a failed run; only meaningful when outcome==="fail". */
+  failedWave?: number;
 }
 
 export interface StageRunStats {
@@ -1683,7 +1694,16 @@ export interface LiveMemorySnapshot {
    * cleared it) and the tail restarted from 0 — which re-reads old entries as
    * new and can cause duplicate recordings.
    */
-  chestLogDebug?: { count: number; lastCountBefore: number; start: number; entriesRead: number };
+  chestLogDebug?: {
+    count: number;
+    lastCountBefore: number;
+    start: number;
+    entriesRead: number;
+    retryFrom?: number;
+    retryConsecutive?: number;
+    /** Cross-tick settle correction (provisional → committed), e.g. common→rare. */
+    settled?: { idx: number; from: "common" | "rare" | "act"; to: "common" | "rare" | "act" };
+  };
   /**
    * Live per-category chest slot quantities (current count of unopened chests
    * of each type), read from `PlayerSaveData.BoxData` runtime. `null` = reader

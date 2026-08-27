@@ -541,6 +541,7 @@ export function extractOffsets(
           stageKey: 0x30,
           waveAmount: 0x54,
           runtimeWave: STRUCT_RUNTIME_WAVE,
+          alive: 0, // not derived by the extractor — bundled tables only
         },
         currencyInfoKey: 0x30,
         heroList: sm?.heroList ?? 0,

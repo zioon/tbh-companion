@@ -8,8 +8,30 @@ import {
   formatMoney,
   formatRawMoney,
   pickMarketUnit,
+  priceHistoryCurrency,
   STEAM_CURRENCIES,
 } from "../../src/core/steamPrice";
+
+describe("priceHistoryCurrency", () => {
+  it("把唯一前缀解析为 ISO 码", () => {
+    expect(priceHistoryCurrency("R$")).toBe("BRL");
+    expect(priceHistoryCurrency("R$ ")).toBe("BRL");
+    expect(priceHistoryCurrency("$")).toBe("USD");
+    expect(priceHistoryCurrency("€")).toBe("EUR");
+    expect(priceHistoryCurrency("₽")).toBe("RUB");
+  });
+
+  it("歧义前缀（¥/kr ./空前缀）返回 null，保守不换算", () => {
+    expect(priceHistoryCurrency("¥")).toBeNull();
+    expect(priceHistoryCurrency("kr ")).toBeNull();
+    expect(priceHistoryCurrency("")).toBeNull();
+  });
+
+  it("空值/缺省返回 null", () => {
+    expect(priceHistoryCurrency(null)).toBeNull();
+    expect(priceHistoryCurrency(undefined)).toBeNull();
+  });
+});
 
 describe("parseMoney", () => {
   it("parses US-format prices", () => {

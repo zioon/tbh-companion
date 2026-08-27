@@ -148,29 +148,33 @@ export class BoxTimerService {
 
   /** Start cooldown when live memory reports a stage boss chest at `stageKey`. */
   tryMarkDroppedFromLiveStage(stageKey: number): boolean {
-    const boxId = resolveTrackedDropBoxIdForStage(
+    let boxId = resolveTrackedDropBoxIdForStage(
       stageKey,
       this.enabledBoxIds,
       this.routes,
       this.idealStageKeyByBoxId,
     );
     if (boxId == null) {
-      // Surface why no reminder fired. autoClassify doesn't depend on
-      // enabledBoxIds so its "queued drop" log will appear without a matching
-      // boxTimers line whenever the drop's level isn't enabled in the Chests
-      // tab — without this diagnostic that looks like a missing reminder.
+      // No ENABLED route drops at this stage. If the stage maps to a canonical
+      // RARE tracker route but its box level isn't enabled, auto-enable the
+      // highest-level matching route so boss drops always arm a cooldown. The
+      // default four mid-game boxes (Lv15/20/30/40) don't cover later stages
+      // (e.g. Lv80), so without this a user farming a late level never saw a
+      // BoxTimer fire at all ("BoxTimer 倒计时不触发"). Auto-enabling is
+      // explicit and cheap: the level is genuinely being farmed, so starting
+      // its cooldown is the expected behavior.
       const matching = this.routes.filter((r) => r.dropStageKeys.includes(stageKey));
       if (matching.length === 0) {
         log.info(`stage boss drop at stage ${stageKey} matched no tracker route; skipping`);
-      } else {
-        const detail = matching
-          .map((r) => `Lv${r.level}(id=${r.boxId},enabled=${this.enabledBoxIds.has(r.boxId)})`)
-          .join(", ");
-        log.info(
-          `stage boss drop at stage ${stageKey} matched route(s) [${detail}] but none enabled; skipping`,
-        );
+        return false;
       }
-      return false;
+      const picked = [...matching].sort((a, b) => b.level - a.level || b.boxId - a.boxId)[0]!;
+      log.info(
+        `stage boss drop at stage ${stageKey}: auto-enabled Lv${picked.level} box (id=${picked.boxId}) — was disabled`,
+      );
+      this.enabledBoxIds.add(picked.boxId);
+      this.catalogCache = null;
+      boxId = picked.boxId;
     }
     if (this.isBoxOnCooldown(boxId)) {
       log.info(

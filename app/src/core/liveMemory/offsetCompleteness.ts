@@ -229,6 +229,11 @@ export function mergeOffsets(base: LiveOffsets, derived: LiveOffsets): LiveOffse
         stageKey: pickN(base.runtime.stage.stageKey, derived.runtime.stage.stageKey),
         waveAmount: pickN(base.runtime.stage.waveAmount, derived.runtime.stage.waveAmount),
         runtimeWave: pickN(base.runtime.stage.runtimeWave, derived.runtime.stage.runtimeWave),
+        // Newer fields not present in disk caches written by older revisions:
+        // fall back to the derived value (which may itself be 0 when the
+        // extractor can't derive it — the bundled table then supplies it at
+        // offsetsForVersion time).
+        alive: base.runtime.stage.alive ?? derived.runtime.stage.alive ?? 0,
       },
       currencyInfoKey: pickN(base.runtime.currencyInfoKey, derived.runtime.currencyInfoKey),
       heroList: pickN(base.runtime.heroList, derived.runtime.heroList),

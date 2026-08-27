@@ -152,6 +152,12 @@ export interface LiveOffsets {
       stageKey: number;
       waveAmount: number;
       runtimeWave: number;
+      /**
+       * StageManager instance field holding the live alive-monster count
+       * (used as a wave-clear signal on builds whose monster-HP offsets are
+       * unavailable, e.g. v1.01.05). 0 = not derivable.
+       */
+      alive: number;
     };
     currencyInfoKey: number;
     /** StageManager.HeroList field offset (real field name; stable across patches). */
@@ -266,6 +272,7 @@ const RUNTIME_V1_00_21 = {
     stageKey: 0x30,
     waveAmount: 0x54,
     runtimeWave: 0x138,
+    alive: 0, // not derived for v1.00.x
   },
   currencyInfoKey: 0x30,
   heroList: 0x30, // StageManager.HeroList — real field name, stable across patches
@@ -543,6 +550,7 @@ const V1_00_28: LiveOffsets = {
       stageKey: 0x30,
       waveAmount: 0x54,
       runtimeWave: 0x138,
+      alive: 0,
     },
     currencyInfoKey: 0x30,
     heroList: 0x30,
@@ -637,6 +645,7 @@ const V1_01_01: LiveOffsets = {
       stageKey: 0x30,
       waveAmount: 0x54,
       runtimeWave: 0x138,
+      alive: 0,
     },
     currencyInfoKey: 0x30,
     heroList: 0x30,
@@ -702,6 +711,17 @@ const V1_01_01: LiveOffsets = {
 //    (monsterList/summonedList/…) are not extractable by shape; DPS
 //    monster-HP tracking degrades on this version.
 //  - boxOpenLog.boxType/level: obfuscated field names — not derivable.
+//
+// Wave counter on v1.01.05 (2026-08-24, live-verified):
+//  - `runtime.stage.runtimeWave` (0x138, inherited from v1.00.27+/v1.01.01)
+//    is WRONG on this build — the StageManager instance's +0x138 reads a
+//    constant 0 even mid-battle, so `readRuntimeStage` yields stageWave=0.
+//    stats.ts treats a live wave of 0 as untrusted and falls back to the
+//    DpsTracker estimate / save-derived wave.
+//  - `runtime.stage.alive` (0x78) is the StageManager live alive-monster
+//    count (verified oscillating 0..3 = one 3-monster batch per wave), used
+//    by TrackingService to drive DpsTracker wave-clear detection when
+//    monster-HP data is unavailable, keeping the wave counter real-time.
 const V1_01_05: LiveOffsets = {
   gameVersion: "1.01.05",
   typeInfoRva: {
@@ -754,6 +774,7 @@ const V1_01_05: LiveOffsets = {
       stageKey: 0x30,
       waveAmount: 0x54,
       runtimeWave: 0x138,
+      alive: 0x78, // StageManager live alive count (verified on v1.01.05)
     },
     currencyInfoKey: 0x30,
     heroList: 0x30,

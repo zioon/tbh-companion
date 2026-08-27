@@ -45,6 +45,13 @@ export class StageRunService {
     this.push();
   }
 
+  /** Record a stage run inferred to have failed (furthest wave reached). */
+  recordFailure(stageKey: number, failedWave: number): void {
+    this.tracker.recordFailure(stageKey, failedWave);
+    this.persist();
+    this.push();
+  }
+
   getStats(): StageRunStats {
     const raw = this.tracker.getStats();
     // Recompute stageName on every call so a language switch via

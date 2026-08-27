@@ -45,6 +45,28 @@ export class StageRunTracker {
     }
   }
 
+  /**
+   * Record a stage run inferred to have failed (see `docs/BUSINESS-FLOWS.md`
+   * §12 for the detection rules). Only the furthest wave reached is kept — a
+   * failed run earns no XP/gold, so those fields are zero.
+   */
+  recordFailure(stageKey: number, failedWave: number, wallTime = nowSeconds()): void {
+    if (stageKey <= 0 || failedWave < 1) return;
+
+    this.history.push({
+      wallTime,
+      stageKey,
+      outcome: "fail",
+      clearTimeSec: 0,
+      xpGained: 0,
+      goldGained: 0,
+      failedWave: Math.trunc(failedWave),
+    });
+    if (this.history.length > HISTORY_LIMIT) {
+      this.history.splice(0, this.history.length - HISTORY_LIMIT);
+    }
+  }
+
   getStats(): StageRunStats {
     return {
       history: this.history.slice(-HISTORY_VISIBLE).reverse(),
@@ -69,11 +91,20 @@ export class StageRunTracker {
 function isValidHistoryEntry(entry: unknown): entry is StageRunHistoryEntry {
   if (typeof entry !== "object" || entry === null) return false;
   const e = entry as StageRunHistoryEntry;
+  if (
+    typeof e.wallTime !== "number" ||
+    !Number.isFinite(e.wallTime) ||
+    typeof e.stageKey !== "number" ||
+    e.stageKey <= 0
+  ) {
+    return false;
+  }
+  // Failed runs carry no clear time and no XP/gold — only wallTime/stageKey/failedWave.
+  if (e.outcome === "fail") {
+    return typeof e.failedWave === "number" && Number.isFinite(e.failedWave) && e.failedWave >= 1;
+  }
+  // Clear / legacy entries (outcome absent).
   return (
-    typeof e.wallTime === "number" &&
-    Number.isFinite(e.wallTime) &&
-    typeof e.stageKey === "number" &&
-    e.stageKey > 0 &&
     typeof e.clearTimeSec === "number" &&
     e.clearTimeSec > 0 &&
     typeof e.xpGained === "number" &&

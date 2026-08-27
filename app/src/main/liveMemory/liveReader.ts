@@ -80,6 +80,21 @@ import type { LiveChestCategory } from "../../core/liveMemory/runtime";
 const PROCESS_NAMES = ["TaskBarHero.exe", "TaskbarHero.exe"];
 
 /**
+ * Transitional catch-up burst for the GetBox chest tail. A boss (rare/act) drop
+ * can append its GetBoxLog entry and then have it evicted/cleared within a
+ * single 25Hz tick (the log's `count` shrinks by 1 mid-transition), so a lone
+ * tail scan per tick can miss it entirely — a total loss with no trace (the
+ * "关卡/BOSS 宝箱完全没记录" symptom). When a tick shows transitional activity we
+ * re-poll the tail `CHEST_BURST_ROUNDS` times, `CHEST_BURST_GAP_MS` apart, to
+ * grab transient entries a single pass misses. Quiet ticks (no drops / no
+ * pending settle) skip the burst entirely, so normal operation is cost-free.
+ */
+const CHEST_BURST_ROUNDS = 4;
+const CHEST_BURST_GAP_MS = 2;
+/** Reusable wait slot so the burst loop doesn't allocate a SharedArrayBuffer per iteration. */
+const CHEST_BURST_WAIT = new Int32Array(new SharedArrayBuffer(4));
+
+/**
  * Throttle window for the per-status failure diagnostic log. When chest drops
  * / box opens / chest slots return a non-empty status, the worker emits a
  * log line at most once per window so silent degradation is visible in
@@ -189,6 +204,15 @@ export class LiveMemoryReader {
   private combatGoldPin: CombatGoldPinState = makeCombatGoldPinState();
   private smPin: SmPinState = makeSmPinState();
   private chestPin: ChestLogPinState = makeChestLogPinState();
+  /**
+   * Drops caught by the high-frequency chest tail monitor
+   * ({@link pollChestTailFast}) between 25Hz snapshot frames. Folded into the
+   * next snapshot's `chestDrops` so a transient rare/act that is appended and
+   * evicted within a single 40ms frame is still recorded ("关卡宝箱" total-loss
+   * fix). Emptied each time `read()` consumes it; index-based tailing means the
+   * fast monitor and the main `read()` never re-emit the same entry.
+   */
+  private pendingChestDrops: LiveChestCategory[] = [];
   private stageClearPin: StageClearPinState = makeStageClearPinState();
   private boxOpenPin: BoxOpenPinState = makeBoxOpenPinState();
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
@@ -263,6 +287,8 @@ export class LiveMemoryReader {
    * worker can reset the critical budget and trigger an immediate heal.
    */
   private smWasAvailable = false;
+  /** Last wall-clock (ms) a TBH_WAVE_DEBUG diagnostic line was emitted (throttle). */
+  private lastWaveDebugAt = -1;
   /**
    * One-shot flag set by `read()` when StageManager transitions from
    * unavailable to available while the reader is on a stale fallback baseline.
@@ -604,6 +630,24 @@ export class LiveMemoryReader {
     appBuild: string,
   ): void {
     this.offsets = resolved.table;
+    // Backfill the StageManager `alive` offset from the bundled table when the
+    // resolved table lacks it. Older disk caches (written before the field
+    // existed) and extractor output (which can't derive it) both omit it — the
+    // value lives only in the bundled table (e.g. v1.01.05 `runtime.stage.alive
+    // = 0x78`). Without this backfill `stageAlive` is never read and the
+    // monster-count wave fallback silently degrades to the save value.
+    if (this.offsets && this.gameVersion && !this.offsets.runtime.stage.alive) {
+      const bundled = offsetsForVersion(this.gameVersion);
+      if (bundled && bundled.runtime.stage.alive > 0) {
+        this.offsets = {
+          ...this.offsets,
+          runtime: {
+            ...this.offsets.runtime,
+            stage: { ...this.offsets.runtime.stage, alive: bundled.runtime.stage.alive },
+          },
+        };
+      }
+    }
     this.offsetSource = resolved.source;
     if (resolved.classIndex) this.classIndex = resolved.classIndex;
     this.supported = this.offsets != null && this.ga != null && hasCriticalOffsets(this.offsets);
@@ -974,6 +1018,50 @@ export class LiveMemoryReader {
   }
 
   /** Live stage snapshot, or null when unattached/unsupported/unreadable. */
+  /**
+   * High-frequency chest tail catch-up, called (~every few ms) while attached.
+   * A stage/boss "关卡宝箱" GetBoxLog entry can be appended and then evicted/
+   * cleared within one 25Hz frame — the 25Hz single scan misses it entirely
+   * (a total loss with no trace). Polling the tail rapidly narrows the sampling
+   * gap; any new drop is stashed into {@link pendingChestDrops} and folded into
+   * the next snapshot. Index-based tailing means this never duplicates and never
+   * conflicts with `read()`'s own chest tail read. Cheap: one tail scan, and it
+   * runs only while attached+supported so it doesn't tax idle/degraded states.
+   */
+  pollChestTailFast(): void {
+    if (!this.attached || !this.supported) return;
+    const p = this.proc;
+    const o = this.offsets;
+    const ga = this.ga;
+    if (!p || !o || !ga || !p.isAlive()) return;
+    const res = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+    if (res.drops && res.drops.length > 0) {
+      this.pendingChestDrops.push(...res.drops);
+      // Diagnostic: prove the continuous high-frequency poller is catching
+      // rare/act entries (the transient "关卡宝箱" loss). Fires at most once
+      // per caught entry (index-based tailing, drained each snapshot read).
+      const caught = res.drops.filter((c) => c === "rare" || c === "act");
+      if (caught.length > 0) {
+        this.log(`chest fastpoll: caught transient ${caught.join("/")} (pending=${this.pendingChestDrops.length})`);
+      }
+    }
+  }
+
+  /**
+   * Merge chest drops caught by the high-frequency monitor (between frames)
+   * with this frame's own chest drops, then clear the pending buffer. When the
+   * monitor caught an entry the main `read()`'s tail already passed (index-based),
+   * `roundDrops` has nothing new for it, so it appears once.
+   */
+  private consumePendingChestDrops(
+    roundDrops: LiveChestCategory[] | null,
+  ): LiveChestCategory[] | null {
+    if (this.pendingChestDrops.length === 0) return roundDrops;
+    const merged = [...this.pendingChestDrops, ...(roundDrops ?? [])];
+    this.pendingChestDrops = [];
+    return merged.length > 0 ? merged : null;
+  }
+
   read(): LiveMemorySnapshot | null {
     const p = this.proc;
     const o = this.offsets;
@@ -1050,6 +1138,34 @@ export class LiveMemoryReader {
         : heroesResult.status || undefined;
 
     const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+    // Transitional catch-up burst: re-poll the tail a few times (a couple ms
+    // apart) when this tick shows any sign of a GetBox transition — new drops,
+    // a pending cross-tick settle, or a shrink — to grab a transient rare/act
+    // entry that a single scan would miss (the boss chest "no trace" loss).
+    // `readRuntimeChestLog` tails by index, so re-calls never duplicate; the
+    // settle-withhold re-reads and corrects within the burst too. Quiet ticks
+    // skip the burst (no cost).
+    if (
+      chestResult.drops != null &&
+      (chestResult.drops.length > 0 ||
+        this.chestPin.pendingIdx != null ||
+        (chestResult.debug != null && chestResult.debug.count < chestResult.debug.lastCountBefore))
+    ) {
+      for (let burst = 0; burst < CHEST_BURST_ROUNDS; burst++) {
+        Atomics.wait(CHEST_BURST_WAIT, 0, 0, CHEST_BURST_GAP_MS);
+        const extra = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+        const caught = extra.drops?.filter((c) => c === "rare" || c === "act");
+        if (extra.drops && extra.drops.length > 0) {
+          chestResult.drops.push(...extra.drops);
+          if (caught && caught.length > 0) {
+            this.log(`chest burst: caught transient ${caught.join("/")} entry`);
+          }
+          continue; // keep bursting while new entries keep arriving
+        }
+        // No new entry this pass; stop unless a settle is still pending.
+        if (this.chestPin.pendingIdx == null) break;
+      }
+    }
     const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
     // Box-open diagnostic: emit only on change so the 25 Hz tick doesn't flood
     // the log. When `opens` is a real delta but `parsed` stays 0 while
@@ -1166,11 +1282,35 @@ export class LiveMemoryReader {
     this.emitStatusFailLog(chestResult.status, boxOpenResult.status, chestSlotsResult.status);
     this.detectCachePollution(boxOpenResult, chestResult);
 
+    // Sandbox wave diagnostic (TBH_WAVE_DEBUG=1): the "wave counter stuck at a
+    // fixed non-zero value while DPS/kills look fine" symptom points at
+    // readRuntimeStage.wave returning a constant — which stats.ts then trusts
+    // over dpsTracker.currentWave. Line up the raw inputs so we can tell
+    // whether stage.wave is constant while stage.alive / monsterHps still
+    // fluctuate (→ StageManager resolved to the wrong object, +runtimeWave
+    // reads a stray stable value). Throttled; app.log must not be flooded at
+    // the ~25 Hz tick rate.
+    if (process.env.TBH_WAVE_DEBUG === "1") {
+      const nowWaveDebug = Date.now();
+      if (nowWaveDebug - this.lastWaveDebugAt >= 1000) {
+        this.lastWaveDebugAt = nowWaveDebug;
+        this.log(
+          `DBG wave: rawWave=${stage.wave} alive=${stage.alive} ` +
+            `waveTotal=${stage.waveTotal} monsterHps=` +
+            `${monsterData?.monsterHps?.length ?? "null"} ` +
+            `dead=${monsterData?.deadCount ?? "null"} ` +
+            `smPtr=${smPtr ? "0x" + smPtr.toString(16) : "null"} ` +
+            `smStatus="${this.smPin.lastStatus}" ver=${o.gameVersion}`,
+        );
+      }
+    }
+
     return {
       connected: true,
       stageKey: stage.stageKey,
       stageWave: stage.wave,
       stageWaveTotal: stage.waveTotal,
+      stageAlive: stage.alive,
       // Combat gold (AggregateSaveData GoldEarn[SubKey=1]) — pure combat earnings.
       // Falls back to wallet balance (CurrencyManager) when aggregate offset unavailable.
       gold:
@@ -1178,7 +1318,7 @@ export class LiveMemoryReader {
         readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
       heroes: heroesResult.heroes,
       heroesStatus,
-      chestDrops: chestResult.drops,
+      chestDrops: this.consumePendingChestDrops(chestResult.drops),
       chestDropsStatus: chestResult.status || undefined,
       chestLogDebug: chestResult.debug,
       chestSlots: chestSlotsResult.slots,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStats } from "./lib/useStats";
 import { useInventory } from "./lib/useInventory";
@@ -80,6 +80,75 @@ export function Overlay() {
     : t("pricingLabel");
 
   const rings = buildBossChestRings(lastRareDropWallTime, nowSeconds);
+
+  // Bottom line must stay on a single row in the narrow 280px overlay: when the
+  // full text (box timer + map/wave + inventory value) overflows, hide the
+  // inventory value (secondary) instead of wrapping or ellipsizing, so the box
+  // timer and map/wave stay fully readable. A hidden, absolutely-positioned
+  // duplicate of the full line measures its width without affecting layout;
+  // the measured overflow then toggles whether the real line renders `inv`.
+  const bottomRef = useRef<HTMLParagraphElement>(null);
+  const bottomFullRef = useRef<HTMLSpanElement>(null);
+  const [invOverflowHidden, setInvOverflowHidden] = useState(false);
+  const hasInv = inv != null;
+  const renderBottomText = (showInv: boolean) => {
+    if (!stats) return null;
+    return (
+      <>
+        {stats.chestDrops.lastRareDropWallTime != null && (
+          <>
+            <span className="shrink-0">
+              {t("boxLabel")}{" "}
+              {fmtShortDuration(
+                Math.max(0, Math.round(nowSeconds - stats.chestDrops.lastRareDropWallTime)),
+              )}
+            </span>
+            <span className="shrink-0 opacity-55" aria-hidden>
+              ·
+            </span>
+          </>
+        )}
+        <span className="shrink-0">
+          {stats.stageName}
+          {stats.stageWaveTotal > 0 && (
+            <span className="ml-0.5 opacity-70">
+              ({stats.stageWave}/{stats.stageWaveTotal})
+            </span>
+          )}
+        </span>
+        {inv && showInv && (
+          <>
+            <span className="shrink-0 opacity-55" aria-hidden>
+              ·
+            </span>
+            <span className="shrink-0">
+              {t("invLabel", {
+                value: invValue !== null ? formatMoney(invValue, currency) : "—",
+              })}
+              {pricing && <span className="text-muted"> ({pricingLabel})</span>}
+            </span>
+          </>
+        )}
+      </>
+    );
+  };
+  useLayoutEffect(() => {
+    const p = bottomRef.current;
+    const full = bottomFullRef.current;
+    if (!p || !full) return;
+    setInvOverflowHidden(full.scrollWidth > p.clientWidth);
+  }, [
+    nowSeconds,
+    stats?.stageName,
+    stats?.stageWave,
+    stats?.stageWaveTotal,
+    stats?.chestDrops?.lastRareDropWallTime,
+    invValue,
+    currency,
+    pricing,
+    pricingLabel,
+    hasInv,
+  ]);
 
   return (
     <OverlayFrame className="relative overflow-visible">
@@ -184,42 +253,22 @@ export function Overlay() {
             </p>
           </div>
 
-          <p className="m-0 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] tabular-nums text-muted">
-            {stats.chestDrops.lastRareDropWallTime != null && (
-              <span>
-                {t("boxLabel")}{" "}
-                {fmtShortDuration(
-                  Math.max(0, Math.round(nowSeconds - stats.chestDrops.lastRareDropWallTime)),
-                )}
-              </span>
-            )}
-            {stats.chestDrops.lastRareDropWallTime != null && (
-              <span className="opacity-55" aria-hidden>
-                ·
-              </span>
-            )}
-            <span>
-              {stats.stageName}
-              {stats.stageWaveTotal > 0 && (
-                <span className="ml-0.5 opacity-70">
-                  ({stats.stageWave}/{stats.stageWaveTotal})
-                </span>
-              )}
-            </span>
-            {inv && (
-              <>
-                <span className="opacity-55" aria-hidden>
-                  ·
-                </span>
-                <span>
-                  {t("invLabel", {
-                    value: invValue !== null ? formatMoney(invValue, currency) : "—",
-                  })}
-                  {pricing && <span className="text-muted"> ({pricingLabel})</span>}
-                </span>
-              </>
-            )}
+          <p
+            ref={bottomRef}
+            className="m-0 flex items-center gap-x-1 overflow-hidden whitespace-nowrap text-[11px] tabular-nums text-muted"
+          >
+            {renderBottomText(!invOverflowHidden)}
           </p>
+          {/* Hidden full-width duplicate used only to decide when to hide `inv`. */}
+          {inv && (
+            <span
+              ref={bottomFullRef}
+              aria-hidden
+              className="pointer-events-none invisible absolute left-0 top-0 flex items-center gap-x-1 whitespace-nowrap text-[11px] tabular-nums"
+            >
+              {renderBottomText(true)}
+            </span>
+          )}
         </div>
       )}
 

@@ -105,17 +105,36 @@ export function buildStats(
       ? liveFrame.stageKey
       : (lastSnap?.stageKey ?? 0);
   // Wave priority: live memory's stageWave (game-internal, most accurate) →
-  // DpsTracker's wave-clear estimate (real-time inference when stageWave is
-  // null/unset on the live frame) → save file's stageWave (last resort).
-  const estimatedWave = liveFrame?.connected ? dpsTracker.currentWave : 0;
+  // DpsTracker's wave-clear estimate (real-time inference from monster counts)
+  // → save file's stageWave (last resort).
+  //
+  // A live stageWave of 0 is NOT adopted: on game builds whose StageManager
+  // runtimeWave offset drifted (e.g. v1.01.05 reads a constant 0), trusting
+  // that 0 would mask the DpsTracker estimate and the save-derived wave and
+  // pin the mini-overlay counter at "0/N". Only the live value > 0 wins.
+  //
+  // The DpsTracker estimate is consulted REGARDLESS of `liveFrame.connected`:
+  // it is driven by monster counts (HP arrays or StageManager alive), so when
+  // live wave data is absent/unreliable we still fall back to the monster-
+  // count-based wave inference before giving up to the (stale) save value.
+  const estimatedWave = dpsTracker.currentWave;
   const stageWave =
-    liveFrame?.connected && liveFrame.stageWave != null
+    liveFrame?.connected && liveFrame.stageWave != null && liveFrame.stageWave > 0
       ? liveFrame.stageWave
       : estimatedWave > 0
         ? estimatedWave
         : (lastSnap?.stageWave ?? 0);
   const stageWaveTotal =
     liveFrame?.connected && liveFrame.stageWaveTotal != null ? liveFrame.stageWaveTotal : 0;
+  // Cap the reported wave at the stage total. The live total (waveAmount) is
+  // authoritative for the current run; a DpsTracker estimate that has drifted
+  // past it (a missed stage-clear reset lets the counter accumulate across
+  // runs) would otherwise display an impossible "30/16". Once the counter
+  // passes the total it can only mean the estimate crossed a run boundary that
+  // the clear-event reset missed, so clamping to the total keeps the display
+  // honest until the next stage clear resets it.
+  const reportedWave =
+    stageWaveTotal > 0 && stageWave > stageWaveTotal ? stageWaveTotal : stageWave;
 
   return {
     connected: lastError === null,
@@ -142,7 +161,7 @@ export function buildStats(
 
     stageName: stageName(stageKey, catalog),
 
-    stageWave,
+    stageWave: reportedWave,
 
     stageWaveTotal,
 

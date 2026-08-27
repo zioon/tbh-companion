@@ -13,6 +13,7 @@ import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
 import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
+import { StageRunFailDetector } from "../../core/stageRunFailDetector";
 import type {
   AppConfig,
   BoxOpenEntry,
@@ -70,6 +71,10 @@ export class TrackingService {
   private stageEventBaseline: { xp: number; gold: number } | null = null;
   /** Last stage seen in a live frame — used to detect stage/wave changes for per-map DPS. */
   private lastLiveStage: { stageKey: number; stageWave: number } | null = null;
+  /** Heuristic stage-run failure detector (see `core/stageRunFailDetector.ts`). */
+  private readonly failDetector = new StageRunFailDetector();
+  /** Previous tick's deployed-party presence (used to reset DPS waves on run end). */
+  private lastHeroesPresent = false;
   private lastError: string | null = null;
   private config!: AppConfig;
   private restoreApplied = false;
@@ -143,6 +148,13 @@ export class TrackingService {
       goldGained: number,
     ) => void,
     /**
+     * Called when a stage run is inferred to have failed (ended without a
+     * stage-clear event while mid-run). `stageKey` is the stage being played
+     * (fallback to the current live/save stage); `failedWave` is the furthest
+     * wave reached. Live-memory only. See `docs/BUSINESS-FLOWS.md` §12.
+     */
+    private readonly onLiveStageFail?: (stageKey: number, failedWave: number) => void,
+    /**
      * Called at ~5 Hz with live chest slot counts read from
      * `PlayerSaveData.BoxData` runtime. `null` = reader active but offsets
      * unavailable this tick; callers should fall back to save-derived counts.
@@ -191,6 +203,8 @@ export class TrackingService {
     this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
     this.lastLiveStage = null;
+    this.failDetector.reset();
+    this.lastHeroesPresent = false;
     if (config.logHistoryCsv) {
       this.tracker.onHistory = makeHistoryLogger();
     }
@@ -712,26 +726,31 @@ export class TrackingService {
     }
 
     // DPS / Damage / Mobs tracking from monster HP data (address-based, per tbh-meter)
+    const timestamp = snap.at / 1000;
+
+    // Detect stage (map) change for per-map reset (also handles first live frame).
+    // Only stageKey change triggers beginMap() — wave advancement within the
+    // same stage (1→2→3...) must NOT reset dpsTracker, otherwise _wavesCleared
+    // resets to 0 every wave and currentWave gets stuck at 1 (the "wave counter
+    // stuck" bug). Per-map counters (mapDamage/mapMobsKilled) accumulate across
+    // wave advancements within a stage, matching "current map total" semantics.
+    const stageKey = snap.stageKey;
+    const stageWave = snap.stageWave ?? 0;
+    const stageChanged =
+      stageKey != null && (this.lastLiveStage == null || stageKey !== this.lastLiveStage.stageKey);
+    if (stageChanged) {
+      this.dpsTracker.beginMap();
+      this.lastLiveStage = { stageKey, stageWave };
+    }
+
     if (snap.monsterHp != null) {
-      const timestamp = snap.at / 1000;
-
-      // Detect stage (map) change for per-map reset (also handles first live frame).
-      // Only stageKey change triggers beginMap() — wave advancement within the
-      // same stage (1→2→3...) must NOT reset dpsTracker, otherwise _wavesCleared
-      // resets to 0 every wave and currentWave gets stuck at 1 (the "wave counter
-      // stuck" bug). Per-map counters (mapDamage/mapMobsKilled) accumulate across
-      // wave advancements within a stage, matching "current map total" semantics.
-      const stageKey = snap.stageKey;
-      const stageWave = snap.stageWave ?? 0;
-      const stageChanged =
-        stageKey != null &&
-        (this.lastLiveStage == null || stageKey !== this.lastLiveStage.stageKey);
-      if (stageChanged) {
-        this.dpsTracker.beginMap();
-        this.lastLiveStage = { stageKey, stageWave };
-      }
-
       this.dpsTracker.update(snap.monsterHp, snap.deadMonsterCount, timestamp);
+    } else if (snap.stageAlive != null) {
+      // Builds whose monster-HP offsets aren't derived (e.g. v1.01.05): drive
+      // wave-clear detection from StageManager's alive count so the wave
+      // counter still advances live. DPS/damage stats stay 0 on such builds
+      // (HP data absent).
+      this.dpsTracker.updateAlive(snap.stageAlive, timestamp);
     }
 
     // Live chest drops from the GetBox battle log. The game appends a burst of
@@ -753,6 +772,14 @@ export class TrackingService {
           `start=${snap.chestLogDebug.start} entriesRead=${snap.chestLogDebug.entriesRead} ` +
           `in=[${(snap.chestDrops ?? []).join(",")}]`,
       );
+    }
+    // Cross-tick settle diagnostic: a withheld boss entry that had been read as
+    // a provisional category (e.g. "common") settled to its committed category
+    // (e.g. "rare") a tick later. Logging it lets us confirm the 关卡/Lv80 boss
+    // chest is being corrected live rather than misrecorded as common.
+    if (snap.chestLogDebug?.settled) {
+      const s = snap.chestLogDebug.settled;
+      log.info(`chest settle: idx=${s.idx} ${s.from}→${s.to}` + (s.to === "rare" ? " (boss chest corrected)" : ""));
     }
     const chestCategories = this.chestAggregator.feed(snap.chestDrops ?? [], chestAt);
     for (const category of chestCategories) {
@@ -820,6 +847,59 @@ export class TrackingService {
         }
         this.stageEventBaseline = { xp, gold };
       }
+    }
+
+    // Stage-run failure detection (live only). No game log records a failure, so
+    // we infer it with StageRunFailDetector from the deployed party
+    // (StageManager.HeroList): heroes are on the field for an entire run and
+    // only leave when the run ends — either cleared (a win) or lost. A run that
+    // ends WITHOUT a stage-clear is a failure. Unlike an alive-monster count,
+    // hero presence doesn't flicker between waves, so no "empty for how long"
+    // threshold is needed and fast auto-retries are caught naturally.
+    const hadClear = !!(snap.stageClears && snap.stageClears.some((c) => c.valid));
+    // A clear definitively means the run WON, so it cancels any pending failure
+    // judgement (defensive against clear/party ordering jitter).
+    if (hadClear) this.failDetector.reset();
+    const heroesPresent = !!(snap.heroes && snap.heroes.length > 0);
+    const feedStageKey = snap.stageKey ?? this.lastLiveStage?.stageKey ?? 0;
+    // Judge the run end FIRST (its failedWave reads the pre-reset wave count),
+    // then reset the wave counter so a fast auto-retry starts at wave 1 again.
+    const fail = this.failDetector.update(
+      heroesPresent,
+      hadClear,
+      feedStageKey,
+      this.dpsTracker.currentWave,
+    );
+    if (fail) this.onLiveStageFail?.(fail.stageKey, fail.failedWave);
+    // Run boundary: when the deployed party withdraws (clear or defeat), reset
+    // the DpsTracker wave counter so the next run is back at wave 1 (the
+    // alive-based fallback only fires after alive stays 0 for ~2s, which a slow
+    // resume also covers; a fast auto-retry would otherwise keep accumulating).
+    if (this.lastHeroesPresent && !heroesPresent) this.dpsTracker.onRunEnd();
+    this.lastHeroesPresent = heroesPresent;
+
+    // Wave-total run-end catch. When the alive-monster count drops to 0 while
+    // the wave counter has reached the stage's total wave count, the run's last
+    // wave just cleared and a new run is starting. On fast auto-retry builds
+    // (e.g. v1.01.05) the settlement gap can be < 2s — slipping past the
+    // alive-based stage-end detector (STAGE_END_ALIVE_ZERO_SEC) — and heroes
+    // stay present across runs (never triggering the onRunEnd hero-withdrawal
+    // path above), so neither reset fires and `_wavesCleared` accumulates
+    // forever (wave stuck at "31/31" or higher, capped at the stage total by
+    // stats.ts). Reset here so the next run starts at wave 1 again.
+    //
+    // Runs AFTER failDetector so its failedWave still reads the pre-reset wave
+    // count (a last-wave wipe without a clear must still judge as a failure).
+    if (
+      snap.stageAlive === 0 &&
+      snap.stageWaveTotal != null &&
+      snap.stageWaveTotal > 0 &&
+      this.dpsTracker.currentWave >= snap.stageWaveTotal
+    ) {
+      this.dpsTracker.onRunEnd();
+      log.info(
+        `wave: alive=0 at stage total ${snap.stageWaveTotal} — run-end reset (wave counter → 0)`,
+      );
     }
 
     // Box-open outcomes: each entry is one opened chest producing one item.

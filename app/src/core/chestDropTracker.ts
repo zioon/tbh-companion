@@ -173,12 +173,8 @@ export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | nul
  *
  * The game appends multiple `GetBoxLog` entries for a single chest-drop event
  * (a burst), and the burst for one drop is a single category, so each category
- * is collapsed to one recorded drop. When entries of both categories arrive in
- * the same burst, a lone singleton riding another category's burst is treated
- * as stray noise (e.g. a single "rare" entry surfacing amid a common-chest
- * burst, which would otherwise misidentify a common drop as a stage-boss drop)
- * and is suppressed — only categories that are themselves a burst (>= 2 entries)
- * or that appear as a pure 1:1 mix are kept.
+ * is collapsed to one recorded drop. Every category that appears in the burst
+ * is kept (even a lone singleton) — see {@link collapseLiveChestDrops}.
  *
  * This function is pure and stateless; it does not see tick boundaries. A burst
  * that straddles multiple reader ticks must first be accumulated by
@@ -192,15 +188,16 @@ export function collapseLiveChestDrops(categories: ChestDropCategory[]): ChestDr
   for (const c of categories) counts.set(c, (counts.get(c) ?? 0) + 1);
   if (counts.size === 1) return [categories[0]];
 
-  const hasBurst = [...counts.values()].some((n) => n >= 2);
-  const kept: ChestDropCategory[] = [];
-  for (const [cat, n] of counts) {
-    // Keep a category when it is itself a burst, or when no category is a burst
-    // (a pure 1:1 mix = two distinct single drops). Suppress lone singletons
-    // that ride alongside another category's burst.
-    if (n >= 2 || !hasBurst) kept.push(cat);
-  }
-  return kept;
+  // Every category present in a burst is kept — including a lone singleton.
+  // A stage-boss (rare) or act-boss (act) chest can legitimately produce a
+  // single GetBoxLog entry, and suppressing it when it rides alongside another
+  // category's burst (the old behavior) dropped real boss drops whenever a boss
+  // chest and a common chest landed in the same read window ("sometimes fails
+  // to recognize"). Category decoding (monsterType 0/1/2) is already
+  // race-guarded upstream (CHEST_LOG_SAMPLES), so a stray misclassified entry
+  // is rare — and the cost of a false rare/act (a spurious BoxTimer cooldown
+  // that cools down and re-arms) is far lower than dropping a real boss drop.
+  return [...counts.keys()];
 }
 
 /**
@@ -340,15 +337,30 @@ export class ChestDropTracker {
   private sessionBaselineByKey = new Map<string, number>();
 
   /**
-   * Wall time anchoring the perHour rate window. Set to the earliest drop
-   * in `history` by `applySnapshot` (so restored history contributes to the
-   * rate window), or to the first new drop's wallTime after `reset`. `null`
-   * means no drops have been recorded; perHour returns 0 in that case.
+   * When tracking began (constructor / {@link reset}). The perHour rate window
+   * starts no later than this moment, guaranteed by `sessionDropStart ??=
+   * min(trackingStartedAt, firstDropWallTime)`. That way a *fresh* session
+   * counts the time spent waiting for the first drop (a box arriving 6 min
+   * after launch reads 1/6min ≈ 10/hr, not a 60/hr spike), while a drop whose
+   * wallTime predates tracking (restored/historical save log) still anchors to
+   * its own real drop time instead of the later launch moment.
+   */
+  private trackingStartedAt: number;
+
+  /**
+   * Wall time anchoring the perHour rate window. Null until the first recorded
+   * drop (or an restore with no history); once set it stays pinned to
+   * `min(trackingStartedAt, firstDropWallTime)` — the start of the actual
+   * farming stretch. {@link applySnapshot} overrides it to the earliest
+   * restored drop so restored history that spans idle time contributes to the
+   * rate window. `null` only survives a track period with no recorded drop;
+   * perHour returns 0 in that case.
    */
   private sessionDropStart: number | null = null;
 
   constructor(callbacks?: ChestDropTrackerCallbacks) {
     this.callbacks = callbacks;
+    this.trackingStartedAt = nowSeconds();
   }
 
   reset(): void {
@@ -359,6 +371,9 @@ export class ChestDropTracker {
     this.breakdownCache = null;
     this.historyCache = null;
     this.sessionBaselineByKey.clear();
+    // Restart both the tracking clock and the rate anchor on reset so a fresh
+    // session counts from the moment the user clears, not from the first drop.
+    this.trackingStartedAt = nowSeconds();
     this.sessionDropStart = null;
   }
 
@@ -382,7 +397,7 @@ export class ChestDropTracker {
     }
     this.breakdownCache = null;
     this.historyCache = null;
-    this.sessionDropStart ??= wallTime;
+    this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
     this.callbacks?.onDrop?.({ category, wallTime });
     return true;
   }
@@ -408,7 +423,7 @@ export class ChestDropTracker {
 
     this.breakdownCache = null;
     this.historyCache = null;
-    this.sessionDropStart ??= wallTime;
+    this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
     this.callbacks?.onDrop?.({
       category: resolved.category,
       wallTime,
@@ -467,8 +482,13 @@ export class ChestDropTracker {
     // tracker.elapsed. After an app restart, tracker.elapsed may span hours
     // of idle time (from the restored sessionStart), making perHour =
     // sessionDelta / largeHours ≈ 0 even when fresh drops are being recorded.
-    // sessionDropStart is the wall time of the first new drop since the last
-    // reset/restore, so the rate window accurately reflects the current stretch.
+    // For a fresh session, sessionDropStart is min(trackingStartedAt,
+    // firstDropWallTime), so the time spent waiting for the first drop counts
+    // — a box arriving 6 min after launch reads ~10/hr, not a 60/hr spike —
+    // while a historical drop (save log predating launch) still anchors to its
+    // real drop time. On restore it is the earliest restored drop so the window
+    // spans the full session. When null (no drops yet), it stays clamped to
+    // MIN_RATE_WINDOW_SEC.
     const dropElapsed =
       this.sessionDropStart !== null
         ? Math.max(MIN_RATE_WINDOW_SEC, nowSeconds() - this.sessionDropStart)

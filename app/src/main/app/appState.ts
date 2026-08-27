@@ -255,6 +255,9 @@ const tracking = new TrackingService(
   (stageKey, clearTimeSec, xpGained, goldGained) => {
     stageRuns.recordClear(stageKey, clearTimeSec, xpGained, goldGained);
   },
+  (stageKey, failedWave) => {
+    stageRuns.recordFailure(stageKey, failedWave);
+  },
   // Live chest slot counts from PlayerSaveData.BoxData runtime are no longer
   // routed to AutoClassifyService — the service now tracks slots via save data
   // (recalibration on every save parse) + real-time adjustments (drops +1,
@@ -386,6 +389,10 @@ export function startTracking(): SessionUiSnapshot {
       return { used: inv.inventoryUsed, capacity: inv.inventoryCapacity };
     },
     broadcast,
+    // A stage-boss (rare) drop recovered from the save slot increase during
+    // reconcile (live-memory reader missed it) arms the same BoxTimer cooldown
+    // as a live-detected rare drop.
+    onLiveStageBossDrop: (stageKey) => boxTimers.tryMarkDroppedFromLiveStage(stageKey),
   });
   // On every save parse, ChestService reports the current per-category slot
   // counts; AutoClassifyService reconciles its queue against those counts —

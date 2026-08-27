@@ -28,6 +28,9 @@ export interface RuntimeStage {
   stageKey: number | null;
   wave: number | null;
   waveTotal: number | null;
+  /** Live alive-monster count from StageManager (wave-clear signal on builds
+   *  whose monster-HP offsets are unavailable). Null when not derivable. */
+  alive: number | null;
 }
 
 /**
@@ -70,10 +73,20 @@ export function readRuntimeStage(
     if (plausibleWave(runtimeWave)) wave = runtimeWave;
   }
 
+  // StageManager singleton alive-monster count — feeds DpsTracker wave-clear
+  // detection on builds without monster-HP offsets (e.g. v1.01.05). Only read
+  // when the offset is derived (> 0); null otherwise.
+  let alive: number | null = null;
+  if (smPtr != null && o.runtime.stage.alive > 0) {
+    const aliveCount = readI32(reader, smPtr + BigInt(o.runtime.stage.alive));
+    if (aliveCount != null && aliveCount >= 0 && aliveCount < 1000) alive = aliveCount;
+  }
+
   return {
     stageKey: plausibleStage(stageKey) ? stageKey : null,
     wave,
     waveTotal: waveTotal != null && waveTotal > 0 ? waveTotal : null,
+    alive,
   };
 }
 
@@ -615,13 +628,48 @@ export interface LogManagerPinState {
 export interface ChestLogPinState extends LogManagerPinState {
   lastCount: number;
   primed: boolean;
+  /**
+   * Tail index to (re)start scanning from on the next tick, set when a
+   * mid-write entry failed to decode this tick. See `readRuntimeChestLog` for
+   * the retry-until-steady logic. When `null`, scan starts at `lastCount`.
+   */
+  retryFrom: number | null;
+  /** Consecutive ticks a single `retryFrom` entry failed to decode.
+   *  When it exceeds `MAX_CHEST_LOG_RETRIES` the stuck entry is force-skipped
+   *  so a permanently corrupt slot can't wedge the tail forever. */
+  retryConsecutive: number;
+  /**
+   * Cross-tick settle: the index (`pendingIdx`) of the newest GetBoxLog entry
+   * withheld last tick, together with the category (`pendingCat`) decoded at
+   * the time. See `readRuntimeChestLog` — the game commits an entry's
+   * monsterType across a write window, so a same-tick read can decode a
+   * *provisional* value (e.g. a stage-boss rare read while monsterType is
+   * still its default 0 → misclassified "common"). The withheld index is
+   * re-read one tick later and its settled value depends on `pendingCat`. Both
+   * are `null` when there is nothing pending.
+   */
+  pendingIdx: number | null;
+  pendingCat: LiveChestCategory | null;
 }
 
 export function makeChestLogPinState(): ChestLogPinState {
-  return { ptr: null, lastCount: 0, primed: false };
+  return {
+    ptr: null,
+    lastCount: 0,
+    primed: false,
+    retryFrom: null,
+    retryConsecutive: 0,
+    pendingIdx: null,
+    pendingCat: null,
+  };
 }
 
 const MAX_CHEST_LOG = 5_000;
+/** Maximum consecutive ticks a single GetBoxLog entry may fail to decode before
+ *  it is force-skipped. A genuine mid-write race resolves within 1-2 ticks (the
+ *  writer commits monsterType in <1ms; reader polls at ~25Hz); anything persisting
+ *  longer is a corrupt slot that would otherwise wedge the tail forever. */
+const MAX_CHEST_LOG_RETRIES = 3;
 /** Maximum number of re-read attempts for a single GetBoxLog entry.
  *  Each sample is a few µs apart (kernel call latency); 3 samples gives the
  *  writer ~10µs total to finish committing the monsterType field — enough for
@@ -639,6 +687,30 @@ function chestCategoryFromMonsterType(t: number): LiveChestCategory | null {
   if (t === 0) return "common";
   if (t === 1) return "rare";
   if (t === 2) return "act";
+  return null;
+}
+
+/**
+ * Read and decode a single GetBoxLog entry's category, retrying up to
+ * `CHEST_LOG_SAMPLES` times against a mid-write race (the game commits
+ * monsterType across a few store instructions). Returns the first *plausible*
+ * category, or a valid category if one decodes, else `null` when the slot is
+ * unallocated or monsterType is still garbage.
+ */
+function readChestCategoryAt(
+  reader: MemoryReader,
+  first: bigint,
+  index: number,
+  o: LiveOffsets,
+): LiveChestCategory | null {
+  for (let s = 0; s < CHEST_LOG_SAMPLES; s++) {
+    const entryPtr = readPtr(reader, first + BigInt(index * 8));
+    if (entryPtr == null) continue;
+    const mt = readI32(reader, entryPtr + BigInt(o.runtime.getBoxLog.monsterType));
+    if (mt == null) continue;
+    const cat = chestCategoryFromMonsterType(mt);
+    if (cat != null) return cat;
+  }
   return null;
 }
 
@@ -774,7 +846,23 @@ export interface ReadChestLogResult {
    * this read; `start` = index this read began at (0 when the log shrank);
    * `entriesRead` = number of entries scanned this tick.
    */
-  debug?: { count: number; lastCountBefore: number; start: number; entriesRead: number };
+  debug?: {
+    count: number;
+    lastCountBefore: number;
+    start: number;
+    entriesRead: number;
+    /** Index parked for the next tick because a mid-write entry couldn't decode. */
+    retryFrom?: number;
+    /** Consecutive ticks `retryFrom` has failed to decode (self-heal/force-skip counter). */
+    retryConsecutive?: number;
+    /**
+     * Set when the cross-tick settle re-read last tick's withheld tail entry and
+     * its category CHANGED (provisional → committed), e.g. a stage-boss chest
+     * read as "common" mid-write that settled to "rare". `from` = value read
+     * last tick, `to` = committed value this tick. Absent = no correction.
+     */
+    settled?: { idx: number; from: LiveChestCategory; to: LiveChestCategory };
+  };
 }
 
 export function readRuntimeChestLog(
@@ -846,6 +934,10 @@ export function readRuntimeChestLog(
       };
     }
     pin.lastCount = next;
+    // A shrink invalidates any parked retry position (the log no longer has
+    // that index), so reset the retry state; scanning resumes from `next`.
+    pin.retryFrom = null;
+    pin.retryConsecutive = 0;
     return {
       drops: [],
       status: "",
@@ -853,36 +945,115 @@ export function readRuntimeChestLog(
     };
   }
 
-  const start = lastCountBefore;
+  // Resume scanning from the retry position set by a prior mid-write entry
+  // that failed to decode, or from the normal tail. The two are only ever set
+  // together under the same list instance (an entry was being committed), so a
+  // shrink-detection below that relies on `lastCountBefore` stays valid.
   const drops: LiveChestCategory[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
+
+  // Cross-tick settle for the withheld tail entry. The game commits a
+  // GetBoxLog entry's monsterType across a sub-millisecond write window; a read
+  // inside it can decode a *valid-looking but provisional* category — e.g. a
+  // stage-boss (rare) chest read while monsterType is still its default 0 →
+  // classified "common". Same-tick re-samples cannot help (all run before the
+  // commit lands); only re-reading the entry on a later tick sees the committed
+  // value. So the newest entry is withheld one tick: this tick we re-read last
+  // tick's withheld index and emit its *settled* value (the current committed
+  // category, falling back to the provisional one), then scan only *newer*
+  // entries.
+  const resumeFrom = pin.pendingIdx != null ? lastCountBefore + 1 : lastCountBefore;
+  let debugSettled:
+    | { idx: number; from: LiveChestCategory; to: LiveChestCategory }
+    | undefined = undefined;
+  if (pin.pendingIdx != null) {
+    const settledCat =
+      readChestCategoryAt(reader, first, pin.pendingIdx, o) ?? pin.pendingCat;
+    if (settledCat != null) {
+      drops.push(settledCat);
+      // Record a category correction (provisional → committed) for diagnostics,
+      // e.g. a boss chest read as "common" that settled to "rare".
+      if (settledCat !== pin.pendingCat && pin.pendingCat != null) {
+        debugSettled = { idx: pin.pendingIdx, from: pin.pendingCat, to: settledCat };
+      }
+    }
+    pin.pendingIdx = null;
+    pin.pendingCat = null;
+  }
+
+  const start = pin.retryFrom ?? resumeFrom;
   for (let i = start; i < count; i++) {
     // Re-read up to CHEST_LOG_SAMPLES times to defend against mid-write races:
     // the game may have allocated the entry slot but not yet committed the
     // monsterType field. A single sample in that window reads null (RPM fail)
-    // or a garbage mt (non-0/1/2), and the entry is silently dropped — and
-    // since pin.lastCount advances to `count` after the loop, the drop is
-    // lost permanently. Boss deaths (rare/act chests) coincide with stage
-    // transitions (dense memory writes), making this race most likely exactly
-    // when the drop matters most. Mirrors BOX_OPEN_LOG_SAMPLES defense.
-    for (let s = 0; s < CHEST_LOG_SAMPLES; s++) {
-      const entryPtr = readPtr(reader, first + BigInt(i * 8));
-      if (entryPtr == null) continue; // retry next sample
-      const mt = readI32(reader, entryPtr + BigInt(o.runtime.getBoxLog.monsterType));
-      if (mt == null) continue; // retry next sample
-      const cat = chestCategoryFromMonsterType(mt);
-      if (cat != null) {
-        drops.push(cat);
-        break; // valid category decoded, stop retrying
-      }
-      // mt is non-null but not 0/1/2: likely mid-write race, retry next sample
+    // or a garbage mt (non-0/1/2). Boss deaths (rare/act chests) coincide with
+    // stage transitions (dense memory writes), making this race most likely
+    // exactly when the drop matters most. Mirrors BOX_OPEN_LOG_SAMPLES defense.
+    const cat = readChestCategoryAt(reader, first, i, o);
+    if (cat != null) {
+      drops.push(cat);
+      continue; // valid category decoded, this entry is settled *enough* to collect
     }
+    // A mid-write race: the entry slot exists but monsterType isn't committed
+    // yet. Do NOT advance the tail past it (that would drop the chest
+    // permanently). Park `retryFrom` at this index so the next tick re-reads
+    // the same entry after the writer has finished. If the same index keeps
+    // failing for MAX_CHEST_LOG_RETRIES ticks it's a corrupt slot — force-skip
+    // it (pretend decoded) so we can't wedge the tail forever.
+    const sameAsLast = pin.retryFrom === i;
+    pin.retryConsecutive = sameAsLast ? pin.retryConsecutive + 1 : 1;
+    pin.retryFrom = i;
+    if (pin.retryConsecutive > MAX_CHEST_LOG_RETRIES) {
+      // Corrupt slot; skip it and keep the tail moving. Reset counters so a
+      // *later* genuine mid-write entry still gets its own retry budget.
+      pin.retryFrom = null;
+      pin.retryConsecutive = 0;
+      continue;
+    }
+    // Park the tail at the failing entry; return whatever decoded so far.
+    pin.lastCount = Math.min(pin.lastCount, i);
+    return {
+      drops,
+      status: "",
+      debug: {
+        count,
+        lastCountBefore,
+        start,
+        entriesRead: i - start + 1,
+        retryFrom: i,
+        retryConsecutive: pin.retryConsecutive,
+      },
+    };
+  }
+
+  // Reaching here means the scan completed without parking (no live mid-write):
+  // every entry in [start, count) was decoded or force-skipped. Withhold the
+  // newest decoded entry for cross-tick settle (re-read by its absolute
+  // index next tick to see the committed monsterType), if any new drops came
+  // in. `lastCount` uniformly advances to `count` — the pending re-read uses
+  // `pendingIdx`, not `lastCount`, so no entry is re-scanned twice.
+  pin.retryFrom = null;
+  pin.retryConsecutive = 0;
+  if (count > start && drops.length > 0) {
+    // Hold the newest entry: its category may still settle (e.g. common→rare).
+    const tailCat = drops.pop() as LiveChestCategory;
+    pin.pendingIdx = count - 1;
+    pin.pendingCat = tailCat;
+  } else {
+    pin.pendingIdx = null;
+    pin.pendingCat = null;
   }
   pin.lastCount = count;
   return {
     drops,
     status: "",
-    debug: { count, lastCountBefore, start, entriesRead: count - start },
+    debug: {
+      count,
+      lastCountBefore,
+      start,
+      entriesRead: count - start,
+      settled: debugSettled,
+    },
   };
 }
 
@@ -892,7 +1063,15 @@ export function readRuntimeChestLog(
 export type StageClearPinState = ChestLogPinState;
 
 export function makeStageClearPinState(): StageClearPinState {
-  return { ptr: null, lastCount: 0, primed: false };
+  return {
+    ptr: null,
+    lastCount: 0,
+    primed: false,
+    retryFrom: null,
+    retryConsecutive: 0,
+    pendingIdx: null,
+    pendingCat: null,
+  };
 }
 
 const MAX_STAGE_CLEAR_LOG = 5_000;
@@ -1048,7 +1227,15 @@ export function readRuntimeStageClears(
 export type BoxOpenPinState = ChestLogPinState;
 
 export function makeBoxOpenPinState(): BoxOpenPinState {
-  return { ptr: null, lastCount: 0, primed: false };
+  return {
+    ptr: null,
+    lastCount: 0,
+    primed: false,
+    retryFrom: null,
+    retryConsecutive: 0,
+    pendingIdx: null,
+    pendingCat: null,
+  };
 }
 
 const MAX_BOX_OPEN_LOG = 5_000;
@@ -1895,6 +2082,15 @@ function walkMonsterList(
  *
  * Each Monster (a runtime Unit) has a UnitHealthController whose exact field
  * offset is scanned dynamically.
+ *
+ * Returns null when the monster struct offsets aren't derived for this build
+ * (e.g. v1.00.28 / v1.01.01 / v1.01.05 — MonsterSpawnManager RVA present but
+ * `runtime.monster.monsterList`/`summonedList` are 0). The old code fell back
+ * to the v1.00.21 base offsets (0x28/0x38/0x30), which read garbage/empty
+ * lists on those builds — returning a non-null empty array that starved
+ * TrackingService's stageAlive-driven wave-clear path (`updateAlive`), freezing
+ * the wave counter. Reporting null lets the alive-based fallback drive wave
+ * detection instead.
  */
 export function readRuntimeMonsterHp(
   reader: MemoryReader,
@@ -1905,6 +2101,15 @@ export function readRuntimeMonsterHp(
 ): { monsterHps: Array<[number, number, number]>; deadCount: number } | null {
   // If the pin is already set (via name-scan), skip RVA check
   if (pin.ptr == null && o.typeInfoRva.monsterSpawnManager === 0n) return null;
+
+  // Monster list offsets not derived → HP data unavailable. Do NOT fall back
+  // to the v1.00.21 base offsets here: on v1.00.28+ they read garbage/empty
+  // lists, and returning a non-null empty array would make TrackingService
+  // prefer `update([])` (alive permanently 0 → wave frozen) over the correct
+  // `updateAlive(stageAlive)` path.
+  if (o.runtime.monster.monsterList === 0 && o.runtime.monster.summonedList === 0) {
+    return null;
+  }
 
   const msmPtr = resolveMonsterSpawnManager(reader, gaBase, gaSize, o, pin);
   if (msmPtr == null) return null;

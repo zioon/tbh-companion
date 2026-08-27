@@ -131,6 +131,14 @@ export interface AutoClassifyServiceDeps {
    */
   getInventoryStatus: () => { used: number; capacity: number } | null;
   broadcast: (channel: string, payload: unknown) => void;
+  /**
+   * Fire the BoxTimer cooldown when a stage-boss (rare) drop is recovered from
+   * the save slot increase during reconcile (the live-memory reader missed it).
+   * Mirrors the live path in TrackingService, which arms BoxTimer per rare
+   * drop. Idempotent inside BoxTimerService (cooldown check). Optional so
+   * callers/tests that don't wire BoxTimer can omit it.
+   */
+  onLiveStageBossDrop?: (stageKey: number) => void;
 }
 
 /**
@@ -231,6 +239,17 @@ export class AutoClassifyService {
    */
   private pendingBursts: PendingBurst[] = [];
   private nextBurstId = 1;
+
+  /**
+   * While set, {@link handleChestDrop} returns immediately. Used during the
+   * reconcile backfill when we call {@link ChestDropTracker.recordLiveChestDrop}
+   * to recover a missed drop — that call fires the tracker's `onDrop` callback
+   * (→ `handleChestDrop`), which would otherwise enqueue the recovered chest a
+   * second time on top of the backfill's own enqueue. The flag keeps the two
+   * paths from double-queueing while still letting `recordLiveChestDrop` write
+   * the drop history and fire the BoxTimer hook.
+   */
+  private suppressingHandleChestDrop = false;
 
   constructor(deps: AutoClassifyServiceDeps) {
     this.deps = deps;
@@ -403,7 +422,7 @@ export class AutoClassifyService {
     wallTime: number;
     itemKey?: number;
   }): void {
-    if (!this.enabled) return;
+    if (!this.enabled || this.suppressingHandleChestDrop) return;
     // Drift check first: if autoOpenSeconds changed since last drop / save,
     // recompute queued items so the new chest chains onto an accurate tail.
     this.maybeRecalibrateQueue();
@@ -577,6 +596,45 @@ export class AutoClassifyService {
             `reconcile: backfilled ${deficit} ${category} item(s) ` +
               `(queue ${queueCount} < slots ${slotCount}); each gets full ${seconds}s countdown`,
           );
+        }
+
+        // Recover drops the live-memory reader missed. When the save's slot
+        // count for a boss-chest category (rare/act) INCREASED since the last
+        // reconcile, those extra chests are real drops that the reader never
+        // surfaced — the queue deficit above is exactly where they backfill,
+        // but the drop history (ChestDropTracker) would otherwise undercount
+        // them and BoxTimer would never arm. Record each missed drop.
+        //
+        // Gated on `prev != null` so pre-existing chests on the FIRST reconcile
+        // (app launch, when the queue starts empty) aren't counted as drops.
+        // Capped at `Math.min(increase, deficit)` so we never invent chests
+        // beyond what the save slot delta accounts for — opened chests that
+        // cancel a drop in the same window are excluded (inherent save-data
+        // ambiguity, but much rarer than a reader miss).
+        if ((category === "rare" || category === "act") && prev != null) {
+          const increase = slots[category] - prev[category];
+          const missedLive = Math.max(0, Math.min(increase, deficit));
+          if (missedLive > 0) {
+            // Suppress handleChestDrop during the record loop so recordLiveChestDrop's
+            // onDrop → handleChestDrop doesn't enqueue the recovered chest a second
+            // time (the backfill loop above already enqueued it).
+            this.suppressingHandleChestDrop = true;
+            try {
+              const wallTimeSec = this.getEffectiveNow() / 1000;
+              for (let r = 0; r < missedLive; r++) {
+                this.deps.chestDropTracker.recordLiveChestDrop(category, wallTimeSec);
+              }
+            } finally {
+              this.suppressingHandleChestDrop = false;
+            }
+            if (category === "rare" && stageKey > 0) {
+              this.deps.onLiveStageBossDrop?.(stageKey);
+            }
+            log.info(
+              `reconcile: recorded ${missedLive} missed ${category} drop(s) ` +
+                `from save slot increase (${prev[category]}→${slots[category]}, deficit ${deficit})`,
+            );
+          }
         }
       } else if (slotsChanged) {
         log.warn(

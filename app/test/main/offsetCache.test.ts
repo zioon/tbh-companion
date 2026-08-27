@@ -65,6 +65,7 @@ function makeOffsets(version = VERSION): LiveOffsets {
         stageKey: 0x30,
         waveAmount: 0x54,
         runtimeWave: 0x138,
+        alive: 0,
       },
       currencyInfoKey: 0x30,
       heroList: 0x30,

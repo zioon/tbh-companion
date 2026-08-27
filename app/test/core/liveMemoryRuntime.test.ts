@@ -58,6 +58,7 @@ describe("readRuntimeStage", () => {
       stageKey: 1234,
       wave: 5,
       waveTotal: null,
+      alive: null,
     });
   });
 
@@ -70,6 +71,7 @@ describe("readRuntimeStage", () => {
       stageKey: 42,
       wave: null,
       waveTotal: null,
+      alive: null,
     });
   });
 
@@ -83,6 +85,7 @@ describe("readRuntimeStage", () => {
       stageKey: null,
       wave: 3,
       waveTotal: null,
+      alive: null,
     });
   });
 
@@ -96,11 +99,30 @@ describe("readRuntimeStage", () => {
       stageKey: 77,
       wave: 0,
       waveTotal: null,
+      alive: null,
     });
   });
 
   it("returns null when the stage-cache chain can't be walked", () => {
     expect(readRuntimeStage(new FakeMemory(), GA_BASE, GA_SIZE, O, SM_SINGLETON)).toBeNull();
+  });
+
+  it("reads the StageManager alive count when the offset is derived (v1.01.05)", () => {
+    const O5 = offsetsForVersion("1.01.05")!;
+    const slot = GA_BASE + O5.typeInfoRva.stageCacheManager;
+    const m = new FakeMemory()
+      .writePtr(slot, STAGE_CLASS)
+      .writePtr(STAGE_CLASS + BigInt(CAND), STAGE_BLOCK)
+      .writePtr(STAGE_BLOCK + BigInt(O5.runtime.stage.currentCache), STAGE_CACHE)
+      .writePtr(STAGE_CACHE + BigInt(O5.runtime.stage.cacheInfoData), STAGE_INFO)
+      .writeI32(STAGE_INFO + BigInt(O5.runtime.stage.stageKey), 1234)
+      .writeI32(SM_SINGLETON + BigInt(O5.runtime.stage.alive), 3);
+    expect(readRuntimeStage(m, GA_BASE, GA_SIZE, O5, SM_SINGLETON)).toEqual({
+      stageKey: 1234,
+      wave: null,
+      waveTotal: null,
+      alive: 3,
+    });
   });
 });
 
@@ -470,8 +492,15 @@ describe("readRuntimeChestLog", () => {
     pin.primed = true; // skip priming so all entries are treated as new
     pin.lastCount = 0;
     const m = seedLogChain(new FakeMemory(), [0, 1, 2]);
-    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
-    expect(result.drops).toEqual(["common", "rare", "act"]);
+    // The newest entry is withheld one tick for cross-tick settle.
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1.drops).toEqual(["common", "rare"]);
+    expect(pin.pendingCat).toBe("act");
+    // Next tick confirms the withheld act entry with no change.
+    const r2 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2.drops).toEqual(["act"]);
+    expect(pin.pendingIdx).toBeNull();
+    expect(pin.lastCount).toBe(3);
   });
 
   it("returns only drops appended since the last read", () => {
@@ -479,8 +508,14 @@ describe("readRuntimeChestLog", () => {
     const m = seedLogChain(new FakeMemory(), [0]);
     readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin); // prime at length 1
     seedLogChain(m, [0, 1, 2]); // two new drops appended (rare + act boss)
-    const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
-    expect(result.drops).toEqual(["rare", "act"]);
+    // Newest (act) withheld → only rare returns this tick.
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1.drops).toEqual(["rare"]);
+    expect(r1.debug?.entriesRead).toBe(2);
+    // Next tick confirms the withheld act.
+    const r2 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2.drops).toEqual(["act"]);
+    expect(pin.lastCount).toBe(3);
   });
 
   it("realigns the tail and returns no drops when the log shrinks", () => {
@@ -495,6 +530,102 @@ describe("readRuntimeChestLog", () => {
     const result = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
     expect(result.drops).toEqual([]);
     expect(pin.lastCount).toBe(1); // realigned, not reset to 0
+  });
+
+  it("parks the tail on a mid-write entry and recovers it on the next tick", () => {
+    // Boss deaths / stage transitions can commit a GetBoxLog entry's slot
+    // before monsterType is written. Previously the failing entry was dropped
+    // and `pin.lastCount` advanced past it — the chest was lost permanently.
+    // Now the tail should park on the failing index and re-read it next tick.
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Index 1 is "mid-write": monsterType garbage that never decodes to 0/1/2.
+    const m = seedLogChain(new FakeMemory(), [0, 999, 2]);
+    const first = GETBOX_ARR + BigInt(O.container.arrayFirst);
+
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1.drops).toEqual(["common"]); // only clean entries returned
+    expect(pin.lastCount).toBe(0); // tail NOT advanced past the failing index
+    expect(pin.retryFrom).toBe(1);
+    expect(r1.debug?.retryFrom).toBe(1);
+    expect(r1.debug?.retryConsecutive).toBe(1);
+
+    // The writer commits monsterType → next tick re-reads the parked index.
+    m.writeI32(first + BigInt(8), 0 /* entry 1 index => first + 1*8 */);
+    seedLogChain(m, [0, 1, 2]); // re-seed also reassigns entries; force index 1 = rare
+    // Since seedLogChain rewrites pointers, recompute: index 1 = rare now.
+    const r2 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // r2 recovers the parked rare; the still-pending act is withheld this tick.
+    expect(r2.drops).toEqual(["rare"]);
+    expect(pin.lastCount).toBe(3);
+    expect(pin.retryFrom).toBeNull();
+    expect(pin.pendingCat).toBe("act");
+    // Next tick confirms the withheld act.
+    const r3 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r3.drops).toEqual(["act"]);
+    expect(pin.lastCount).toBe(3);
+  });
+
+  it("force-skips a permanently corrupt entry after MAX retries to avoid a wedged tail", () => {
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Index 1 is permanently corrupt (garbage monsterType on every read).
+    const m = seedLogChain(new FakeMemory(), [0, 999, 2]);
+
+    // Tick 1: parks at index 1.
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1.drops).toEqual(["common"]);
+    expect(pin.retryFrom).toBe(1);
+    expect(pin.retryConsecutive).toBe(1);
+
+    // Ticks 2,3: same corrupt index keeps failing, retryConsecutive climbs.
+    readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin); // c=2
+    readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin); // c=3
+    expect(pin.retryConsecutive).toBe(3);
+
+    // Tick 4: exceeds MAX_CHEST_LOG_RETRIES → force-skip index 1, move tail past it.
+    const r4 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(pin.retryFrom).toBeNull();
+    expect(pin.retryConsecutive).toBe(0);
+    // index 0 (common) was already emitted by r1; index 2 (act) is withheld.
+    expect(r4.drops).toEqual([]);
+    expect(pin.lastCount).toBe(3);
+    expect(pin.pendingCat).toBe("act");
+    // Next tick confirms the withheld act.
+    const r5 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r5.drops).toEqual(["act"]);
+    expect(pin.lastCount).toBe(3);
+  });
+
+  it("corrects a provisional 'common' → settled 'rare' cross-tick", () => {
+    // This is exactly the bug that caused your 15:03 Lv80 stage-boss drop:
+    // the game allocates the entry, sets pointer, writes monsterType=0 (default),
+    // writes the other fields, then finally writes monsterType=1 (rare). If the
+    // reader ticks between the 0 write and the 1 write, it sees a *valid* 0 →
+    // classifies "common" and the rare is lost forever (the one-time write is done).
+    // Cross-tick settle re-reads the entry one tick later to see the committed value.
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Tick 1: monsterType for the boss drop (index 0) is still 0 (provisional).
+    const m = seedLogChain(new FakeMemory(), [0]);
+    // Tick 1: reads 0 → classifies "common" and withholds it for settle.
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1.drops).toEqual([]); // nothing emitted yet; withheld → next tick
+    expect(pin.lastCount).toBe(1);
+    expect(pin.pendingIdx).toBe(0);
+    expect(pin.pendingCat).toBe("common");
+
+    // Tick 2: game finally commits monsterType = 1 (stage boss rare).
+    seedLogChain(m, [1]); // index 0 is now fully committed as rare; log length 1.
+
+    const r2 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // Re-read gets the committed 1 → emits "rare" (not "common").
+    expect(r2.drops).toEqual(["rare"]);
+    expect(pin.pendingIdx).toBeNull();
+    expect(pin.lastCount).toBe(1);
   });
 
   it("rejects non-LogManager objects whose +logByType offset holds an unrelated dict", () => {
@@ -1551,6 +1682,23 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
     const pin = makeMonsterSpawnPinState();
     const patched = { ...O, typeInfoRva: { ...O.typeInfoRva, monsterSpawnManager: 0n } };
     const r = readRuntimeMonsterHp(new FakeMemory(), GA_BASE, GA_SIZE, patched, pin);
+    expect(r).toBeNull();
+  });
+
+  it("returns null when monster list offsets are 0 (v1.00.28+/v1.01.05) even with a pinned instance", () => {
+    // v1.01.05: MonsterSpawnManager RVA present + name-scan pinned the instance,
+    // but runtime.monster.monsterList/summonedList are 0 (not derivable). The old
+    // code fell back to the v1.00.21 base offsets (0x28/0x38) and returned a
+    // non-null empty array, which starved the stageAlive-driven wave-clear path.
+    const O5 = offsetsForVersion("1.01.05")!;
+    expect(O5.runtime.monster.monsterList).toBe(0);
+    expect(O5.runtime.monster.summonedList).toBe(0);
+    const pin = makeMonsterSpawnPinState();
+    pin.ptr = MSM_INSTANCE; // bypass resolveMonsterSpawnManager (as name-scan would)
+    const m = seedMonsterList(new FakeMemory(), [
+      { addr: 0xd00000n, current: 50, max: 100 },
+    ]);
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O5, pin);
     expect(r).toBeNull();
   });
 });

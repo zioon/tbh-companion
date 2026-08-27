@@ -22,6 +22,15 @@ const POLL_ATTACHED_MS = 40; // ~25 Hz while attached (read costs ~0.2 ms)
 const POLL_DETACHED_MS = 1500; // retry attach while the game is closed
 const HEAL_UNSUPPORTED_MS = 10_000; // re-try offset resolution while degraded
 /**
+ * Cadence of the high-frequency chest tail monitor while attached+supported.
+ * A stage/boss "关卡宝箱" GetBoxLog entry can be appended and then evicted/
+ * cleared within a single 40ms frame; a 25Hz scan misses it entirely (a total
+ * loss with no trace). Polling the GetBox tail every few ms narrows the
+ * sampling gap so a transient rare/act is caught and folded into the next
+ * snapshot. Non-blocking setInterval; each call is a cheap tail scan.
+ */
+const FAST_CHEST_POLL_MS = 2;
+/**
  * Fallback heal cadence for enrichment fields (e.g. BoxOpenLog struct offsets)
  * when the event-driven path is blocked. The box-open event detector relies
  * on `getItemWithBoxOpenTypeKey`, which is itself an enrichment field — when
@@ -38,6 +47,8 @@ let reader: LiveMemoryReader | null = null;
 let loadError: string | null = null;
 let healDueAt = 0;
 let enrichmentHealDueAt = 0;
+/** High-frequency chest tail monitor timer (see FAST_CHEST_POLL_MS). */
+let fastPollTimer: ReturnType<typeof setInterval> | null = null;
 
 try {
   reader = new LiveMemoryReader();
@@ -84,6 +95,34 @@ let timer: NodeJS.Timeout | null = null;
 function schedule(ms: number): void {
   if (timer) clearTimeout(timer);
   timer = setTimeout(loop, ms);
+}
+
+/**
+ * Start/stop the high-frequency chest tail monitor to match reader state
+ * (running only while attached+supported). Each tick calls
+ * `reader.pollChestTailFast()` which is a cheap GetBox tail scan; a guard flag
+ * prevents a long-running read/extract from being re-entered mid-way, but in
+ * practice the single-threaded event loop serializes them, and the scan is ~µs.
+ */
+function ensureFastPoll(): void {
+  const should = !!reader && reader.attached && reader.supported;
+  if (should && !fastPollTimer) {
+    let busy = false;
+    fastPollTimer = setInterval(() => {
+      if (busy || !reader || !reader.attached) return;
+      busy = true;
+      try {
+        reader.pollChestTailFast();
+      } catch {
+        // suppress transient failures; the normal 25Hz loop recovers state
+      } finally {
+        busy = false;
+      }
+    }, FAST_CHEST_POLL_MS);
+  } else if (!should && fastPollTimer) {
+    clearInterval(fastPollTimer);
+    fastPollTimer = null;
+  }
 }
 
 function maybeHealUnsupported(): void {
@@ -242,6 +281,9 @@ function loop(): void {
       maybeHealUnsupported();
       maybeHealEnrichment();
     }
+    // Keep the high-frequency chest tail monitor aligned with reader state
+    // (on while attached+supported, off otherwise).
+    ensureFastPoll();
     if (reader.attached && reader.supported) {
       // Run any pending name-scan fallbacks (MonsterSpawnManager / PlayerSaveData)
       // BEFORE the read tick. These scans take 30–60s when the GA index misses
@@ -280,6 +322,10 @@ function loop(): void {
 
 parentPort?.on("message", (msg) => {
   if (msg === "stop") {
+    if (fastPollTimer) {
+      clearInterval(fastPollTimer);
+      fastPollTimer = null;
+    }
     if (timer) {
       clearTimeout(timer);
       timer = null;
