@@ -486,7 +486,7 @@ describe("AutoClassifyService", () => {
     // Items should have moved from unclassified to common (level 5 from stage)
     const commonStats = stats.find((s) => s.boxKey === "common:5");
     expect(commonStats).toBeTruthy();
-    expect(commonStats?.totalOpens).toBe(2);
+    expect(commonStats?.totalItems).toBe(2);
   });
 
   it("clears queue and pending when disabled", () => {

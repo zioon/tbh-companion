@@ -206,6 +206,10 @@ export function formatRawMoney(raw: string | null | undefined, iso: string): str
  * digits, in which case it's a thousands grouping separator (so "1,500" -> 1500
  * for KRW, but "0,17" -> 0.17 for BRL). Earlier separators are always grouping.
  * Returns null when no digits are present.
+ *
+ * Invariant: the "trailing exactly 3 digits means grouping" branch is only
+ * correct for integer currencies (JPY/KRW/VND). Before adding a currency whose
+ * minor unit uses 3 decimal places, this branch must be revisited.
  */
 export function parseMoney(text: string | null | undefined): number | null {
   if (!text) return null;

@@ -32,7 +32,7 @@ function makeStats(breakdownCount: number, category = "common"): BoxOpenStats {
     label: category === "unclassified" ? "Unclassified" : "Common chest",
     category,
     level: null,
-    totalOpens: 100,
+    totalItems: 100,
     totalBuyOrderValue: 1234,
     hourlyValue: 56,
     breakdown: Array.from({ length: breakdownCount }, (_, i) => makeBreakdownRow(i)),

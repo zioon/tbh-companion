@@ -146,7 +146,7 @@ describe("TrackingService.reset vs clearSession", () => {
 
     const before = svc.getStats();
     expect(before.chestDrops.combinedTotal).toBe(2);
-    expect(before.boxOpens.reduce((s, b) => s + b.totalOpens, 0)).toBe(1);
+    expect(before.boxOpens.reduce((s, b) => s + b.totalItems, 0)).toBe(1);
 
     svc.reset();
 
@@ -156,7 +156,7 @@ describe("TrackingService.reset vs clearSession", () => {
     expect(after.chestDrops.commonTotal).toBe(0);
     expect(after.chestDrops.commonPerHour).toBe(0);
     // Box opens preserved (Loot tab history spans session resets).
-    expect(after.boxOpens.reduce((s, b) => s + b.totalOpens, 0)).toBe(1);
+    expect(after.boxOpens.reduce((s, b) => s + b.totalItems, 0)).toBe(1);
     // Rates cleared (no heroes/gold means 0 rates).
     expect(after.sessionRate).toBe(0);
     expect(after.goldRate).toBe(0);

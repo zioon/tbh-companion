@@ -320,7 +320,7 @@ export const LootBoxSection = memo(function LootBoxSection({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h2 className="m-0 text-sm font-semibold">{localizedLabel}</h2>
-          <Badge variant="muted">{t("boxSection.opensBadge", { count: stats.totalOpens })}</Badge>
+          <Badge variant="muted">{t("boxSection.opensBadge", { count: stats.totalItems })}</Badge>
           {stats.hourlyValue != null && (
             <Badge variant="info">{fmtMoneyPerHour(stats.hourlyValue, currency)}</Badge>
           )}

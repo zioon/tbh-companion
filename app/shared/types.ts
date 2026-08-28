@@ -147,7 +147,7 @@ export interface BoxOpenBreakdownRow {
   grade: string | null;
   /** Total produced of this item under this boxKey. */
   count: number;
-  /** Observed frequency = count / boxKey.totalOpens. */
+  /** Observed frequency = count / boxKey.totalItems. */
   dropPct: number;
   /** Steam buy-order unit price (instant-sell price); null = unavailable. */
   buyOrderUnit: number | null;
@@ -173,7 +173,7 @@ export interface BoxOpenStats {
   category: BoxCategory;
   /** null = category-only fallback (BoxOpenLog lacks level). */
   level: number | null;
-  totalOpens: number;
+  totalItems: number;
   /** Sum of buyOrderValue across items; null when no items are priced. */
   totalBuyOrderValue: number | null;
   /**

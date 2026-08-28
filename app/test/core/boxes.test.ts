@@ -107,6 +107,18 @@ describe("boxSlotState", () => {
 
     expect(boxSlotState(4, 5)).toMatchObject({ isFull: false, slotsRemaining: 1 });
   });
+
+  it("reports zero capacity honestly and never marks an empty zero-capacity slot full", () => {
+    expect(boxSlotState(0, 0)).toMatchObject({
+      quantity: 0,
+      capacity: 0,
+      isFull: false,
+      slotsRemaining: 0,
+    });
+    // Held items with no capacity is still "full" (overflow), but the reported
+    // capacity must stay 0 rather than being silently clamped up to 1.
+    expect(boxSlotState(3, 0)).toMatchObject({ capacity: 0, isFull: true, slotsRemaining: 0 });
+  });
 });
 
 describe("auto-open reduction runes", () => {

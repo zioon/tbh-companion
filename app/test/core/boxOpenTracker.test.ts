@@ -18,7 +18,7 @@ describe("BoxOpenTracker", () => {
     expect(stats).toHaveLength(1);
     const s = stats[0];
     expect(s.boxKey).toBe("rare:3");
-    expect(s.totalOpens).toBe(3);
+    expect(s.totalItems).toBe(3);
     expect(s.breakdown).toHaveLength(2);
 
     const sword = s.breakdown.find((r) => r.itemKey === 1001)!;
@@ -209,7 +209,7 @@ describe("BoxOpenTracker", () => {
     const stats = t2.getStats(3600, () => null);
     expect(stats).toHaveLength(2);
     const rare = stats.find((s) => s.boxKey === "rare:3")!;
-    expect(rare.totalOpens).toBe(2);
+    expect(rare.totalItems).toBe(2);
     expect(rare.breakdown[0].count).toBe(2);
     expect(rare.breakdown[0].name).toBe("Sword");
   });
@@ -273,12 +273,12 @@ describe("BoxOpenTracker", () => {
     const stats = t.getStats(3600, () => null);
     const common = stats.find((s) => s.boxKey === "common")!;
     expect(common).toBeDefined();
-    expect(common.totalOpens).toBe(3);
+    expect(common.totalItems).toBe(3);
     expect(common.breakdown[0].name).toBe("Sword");
 
     const unclassified = stats.find((s) => s.boxKey === "unclassified")!;
     expect(unclassified).toBeDefined();
-    expect(unclassified.totalOpens).toBe(1);
+    expect(unclassified.totalItems).toBe(1);
     expect(unclassified.breakdown[0].name).toBe("Gem");
   });
 
@@ -314,7 +314,7 @@ describe("BoxOpenTracker", () => {
 
     const stats = t.getStats(3600, () => null);
     const common = stats.find((s) => s.boxKey === "common")!;
-    expect(common.totalOpens).toBe(5);
+    expect(common.totalItems).toBe(5);
     expect(common.breakdown[0].count).toBe(5);
   });
 });
@@ -355,7 +355,7 @@ describe("BoxOpenTracker.reResolveNames", () => {
     const stats = t.getStats(3600, () => null);
     expect(stats).toHaveLength(1);
     const s = stats[0];
-    expect(s.totalOpens).toBe(1);
+    expect(s.totalItems).toBe(1);
     expect(s.breakdown).toHaveLength(1);
     expect(s.breakdown[0].itemKey).toBe(530017);
     expect(s.breakdown[0].name).toBe("Ethereal Amulet");

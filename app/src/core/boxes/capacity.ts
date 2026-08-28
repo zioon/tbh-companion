@@ -25,8 +25,8 @@ export function actBossBoxCapacity(purchases: RunePurchase[], catalog: RuneBoxCa
 
 export function boxSlotState(heldQty: number, capacity: number): BoxSlotStatus {
   const quantity = Math.max(0, heldQty);
-  const cap = Math.max(1, capacity);
-  const isFull = quantity >= cap;
+  const cap = Math.max(0, capacity);
+  const isFull = quantity > 0 && quantity >= cap;
   return {
     quantity,
     capacity: cap,

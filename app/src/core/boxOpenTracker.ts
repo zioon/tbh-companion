@@ -76,7 +76,7 @@ export type BoxOpenPriceResolver =
  * calls that fire on every stats broadcast.
  */
 interface BoxOpenBaseAggregate {
-  totalOpens: number;
+  totalItems: number;
   /** Items sorted by count desc, name asc — price fields filled by `getStats`. */
   breakdownBase: Array<{
     itemKey: number;
@@ -266,7 +266,7 @@ export class BoxOpenTracker {
           grade: baseRow.grade,
           count: baseRow.count,
           coveredCount,
-          dropPct: agg.totalOpens > 0 ? baseRow.count / agg.totalOpens : 0,
+          dropPct: agg.totalItems > 0 ? baseRow.count / agg.totalItems : 0,
           buyOrderUnit,
           buyOrderValue,
           hourlyValue,
@@ -281,7 +281,7 @@ export class BoxOpenTracker {
         label: boxLabel(boxKey),
         category,
         level,
-        totalOpens: agg.totalOpens,
+        totalItems: agg.totalItems,
         totalBuyOrderValue,
         hourlyValue,
         breakdown,
@@ -309,7 +309,7 @@ export class BoxOpenTracker {
   /**
    * Build (and cache) the per-boxKey base aggregates: `breakdownBase` (items
    * sorted by count), the visible history slice (last N, reversed), and
-   * `totalOpens`. The cache is invalidated by every state mutation; `getStats`
+   * `totalItems`. The cache is invalidated by every state mutation; `getStats`
    * only reads it.
    */
   private getBaseAggregates(): Map<string, BoxOpenBaseAggregate> {
@@ -329,7 +329,7 @@ export class BoxOpenTracker {
 
     const result = new Map<string, BoxOpenBaseAggregate>();
     for (const [boxKey, itemMap] of this.countsByKey) {
-      let totalOpens = 0;
+      let totalItems = 0;
       const breakdownBase: BoxOpenBaseAggregate["breakdownBase"] = [];
       for (const [compositeKeyStr, count] of itemMap) {
         if (count <= 0) continue;
@@ -338,10 +338,10 @@ export class BoxOpenTracker {
         // Prefer the grade parsed from the composite key; fall back to
         // gradesByKey (set during recordOpen) for forward compatibility.
         const grade = parsedGrade ?? this.gradesByKey.get(compositeKeyStr) ?? null;
-        totalOpens += count;
+        totalItems += count;
         breakdownBase.push({ itemKey, name, grade, count });
       }
-      if (totalOpens === 0) continue;
+      if (totalItems === 0) continue;
       breakdownBase.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
       const allBoxHistory = historyByBox.get(boxKey) ?? [];
@@ -359,7 +359,7 @@ export class BoxOpenTracker {
         (allBoxHistory.length > 0 ? allBoxHistory[0].wallTime : null);
 
       result.set(boxKey, {
-        totalOpens,
+        totalItems,
         breakdownBase,
         history: visible,
         lastOpenWallTime,
