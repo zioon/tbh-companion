@@ -29,7 +29,7 @@ const HEAL_UNSUPPORTED_MS = 10_000; // re-try offset resolution while degraded
  * sampling gap so a transient rare/act is caught and folded into the next
  * snapshot. Non-blocking setInterval; each call is a cheap tail scan.
  */
-const FAST_CHEST_POLL_MS = 2;
+const FAST_CHEST_POLL_MS = 5;
 /**
  * Fallback heal cadence for enrichment fields (e.g. BoxOpenLog struct offsets)
  * when the event-driven path is blocked. The box-open event detector relies
