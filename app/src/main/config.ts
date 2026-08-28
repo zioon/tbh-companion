@@ -471,7 +471,15 @@ export function saveConfig(config: AppConfig): void {
       existing = {};
     }
   }
-  mkdirSync(dirname(target), { recursive: true });
-  const toSave = normalizeConfig({ ...existing, ...config });
-  writeFileSync(target, JSON.stringify(toSave, null, 2));
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    const toSave = normalizeConfig({ ...existing, ...config });
+    writeFileSync(target, JSON.stringify(toSave, null, 2));
+  } catch (err) {
+    // A read-only disk / full disk must not break the in-memory config or the
+    // downstream side effects (currency switch, broadcast) that callers run
+    // right after saveConfig. Mirrors BoxTimerService.persist isolation.
+    console.warn(`saveConfig failed: ${err instanceof Error ? err.message : String(err)}`);
+    return;
+  }
 }
