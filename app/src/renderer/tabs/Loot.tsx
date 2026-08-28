@@ -23,6 +23,18 @@ import { reportIpcError } from "../lib/reportError";
 
 const DEFAULT_RING_SECONDS: LootRingSeconds = { common: 5 * 60, stage: 7 * 60 };
 
+/** Same [1, 3600] clamp as LootBoxSection.commitRingDraft — config.json may be hand-edited. */
+function clampRingSeconds(raw: LootRingSeconds): LootRingSeconds {
+  const out: LootRingSeconds = { ...DEFAULT_RING_SECONDS };
+  for (const key of ["common", "stage"] as const) {
+    const v = raw[key];
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+      out[key] = Math.min(3600, Math.max(1, Math.round(v)));
+    }
+  }
+  return out;
+}
+
 export function Loot() {
   const { t, i18n } = useTranslation("loot");
   const {
@@ -138,7 +150,7 @@ export function Loot() {
     void window.tbh
       .getConfig()
       .then((cfg) => {
-        if (mounted && cfg.lootRingSeconds) setRingSeconds(cfg.lootRingSeconds);
+        if (mounted && cfg.lootRingSeconds) setRingSeconds(clampRingSeconds(cfg.lootRingSeconds));
       })
       .catch(reportIpcError);
     return () => {

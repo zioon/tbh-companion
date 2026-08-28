@@ -41,17 +41,23 @@ interface Ring {
   progress: number;
 }
 
+/** Ring colors cap at 3 (calm → warning → urgent); never render more laps. */
+const MAX_COMPLETED_LAPS = LAP_COLORS.length;
+
 function buildRings(
   lastDropWallTime: number | null,
   nowSeconds: number,
   lapSeconds: number,
 ): Ring[] {
   if (lastDropWallTime == null) return [];
+  // Corrupt config (lapSeconds === 0) would make elapsed/0 = Infinity and the
+  // lap loop below never terminate. Treat any non-positive lap as "no ring".
+  if (!(lapSeconds > 0)) return [];
   // Clamp to >= 0: clock skew between game wall time and Date.now() can yield
   // a negative elapsed, which would produce negative lap counts and broken
   // color indices.
   const elapsed = Math.max(0, nowSeconds - lastDropWallTime);
-  const totalLaps = Math.floor(elapsed / lapSeconds);
+  const totalLaps = Math.min(Math.floor(elapsed / lapSeconds), MAX_COMPLETED_LAPS);
   const currentProgress = (elapsed % lapSeconds) / lapSeconds;
   const colorIndex = Math.min(totalLaps, LAP_COLORS.length - 1);
   const rings: Ring[] = [];
