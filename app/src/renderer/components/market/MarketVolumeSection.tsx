@@ -392,6 +392,7 @@ function VolumeTrendChart({
     // 捕获指针：拖出 SVG 之外仍持续收到 move/up，避免松手丢失导致的「卡拖」。
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStartRef.current = { startX: e.clientX, startOffset: offset };
+    pendingOffsetRef.current = offset;
     setIsDragging(true);
     setHoverIndex(null);
   };
@@ -439,7 +440,7 @@ function VolumeTrendChart({
       onOffsetChange(pendingOffsetRef.current);
       onOffsetCommit(pendingOffsetRef.current);
     } else {
-      onOffsetCommit(offset);
+      onOffsetCommit(pendingOffsetRef.current);
     }
   };
 

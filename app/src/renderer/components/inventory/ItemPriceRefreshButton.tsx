@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "../../design-system/primitives/Button/Button";
 import { cn } from "../../lib/cn";
@@ -32,6 +32,14 @@ export function ItemPriceRefreshButton({
 }) {
   const { t } = useTranslation("inventory");
   const [pending, setPending] = useState(false);
+  const aliveRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      aliveRef.current = false;
+    },
+    [],
+  );
 
   async function onRefresh(): Promise<void> {
     if (pending) return;
@@ -39,9 +47,9 @@ export function ItemPriceRefreshButton({
     try {
       await window.tbh.refreshItemPrices(itemKey);
     } catch (err) {
-      reportIpcError(err, "inventory-item-price-refresh");
+      if (aliveRef.current) reportIpcError(err, "inventory-item-price-refresh");
     } finally {
-      setPending(false);
+      if (aliveRef.current) setPending(false);
     }
   }
 

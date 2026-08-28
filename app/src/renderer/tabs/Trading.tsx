@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuRefreshCw, LuDownload, LuUpload } from "react-icons/lu";
 import { MarketVolumeSection } from "../components/market/MarketVolumeSection";
@@ -45,6 +45,15 @@ import { TabPage } from "../design-system/primitives/TabPage/TabPage";
  * （带刷新亮环），筛选与排序对全部卡片统一生效。
  */
 export function Trading() {
+  const mountedRef = useRef(true);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
   const { t: tTabs } = useTranslation("tabs");
   const { t } = useTranslation("market");
   const { stats, pending, refresh, refreshing, progress, refreshItem, cancelRefresh } =
@@ -232,7 +241,7 @@ export function Trading() {
         setHistoryNotice(t("trading.importSuccess", { count: res.itemCount }));
       else setHistoryNotice(t("trading.importFailed", { reason: res.reason ?? "unknown" }));
     } finally {
-      setImporting(false);
+      if (mountedRef.current) setImporting(false);
     }
   };
 

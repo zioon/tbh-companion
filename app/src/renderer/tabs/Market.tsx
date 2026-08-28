@@ -18,7 +18,9 @@ import type { PriceStatus } from "../../../shared/types";
 
 function fmtAge(t: ReturnType<typeof useTranslation<"market">>["t"], iso: string | null): string {
   if (!iso) return t("ageNever");
-  const secs = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000));
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return t("ageNever");
+  const secs = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
   if (secs < 60) return t("ageSeconds", { count: secs });
   if (secs < 3600) return t("ageMinutes", { count: Math.floor(secs / 60) });
   if (secs < 86400) return t("ageHours", { count: Math.floor(secs / 3600) });
