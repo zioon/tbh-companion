@@ -1,5 +1,7 @@
 // Composition aggregation — pure, no node:fs/bundled-data imports, safe to call from the renderer
 // to re-aggregate totals over a filtered row subset (rows are already priced by resolveInventory).
+// Contract: never clears pricing fields on input rows — re-aggregation must not wipe
+// previously resolved prices for rows excluded from the subset (e.g. no market hash).
 
 import { instantSellValue } from "./buyOrder";
 import { aggregateSellerProceeds, type SteamMarketFeeRates } from "../steamMarketFee";
@@ -25,23 +27,6 @@ function emptyComposition(): InventoryComposition {
   };
 }
 
-function clearRowPricing(row: ResolvedInventoryRow): void {
-  row.priceRaw = null;
-  row.rawMedian = null;
-  row.rawLowest = null;
-  row.unitPrice = null;
-  row.priceSource = null;
-  row.priceChecked = false;
-  row.value = null;
-  row.buyOrderRaw = null;
-  row.buyOrderUnit = null;
-  row.buyOrderQuantity = null;
-  row.buyOrderLevels = null;
-  row.buyOrderValue = null;
-  row.buyOrderCoveredCount = null;
-  row.buyOrderChecked = false;
-}
-
 function accumulateCompositionRow(
   composition: InventoryComposition,
   row: ResolvedInventoryRow,
@@ -55,7 +40,6 @@ function accumulateCompositionRow(
   composition.chaoticCount += row.chaoticCount;
 
   if (!row.marketHashName) {
-    clearRowPricing(row);
     return;
   }
 
