@@ -274,10 +274,11 @@ export class WinProcess implements MemoryReader {
    * Per-process buffer pool for {@link readBytes}. Reuses Buffers across the
    * 25 Hz read loop and the 4 MiB-chunk memory scanner so V8 GC isn't flooded
    * by millions of allocations/sec. Single-threaded utilityProcess → no lock.
-   * Note: returned Buffers are NOT released back to the pool by callers (they
-   * may be held by parsers); the pool only helps when successive reads of the
-   * same size reuse freshly-acquired buffers that were released here on short
-   * reads or never made it out.
+   * Callers that consume a buffer to completion (the chunked byte/pointer
+   * scanners) return it via {@link releaseReadBuffer}; transient `readPtr`/
+   * `readI32`-style reads do NOT release (their Buffers may be held by parsers
+   * and are left to GC). The pool also meaningfully helps on the 25 Hz loop's
+   * short reads and never-released paths, which self-release on failure.
    */
   private readonly bufPool = new BufferPool();
 
@@ -713,6 +714,17 @@ export class WinProcess implements MemoryReader {
     this.bufPool.release(buf);
     return null;
   }
+
+  /**
+   * Release a buffer previously returned by {@link readBytes} back to the pool.
+   * Only safe for callers that have fully consumed the buffer and hold no alias
+   * to it (the chunked byte/pointer scanners). Must NOT be used by transient
+   * readers (`readPtr`/`readI32`/`readPtrArray`) whose buffers may outlive the
+   * call site.
+   */
+  releaseReadBuffer(buf: Buffer): void {
+    this.bufPool.release(buf);
+  }
 }
 
 export { MEM_COMMIT };
@@ -738,6 +750,7 @@ export function scanBytes(proc: WinProcess, pattern: Buffer, maxMatches = 200): 
         results.push(region.baseAddress + offset + BigInt(pos));
         if (results.length >= maxMatches) break;
       }
+      proc.releaseReadBuffer(buf);
       offset += BigInt(chunkSize);
     }
   }
@@ -772,6 +785,7 @@ export function scanBytesInRange(
       results.push(base + offset + BigInt(pos));
       if (results.length >= maxMatches) break;
     }
+    proc.releaseReadBuffer(buf);
     offset += BigInt(chunkSize);
   }
   return results;
@@ -863,6 +877,7 @@ export function resolveClassByName(
           }
         }
       }
+      proc.releaseReadBuffer(buf);
       off += BigInt(chunkSize);
     }
   }
