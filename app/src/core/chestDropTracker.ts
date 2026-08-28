@@ -322,6 +322,12 @@ export class ChestDropTracker {
   private history: ChestDropHistoryEntry[] = [];
   private readonly callbacks?: ChestDropTrackerCallbacks;
 
+  // Incremental mirrors of getStats()'s hot-path scans, maintained on append.
+  private lastRareWallTime: number | null = null;
+  private rareInHistory = 0;
+  private recentEntries: Array<{ wallTime: number; category: ChestDropCategory }> = [];
+  private recentCounts: Record<ChestDropCategory, number> = { common: 0, rare: 0, act: 0 };
+
   // Cached arrays — only rebuilt when drops are recorded. getStats() is called
   // at 5 Hz but the breakdown/history content changes rarely, so caching avoids
   // ~10 array allocations/sec.
@@ -375,6 +381,57 @@ export class ChestDropTracker {
     // session counts from the moment the user clears, not from the first drop.
     this.trackingStartedAt = nowSeconds();
     this.sessionDropStart = null;
+    this.rebuildIncrementalCaches();
+  }
+
+  /** Single choke point for history growth — updates the incremental caches. */
+  private appendHistory(entry: ChestDropHistoryEntry): void {
+    this.history.push(entry);
+    if (this.history.length > HISTORY_LIMIT) {
+      // Only ever one entry past the limit, so `shift()` is equivalent to the
+      // former `splice(0, length - HISTORY_LIMIT)`. Track a evicted rare so
+      // lastRareWallTime stays accurate when the last rare leaves the window.
+      const removed = this.history.shift()!;
+      if (removed.category === "rare") this.rareInHistory--;
+    }
+    if (entry.category === "rare") {
+      this.rareInHistory++;
+      this.lastRareWallTime = entry.wallTime;
+    }
+    this.recentEntries.push({ wallTime: entry.wallTime, category: entry.category });
+    this.recentCounts[entry.category]++;
+    this.drainRecentEntries(nowSeconds() - ROLLING_HOUR_SEC);
+    this.historyCache = null;
+  }
+
+  private drainRecentEntries(cutoff: number): void {
+    // History can receive out-of-order wallTimes (Player.log / restore), so do
+    // not assume recentEntries is sorted — filter instead of shifting a head.
+    const kept: Array<{ wallTime: number; category: ChestDropCategory }> = [];
+    for (const entry of this.recentEntries) {
+      if (entry.wallTime < cutoff) {
+        this.recentCounts[entry.category]--;
+      } else {
+        kept.push(entry);
+      }
+    }
+    this.recentEntries = kept;
+  }
+
+  /** Rebuild all incremental caches by replaying the current history. */
+  private rebuildIncrementalCaches(): void {
+    this.lastRareWallTime = null;
+    this.rareInHistory = 0;
+    this.recentEntries = [];
+    this.recentCounts = { common: 0, rare: 0, act: 0 };
+    for (const entry of this.history) {
+      if (entry.category === "rare") {
+        this.rareInHistory++;
+        this.lastRareWallTime = entry.wallTime;
+      }
+      this.recentEntries.push({ wallTime: entry.wallTime, category: entry.category });
+      this.recentCounts[entry.category]++;
+    }
   }
 
   /**
@@ -391,12 +448,8 @@ export class ChestDropTracker {
     this.namesByKey.set(key, name);
     this.categoriesByKey.set(key, category);
 
-    this.history.push({ wallTime, itemKey, name, category });
-    if (this.history.length > HISTORY_LIMIT) {
-      this.history.splice(0, this.history.length - HISTORY_LIMIT);
-    }
+    this.appendHistory({ wallTime, itemKey, name, category });
     this.breakdownCache = null;
-    this.historyCache = null;
     this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
     this.callbacks?.onDrop?.({ category, wallTime });
     return true;
@@ -411,18 +464,14 @@ export class ChestDropTracker {
     this.namesByKey.set(key, resolved.name);
     this.categoriesByKey.set(key, resolved.category);
 
-    this.history.push({
+    this.appendHistory({
       wallTime,
       itemKey: resolved.itemKey,
       name: resolved.name,
       category: resolved.category,
     });
-    if (this.history.length > HISTORY_LIMIT) {
-      this.history.splice(0, this.history.length - HISTORY_LIMIT);
-    }
 
     this.breakdownCache = null;
-    this.historyCache = null;
     this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
     this.callbacks?.onDrop?.({
       category: resolved.category,
@@ -526,36 +575,28 @@ export class ChestDropTracker {
 
     // Mini overlay's boss-chest ring + "Box" countdown only track stage boss
     // (rare) drops — common chests drop too frequently to make a 7-min lap
-    // meaningful. Scan full history (not the visible slice) newest-first for
-    // the most recent rare entry.
-    let lastRareDropWallTime: number | null = null;
-    for (let i = this.history.length - 1; i >= 0; i--) {
-      if (this.history[i].category === "rare") {
-        lastRareDropWallTime = this.history[i].wallTime;
-        break;
-      }
-    }
+    // meaningful. Maintained incrementally on append: `lastRareWallTime` holds
+    // the most recent rare wallTime, and `rareInHistory` keeps it null-safe
+    // when eviction removes the last rare entry from the bounded window.
+    const lastRareDropWallTime = this.rareInHistory > 0 ? this.lastRareWallTime : null;
 
-    // Rolling 1-hour rate: scan full history for entries inside the window.
-    // History is append-only and bounded at HISTORY_LIMIT, so this stays cheap
-    // even at 5 Hz polling. We track the earliest in-window wallTime to size
-    // the denominator: when the first recent drop is younger than the window
-    // (e.g. session just started), use (now - earliest) so the rate doesn't
-    // get divided by a full hour and look artificially low.
+    // Rolling 1-hour rate: maintained incrementally in recentEntries +
+    // recentCounts instead of scanning the full history at 5 Hz. `drain` prunes
+    // entries older than the window so the cached tail stays small and bounded.
+    // We track the earliest in-window wallTime to size the denominator: when the
+    // first recent drop is younger than the window (e.g. session just started),
+    // use (now - earliest) so the rate doesn't get divided by a full hour and
+    // look artificially low.
     const nowSec = nowSeconds();
-    const recentCutoff = nowSec - ROLLING_HOUR_SEC;
-    let commonRecent = 0;
-    let rareRecent = 0;
-    let actRecent = 0;
+    this.drainRecentEntries(nowSec - ROLLING_HOUR_SEC);
+    const commonRecent = this.recentCounts.common;
+    const rareRecent = this.recentCounts.rare;
+    const actRecent = this.recentCounts.act;
     let earliestRecentWallTime: number | null = null;
-    for (const entry of this.history) {
-      if (entry.wallTime < recentCutoff) continue;
+    for (const entry of this.recentEntries) {
       if (earliestRecentWallTime === null || entry.wallTime < earliestRecentWallTime) {
         earliestRecentWallTime = entry.wallTime;
       }
-      if (entry.category === "common") commonRecent++;
-      else if (entry.category === "rare") rareRecent++;
-      else if (entry.category === "act") actRecent++;
     }
     const recentWindowSec =
       earliestRecentWallTime !== null
@@ -627,5 +668,6 @@ export class ChestDropTracker {
     // Anchor perHour to the earliest restored drop so the rate window spans
     // the full session history, not just post-restore drops.
     this.sessionDropStart = this.history.length > 0 ? this.history[0].wallTime : null;
+    this.rebuildIncrementalCaches();
   }
 }

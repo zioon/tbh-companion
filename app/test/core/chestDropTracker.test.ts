@@ -228,6 +228,117 @@ describe("ChestDropTracker", () => {
       vi.useRealTimers();
     }
   });
+
+  it("maintains rolling-window stats identically to a full history scan", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000 * 1000); // now = 100_000s → cutoff = 96_400s
+      const tracker = new ChestDropTracker();
+      // In-window: 2 common + 1 rare + 1 act (all at exactly the cutoff).
+      // Out-of-window: 1 common at 90_000s.
+      tracker.recordLiveChestDrop("common", 96_400);
+      tracker.recordLiveChestDrop("rare", 96_400);
+      tracker.recordLiveChestDrop("act", 96_400);
+      tracker.recordLiveChestDrop("common", 96_400);
+      tracker.recordLiveChestDrop("common", 90_000);
+
+      const stats = tracker.getStats(3600);
+      const history = tracker.captureSnapshot().history;
+
+      // Recompute the old O(N) scan from the same history for a reference.
+      const cutoff = 100_000 - 3600;
+      let common = 0;
+      let rare = 0;
+      let act = 0;
+      let lastRare: number | null = null;
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].category === "rare") {
+          lastRare = history[i].wallTime;
+          break;
+        }
+      }
+      for (const e of history) {
+        if (e.wallTime < cutoff) continue;
+        if (e.category === "common") common++;
+        else if (e.category === "rare") rare++;
+        else act++;
+      }
+
+      expect(stats.lastRareDropWallTime).toBe(lastRare);
+      // earliest in-window wallTime is exactly at the cutoff → full 1h window,
+      // so the per-hour values equal the raw counts.
+      expect(stats.commonRecentPerHour).toBe(common);
+      expect(stats.rareRecentPerHour).toBe(rare);
+      expect(stats.actRecentPerHour).toBe(act);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rebuilds incremental stats correctly after snapshot restore", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000 * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.applySnapshot({
+        countsByKey: {},
+        namesByKey: {},
+        categoriesByKey: {},
+        history: [
+          { wallTime: 90_000, itemKey: 900910, name: "Common chest", category: "common" },
+          { wallTime: 96_400, itemKey: 900920, name: "Stage boss chest", category: "rare" },
+          { wallTime: 97_000, itemKey: 900930, name: "Act boss chest", category: "act" },
+        ],
+      });
+
+      const stats = tracker.getStats(3600);
+      const history = tracker.captureSnapshot().history;
+
+      const cutoff = 100_000 - 3600;
+      let common = 0;
+      let rare = 0;
+      let act = 0;
+      let lastRare: number | null = null;
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].category === "rare") {
+          lastRare = history[i].wallTime;
+          break;
+        }
+      }
+      for (const e of history) {
+        if (e.wallTime < cutoff) continue;
+        if (e.category === "common") common++;
+        else if (e.category === "rare") rare++;
+        else act++;
+      }
+
+      expect(stats.lastRareDropWallTime).toBe(lastRare);
+      // 90_000 is outside the window; rare(96_400)+act(97_000) are in it, with
+      // earliest = 96_400 (exactly the cutoff → 1h window).
+      expect(stats.commonRecentPerHour).toBe(common);
+      expect(stats.rareRecentPerHour).toBe(rare);
+      expect(stats.actRecentPerHour).toBe(act);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops lastRareDropWallTime back to null when the last rare leaves the window", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(100_000 * 1000);
+      const tracker = new ChestDropTracker();
+      // Plant a rare at the front, then push HISTORY_LIMIT common entries so the
+      // rare is evicted from the bounded history window.
+      tracker.recordLiveChestDrop("rare", 1000);
+      for (let i = 0; i < 500; i++) {
+        tracker.recordLiveChestDrop("common", 1000 + i);
+      }
+      expect(tracker.getStats(3600).lastRareDropWallTime).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("ChestDropTracker.recordLiveChestDrop", () => {
