@@ -15,6 +15,7 @@ export const ItemCard = memo(function ItemCard({
   item,
   onSelect,
   gradeOverride,
+  lazy,
 }: {
   item: LookupItem;
   onSelect?: (item: LookupItem) => void;
@@ -24,6 +25,12 @@ export const ItemCard = memo(function ItemCard({
    * from the catalog. Grid cards leave this undefined to show the catalog grade.
    */
   gradeOverride?: string | null;
+  /**
+   * Defer rendering of off-screen grid cards via `content-visibility: auto`.
+   * Passed by the Lookup grid so thousands of cards don't pay a full layout
+   * cost up front; peek usage leaves it off for exact intrinsic sizing.
+   */
+  lazy?: boolean;
 }) {
   const { t } = useTranslation("lookup");
   const hasBody = lookupItemCardHasBody(item);
@@ -96,6 +103,7 @@ export const ItemCard = memo(function ItemCard({
         padding="compact"
         className={cn(
           cardClassName,
+          lazy && "[content-visibility:auto] [contain-intrinsic-size:auto_240px]",
           // Hovering the price link reads as a link hover (underline), not a
           // card hover — suppress the border highlight while the link is hovered.
           "cursor-pointer hover:border-ideal/40 has-[a:hover]:border-border",
@@ -108,7 +116,13 @@ export const ItemCard = memo(function ItemCard({
   }
 
   return (
-    <Card padding="compact" className={cardClassName}>
+    <Card
+      padding="compact"
+      className={cn(
+        cardClassName,
+        lazy && "[content-visibility:auto] [contain-intrinsic-size:auto_240px]",
+      )}
+    >
       {content}
     </Card>
   );

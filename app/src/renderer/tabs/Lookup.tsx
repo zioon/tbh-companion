@@ -182,7 +182,7 @@ export function Lookup() {
         {filtered.length === 0 ? (
           <li className="col-span-full text-xs text-muted">{t("emptyFiltered")}</li>
         ) : (
-          filtered.map((item) => <ItemCard key={item.id} item={item} onSelect={handleItemSelect} />)
+          filtered.map((item) => <ItemCard key={item.id} item={item} onSelect={handleItemSelect} lazy />)
         )}
       </ul>
 

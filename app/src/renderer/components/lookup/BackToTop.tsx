@@ -33,7 +33,7 @@ export function BackToTop() {
 
     const onScroll = () => setVisible(container.scrollTop > SHOW_THRESHOLD);
     onScroll();
-    container.addEventListener("scroll", onScroll);
+    container.addEventListener("scroll", onScroll, { passive: true });
     return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
