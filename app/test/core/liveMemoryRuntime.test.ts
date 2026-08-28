@@ -628,6 +628,29 @@ describe("readRuntimeChestLog", () => {
     expect(pin.lastCount).toBe(1);
   });
 
+  it("does not skip the first newly appended entry while settling the withheld one", () => {
+    // Off-by-one regression: when a settle is pending AND a new drop landed in
+    // the same tick, the scan used to resume at lastCount+1 and permanently
+    // skip the entry at lastCount (the first new one).
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 1;
+    pin.pendingIdx = 0; // previous tick withheld index 0
+    pin.pendingCat = "common";
+    // Log now has 3 entries: idx0 (withheld, settled common) + idx1 rare + idx2 act.
+    const m = seedLogChain(new FakeMemory(), [0, 1, 2]);
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // settle emits idx0; scan must emit idx1 (rare) and withhold idx2 (act).
+    expect(r1.drops).toEqual(["common", "rare"]);
+    expect(pin.pendingCat).toBe("act");
+    expect(pin.pendingIdx).toBe(2);
+    expect(pin.lastCount).toBe(3);
+    // Next tick settles the withheld act; nothing new.
+    const r2 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2.drops).toEqual(["act"]);
+    expect(pin.lastCount).toBe(3);
+  });
+
   it("rejects non-LogManager objects whose +logByType offset holds an unrelated dict", () => {
     // v1.01.02 regression: resolveLogManager scans the LogManager static block
     // for the first pointer whose `+logByType` offset holds a dict-like struct

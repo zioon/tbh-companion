@@ -962,7 +962,7 @@ export function readRuntimeChestLog(
   // tick's withheld index and emit its *settled* value (the current committed
   // category, falling back to the provisional one), then scan only *newer*
   // entries.
-  const resumeFrom = pin.pendingIdx != null ? lastCountBefore + 1 : lastCountBefore;
+  const resumeFrom = pin.pendingIdx != null ? pin.pendingIdx + 1 : lastCountBefore;
   let debugSettled:
     | { idx: number; from: LiveChestCategory; to: LiveChestCategory }
     | undefined = undefined;
