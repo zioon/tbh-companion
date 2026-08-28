@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type * as NodeFs from "node:fs";
 
 vi.mock("electron", () => ({
   app: { getPath: () => "/tmp/tbh-test" },
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
-  const actual = (await importOriginal()) as typeof import("node:fs");
+  const actual = (await importOriginal()) as typeof NodeFs;
   return {
     ...actual,
     existsSync: vi.fn(() => false),

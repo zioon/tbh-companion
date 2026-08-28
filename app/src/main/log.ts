@@ -166,7 +166,7 @@ export function createLogger(module: string): Logger {
     warn: (message) => write("warn", message),
     error: (message) => write("error", message),
     debug: (message) => {
-      if (app.isPackaged) return;
+      if (app?.isPackaged) return;
       scoped.debug(sanitizeLogMessage(message));
     },
   };

@@ -31,7 +31,7 @@ import { broadcast } from "./broadcast";
 import { detectHeroLevelUps, type HeroLevelUpEvent } from "../../core/heroes/detectLevelUps";
 import { createLogger } from "../log";
 import type { SessionStateService } from "./SessionStateService";
-import { AutoClassifyService } from "./AutoClassifyService";
+import type { AutoClassifyService } from "./AutoClassifyService";
 
 const log = createLogger("tracking");
 

@@ -59,7 +59,7 @@ export function useLoot(): {
   dismissClassifyPrompt: () => void;
 } {
   const stats = useStats();
-  const boxOpens = stats?.boxOpens ?? [];
+  const boxOpens = useMemo(() => stats?.boxOpens ?? [], [stats?.boxOpens]);
   const lootStatus = stats?.lootStatus;
   // stageKey is 0 in the default Stats shape before live memory connects; treat
   // that as "no stage" so LootBoxSection doesn't pre-fill an invalid level.

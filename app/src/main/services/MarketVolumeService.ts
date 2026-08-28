@@ -708,7 +708,7 @@ export class MarketVolumeService {
       // 采样快照只含分类金额、不含分类物品种数，故分类物品数置空（图例显示 0）。
       itemCountsByCategory = {};
     }
-    log.info(
+    log.debug(
       `[volume-stats] getStats called hourly=${hourly.length} (${hourly[0]?.hour}..${hourly[hourly.length - 1]?.hour})`,
     );
     return {
