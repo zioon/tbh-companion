@@ -395,4 +395,28 @@ describe("XpTracker.updateLive", () => {
     copy.applySnapshot(t.captureSnapshot());
     expect(copy.update(snap(now + 10, 5600))).toBe(500);
   });
+
+  it("ignores implausible live hero exp in totalXp and takeover seeding", () => {
+    const t = new XpTracker(300);
+    t.update(snap(1000, 0)); // initialize so updateLive is accepted
+    // First live frame = takeover. key2 carries a dirty read far above the
+    // 1e12 runtime-exp cap; it must not pollute totalXp or the per-hero baseline.
+    t.updateLive(
+      {
+        gold: null,
+        heroes: [
+          { heroKey: 1, level: 10, exp: 500 },
+          { heroKey: 2, level: 10, exp: 3e12 },
+        ],
+      },
+      1000,
+    );
+    expect(t.currentTotalXp).toBe(500);
+    // Clean follow-up frame: only key1 advances.
+    t.updateLive({ gold: null, heroes: [{ heroKey: 1, level: 10, exp: 600 }] }, 1001);
+    expect(t.currentTotalXp).toBe(600);
+    const snap2 = t.captureSnapshot();
+    expect(snap2.currentTotalXp).toBe(600);
+    expect(snap2.prevHero["2"]).toBeUndefined(); // dirty hero never seeded
+  });
 });

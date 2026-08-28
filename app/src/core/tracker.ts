@@ -460,6 +460,10 @@ export class XpTracker {
 
     let totalXp = 0;
     for (const h of heroes) {
+      // Dirty HeroList slots surface valid heroKeys with garbage exp; keep the
+      // same plausibility gate used for gain so one bad read can't pollute the
+      // persisted session snapshot (captureSnapshot writes currentTotalXp).
+      if (!plausibleHeroRuntimeExp(h.exp)) continue;
       totalXp += h.exp;
     }
 
@@ -474,6 +478,7 @@ export class XpTracker {
       this.cumulativeGained = seedTotal;
       this.prevHero.clear();
       for (const h of heroes) {
+        if (!plausibleHeroRuntimeExp(h.exp)) continue;
         const key = String(h.heroKey);
         this.prevHero.set(key, { level: h.level, exp: h.exp });
         let meter = this.heroMeters.get(key);
