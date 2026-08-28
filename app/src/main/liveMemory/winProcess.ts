@@ -28,6 +28,13 @@ const READABLE_PROTECT = new Set([
   0x80, // PAGE_EXECUTE_WRITECOPY
 ]);
 
+// Upper bound on the total committed readable bytes any single whole-address-space
+// scan will enumerate. Prevents pathological process images (large private heaps,
+// many 64 MiB sections) from turning a "scan all memory" request into minutes of
+// ReadProcessMemory. The budget is a hard stop: a region that would exceed it is
+// never yielded, so no partial region is returned.
+const SCAN_BUDGET_BYTES = 200 * 1024 * 1024;
+
 // Win64 MSVC layout — padding fields required for correct offsets.
 const PROCESSENTRY32W = koffi.struct("PROCESSENTRY32W", {
   dwSize: "uint32",
@@ -620,14 +627,27 @@ export class WinProcess implements MemoryReader {
     }
   }
 
-  /** Walk committed readable regions from `start` (default: whole address space). */
-  *readableRegions(maxRegions = 5000, start = 0n): Generator<MemoryRegion> {
+  /**
+   * Walk committed readable regions from `start` (default: whole address space).
+   * `maxBytes` caps the total committed readable bytes yielded; when the next
+   * readable region would exceed the remaining budget the walk stops WITHOUT
+   * yielding a partial region. Callers that depend on exhaustiveness (e.g. the
+   * class name-index inside GameAssembly, which is far smaller than the budget)
+   * are unaffected; whole-address-space fallback scans may miss a target beyond
+   * the budget and rely on the GA-priority path in resolveClassByName to cover it.
+   */
+  *readableRegions(
+    maxRegions = 5000,
+    start = 0n,
+    maxBytes = SCAN_BUDGET_BYTES,
+  ): Generator<MemoryRegion> {
     const mbiSize = koffi.sizeof(MEMORY_BASIC_INFORMATION);
     const mbi = koffi.alloc(MEMORY_BASIC_INFORMATION, 1);
     let address = start;
     let count = 0;
+    let budget = maxBytes;
 
-    while (count < maxRegions) {
+    while (count < maxRegions && budget > 0) {
       const result = VirtualQueryEx(this.handle, address, mbi, mbiSize);
       if (result === 0n || result === 0) break;
 
@@ -643,12 +663,14 @@ export class WinProcess implements MemoryReader {
         READABLE_PROTECT.has(protect) &&
         regionSize > 0
       ) {
+        if (regionSize > budget) break;
         yield {
           baseAddress: base,
           size: regionSize,
           protect,
           type: info.Type,
         };
+        budget -= regionSize;
         count++;
       }
 
