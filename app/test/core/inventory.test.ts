@@ -135,6 +135,20 @@ describe("parseInventory", () => {
     expect(snap.inventoryUsed).toBe(1);
   });
 
+  it("counts slot capacity/used correctly when a slot object has nested braces", () => {
+    const inner = `{
+      "inventorySaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247890000300,"IsUnlock":true},
+        {"Index":1,"ItemUniqueId":0,"IsUnlock":true,
+          "EnchantData":[{"StatModKey":7}]},
+        {"Index":2,"ItemUniqueId":0,"IsUnlock":false}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.inventoryCapacity).toBe(2);
+    expect(snap.inventoryUsed).toBe(1);
+  });
+
   it("normalizes non-market suffixed ItemKeys from newer saves", () => {
     const inner = `{
       "itemSaveDatas":[

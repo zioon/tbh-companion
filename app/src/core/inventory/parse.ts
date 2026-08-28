@@ -67,15 +67,13 @@ function parseSlotUniqueIds(playerStr: string, arrayKey: string): Set<string> {
   return ids;
 }
 
-const SLOT_OBJECT_RE = /\{[^{}]*\}/g;
-
 /** Counts unlocked inventory slots and how many hold an item, from a flat slot-object array.
- *  Assumes each slot entry is a shallow JSON object (no nested braces), matching save layout. */
+ *  Uses depth-aware splitting (same as `splitTopLevelObjects`) so a save format that
+ *  later adds nested sub-objects inside a slot (e.g. enchant data) is not mis-parsed. */
 function parseSlotCapacity(arrText: string): { capacity: number; used: number } {
   let capacity = 0;
   let used = 0;
-  for (const m of arrText.matchAll(SLOT_OBJECT_RE)) {
-    const obj = m[0];
+  for (const obj of splitTopLevelObjects(arrText)) {
     const isUnlock = /"IsUnlock"\s*:\s*true/.test(obj);
     if (!isUnlock) continue;
     capacity++;
