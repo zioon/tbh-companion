@@ -743,13 +743,21 @@ export class TrackingService {
       this.lastLiveStage = { stageKey, stageWave };
     }
 
+    // DPS / Damage / Mobs tracking from monster HP data (address-based, per tbh-meter).
+    // `readRuntimeMonsterHp` returns null only when the MonsterSpawnManager
+    // instance is unresolvable; otherwise it returns an array that may be empty
+    // (read attempted but no monsters found — e.g. between waves) or non-empty.
+    // Update DPS/HP/alive from the array whenever it is present (even empty: an
+    // empty array correctly drives `alive → 0` between waves, and DpsTracker's
+    // wave-clear detection still advances on the 0→N transition). Only when the
+    // monster data source is entirely absent (null) do we fall back to the
+    // StageManager alive count for wave detection.
     if (snap.monsterHp != null) {
       this.dpsTracker.update(snap.monsterHp, snap.deadMonsterCount, timestamp);
     } else if (snap.stageAlive != null) {
-      // Builds whose monster-HP offsets aren't derived (e.g. v1.01.05): drive
+      // No monster-HP data source at all (e.g. offsets unresolvable): drive
       // wave-clear detection from StageManager's alive count so the wave
-      // counter still advances live. DPS/damage stats stay 0 on such builds
-      // (HP data absent).
+      // counter still advances live. DPS/damage stats stay 0 in that case.
       this.dpsTracker.updateAlive(snap.stageAlive, timestamp);
     }
 

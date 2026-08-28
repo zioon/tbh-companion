@@ -144,10 +144,14 @@ export class DpsTracker {
     this._wasAlive = this._alive > 0;
     this.trackStageEndFromAlive(this._alive, timestamp);
 
-    // Monsters gone since the previous tick = died → account remaining HP as killing blow
+    // Monsters gone since the previous tick = died → account remaining HP as
+    // killing blow, and count the vanished monsters (a kill-inference fallback
+    // for builds whose dead-monster counter is unavailable, see below).
+    let vanishedCount = 0;
     for (const [addr, prevHp] of this.lastHp) {
       if (!current.has(addr) && prevHp > 0) {
         damageThisFrame += prevHp;
+        vanishedCount++;
       }
     }
 
@@ -162,26 +166,27 @@ export class DpsTracker {
       this.sessionDamage += damageThisFrame;
     }
 
-    // Track mob kills from dead monster count delta
+    // Track mob kills. Preferred source: the MonsterSpawnManager dead-monster
+    // counter delta. Fallback: when that counter is unusable — null, or stuck
+    // at 0 while monsters are clearly vanishing (e.g. v1.01.05 where the dead
+    // list offset isn't derived) — infer kills from the number of monsters that
+    // disappeared from the alive list this tick (wave transitions vanish the
+    // whole wave = those monsters were killed, so the count is accurate).
     if (deadMonsterCount != null) {
       if (this.lastDeadCount != null) {
         const delta = deadMonsterCount - this.lastDeadCount;
         if (delta > 0 && delta < 1000) {
-          this.sessionMobsKilled += delta;
-          this.killTotal += delta;
-          this.killSamples.push([timestamp, this.killTotal]);
-
-          // Prune samples outside the 60s KPM window. Use `> 1` (not `> 2`)
-          // so the window keeps exactly one boundary sample at each end —
-          // keeping two old samples left the boundary sample stuck forever
-          // once the array shrank to length 2, making KPM span hours.
-          const kpmCutoff = timestamp - DpsTracker.KPM_WINDOW_SECONDS;
-          while (this.killSamples.length > 1 && this.killSamples[0][0] < kpmCutoff) {
-            this.killSamples.shift();
-          }
+          this.recordKills(delta, timestamp);
+        } else if (vanishedCount > 0 && deadMonsterCount === 0) {
+          // Dead counter stuck at 0 while monsters vanish → offset not derived
+          // (v1.01.05 signature). Infer kills from the alive-list delta.
+          this.recordKills(vanishedCount, timestamp);
         }
       }
       this.lastDeadCount = deadMonsterCount;
+    } else if (vanishedCount > 0) {
+      // No dead counter at all — infer kills from vanished monsters.
+      this.recordKills(vanishedCount, timestamp);
     }
 
     // Apply pending map reset after the delay period
@@ -207,6 +212,27 @@ export class DpsTracker {
       damageBase: this.sessionDamage,
       killsBase: this.sessionMobsKilled,
     };
+  }
+
+  /**
+   * Record `n` monster kills at `timestamp`: bump the session/map/killTotal
+   * counters and append a KPM sample, pruning samples outside the 60s window.
+   * Extracted from `update()` so both the dead-counter delta path and the
+   * vanished-monster inference path share the same accounting.
+   */
+  private recordKills(n: number, timestamp: number): void {
+    this.sessionMobsKilled += n;
+    this.killTotal += n;
+    this.killSamples.push([timestamp, this.killTotal]);
+
+    // Prune samples outside the 60s KPM window. Use `> 1` (not `> 2`)
+    // so the window keeps exactly one boundary sample at each end —
+    // keeping two old samples left the boundary sample stuck forever
+    // once the array shrank to length 2, making KPM span hours.
+    const kpmCutoff = timestamp - DpsTracker.KPM_WINDOW_SECONDS;
+    while (this.killSamples.length > 1 && this.killSamples[0][0] < kpmCutoff) {
+      this.killSamples.shift();
+    }
   }
 
   /**

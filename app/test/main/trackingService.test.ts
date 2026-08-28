@@ -56,6 +56,7 @@ const baseConfig = {
   lookupPricePolling: { enabled: false, intervalMinutes: 10, thresholdUsd: 1.0, watchedHashes: [] },
   marketHistoryBatchSize: 10,
   marketHistoryBatchDelaySec: 120,
+  marketHistoryCoverageThreshold: 0.95,
   language: "auto" as const,
 };
 
@@ -1370,6 +1371,79 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     // not continuing to accumulate from the failed run.
     svc.ingestLiveFrame(frame(2100, 3, party));
     expect(svc.getStats().stageWave).toBe(1);
+
+    svc.stop();
+  });
+
+  it("drives alive to 0 and infers kills from vanished monsters when deadMonsterCount is stuck at 0 (v1.01.05)", () => {
+    // v1.01.05: monsterList@0x28 is readable (real HP data) but the dead-monster
+    // list offset isn't derived → deadMonsterCount stays 0. The DpsTracker must
+    // (a) still show alive → 0 when the monster array empties between waves, and
+    // (b) infer monster kills from the number of monsters that vanished.
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    function frame(
+      at: number,
+      monsterHp: Array<[number, number, number]> | null,
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0,
+        stageWaveTotal: 31,
+        stageAlive: 0,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp,
+        deadMonsterCount: 0, // stuck at 0 — dead list offset not derived
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // Wave 1: three monsters appear (full HP).
+    svc.ingestLiveFrame(frame(1000, [
+      [0xd00000, 50, 100],
+      [0xd10000, 60, 100],
+      [0xd20000, 70, 100],
+    ]));
+    expect(svc.getStats().aliveMonsters).toBe(3);
+
+    // Monsters take damage.
+    svc.ingestLiveFrame(frame(1020, [
+      [0xd00000, 10, 100],
+      [0xd10000, 20, 100],
+      [0xd20000, 30, 100],
+    ]));
+    expect(svc.getStats().aliveMonsters).toBe(3);
+
+    // All three killed → array empties → alive must drop to 0 (not stay 3).
+    svc.ingestLiveFrame(frame(1040, []));
+    expect(svc.getStats().aliveMonsters).toBe(0);
+    // The three vanished monsters are inferred as kills.
+    expect(svc.getStats().sessionMobsKilled).toBe(3);
+    expect(svc.getStats().mapMobsKilled).toBe(3);
+
+    // Wave 2: new monsters spawn (new addresses) — alive rises again.
+    svc.ingestLiveFrame(frame(1060, [
+      [0xe00000, 80, 100],
+      [0xe10000, 90, 100],
+    ]));
+    expect(svc.getStats().aliveMonsters).toBe(2);
+
+    // Kill one more → inferred kill count increments.
+    svc.ingestLiveFrame(frame(1080, [[0xe10000, 90, 100]]));
+    expect(svc.getStats().aliveMonsters).toBe(1);
+    expect(svc.getStats().sessionMobsKilled).toBe(4);
 
     svc.stop();
   });

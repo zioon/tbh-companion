@@ -2088,14 +2088,19 @@ function walkMonsterList(
  * Each Monster (a runtime Unit) has a UnitHealthController whose exact field
  * offset is scanned dynamically.
  *
- * Returns null when the monster struct offsets aren't derived for this build
- * (e.g. v1.00.28 / v1.01.01 / v1.01.05 — MonsterSpawnManager RVA present but
- * `runtime.monster.monsterList`/`summonedList` are 0). The old code fell back
- * to the v1.00.21 base offsets (0x28/0x38/0x30), which read garbage/empty
- * lists on those builds — returning a non-null empty array that starved
- * TrackingService's stageAlive-driven wave-clear path (`updateAlive`), freezing
- * the wave counter. Reporting null lets the alive-based fallback drive wave
- * detection instead.
+ * Returns null only when the MonsterSpawnManager instance itself cannot be
+ * resolved. When the struct offsets aren't derived for this build (e.g.
+ * v1.00.28 / v1.01.01 / v1.01.05 — `runtime.monster.monsterList`/`summonedList`
+ * are 0), the reader falls back to the v1.00.21 base offsets (0x28/0x38/0x30)
+ * so monster HP data keeps flowing where those offsets are still valid (verified
+ * live: v1.01.05 shows DPS/alive/max-HP with the base-offset fallback).
+ *
+ * The empty-array-vs-null distinction is left to the CALLER: an empty array
+ * means "read attempted but no monsters found" (TrackingService then falls back
+ * to `updateAlive(stageAlive)` for wave detection), whereas null means "no data
+ * source at all". This keeps DPS/HP alive whenever the lists are readable while
+ * still letting the stageAlive-driven wave-clear path take over when they are
+ * not.
  */
 export function readRuntimeMonsterHp(
   reader: MemoryReader,
@@ -2106,15 +2111,6 @@ export function readRuntimeMonsterHp(
 ): { monsterHps: Array<[number, number, number]>; deadCount: number } | null {
   // If the pin is already set (via name-scan), skip RVA check
   if (pin.ptr == null && o.typeInfoRva.monsterSpawnManager === 0n) return null;
-
-  // Monster list offsets not derived → HP data unavailable. Do NOT fall back
-  // to the v1.00.21 base offsets here: on v1.00.28+ they read garbage/empty
-  // lists, and returning a non-null empty array would make TrackingService
-  // prefer `update([])` (alive permanently 0 → wave frozen) over the correct
-  // `updateAlive(stageAlive)` path.
-  if (o.runtime.monster.monsterList === 0 && o.runtime.monster.summonedList === 0) {
-    return null;
-  }
 
   const msmPtr = resolveMonsterSpawnManager(reader, gaBase, gaSize, o, pin);
   if (msmPtr == null) return null;

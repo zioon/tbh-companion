@@ -1733,20 +1733,25 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
     expect(r).toBeNull();
   });
 
-  it("returns null when monster list offsets are 0 (v1.00.28+/v1.01.05) even with a pinned instance", () => {
+  it("falls back to v1.00.21 base offsets when monster list offsets are 0 (v1.00.28+/v1.01.05)", () => {
     // v1.01.05: MonsterSpawnManager RVA present + name-scan pinned the instance,
-    // but runtime.monster.monsterList/summonedList are 0 (not derivable). The old
-    // code fell back to the v1.00.21 base offsets (0x28/0x38) and returned a
-    // non-null empty array, which starved the stageAlive-driven wave-clear path.
+    // but runtime.monster.monsterList/summonedList are 0 (not derivable). The
+    // reader must fall back to the v1.00.21 base offsets (0x28/0x38/0x30) so
+    // DPS/alive/max-HP data keeps flowing where those offsets are still valid —
+    // verified live on v1.01.05. (TrackingService then falls back to
+    // `updateAlive(stageAlive)` only when the array is EMPTY.)
     const O5 = offsetsForVersion("1.01.05")!;
     expect(O5.runtime.monster.monsterList).toBe(0);
     expect(O5.runtime.monster.summonedList).toBe(0);
     const pin = makeMonsterSpawnPinState();
     pin.ptr = MSM_INSTANCE; // bypass resolveMonsterSpawnManager (as name-scan would)
+    // seedMonsterList lays the list out at MSM_INSTANCE + 0x28 — exactly the
+    // v1.00.21 base offset the fallback reads, so HP data is recovered.
     const m = seedMonsterList(new FakeMemory(), [
       { addr: 0xd00000n, current: 50, max: 100 },
     ]);
     const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O5, pin);
-    expect(r).toBeNull();
+    expect(r).not.toBeNull();
+    expect(r!.monsterHps).toEqual([[0xd00000, 50, 100]]);
   });
 });
