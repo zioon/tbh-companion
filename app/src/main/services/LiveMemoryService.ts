@@ -136,15 +136,21 @@ export class LiveMemoryService {
     const stderrChunks: string[] = [];
     let stderrBytes = 0;
     this.child.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderrChunks.push(text);
-      stderrBytes += text.length;
+      stderrChunks.push(chunk.toString());
+      stderrBytes += chunk.length; // measured in received Buffer bytes
       // Evict oldest chunks until we're back under the cap.
       while (stderrBytes > STDERR_MAX_BYTES && stderrChunks.length > 1) {
         const removed = stderrChunks.shift()!;
-        stderrBytes -= removed.length;
+        stderrBytes -= Buffer.byteLength(removed, "utf8");
       }
-      log.warn(`[worker stderr] ${text.trimEnd()}`);
+      if (chunk.length > STDERR_MAX_BYTES) {
+        // A single oversized dump: keep only the trailing half so one giant
+        // write can't pin a full-cap chunk in memory.
+        const text = stderrChunks[stderrChunks.length - 1] ?? "";
+        stderrChunks[stderrChunks.length - 1] = text.slice(-Math.floor(STDERR_MAX_BYTES / 2));
+        stderrBytes = STDERR_MAX_BYTES / 2;
+      }
+      log.warn(`[worker stderr] ${stderrChunks.join("").trimEnd().slice(-500)}`);
     });
 
     this.child.on("exit", (code) => {

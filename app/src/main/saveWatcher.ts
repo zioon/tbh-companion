@@ -72,7 +72,11 @@ export class SaveWatcher {
           const parse = this.opts.parseInventorySnapshot ?? parseInventory;
           this.opts.onInventory(parse(text, mtime));
         } catch (err) {
-          log.error(`Inventory parse failed: ${String(err)}`);
+          const msg = `Inventory parse failed: ${err instanceof Error ? err.message : String(err)}`;
+          log.error(msg);
+          // Surface the inventory failure through the same error path as a main
+          // parse failure so the renderer can show it, not just the main log.
+          this.opts.onError(msg);
         }
       }
     } catch (e) {

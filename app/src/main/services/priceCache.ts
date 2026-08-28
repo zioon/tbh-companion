@@ -81,7 +81,15 @@ export function loadPriceCache(currency: string): PriceCache {
 }
 
 export function persistPriceCache(cache: PriceCache): void {
-  const path = priceCachePath(cache.currency);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(cache));
+  try {
+    const path = priceCachePath(cache.currency);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(cache));
+  } catch (err) {
+    // A read-only / full disk must not break the price refresh flow that
+    // calls this after updating the in-memory cache.
+    console.warn(
+      `persistPriceCache failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }

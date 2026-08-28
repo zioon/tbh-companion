@@ -42,10 +42,57 @@ function loadUserCache(): NameIdMap {
   }
 }
 
+/** Cap on the user cache size: bounds memory and keeps every write bounded. */
+const MAX_NAMEID_CACHE = 50_000;
+/** Coalescing window for cache writes — one disk write per resolve burst. */
+const PERSIST_THROTTLE_MS = 500;
+
+let persistTimer: NodeJS.Timeout | null = null;
+let pendingPersistMap: NameIdMap | null = null;
+
+/** Best-effort disk write; failures are logged, never thrown to callers. */
+function writeUserCache(map: NameIdMap): void {
+  try {
+    const path = userCachePath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(map));
+  } catch (err) {
+    log.warn(
+      `Failed to persist steam_item_nameids cache: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/** Coalesce multiple cache writes within PERSIST_THROTTLE_MS into one disk write. */
 function persistUserCache(map: NameIdMap): void {
-  const path = userCachePath();
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(map));
+  pendingPersistMap = map;
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    const toWrite = pendingPersistMap;
+    pendingPersistMap = null;
+    if (toWrite) writeUserCache(toWrite);
+  }, PERSIST_THROTTLE_MS);
+}
+
+/** Flush a pending throttled write immediately (used on quit). */
+function flushUserCacheWrite(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (pendingPersistMap) {
+    const toWrite = pendingPersistMap;
+    pendingPersistMap = null;
+    writeUserCache(toWrite);
+  }
+}
+
+// Flush the throttled cache write on quit so a burst resolved right before exit
+// isn't lost. Guarded because unit tests may leave electron's `app` unmocked or
+// mock it without `on`.
+if (typeof app !== "undefined" && typeof app.on === "function") {
+  app.on("before-quit", flushUserCacheWrite);
 }
 
 export function parseNameIdFromListingHtml(html: string): number | null {
@@ -67,6 +114,16 @@ export class SteamItemNameIdService {
       this.bundled = {};
     }
     this.userCache = loadUserCache();
+  }
+
+  /** Drop the oldest entries (insertion order) once the cache exceeds its cap. */
+  private trimUserCache(): void {
+    const keys = Object.keys(this.userCache);
+    if (keys.length <= MAX_NAMEID_CACHE) return;
+    const excess = keys.length - MAX_NAMEID_CACHE;
+    for (let i = 0; i < excess; i++) {
+      delete this.userCache[keys[i]!];
+    }
   }
 
   getSync(marketHashName: string): number | undefined {
@@ -107,6 +164,7 @@ export class SteamItemNameIdService {
         return { ok: false, status: res.status };
       }
       this.userCache[marketHashName] = nameId;
+      this.trimUserCache();
       persistUserCache(this.userCache);
       log.info(`Resolved item_nameid for ${marketHashName}: ${nameId}`);
       return { ok: true, nameId, status: res.status };
