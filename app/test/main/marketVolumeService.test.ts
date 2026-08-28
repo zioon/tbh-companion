@@ -889,3 +889,31 @@ describe("MarketVolumeService 刷新排序：主区优先 + 每天全量兜底",
     expect(recorder).toEqual([A, B, C]);
   }, 20000);
 });
+
+describe("MarketVolumeService 429 熔断", () => {
+  it("连续 3 次 429 中止整批刷新，避免继续请求 Steam", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE);
+      const targets = ["hash-a", "hash-b", "hash-c", "hash-d"];
+      const calls: string[] = [];
+      const svc = makeService({
+        fetchHistory: async (hash: string) => {
+          calls.push(hash);
+          return { ok: false, status: 429, reason: "http", retryAfterMs: 5000 };
+        },
+      });
+      const p = svc.refreshHistory(BASE, { targets, force: true });
+      for (let i = 0; i < 20 && calls.length < 4; i++) {
+        await vi.advanceTimersByTimeAsync(60_000);
+      }
+      await p;
+      // 1) first 429 (no backoff wait for the very first), 2) second 429 after
+      // retryAfterMs, 3) third 429 → abort. Never reaches hash-d.
+      expect(calls.length).toBeLessThanOrEqual(3);
+      expect(calls).not.toContain("hash-d");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

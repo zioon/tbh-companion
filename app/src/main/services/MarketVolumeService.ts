@@ -55,6 +55,8 @@ export const MAX_SAMPLES = 1200;
 export const HISTORY_REFRESH_MS = 60 * 60_000;
 /** 批内请求间隔（ms），串行拉取时避免瞬时爆发触发限流。 */
 const HISTORY_FETCH_DELAY_MS = 1500;
+/** SteamMarketProvider 同款熔断：连续 429 达到该次数即中止整批刷新。 */
+const MAX_CONSECUTIVE_429 = 3;
 /** 采样间最小间隔（ms）：同一时刻附近不重复采样。 */
 const MIN_SAMPLE_INTERVAL_MS = 60 * 1000;
 /** 单个 hash 最多保留多少条活跃度采样点（约 33 小时：每 1 分钟 1 条）。 */
@@ -526,6 +528,7 @@ export class MarketVolumeService {
       const batchSize = Math.max(1, Math.round(this.deps.getHistoryBatchSize()));
       const batchDelayMs = Math.max(0, Math.round(this.deps.getHistoryBatchDelaySec())) * 1000;
       let done = 0;
+      let consecutive429 = 0;
       // 构建本次待刷新目标的占位卡片，并在刷新开始时推送一次，让前端（交易页）
       // 在自动/手动刷新时都能显示亮环提示（与 refreshMarketVolumeItems 的 pending 一致）。
       const pending = this.buildPendingItems(targets);
@@ -567,6 +570,7 @@ export class MarketVolumeService {
               // 该物品实时并入 priceHistory 后立即重算顶部交易额走势，让最上方的
               // 时间范围随每个成功返回的物品同步更新（而非等整批刷新结束）。
               this.recomputeHistoryTrend();
+              consecutive429 = 0;
               log.info(`refreshHistory: ${hash} ok (${r.points.length} points)`);
             } else {
               // 诊断：拉取「完成」但无数据时要能看出原因（400 无 Cookie / 429 限流 / 网络错误 / 该物品无成交）。
@@ -584,12 +588,35 @@ export class MarketVolumeService {
                   cookieExpired: true,
                 });
                 break outer;
+              } else if (view.status === 429) {
+                // Rate-limited: respect Steam's retryAfterMs and stop hammering.
+                // Three in a row means the quota is gone for this window — abort
+                // the batch (keep whatever was already fetched) instead of
+                // burning the remaining items at 1.5s intervals.
+                consecutive429++;
+                const backoffMs =
+                  typeof view.retryAfterMs === "number" && view.retryAfterMs > 0
+                    ? view.retryAfterMs
+                    : HISTORY_FETCH_DELAY_MS;
+                log.warn(
+                  `refreshHistory: ${hash} rate-limited (429) consecutive=${consecutive429}/${MAX_CONSECUTIVE_429}, ` +
+                    `waiting ${backoffMs}ms`,
+                );
+                if (consecutive429 >= MAX_CONSECUTIVE_429) {
+                  log.warn(
+                    `refreshHistory: aborting batch after ${consecutive429} consecutive 429s`,
+                  );
+                  break outer;
+                }
+                if (await this.waitOrAbort(backoffMs)) break outer;
+              } else {
+                consecutive429 = 0;
+                const reason = view.reason ?? (r.ok ? "no_data" : "failed");
+                const retry = view.retryAfterMs ? `, retryAfter=${view.retryAfterMs}ms` : "";
+                log.warn(
+                  `refreshHistory: ${hash} no data (status=${view.status ?? 0}, reason=${reason}${retry})`,
+                );
               }
-              const reason = view.reason ?? (r.ok ? "no_data" : "failed");
-              const retry = view.retryAfterMs ? `, retryAfter=${view.retryAfterMs}ms` : "";
-              log.warn(
-                `refreshHistory: ${hash} no data (status=${view.status ?? 0}, reason=${reason}${retry})`,
-              );
             }
           } catch (err) {
             // 单个物品失败不影响其余物品
