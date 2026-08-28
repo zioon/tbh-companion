@@ -529,6 +529,8 @@ export function openBoxTrackerWindow(): BrowserWindow {
 
 export function getAppServices() {
   return {
+    // Exposed for lifecycle teardown (before-quit disposes the inventory worker).
+    inventory,
     getStats: () => tracking.getStats(),
     resetTracker: () => {
       tracking.reset();

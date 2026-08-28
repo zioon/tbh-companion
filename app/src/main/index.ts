@@ -69,6 +69,9 @@ if (isPrimaryInstance) {
     const services = getAppServices();
     services.stopUpdates();
     services.flushSession();
+    // Release the inventory utility process explicitly instead of relying on
+    // Electron to reap it (best effort — quit proceeds without waiting).
+    void services.inventory.disposeWorker();
     destroyTray();
   });
 
