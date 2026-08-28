@@ -1411,19 +1411,23 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     }
 
     // Wave 1: three monsters appear (full HP).
-    svc.ingestLiveFrame(frame(1000, [
-      [0xd00000, 50, 100],
-      [0xd10000, 60, 100],
-      [0xd20000, 70, 100],
-    ]));
+    svc.ingestLiveFrame(
+      frame(1000, [
+        [0xd00000, 50, 100],
+        [0xd10000, 60, 100],
+        [0xd20000, 70, 100],
+      ]),
+    );
     expect(svc.getStats().aliveMonsters).toBe(3);
 
     // Monsters take damage.
-    svc.ingestLiveFrame(frame(1020, [
-      [0xd00000, 10, 100],
-      [0xd10000, 20, 100],
-      [0xd20000, 30, 100],
-    ]));
+    svc.ingestLiveFrame(
+      frame(1020, [
+        [0xd00000, 10, 100],
+        [0xd10000, 20, 100],
+        [0xd20000, 30, 100],
+      ]),
+    );
     expect(svc.getStats().aliveMonsters).toBe(3);
 
     // All three killed → array empties → alive must drop to 0 (not stay 3).
@@ -1434,10 +1438,12 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     expect(svc.getStats().mapMobsKilled).toBe(3);
 
     // Wave 2: new monsters spawn (new addresses) — alive rises again.
-    svc.ingestLiveFrame(frame(1060, [
-      [0xe00000, 80, 100],
-      [0xe10000, 90, 100],
-    ]));
+    svc.ingestLiveFrame(
+      frame(1060, [
+        [0xe00000, 80, 100],
+        [0xe10000, 90, 100],
+      ]),
+    );
     expect(svc.getStats().aliveMonsters).toBe(2);
 
     // Kill one more → inferred kill count increments.

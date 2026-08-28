@@ -787,7 +787,10 @@ export class TrackingService {
     // chest is being corrected live rather than misrecorded as common.
     if (snap.chestLogDebug?.settled) {
       const s = snap.chestLogDebug.settled;
-      log.info(`chest settle: idx=${s.idx} ${s.from}→${s.to}` + (s.to === "rare" ? " (boss chest corrected)" : ""));
+      log.info(
+        `chest settle: idx=${s.idx} ${s.from}→${s.to}` +
+          (s.to === "rare" ? " (boss chest corrected)" : ""),
+      );
     }
     const chestCategories = this.chestAggregator.feed(snap.chestDrops ?? [], chestAt);
     for (const category of chestCategories) {

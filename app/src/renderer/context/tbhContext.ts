@@ -1,9 +1,5 @@
 import { createContext, useContext } from "react";
-import type {
-  CatalogRefreshResult,
-  CatalogStatus,
-  ResolvedInventory,
-} from "../../../shared/types";
+import type { CatalogRefreshResult, CatalogStatus, ResolvedInventory } from "../../../shared/types";
 
 export interface TbhContextValue {
   inventory: ResolvedInventory | null;

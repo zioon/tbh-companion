@@ -968,12 +968,10 @@ export function readRuntimeChestLog(
   // category, falling back to the provisional one), then scan only *newer*
   // entries.
   const resumeFrom = pin.pendingIdx != null ? pin.pendingIdx + 1 : lastCountBefore;
-  let debugSettled:
-    | { idx: number; from: LiveChestCategory; to: LiveChestCategory }
-    | undefined = undefined;
+  let debugSettled: { idx: number; from: LiveChestCategory; to: LiveChestCategory } | undefined =
+    undefined;
   if (pin.pendingIdx != null) {
-    const settledCat =
-      readChestCategoryAt(reader, first, pin.pendingIdx, o) ?? pin.pendingCat;
+    const settledCat = readChestCategoryAt(reader, first, pin.pendingIdx, o) ?? pin.pendingCat;
     if (settledCat != null) {
       drops.push(settledCat);
       // Record a category correction (provisional → committed) for diagnostics,

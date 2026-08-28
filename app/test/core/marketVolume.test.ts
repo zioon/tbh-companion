@@ -304,11 +304,7 @@ describe("recentVolumeTotal", () => {
   it("窗口内无有效点返回 0", () => {
     expect(recentVolumeTotal([], nowSec, 24 * H)).toBe(0);
     expect(
-      recentVolumeTotal(
-        [{ timestamp: nowSec - 30 * H, price: 2, volume: 10 }],
-        nowSec,
-        24 * H,
-      ),
+      recentVolumeTotal([{ timestamp: nowSec - 30 * H, price: 2, volume: 10 }], nowSec, 24 * H),
     ).toBe(0);
   });
 });

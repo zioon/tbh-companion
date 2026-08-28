@@ -1056,7 +1056,9 @@ export class LiveMemoryReader {
       // per caught entry (index-based tailing, drained each snapshot read).
       const caught = res.drops.filter((c) => c === "rare" || c === "act");
       if (caught.length > 0) {
-        this.log(`chest fastpoll: caught transient ${caught.join("/")} (pending=${this.pendingChestDrops.length})`);
+        this.log(
+          `chest fastpoll: caught transient ${caught.join("/")} (pending=${this.pendingChestDrops.length})`,
+        );
       }
     }
   }

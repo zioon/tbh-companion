@@ -1,7 +1,4 @@
-import type {
-  MarketVolumeItem,
-  MarketVolumeRefreshProgress,
-} from "../../../shared/types";
+import type { MarketVolumeItem, MarketVolumeRefreshProgress } from "../../../shared/types";
 
 // Module-level store replaces the three TbhProvider context fields
 // (marketVolumeProgress / marketVolumePending / setMarketVolumePending).

@@ -872,7 +872,12 @@ export class MarketVolumeService {
   ): string[] {
     const prefix = new Set(this.deps.getWatchedHashes?.() ?? []);
     const volumes = this.recentVolumeByHash(rawTargets, nowMs);
-    const { ordered, primary } = orderRefreshTargets(rawTargets, volumes, prefix, coverageThreshold);
+    const { ordered, primary } = orderRefreshTargets(
+      rawTargets,
+      volumes,
+      prefix,
+      coverageThreshold,
+    );
     const dayNow = Math.floor(nowMs / DAY_MS);
     const out: string[] = [];
     const seen = new Set<string>();

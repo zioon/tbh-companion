@@ -1747,9 +1747,7 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
     pin.ptr = MSM_INSTANCE; // bypass resolveMonsterSpawnManager (as name-scan would)
     // seedMonsterList lays the list out at MSM_INSTANCE + 0x28 — exactly the
     // v1.00.21 base offset the fallback reads, so HP data is recovered.
-    const m = seedMonsterList(new FakeMemory(), [
-      { addr: 0xd00000n, current: 50, max: 100 },
-    ]);
+    const m = seedMonsterList(new FakeMemory(), [{ addr: 0xd00000n, current: 50, max: 100 }]);
     const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O5, pin);
     expect(r).not.toBeNull();
     expect(r!.monsterHps).toEqual([[0xd00000, 50, 100]]);

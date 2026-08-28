@@ -852,7 +852,9 @@ describe("MarketVolumeService 刷新排序：主区优先 + 每天全量兜底",
           ok: true,
           status: 200,
           currency: "USD",
-          points: [{ timestamp: BASE / 1000, price: 1, volume: hash === B ? 100 : hash === C ? 50 : 10 }],
+          points: [
+            { timestamp: BASE / 1000, price: 1, volume: hash === B ? 100 : hash === C ? 50 : 10 },
+          ],
         };
       },
     });

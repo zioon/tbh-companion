@@ -88,8 +88,6 @@ export function persistPriceCache(cache: PriceCache): void {
   } catch (err) {
     // A read-only / full disk must not break the price refresh flow that
     // calls this after updating the in-memory cache.
-    console.warn(
-      `persistPriceCache failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    console.warn(`persistPriceCache failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
