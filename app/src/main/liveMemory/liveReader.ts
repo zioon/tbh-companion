@@ -113,6 +113,15 @@ const STATUS_FAIL_LOG_THROTTLE_MS = 30_000;
  */
 const BOX_OPEN_FAIL_HEAL_MS = 60_000;
 
+/**
+ * Upper bound on {@link LiveMemoryReader.pendingChestDrops}. The fast chest
+ * poll keeps stashing drops while `read()` can skip consuming them (name-scan
+ * in flight, or a null-stage early return), so without a cap the queue grows
+ * unbounded. Draining only happens on the read path, so a pathological stall
+ * (read() never reaching the drain point) would otherwise accumulate forever.
+ */
+const MAX_PENDING_CHEST_DROPS = 1000;
+
 export type LiveMemoryLogFn = (message: string) => void;
 export type OffsetResolutionSource = "bundled" | "cache" | "extracted" | "merged" | "none";
 
@@ -1037,6 +1046,11 @@ export class LiveMemoryReader {
     const res = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
     if (res.drops && res.drops.length > 0) {
       this.pendingChestDrops.push(...res.drops);
+      // Hard cap: read() is the only drain point and can skip it during a
+      // name-scan or a null-stage early return; drop the oldest entries first
+      // so a pathological stall can't grow the queue unbounded.
+      const overflow = this.pendingChestDrops.length - MAX_PENDING_CHEST_DROPS;
+      if (overflow > 0) this.pendingChestDrops.splice(0, overflow);
       // Diagnostic: prove the continuous high-frequency poller is catching
       // rare/act entries (the transient "关卡宝箱" loss). Fires at most once
       // per caught entry (index-based tailing, drained each snapshot read).
