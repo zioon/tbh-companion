@@ -938,6 +938,11 @@ export function readRuntimeChestLog(
     // that index), so reset the retry state; scanning resumes from `next`.
     pin.retryFrom = null;
     pin.retryConsecutive = 0;
+    // A shrink also invalidates any withheld settle index: the log may be a
+    // brand-new run whose indices mean something completely different, so a
+    // stale pendingIdx would re-read an unrelated entry next tick.
+    pin.pendingIdx = null;
+    pin.pendingCat = null;
     return {
       drops: [],
       status: "",

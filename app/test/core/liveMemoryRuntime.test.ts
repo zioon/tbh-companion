@@ -532,6 +532,31 @@ describe("readRuntimeChestLog", () => {
     expect(pin.lastCount).toBe(1); // realigned, not reset to 0
   });
 
+  it("clears withheld-entry state when the log shrinks (no phantom drop next run)", () => {
+    // Regression: a new-run log clear invalidates the absolute pendingIdx, but
+    // the shrink branch only reset the retry state. The stale pendingIdx then
+    // made the next run re-read an unrelated index (phantom drop) and, combined
+    // with the settle resume path, skip the run's first real drop.
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 2;
+    pin.pendingIdx = 1; // withheld from the previous run
+    pin.pendingCat = "rare";
+    const m = seedLogChain(new FakeMemory(), [0]); // new run cleared the log
+    const r1 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1.drops).toEqual([]);
+    expect(pin.lastCount).toBe(1); // realigned
+    expect(pin.pendingIdx).toBeNull();
+    expect(pin.pendingCat).toBeNull();
+
+    // First drop of the new run: must be classified fresh (not settled from a
+    // stale index) and then withheld normally.
+    seedLogChain(m, [0, 1]);
+    const r2 = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2.drops).toEqual([]); // idx1 rare withheld — no phantom drop from stale pendingIdx
+    expect(pin.pendingCat).toBe("rare");
+  });
+
   it("parks the tail on a mid-write entry and recovers it on the next tick", () => {
     // Boss deaths / stage transitions can commit a GetBoxLog entry's slot
     // before monsterType is written. Previously the failing entry was dropped
