@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { PriceStatus, PriceProgress } from "../../../shared/types";
 import { reportIpcError } from "./reportError";
-import { useTbhContext } from "../context/tbhContext";
 
 // Module-level singletons for price status/progress. These were previously in
 // TbhContext, but any context value change (e.g. inventory update) would
@@ -15,17 +14,22 @@ import { useTbhContext } from "../context/tbhContext";
 // duplicate listeners at 5 Hz).
 let priceStatus: PriceStatus | null = null;
 let priceProgress: PriceProgress | null = null;
+let lastRefreshMessage: string | null = null;
 let started = false;
 let cleanupIpcStatus: (() => void) | null = null;
 let cleanupIpcProgress: (() => void) | null = null;
 const statusListeners = new Set<() => void>();
 const progressListeners = new Set<() => void>();
+const messageListeners = new Set<() => void>();
 
 function notifyStatus(): void {
   for (const l of statusListeners) l();
 }
 function notifyProgress(): void {
   for (const l of progressListeners) l();
+}
+function notifyMessage(): void {
+  for (const l of messageListeners) l();
 }
 
 function start(): void {
@@ -51,6 +55,10 @@ function start(): void {
         .then((ps) => {
           priceStatus = ps;
           notifyStatus();
+          if (p.result) {
+            lastRefreshMessage = `${p.result.priced} prices refreshed (${ps.freshCount} fresh, ${ps.staleCount} stale)`;
+            notifyMessage();
+          }
         })
         .catch((err: unknown) => reportIpcError(err, "usePriceStatus:refresh"));
     }
@@ -71,6 +79,7 @@ function stop(): void {
   started = false;
   priceStatus = null;
   priceProgress = null;
+  lastRefreshMessage = null;
 }
 
 function subscribeStatus(onChange: () => void): () => void {
@@ -81,7 +90,7 @@ function subscribeStatus(onChange: () => void): () => void {
     // When the last subscriber leaves, tear down the IPC listeners so the
     // module doesn't hold references to stale price snapshots (and HMR can't
     // accumulate duplicate listeners).
-    if (statusListeners.size === 0 && progressListeners.size === 0) {
+    if (noSubscribers()) {
       stop();
     }
   };
@@ -92,10 +101,25 @@ function subscribeProgress(onChange: () => void): () => void {
   start();
   return () => {
     progressListeners.delete(onChange);
-    if (statusListeners.size === 0 && progressListeners.size === 0) {
+    if (noSubscribers()) {
       stop();
     }
   };
+}
+
+function subscribeMessage(onChange: () => void): () => void {
+  messageListeners.add(onChange);
+  start();
+  return () => {
+    messageListeners.delete(onChange);
+    if (noSubscribers()) {
+      stop();
+    }
+  };
+}
+
+function noSubscribers(): boolean {
+  return statusListeners.size === 0 && progressListeners.size === 0 && messageListeners.size === 0;
 }
 
 function getStatusSnapshot(): PriceStatus | null {
@@ -104,6 +128,10 @@ function getStatusSnapshot(): PriceStatus | null {
 
 function getProgressSnapshot(): PriceProgress | null {
   return priceProgress;
+}
+
+function getMessageSnapshot(): string | null {
+  return lastRefreshMessage;
 }
 
 export function usePriceStatus(): PriceStatus | null {
@@ -127,11 +155,17 @@ export function clearPriceProgress(): void {
   }
 }
 
+export function clearLastPriceRefreshMessage(): void {
+  if (lastRefreshMessage !== null) {
+    lastRefreshMessage = null;
+    notifyMessage();
+  }
+}
+
 export function usePriceActions() {
-  const { clearLastPriceRefreshMessage } = useTbhContext();
   return { setPriceStatus, clearPriceProgress, clearLastPriceRefreshMessage };
 }
 
 export function useLastPriceRefreshMessage(): string | null {
-  return useTbhContext().lastPriceRefreshMessage;
+  return useSyncExternalStore(subscribeMessage, getMessageSnapshot, getMessageSnapshot);
 }

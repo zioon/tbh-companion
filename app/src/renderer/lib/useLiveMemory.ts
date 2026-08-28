@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 import { reportIpcError } from "./reportError";
 
@@ -103,25 +103,6 @@ function subscribeSnapshot(onChange: () => void): () => void {
       stopSnapshotStore();
     }
   };
-}
-
-/**
- * Subscribe to a derived slice of the live-memory snapshot. The selector runs
- * on every snapshot update, but the component only re-renders when the selected
- * value changes by reference equality. This prevents the large snapshot arrays
- * (heroes, inventoryItems, petData, monsterHp) from causing unnecessary
- * re-renders in components that only read scalar fields like `connected` or
- * `stageKey`.
- */
-export function useLiveMemoryField<T>(selector: (snap: LiveMemorySnapshot | null) => T): T {
-  // Build getSlice directly from `selector` so we don't need to read/write a
-  // ref during render (forbidden by react-hooks/refs). The previous design
-  // kept getSlice stable via a ref indirection; useCallback gives the same
-  // stability for a memoized selector, and callers that pass an inline
-  // selector returning a primitive are still safe because the returned
-  // value compares equal across renders.
-  const getSlice = useCallback((): T => selector(snapshot), [selector]);
-  return useSyncExternalStore(subscribeSnapshot, getSlice, getSlice);
 }
 
 /**

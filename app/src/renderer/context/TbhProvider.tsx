@@ -9,7 +9,6 @@ import { TbhContext } from "./tbhContext";
 
 export function TbhProvider({ children }: { children: ReactNode }) {
   const [inventory, setInventory] = useState<ResolvedInventory | null>(null);
-  const [lastPriceRefreshMessage, setLastPriceRefreshMessage] = useState<string | null>(null);
   const [i18nReady, setI18nReady] = useState(false);
   const { status: catalogStatus, refresh: refreshCatalog } = useCatalogStatus();
 
@@ -54,41 +53,21 @@ export function TbhProvider({ children }: { children: ReactNode }) {
     // 交易量历史刷新进度：由模块单例 store 自行订阅（见 marketVolumeRefreshStore.ts），
     // 只重渲染订阅它的 Trading 页，避免进度逐项推送驱动所有 context 消费者重渲染。
     ensureMarketVolumeRefreshSubscription();
-    const offProgress = window.tbh.onPricesProgress((p) => {
-      if (!mounted) return;
-      if (p.finished) {
-        void window.tbh
-          .pricesStatus()
-          .then((ps) => {
-            if (!mounted) return;
-            if (p.result) {
-              setLastPriceRefreshMessage(
-                `${p.result.priced} prices refreshed (${ps.freshCount} fresh, ${ps.staleCount} stale)`,
-              );
-            }
-          })
-          .catch(reportIpcError);
-        return;
-      }
-    });
 
     return () => {
       mounted = false;
       offInventory();
       offNotificationSound();
-      offProgress();
     };
   }, []);
 
   const value = useMemo(
     () => ({
       inventory,
-      lastPriceRefreshMessage,
-      clearLastPriceRefreshMessage: () => setLastPriceRefreshMessage(null),
       catalogStatus,
       refreshCatalog,
     }),
-    [inventory, lastPriceRefreshMessage, catalogStatus, refreshCatalog],
+    [inventory, catalogStatus, refreshCatalog],
   );
 
   if (!i18nReady) return null;

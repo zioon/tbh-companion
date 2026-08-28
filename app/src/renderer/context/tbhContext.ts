@@ -7,8 +7,6 @@ import type {
 
 export interface TbhContextValue {
   inventory: ResolvedInventory | null;
-  lastPriceRefreshMessage: string | null;
-  clearLastPriceRefreshMessage: () => void;
   catalogStatus: CatalogStatus | null;
   refreshCatalog: () => Promise<CatalogRefreshResult>;
 }
