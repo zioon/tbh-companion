@@ -158,14 +158,16 @@ describe("inferLevelFromStage", () => {
     ];
     expect(inferLevelFromStage(multi, 1101)).toBe(7);
   });
-  it("falls back to lowest catalog level when no match", () => {
-    expect(inferLevelFromStage(catalog, 9999)).toBe(3);
+  it("returns null when no route matches the stage", () => {
+    // No guessed level: a wrong fallback (e.g. lowest = Lv1) would surface a
+    // false "common:1" boxKey for late-game drops when stageKey is unknown.
+    expect(inferLevelFromStage(catalog, 9999)).toBeNull();
   });
   it("returns null when catalog is empty", () => {
     expect(inferLevelFromStage([], 1105)).toBeNull();
   });
-  it("returns fallback when stageKey is 0 or negative", () => {
-    expect(inferLevelFromStage(catalog, 0)).toBe(3);
-    expect(inferLevelFromStage(catalog, -1)).toBe(3);
+  it("returns null when stageKey is 0 or negative", () => {
+    expect(inferLevelFromStage(catalog, 0)).toBeNull();
+    expect(inferLevelFromStage(catalog, -1)).toBeNull();
   });
 });

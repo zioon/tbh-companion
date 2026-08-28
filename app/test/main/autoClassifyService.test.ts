@@ -357,6 +357,42 @@ describe("AutoClassifyService", () => {
     expect(snap.items[0]?.boxKey).toBe("common:1");
   });
 
+  it("uses category-only boxKey when current stage is unknown (no false Lv1)", () => {
+    // currentStageKey unknown (null → stageKey 0) → resolveDropBoxKey must NOT
+    // fall back to the lowest COMMON level. Before the fix this produced a
+    // bogus "common:1" boxKey for late-game drops while the live stageKey
+    // hadn't resolved yet (surface as "普通宝箱 Lv1" in loot stats).
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: null,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    const snap = service.getQueueSnapshot();
+    expect(snap.items[0]?.boxKey).toBe("common");
+  });
+
+  it("reclassifies an unknown-stage common open to category-only boxKey (no false Lv1)", () => {
+    // End-to-end mirror of the reported bug: with no resolved stage, an open
+    // burst matched to a queued common chest must reclassify the loot to
+    // "common" (no level) instead of inventing "common:1".
+    const { chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: null,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    // Open at the auto-open moment (drop@1s + 300s = 301s).
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
+    boxOpenTracker.flushUnclassified();
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "common")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "common:1")).toBeFalsy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+  });
+
   it("resolves common chest level for Lv5 on stage 1104", () => {
     // stageKey 1104 (Normal 1-4) → COMMON Lv5 route → boxKey "common:5".
     const { service, chestDropTracker } = makeService({
@@ -606,8 +642,9 @@ describe("AutoClassifyService.getQueueSnapshot", () => {
 
     const snap = service.getQueueSnapshot();
     expect(snap.items).toHaveLength(3);
-    // Sorted by autoOpenAtMs ascending: act:1 (63000), common:5 (302000), rare:5 (601000).
-    expect(snap.items.map((i) => i.boxKey)).toEqual(["act:1", "common:5", "rare:5"]);
+    // Sorted by autoOpenAtMs ascending: act (63000), common:5 (302000), rare:5 (601000).
+    // act stays category-only: stage 1105 matches no ACT boss route.
+    expect(snap.items.map((i) => i.boxKey)).toEqual(["act", "common:5", "rare:5"]);
     // autoOpenInMs must also be ascending (it's autoOpenAtMs - now). Under the
     // serial-queue model every queued chest has a concrete autoOpenAtMs, so
     // autoOpenInMs is always a number — no "waiting" state.
@@ -1541,7 +1578,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       enabled: true,
       autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
       catalog: CATALOG,
-      currentStageKey: 1105, // common→level 5 (routes), act→level 1 (fallback)
+      currentStageKey: 1105, // common→level 5 (routes), act→no route match → category-only
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     chestDropTracker.recordLiveChestDrop("act", 241.5); // autoOpenAtMs=301500
@@ -1549,7 +1586,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     let snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(2);
     expect(snap.items[0]!.boxKey).toBe("common:5");
-    expect(snap.items[1]!.boxKey).toBe("act:1");
+    expect(snap.items[1]!.boxKey).toBe("act");
     // Burst at wallTime=301.7s — both items in window, but stage 1 matches
     // the head (common), not the closer tail (act).
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.7);
@@ -1557,7 +1594,7 @@ describe("AutoClassifyService.liveSlots tracking", () => {
     // Head (common) consumed; tail (act) remains.
     snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(1);
-    expect(snap.items[0]!.boxKey).toBe("act:1");
+    expect(snap.items[0]!.boxKey).toBe("act");
   });
 });
 

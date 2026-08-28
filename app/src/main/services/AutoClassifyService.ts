@@ -1186,23 +1186,24 @@ export class AutoClassifyService {
 
   /**
    * Infer the chest level for `stageKey` from a tracker route table. Matches
-   * the route whose `dropStageKeys` includes `stageKey`; falls back to the
-   * lowest level when no match (e.g. catalog not loaded or stage is not a
-   * drop stage for this category). Used by both COMMON and ACT categories.
+   * the route whose `dropStageKeys` includes `stageKey`.
+   *
+   * Returns null when `routes` is empty, when `stageKey` is unknown (<= 0),
+   * or when no route drops on this stage — it deliberately does NOT fall back
+   * to the lowest level. A guessed level would surface a wrong boxKey (e.g.
+   * "common:1" for a late-game drop while the live stageKey hasn't resolved)
+   * in the loot stats / auto-classify queue; callers treat null as a
+   * category-only boxKey (`cat` without `:level`), which is safer.
    */
   private levelFromRoutes(
     stageKey: number,
     routes: ReadonlyArray<StageBoxTrackerRoute>,
   ): number | null {
     if (routes.length === 0) return null;
-    const fallback = routes.reduce(
-      (min, route) => (route.level < min ? route.level : min),
-      routes[0]!.level,
-    );
-    if (!Number.isFinite(stageKey) || stageKey <= 0) return fallback;
+    if (!Number.isFinite(stageKey) || stageKey <= 0) return null;
     const matches = routes.filter((route) => route.dropStageKeys.includes(stageKey));
-    if (matches.length === 0) return fallback;
-    return matches.reduce((max, route) => (route.level > max ? route.level : max), 0) || fallback;
+    if (matches.length === 0) return null;
+    return matches.reduce((max, route) => (route.level > max ? route.level : max), 0) || null;
   }
 
   private autoOpenForBoxKey(

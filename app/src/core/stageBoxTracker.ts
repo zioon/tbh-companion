@@ -175,10 +175,15 @@ export function resolveTrackedDropBoxIdForStage(
 /**
  * Infer the chest level for the player's current stage, using the tracker
  * catalog. Mirrors `resolveTrackedDropBoxIdForStage`'s strategy: pick the
- * highest level whose `farmStageOptions` includes `currentStageKey`. Falls
- * back to the lowest catalog level when no route drops on this stage (e.g.
- * an act-boss stage) or the catalog hasn't loaded. Returns null only when
- * the catalog is empty.
+ * highest level whose `farmStageOptions` includes `currentStageKey`.
+ *
+ * Returns null when the stage is unknown (`currentStageKey <= 0`), when no
+ * route drops on this stage, or when the catalog is empty. It deliberately
+ * does NOT fall back to the lowest catalog level: a guessed level would
+ * surface a wrong boxKey (e.g. "common:1" for a late-game drop when the
+ * live stageKey hasn't resolved yet) in the loot stats / auto-classify
+ * queue. Callers treat null as "category-only boxKey" (`cat` without a
+ * `:level` suffix), which is safer than a wrong level.
  *
  * Accepts the same catalog shape that `BoxTimerState.catalog` exposes, so
  * the AutoClassifyService and the renderer's `useChestLevelDefaults` can
@@ -192,17 +197,13 @@ export function inferLevelFromStage(
   currentStageKey: number,
 ): number | null {
   if (catalog.length === 0) return null;
-  const fallback = catalog.reduce(
-    (min, entry) => (entry.level < min ? entry.level : min),
-    catalog[0]!.level,
-  );
-  if (!Number.isFinite(currentStageKey) || currentStageKey <= 0) return fallback;
+  if (!Number.isFinite(currentStageKey) || currentStageKey <= 0) return null;
 
   const matches = catalog.filter((entry) =>
     entry.farmStageOptions.some((opt) =>
       typeof opt === "number" ? opt === currentStageKey : opt.stageKey === currentStageKey,
     ),
   );
-  if (matches.length === 0) return fallback;
-  return matches.reduce((max, entry) => (entry.level > max ? entry.level : max), 0) || fallback;
+  if (matches.length === 0) return null;
+  return matches.reduce((max, entry) => (entry.level > max ? entry.level : max), 0) || null;
 }
