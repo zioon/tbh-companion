@@ -525,6 +525,8 @@ export interface ParsedMarketVolumeHistory {
   itemCount: number;
   itemCountsByCategory: Record<string, number>;
   historyFetchedAtMs?: number;
+  /** 各 hash 最近一次发起 pricehistory 刷新的 epoch 毫秒（保障「每天全量一遍」）。 */
+  lastRefreshAt?: Record<string, number>;
 }
 
 function isMarketVolumeSample(s: unknown): s is MarketVolumeSample {
@@ -598,5 +600,129 @@ export function parseMarketVolumeHistory(raw: unknown): ParsedMarketVolumeHistor
   }
   if (typeof p.version === "number") result.version = p.version;
   if (typeof p.historyFetchedAtMs === "number") result.historyFetchedAtMs = p.historyFetchedAtMs;
+  if (p.lastRefreshAt && typeof p.lastRefreshAt === "object") {
+    const lastRefreshAt: Record<string, number> = {};
+    for (const [hash, ms] of Object.entries(p.lastRefreshAt as Record<string, unknown>)) {
+      if (typeof ms === "number" && Number.isFinite(ms)) lastRefreshAt[hash] = ms;
+    }
+    result.lastRefreshAt = lastRefreshAt;
+  }
   return result;
+}
+
+/**
+ * 计算 pricehistory 点在「最近 windowSec 秒」内的成交额（Σ volume×price）。
+ *
+ * 只统计时间戳落在 [nowSec - windowSec, nowSec] 且价/量有效的点；返回最近窗口
+ * 内的真实成交额。用于决定刷新目标的「时间窗成交额」排序口径（与交易页 1d 窗口
+ * 一致），而非全量历史累计。
+ */
+export function recentVolumeTotal(
+  points: readonly PriceHistoryPoint[],
+  nowSec: number,
+  windowSec: number,
+): number {
+  const floor = nowSec - windowSec;
+  let total = 0;
+  for (const p of points) {
+    if (!Number.isFinite(p.timestamp) || p.timestamp < floor || p.timestamp > nowSec) continue;
+    if (!Number.isFinite(p.price) || p.price <= 0) continue;
+    if (!Number.isFinite(p.volume) || p.volume <= 0) continue;
+    total += p.volume * p.price;
+  }
+  return total;
+}
+
+/** 单个刷新目标的交易信息，用于排序与覆盖率计算。 */
+export interface RefreshTargetVolume {
+  /** 最近窗口成交额（0 表示暂无数据）。 */
+  windowTotal: number;
+  /** 兜底价格（价格降序用；0 表示暂无）。 */
+  fallbackPrice: number;
+}
+
+/** {@link orderRefreshTargets} 的返回：排序结果 + 覆盖率主区数量。 */
+export interface OrderedRefreshTargets {
+  /** 完整排序后的目标 hash 列表：星标 → 高交易额降序 → 仅价格降序 → 无数据尾序。 */
+  ordered: string[];
+  /**
+   * 主区（高覆盖）目标数量：仅靠该前缀即可达到 coverageThreshold 覆盖率，用于
+   * 「用最少的刷新覆盖最多的交易额」。冷启动（无任何交易额）时为全量。
+   */
+  primary: number;
+}
+
+/**
+ * 按「最近窗口成交额」贪心降序给刷新目标排序，并计算覆盖率主区。
+ *
+ * 目标：用最少的刷新尽可能覆盖最多的交易额。交易市场通常呈现长尾分布——少量高
+ * 交易额物品贡献了绝大部分成交额，故优先刷新它们。
+ *
+ * 顺序：星标（prefix）无条件最前 → 有窗口交易额者按交易额降序 → 仅价格者按价格
+ * 降序 → 无数据者保持原相对顺序。
+ *
+ * `primary`：累加窗口交易额（不含无交易额者）达到 coverageThreshold（0~1，如
+ * 0.95）所需的最少目标数（含全部星标）。无任何交易额（冷启动）时返回全量——此时
+ * 必须全部刷新才能拿到数据。
+ */
+export function orderRefreshTargets(
+  targets: readonly string[],
+  volumeByHash: ReadonlyMap<string, RefreshTargetVolume>,
+  prefix: ReadonlySet<string>,
+  coverageThreshold: number,
+  maxTargets?: number,
+): OrderedRefreshTargets {
+  const volumeOf = (h: string) => volumeByHash.get(h)?.windowTotal ?? 0;
+  const priceOf = (h: string) => volumeByHash.get(h)?.fallbackPrice ?? 0;
+  const seen = new Set<string>();
+  const prefixOrdered: string[] = [];
+  const withVolume: Array<{ h: string; v: number }> = [];
+  const priceOnly: Array<{ h: string; p: number }> = [];
+  const empty: string[] = [];
+
+  for (const h of targets) {
+    if (!h || seen.has(h)) continue;
+    seen.add(h);
+    if (prefix.has(h)) {
+      prefixOrdered.push(h);
+      continue;
+    }
+    const v = volumeOf(h);
+    const p = priceOf(h);
+    if (v > 0) withVolume.push({ h, v });
+    else if (p > 0) priceOnly.push({ h, p });
+    else empty.push(h);
+  }
+  withVolume.sort((a, b) => b.v - a.v);
+  priceOnly.sort((a, b) => b.p - a.p);
+  const ordered = [
+    ...prefixOrdered,
+    ...withVolume.map((x) => x.h),
+    ...priceOnly.map((x) => x.h),
+    ...empty,
+  ];
+
+  // 覆盖率主区数量：主区前缀累计覆盖达到阈值所需的最少目标数。
+  let primary = ordered.length;
+  const totalVolume = withVolume.reduce((s, x) => s + x.v, 0);
+  if (totalVolume > 0) {
+    let acc = 0;
+    let needed = 0;
+    for (const x of withVolume) {
+      acc += x.v;
+      if (acc / totalVolume >= coverageThreshold) {
+        needed++;
+        break;
+      }
+      needed++;
+    }
+    primary = prefixOrdered.length + Math.min(needed, withVolume.length);
+  }
+
+  let result = ordered;
+  if (typeof maxTargets === "number" && ordered.length > maxTargets) {
+    result = ordered.slice(0, maxTargets);
+    primary = Math.min(primary, result.length);
+  }
+  return { ordered: result, primary };
 }

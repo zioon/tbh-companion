@@ -138,6 +138,15 @@ const marketVolume = new MarketVolumeService({
   // 价格历史查询的批次数量与批间间隔（可在 Settings 调整，规避 Steam 限流）。
   getHistoryBatchSize: () => config.marketHistoryBatchSize,
   getHistoryBatchDelaySec: () => config.marketHistoryBatchDelaySec,
+  // 刷新排序：星标无条件优先；无交易额物品按图鉴快照价格兜底；覆盖率阈值决定
+  // 自动路径「用最少刷新覆盖最多交易额」的主区大小。
+  getWatchedHashes: () => config.lookupPricePolling?.watchedHashes ?? [],
+  getSnapshotPriceUsd: (hash) => {
+    const snapshot = lookupPrices.getSnapshot();
+    const price = snapshot?.prices?.[hash];
+    return typeof price === "number" && price > 0 ? price : 0;
+  },
+  getCoverageThreshold: () => config.marketHistoryCoverageThreshold,
   // 历史走势覆盖 owned ∪ watched 的物品集合（与轮询目标一致，控制 pricehistory 请求量）。
   getTargetHashes: () => {
     const watched = config.lookupPricePolling.watchedHashes ?? [];

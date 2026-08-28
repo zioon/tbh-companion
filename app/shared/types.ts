@@ -1034,6 +1034,14 @@ export interface AppConfig {
    * items.
    */
   marketHistoryBatchDelaySec: number;
+  /**
+   * Price history auto-refresh coverage threshold (0~1, default 0.95). When
+   * ordering targets by recent-24h trade volume, the auto path treats the
+   * head that already covers this ratio of total volume as a priority group
+   * (least refreshes to cover the most trade volume); the remaining tail is
+   * picked up across the day so every target still gets refreshed once per day.
+   */
+  marketHistoryCoverageThreshold: number;
 }
 
 /** Scoped targets for Settings → Data & cache clear actions. */

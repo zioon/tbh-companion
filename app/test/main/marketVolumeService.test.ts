@@ -413,26 +413,26 @@ describe("MarketVolumeService 持久化", () => {
     expect(pending[0].total).toBeGreaterThan(0); // 100 × 0.5 = 50
   });
 
-  it("sortTargetsByVolume 按已有交易额降序、无交易额数据排最后且保持相对顺序", async () => {
+  it("sortTargetsByVolume 按最近24h交易额降序、无交易额数据排最后且保持相对顺序", async () => {
     const svc = makeService({
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
       fetchHistory: async (hash) => ({
         ok: true,
         status: 200,
         points: [
-          // 不同物品给不同的历史总交易额，验证排序
+          // 用「当前时间附近」的时间戳，确保落在最近 24h 窗口内被计入排序口径。
           ...(hash === "Copper Coin"
-            ? [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }]
-            : [{ timestamp: BASE / 1000, price: 2, volume: 50 }]),
+            ? [{ timestamp: Math.floor(Date.now() / 1000), price: 0.5, volume: 100 }]
+            : [{ timestamp: Math.floor(Date.now() / 1000), price: 2, volume: 50 }]),
         ],
       }),
     });
-    // 先拉一次历史，让 priceHistory 有交易额数据
-    await svc.refreshHistory(BASE);
+    // 先拉一次历史，让 priceHistory 有交易额数据（自动路径冷启动→全量拉取）。
+    await svc.refreshHistory(Date.now());
 
     // 目标集含一个无交易额数据的 hash（Non Listed），应排最后
     const ordered = svc.sortTargetsByVolume(["Non Listed", "Copper Coin", "Sword (Legendary) A"]);
-    // Copper Coin total = 100*0.5 = 50；Sword total = 50*2 = 100 < 仅相对顺序无碍，验证降序
+    // 最近24h内：Copper Coin = 100*0.5 = 50；Sword = 50*2 = 100 > Copper → 降序
     expect(ordered[0]).toBe("Sword (Legendary) A");
     expect(ordered[1]).toBe("Copper Coin");
     expect(ordered[2]).toBe("Non Listed");
@@ -822,4 +822,70 @@ describe("MarketVolumeService 历史数据导出 / 导入", () => {
     expect(svc.getPriceHistory()).toEqual(before);
     expect(svc.getStats().hourly).toEqual(hourlyBefore);
   });
+});
+
+describe("MarketVolumeService 刷新排序：主区优先 + 每天全量兜底", () => {
+  // targets: [A(星标), B(高交易额), C(中交易额)]；覆盖率阈值 0.6。
+  // 窗口成交额：A=10, B=100, C=50，总 160；B 单独覆盖 62.5% ≥ 0.6 → 主区 = A+B。
+  const A = "star low";
+  const B = "high volume";
+  const C = "mid volume";
+  const targets = [A, B, C];
+  const watched = [A];
+  const coverageThreshold = 0.6;
+
+  function makeRecordingService(recorder: string[]) {
+    return new MarketVolumeService({
+      getCatalog: () => [],
+      getCurrency: () => "USD",
+      getCookie: () => "",
+      getTargetHashes: () => targets,
+      getWatchedHashes: () => watched,
+      getCoverageThreshold: () => coverageThreshold,
+      getSnapshotPriceUsd: () => 0,
+      getHistoryBatchSize: () => 10,
+      getHistoryBatchDelaySec: () => 0,
+      filePath: () => file,
+      fetchHistory: async (hash) => {
+        recorder.push(hash);
+        return {
+          ok: true,
+          status: 200,
+          currency: "USD",
+          points: [{ timestamp: BASE / 1000, price: 1, volume: hash === B ? 100 : hash === C ? 50 : 10 }],
+        };
+      },
+    });
+  }
+
+  it("首次刷新（冷启动）全部目标都拉取，且星标优先", async () => {
+    const recorder: string[] = [];
+    const svc = makeRecordingService(recorder);
+    await svc.refreshHistory(BASE);
+    // 星标 A 最前；B/C 首次无数据，均需拉取
+    expect(recorder).toEqual([A, B, C]);
+  }, 15000);
+
+  it("同一天再次自动刷新：主区(A+B)重刷，长尾C 当日已刷则跳过（每天全量一遍）", async () => {
+    const recorder: string[] = [];
+    const svc = makeRecordingService(recorder);
+    await svc.refreshHistory(BASE);
+    expect(recorder).toEqual([A, B, C]);
+    recorder.length = 0;
+
+    // 同一天 61 分钟后再次自动刷新：已跳过 1h 缓存，主区重刷、长尾 C 当日已刷被跳过。
+    await svc.refreshHistory(BASE + 61 * 60_000);
+    expect(recorder).toEqual([A, B]);
+  }, 20000);
+
+  it("跨天自动刷新：长尾 C 被重新纳入（已过一天）", async () => {
+    const recorder: string[] = [];
+    const svc = makeRecordingService(recorder);
+    await svc.refreshHistory(BASE);
+    recorder.length = 0;
+    // 跨天：+25 小时（超过 1h 缓存，且进入新的一天）
+    await svc.refreshHistory(BASE + 25 * 3600_000);
+    // 主区 A+B 必拉，长尾 C 跨天后重新纳入 → 三者都拉
+    expect(recorder).toEqual([A, B, C]);
+  }, 20000);
 });

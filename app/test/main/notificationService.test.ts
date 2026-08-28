@@ -54,6 +54,7 @@ const baseConfig: AppConfig = {
   lookupPricePolling: { enabled: false, intervalMinutes: 10, thresholdUsd: 1.0, watchedHashes: [] },
   marketHistoryBatchSize: 10,
   marketHistoryBatchDelaySec: 120,
+  marketHistoryCoverageThreshold: 0.95,
   language: "auto",
 };
 

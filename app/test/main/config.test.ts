@@ -185,6 +185,44 @@ describe("marketLowValueThresholdUsd", () => {
   });
 });
 
+describe("marketHistoryCoverageThreshold", () => {
+  it("defaults to 0.95", () => {
+    expect(mod.normalizeConfigFromRaw({}).marketHistoryCoverageThreshold).toBe(0.95);
+  });
+  it("preserves explicit ratios in range", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: 0.8 })
+        .marketHistoryCoverageThreshold,
+    ).toBe(0.8);
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: 0 })
+        .marketHistoryCoverageThreshold,
+    ).toBe(0);
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: 1 })
+        .marketHistoryCoverageThreshold,
+    ).toBe(1);
+  });
+  it("clamps out-of-range / invalid to [0, 1] or the default", () => {
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: 1.5 } as never)
+        .marketHistoryCoverageThreshold,
+    ).toBe(1);
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: -0.5 } as never)
+        .marketHistoryCoverageThreshold,
+    ).toBe(0);
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: "hi" } as never)
+        .marketHistoryCoverageThreshold,
+    ).toBe(0.95);
+    expect(
+      mod.normalizeConfigFromRaw({ marketHistoryCoverageThreshold: NaN } as never)
+        .marketHistoryCoverageThreshold,
+    ).toBe(0.95);
+  });
+});
+
 describe("config language", () => {
   it("defaults to 'auto' when missing", () => {
     expect(mod.normalizeConfigFromRaw({}).language).toBe("auto");

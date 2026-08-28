@@ -31,11 +31,14 @@ import {
   aggregateVolume,
   calibratePricesWithMedian,
   mergePriceHistoryPoints,
+  orderRefreshTargets,
   parseMarketVolumeHistory,
+  recentVolumeTotal,
   VOLUME_CATEGORY_OTHER,
   volumeCategoryKey,
   type LiveVolumePoint,
   type PriceHistoryPoint,
+  type RefreshTargetVolume,
   type VolumeHashSample,
 } from "../../core/marketVolume";
 import { marketHashName } from "../../core/marketName";
@@ -56,6 +59,12 @@ const HISTORY_FETCH_DELAY_MS = 1500;
 const MIN_SAMPLE_INTERVAL_MS = 60 * 1000;
 /** 单个 hash 最多保留多少条活跃度采样点（约 33 小时：每 1 分钟 1 条）。 */
 export const MAX_LIVE_POINTS_PER_HASH = 2000;
+/** 刷新排序的时间窗（秒）：最近 24h 的成交额作为「每天交易额」排序口径。 */
+export const RECENT_WINDOW_SEC = 24 * 3600;
+/** 每日全量覆盖的自然日毫秒（UTC day 键）。 */
+export const DAY_MS = 24 * 3600_000;
+/** 覆盖率阈值默认值：覆盖率主区达到该比例即视为已覆盖大头交易额。 */
+export const COVERAGE_DEFAULT = 0.95;
 
 export interface MarketVolumeDeps {
   /** 返回当前图鉴物品目录（用于把 hash 归到类别）。 */
@@ -70,6 +79,12 @@ export interface MarketVolumeDeps {
   getHistoryBatchSize: () => number;
   /** 返回批间等待秒数（默认 120 秒，规避 Steam 限流）。 */
   getHistoryBatchDelaySec: () => number;
+  /** 返回用户收藏（星标）的 market_hash_name 列表；用于排序时星标无条件优先。 */
+  getWatchedHashes?: () => string[];
+  /** 返回 hash 在图鉴价格快照里的价格（USD），用作无交易额时的兜底排序；0 表示无。 */
+  getSnapshotPriceUsd?: (hash: string) => number;
+  /** 返回刷新覆盖率阈值（0~1），默认 0.95。覆盖率达到该比例即视为已覆盖大头交易额。 */
+  getCoverageThreshold?: () => number;
   /** 注入用于测试；默认 userData 路径。 */
   filePath?: () => string;
   /** 注入用于测试；默认走 Steam pricehistory。 */
@@ -136,6 +151,8 @@ interface PersistedMarketVolume {
   itemCountsByCategory: Record<string, number>;
   /** 上次成功刷新 pricehistory 的时间（ms），持久化以便重启后仍命中 30min 缓存。 */
   historyFetchedAtMs?: number;
+  /** 各 hash 最近一次发起 pricehistory 刷新的 epoch ms，保障「每天全量一遍」。 */
+  lastRefreshAt?: Record<string, number>;
 }
 
 /** 默认的显示货币中位价查询：走 Steam priceoverview。 */
@@ -165,6 +182,8 @@ export class MarketVolumeService {
   private refreshing = false;
   /** 用户手动终止整次历史刷新：置 true 后刷新循环尽快安全退出。 */
   private historyAbortRequested = false;
+  /** 各 hash 最近一次发起 pricehistory 刷新的 epoch ms，保障「每天全量一遍」。 */
+  private lastRefreshAt: Record<string, number> = {};
   private readonly filePath: () => string;
 
   constructor(private readonly deps: MarketVolumeDeps) {
@@ -185,6 +204,7 @@ export class MarketVolumeService {
         this.priceHistory = {};
         this.historyItemCount = 0;
         this.historyItemCountsByCategory = {};
+        this.lastRefreshAt = {};
         return;
       }
       this.samples = parsed.samples;
@@ -194,6 +214,7 @@ export class MarketVolumeService {
       this.historyItemCount = parsed.itemCount;
       this.historyItemCountsByCategory = parsed.itemCountsByCategory;
       this.historyFetchedAtMs = parsed.historyFetchedAtMs ?? 0;
+      this.lastRefreshAt = parsed.lastRefreshAt ?? {};
     } catch (err) {
       log.warn(`Failed to load market volume history: ${(err as Error).message}`);
       this.samples = [];
@@ -201,6 +222,7 @@ export class MarketVolumeService {
       this.priceHistory = {};
       this.historyItemCount = 0;
       this.historyItemCountsByCategory = {};
+      this.lastRefreshAt = {};
     }
   }
 
@@ -217,6 +239,7 @@ export class MarketVolumeService {
         itemCount: this.historyItemCount,
         itemCountsByCategory: this.historyItemCountsByCategory,
         historyFetchedAtMs: this.historyFetchedAtMs,
+        lastRefreshAt: this.lastRefreshAt,
       };
       writeFileSync(path, JSON.stringify(payload));
     } catch (err) {
@@ -235,6 +258,7 @@ export class MarketVolumeService {
       itemCount: this.historyItemCount,
       itemCountsByCategory: this.historyItemCountsByCategory,
       historyFetchedAtMs: this.historyFetchedAtMs,
+      lastRefreshAt: this.lastRefreshAt,
     };
   }
 
@@ -258,6 +282,7 @@ export class MarketVolumeService {
     this.historyItemCount = parsed.itemCount;
     this.historyItemCountsByCategory = parsed.itemCountsByCategory;
     this.historyFetchedAtMs = parsed.historyFetchedAtMs ?? 0;
+    this.lastRefreshAt = parsed.lastRefreshAt ?? {};
     this.saveHistory();
     return this.historyItemCount;
   }
@@ -457,7 +482,19 @@ export class MarketVolumeService {
     now = Date.now(),
     opts?: { targets?: readonly string[]; force?: boolean },
   ): Promise<boolean> {
-    const targets = opts?.targets ?? this.deps.getTargetHashes();
+    const rawTargets = opts?.targets ?? this.deps.getTargetHashes();
+    let targets = rawTargets;
+    // 自动路径（未显式传 targets）做「会话优化」：按最近 24h 交易额降序 + 覆盖率为
+    // 主区优先 + 每日全量兜底（见 planSessionTargets），用尽可能少的刷新覆盖最多的
+    // 交易额，同时保证每天把目标全集都刷一遍。手动（force）路径尊重调用方给定顺序
+    // （cardOrder / sortTargetsByVolume 已按时间窗成交额排好）。
+    if (!opts?.targets) {
+      targets = this.planSessionTargets(
+        targets,
+        now,
+        this.deps.getCoverageThreshold?.() ?? COVERAGE_DEFAULT,
+      );
+    }
     if (!opts?.force && now - this.historyFetchedAtMs < HISTORY_REFRESH_MS) return false;
     if (this.refreshing) return false;
     this.refreshing = true;
@@ -513,6 +550,8 @@ export class MarketVolumeService {
             current: hash,
           });
           let updatedItem: MarketVolumeItem | undefined;
+          // 记下该 hash 本次发起刷新（成功与否都记，避免同日内的每日全量兜底反复重试）。
+          this.lastRefreshAt[hash] = now;
           try {
             const r = await fetchOne(hash, currency, cookie);
             if (r.ok && r.points && r.points.length > 0) {
@@ -725,23 +764,98 @@ export class MarketVolumeService {
   }
 
   /**
-   * 按已有交易额对待刷新目标从高到低排序（交易页二次及以后刷新用）。
+   * 按最近 24h 交易额对待刷新目标从高到低排序（交易页二次及以后刷新用）。
    *
-   * 交易额数据沿用 {@link getVolumeItems} 的合并口径（pricehistory 聚合为主、
-   * live 快照 volume×median 补充）。有交易额数据的 hash 按 total 降序排在前面，
-   * 无交易额数据的（如首次刷新、尚无任何历史/采样）保持原相对顺序排最后。
-   * 这样「先刷新交易额高的物品」。
+   * 排序口径为「最近 24h 时间窗成交额」而非全量历史累计——贴合「每天交易额」，
+   * 反映当前/当天的交易活跃度。星标（watched）无条件最前，有交易额者降序、仅价格
+   * 者按价格降序、无数据者保持原相对顺序（见 {@link orderRefreshTargets}）。这样
+   * 「先刷新交易额高的物品」，用最少的刷新覆盖最多的交易额。
    */
   sortTargetsByVolume(targets: readonly string[]): string[] {
-    const totalByHash = new Map<string, number>();
-    for (const item of this.getVolumeItems().items) {
-      totalByHash.set(item.hash, item.total);
+    const prefix = new Set(this.deps.getWatchedHashes?.() ?? []);
+    const volumes = this.recentVolumeByHash(targets, Date.now());
+    // 阈值传 1：返回完整排序（排好序的全集），覆盖率截断交给计划/自动路径处理。
+    return orderRefreshTargets(targets, volumes, prefix, 1).ordered;
+  }
+
+  /**
+   * 计算每个目标 hash 的「最近 24h 成交额」与兜底价格（用于刷新排序）。
+   *
+   * 口径优先取 pricehistory 最近窗口内的真实成交额；无则用活跃度采样历史的最新
+   * 采样（volume×median，24h 滚动）；再退到 live 快照；都没有时用图鉴快照价格兜底。
+   */
+  private recentVolumeByHash(
+    hashes: readonly string[],
+    nowMs: number,
+  ): Map<string, RefreshTargetVolume> {
+    const nowSec = nowMs / 1000;
+    const map = new Map<string, RefreshTargetVolume>();
+    for (const h of hashes) {
+      if (!h) continue;
+      const history = recentVolumeTotal(this.priceHistory[h] ?? [], nowSec, RECENT_WINDOW_SEC);
+      if (history > 0) {
+        map.set(h, { windowTotal: history, fallbackPrice: 0 });
+        continue;
+      }
+      let liveTotal = 0;
+      const lh = this.liveHistory[h];
+      if (lh && lh.length > 0) {
+        for (let i = lh.length - 1; i >= 0; i--) {
+          const p = lh[i];
+          if (
+            Number.isFinite(p.volume) &&
+            p.volume > 0 &&
+            p.median != null &&
+            Number.isFinite(p.median) &&
+            p.median > 0
+          ) {
+            liveTotal = p.volume * p.median;
+            break;
+          }
+        }
+      }
+      if (liveTotal > 0) {
+        map.set(h, { windowTotal: liveTotal, fallbackPrice: 0 });
+        continue;
+      }
+      const lv = this.live.get(h);
+      if (lv && lv.volume > 0 && lv.median != null && lv.median > 0) {
+        map.set(h, { windowTotal: lv.volume * lv.median, fallbackPrice: 0 });
+        continue;
+      }
+      const fb = this.deps.getSnapshotPriceUsd?.(h) ?? 0;
+      map.set(h, { windowTotal: 0, fallbackPrice: fb > 0 ? fb : 0 });
     }
-    const withVolume = targets
-      .filter((h) => h && totalByHash.has(h))
-      .sort((a, b) => (totalByHash.get(b) ?? 0) - (totalByHash.get(a) ?? 0));
-    const withoutVolume = targets.filter((h) => h && !totalByHash.has(h));
-    return [...withVolume, ...withoutVolume];
+    return map;
+  }
+
+  /**
+   * 规划自动路径本次要拉取的目标集：会话内排序 + 覆盖率主区优先 + 每日全量兜底。
+   *
+   * 1. 按最近 24h 交易额对目标排序（星标最前 → …），并算出覆盖率主区数量 `primary`；
+   * 2. 每次自动刷新**必拉主区**（用最少的刷新覆盖最多的交易额）；
+   * 3. 主区外的长尾物品，若当日尚未刷新过（`lastRefreshAt` 不在今天）则一并补拉——
+   *    这保证在一天的时间预算内把目标全集都刷一遍（「每天全量一遍」），同时不事事
+   *    都刷长尾导致浪费预算。
+   */
+  private planSessionTargets(
+    rawTargets: readonly string[],
+    nowMs: number,
+    coverageThreshold: number,
+  ): string[] {
+    const prefix = new Set(this.deps.getWatchedHashes?.() ?? []);
+    const volumes = this.recentVolumeByHash(rawTargets, nowMs);
+    const { ordered, primary } = orderRefreshTargets(rawTargets, volumes, prefix, coverageThreshold);
+    const dayNow = Math.floor(nowMs / DAY_MS);
+    const out: string[] = [];
+    const seen = new Set<string>();
+    ordered.forEach((h, i) => {
+      if (seen.has(h)) return;
+      seen.add(h);
+      const lastDay = Math.floor((this.lastRefreshAt[h] ?? 0) / DAY_MS);
+      if (i < primary || lastDay < dayNow) out.push(h);
+    });
+    return out;
   }
 
   /**

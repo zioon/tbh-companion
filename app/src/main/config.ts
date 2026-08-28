@@ -101,6 +101,9 @@ const DEFAULTS: AppConfig = {
   marketHistoryBatchSize: 10,
   // 价格历史查询：批间等待秒数（默认 120 秒 = 2 分钟，规避 Steam 429 限流）。
   marketHistoryBatchDelaySec: 120,
+  // 价格历史自动刷新覆盖率阈值（0~1）：按最近 24h 交易额排序时，覆盖率达到该比例
+  // 的头部作为优先组，用最少刷新覆盖最多交易额；长尾在一天内补刷保证全量覆盖。
+  marketHistoryCoverageThreshold: 0.95,
 };
 
 type RawConfig = Omit<Partial<AppConfig>, "topmost"> & {
@@ -274,6 +277,16 @@ function sanitizeMarketHistoryBatchDelaySec(raw: unknown): number {
   return Math.min(Math.round(n), 10 * 60);
 }
 
+/**
+ * Coerce the price-history coverage threshold to a finite ratio clamped to
+ * [0, 1]. Falls back to the default (0.95).
+ */
+function sanitizeMarketHistoryCoverageThreshold(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return DEFAULTS.marketHistoryCoverageThreshold;
+  return Math.min(Math.max(n, 0), 1);
+}
+
 /** Coerce a single Steam cookie part (id / steamLoginSecure) to a trimmed string. */
 function sanitizeSteamCookiePart(raw: unknown): string {
   if (typeof raw !== "string") return "";
@@ -360,6 +373,9 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   const marketHistoryBatchDelaySec = sanitizeMarketHistoryBatchDelaySec(
     raw.marketHistoryBatchDelaySec,
   );
+  const marketHistoryCoverageThreshold = sanitizeMarketHistoryCoverageThreshold(
+    raw.marketHistoryCoverageThreshold,
+  );
   // 拆分后的两个 Cookie 字段；若两者都为空但有旧版单字段配置，则迁移解析到新字段。
   let steamCookieSessionid = sanitizeSteamCookiePart(raw.steamCookieSessionid);
   let steamCookieLoginSecure = sanitizeSteamCookiePart(raw.steamCookieLoginSecure);
@@ -389,6 +405,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     gameInstallDir,
     marketHistoryBatchSize,
     marketHistoryBatchDelaySec,
+    marketHistoryCoverageThreshold,
     steamCookie,
     steamCookieSessionid,
     steamCookieLoginSecure,

@@ -3,9 +3,12 @@ import {
   aggregateHistoryToHourly,
   aggregateHourly,
   aggregateVolume,
+  orderRefreshTargets,
   parseMarketVolumeHistory,
+  recentVolumeTotal,
   volumeCategoryKey,
   type PriceHistoryPoint,
+  type RefreshTargetVolume,
 } from "../../src/core/marketVolume";
 import type { LookupItem } from "../../shared/types";
 
@@ -269,5 +272,94 @@ describe("parseMarketVolumeHistory", () => {
     expect(parsed!.priceHistory).toEqual({});
     expect(parsed!.itemCount).toBe(0);
     expect(parsed!.itemCountsByCategory).toEqual({});
+  });
+
+  it("解析 lastRefreshAt（仅保留数字毫秒）", () => {
+    const parsed = parseMarketVolumeHistory({
+      lastRefreshAt: { a: 123, b: "bad", c: 456 },
+    });
+    expect(parsed!.lastRefreshAt).toEqual({ a: 123, c: 456 });
+  });
+});
+
+function volumes(entries: [string, RefreshTargetVolume][]): Map<string, RefreshTargetVolume> {
+  return new Map(entries);
+}
+
+describe("recentVolumeTotal", () => {
+  const nowSec = 1_000_000;
+  const H = 3600;
+
+  it("只累计最近窗口内、价/量有效的点", () => {
+    const pts: PriceHistoryPoint[] = [
+      { timestamp: nowSec, price: 2, volume: 10 }, // 窗口内
+      { timestamp: nowSec - H, price: 4, volume: 5 }, // 窗口内（最近24h内）
+      { timestamp: nowSec - 25 * H, price: 100, volume: 1 }, // 窗口外
+      { timestamp: nowSec, price: 0, volume: 5 }, // 价无效
+      { timestamp: nowSec, price: 2, volume: -1 }, // 量无效
+    ];
+    expect(recentVolumeTotal(pts, nowSec, 24 * H)).toBeCloseTo(20 + 20, 8);
+  });
+
+  it("窗口内无有效点返回 0", () => {
+    expect(recentVolumeTotal([], nowSec, 24 * H)).toBe(0);
+    expect(
+      recentVolumeTotal(
+        [{ timestamp: nowSec - 30 * H, price: 2, volume: 10 }],
+        nowSec,
+        24 * H,
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("orderRefreshTargets", () => {
+  it("星标最前，其余按窗口交易额降序，仅价格按价格降序，无数据在尾", () => {
+    const targets = ["a", "b", "c", "d", "e", "f"];
+    const vol = volumes([
+      ["b", { windowTotal: 50, fallbackPrice: 0 }],
+      ["d", { windowTotal: 100, fallbackPrice: 0 }],
+      ["a", { windowTotal: 0, fallbackPrice: 9 }],
+      ["f", { windowTotal: 0, fallbackPrice: 3 }],
+      ["c", { windowTotal: 30, fallbackPrice: 0 }],
+    ]);
+    // e 无数据
+    const seen = new Set(["a"]);
+    const { ordered } = orderRefreshTargets(targets, vol, seen, 0.95);
+    expect(ordered).toEqual(["a", "d", "b", "c", "f", "e"]);
+  });
+
+  it("覆盖率主区 = 星标数 + 达到阈值所需的最少有交易额数量", () => {
+    // 交易额：d=100, b=50, c=30；总 180。90% 阈值需主区覆盖 ≥162 → d+b+c 全 3 个。
+    const vol = volumes([
+      ["b", { windowTotal: 50, fallbackPrice: 0 }],
+      ["d", { windowTotal: 100, fallbackPrice: 0 }],
+      ["c", { windowTotal: 30, fallbackPrice: 0 }],
+    ]);
+    const { ordered, primary } = orderRefreshTargets(["b", "d", "c"], vol, new Set(), 0.9);
+    expect(ordered).toEqual(["d", "b", "c"]);
+    expect(primary).toBe(3);
+  });
+
+  it("阈值较低时主区只需前几个头部", () => {
+    // 总 180，覆盖 1/3（60）即用前 2 个：100 ≥ 60。
+    const vol = volumes([
+      ["b", { windowTotal: 50, fallbackPrice: 0 }],
+      ["d", { windowTotal: 100, fallbackPrice: 0 }],
+      ["c", { windowTotal: 30, fallbackPrice: 0 }],
+    ]);
+    const { primary } = orderRefreshTargets(["b", "d", "c"], vol, new Set(), 0.3);
+    // 100/180=0.556≥0.3 → 1 个即可
+    expect(primary).toBe(1);
+  });
+
+  it("星标计入主区；冷启动（无任何交易额）时主区为全量", () => {
+    const vol = volumes([["x", { windowTotal: 100, fallbackPrice: 0 }]]);
+    const { primary } = orderRefreshTargets(["s", "x"], vol, new Set(["s"]), 0.9);
+    expect(primary).toBe(2);
+    // 全无数据 → primary=全量
+    const cold = orderRefreshTargets(["p", "q"], volumes([]), new Set(), 0.9);
+    expect(cold.primary).toBe(2);
+    expect(cold.ordered).toEqual(["p", "q"]);
   });
 });
