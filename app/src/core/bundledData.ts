@@ -63,7 +63,18 @@ export function resolveBundledDataPath(filename: string, userDataDir?: string): 
   );
 }
 
+const jsonCache = new Map<string, unknown>();
+
 export function readBundledJson<T>(filename: BundledDataFile | string): T {
+  const hit = jsonCache.get(filename);
+  if (hit !== undefined) return hit as T;
   const raw = readFileSync(resolveBundledDataPath(filename), "utf-8").replace(/^\uFEFF/, "");
-  return JSON.parse(raw) as T;
+  const parsed = JSON.parse(raw) as T;
+  jsonCache.set(filename, parsed);
+  return parsed;
+}
+
+/** Drop cached reads — call after writing refreshed catalog files to userData. */
+export function clearBundledJsonCache(): void {
+  jsonCache.clear();
 }

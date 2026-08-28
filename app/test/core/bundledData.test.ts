@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import {
   REQUIRED_BUNDLED_DATA_FILES,
   bundledDataCandidates,
+  clearBundledJsonCache,
   readBundledJson,
   resolveBundledDataPath,
 } from "../../src/core/bundledData";
@@ -28,6 +29,10 @@ describe("bundledData paths", () => {
       (proc as { resourcesPath?: string }).resourcesPath = undefined;
     else proc.resourcesPath = previousResourcesPath;
     rmSync(tempResources, { recursive: true, force: true });
+    // The read cache is keyed only by filename, but resolveBundledDataPath is
+    // resourcesPath/userData sensitive — clear between tests so a resource
+    // written into one test's tempResources doesn't leak into the next.
+    clearBundledJsonCache();
   });
 
   it("lists process.resourcesPath first when packaged", () => {
@@ -73,6 +78,25 @@ describe("bundledData paths", () => {
     const candidates = bundledDataCandidates("gamedata.json");
     expect(candidates[0]).toBe(join(tempResources, "data", "gamedata.json"));
     expect(candidates.some((c) => c.includes("userData"))).toBe(false);
+  });
+
+  it("caches reads and re-reads only after explicit invalidation", () => {
+    (process as ProcessWithResources).resourcesPath = tempResources;
+    const dataDir = join(tempResources, "data");
+    mkdirSync(dataDir, { recursive: true });
+    const target = join(dataDir, "cached_extra.json");
+    writeFileSync(target, JSON.stringify({ version: 1 }));
+
+    // First read populates the module-level cache.
+    expect(readBundledJson<{ version: number }>("cached_extra.json")).toEqual({ version: 1 });
+
+    // Overwriting the file must not change a cached read.
+    writeFileSync(target, JSON.stringify({ version: 2 }));
+    expect(readBundledJson<{ version: number }>("cached_extra.json")).toEqual({ version: 1 });
+
+    // Explicit invalidation (used by catalog refresh) re-reads from disk.
+    clearBundledJsonCache();
+    expect(readBundledJson<{ version: number }>("cached_extra.json")).toEqual({ version: 2 });
   });
 });
 

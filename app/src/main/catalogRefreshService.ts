@@ -16,7 +16,7 @@ import type { CatalogRefreshResult, CatalogStatus } from "../../shared/types";
 import type { GameLocaleData } from "../../shared/types";
 import { createLogger } from "./log";
 import { resolveUserDataDir } from "./services/appData";
-import { readBundledJson } from "../core/bundledData";
+import { clearBundledJsonCache, readBundledJson } from "../core/bundledData";
 
 type BroadcastFn = (channel: string, payload: unknown) => void;
 
@@ -272,6 +272,9 @@ export class CatalogRefreshService {
 
       // Reload GameDataProvider.
       this.gameData.reload(this.userDataDir);
+      // Drop cached bundled-JSON reads: the freshly written userData/gamedata.json
+      // now shadows the bundled copy on every subsequent resolveBundledDataPath.
+      clearBundledJsonCache();
 
       // --- Locale extraction (best-effort: non-fatal) ---
       // Always include `en` (from the required enBundle) plus every dynamically
