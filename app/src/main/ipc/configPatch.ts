@@ -39,6 +39,12 @@ export interface ConfigPatchDeps {
 
 /** Apply settings patch and run side effects. */
 export function applyConfigPatch(deps: ConfigPatchDeps, patch: Partial<AppConfig>): AppConfig {
+  // The renderer is untrusted: a null/undefined/non-object patch used to reach
+  // Object.keys() after saveConfig had already persisted — throwing mid-way and
+  // leaving a half-applied state. Treat malformed input as a no-op patch.
+  if (patch === null || patch === undefined || typeof patch !== "object" || Array.isArray(patch)) {
+    return deps.getConfig();
+  }
   const needsWatcher =
     patch.savePath !== undefined ||
     patch.pollIntervalSeconds !== undefined ||

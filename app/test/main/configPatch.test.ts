@@ -492,4 +492,29 @@ describe("applyConfigPatch", () => {
 
     expect(onLanguageChanged).not.toHaveBeenCalled();
   });
+
+  it("returns current config instead of throwing on a null patch", () => {
+    let cfg = baseConfig();
+    const saveConfig = vi.fn();
+    const deps = {
+      getConfig: () => cfg,
+      setConfig: (c: AppConfig) => {
+        cfg = c;
+      },
+      saveConfig,
+      getTracker: () => new XpTracker(300),
+      setTracker: vi.fn(),
+      getMarket: () => ({ setCurrency: vi.fn() }) as never,
+      restartWatcher: vi.fn(),
+      setAlwaysOnTop: vi.fn(),
+      pushStats: vi.fn(),
+      resolveAndPushInventory: vi.fn(),
+      ensureOwnedPrices: vi.fn(),
+    };
+    const prev = deps.getConfig();
+    // Reading patch.savePath on a null patch used to throw before saveConfig ran.
+    expect(() => applyConfigPatch(deps, null as unknown as Partial<AppConfig>)).not.toThrow();
+    expect(applyConfigPatch(deps, undefined as unknown as Partial<AppConfig>)).toEqual(prev);
+    expect(saveConfig).not.toHaveBeenCalled();
+  });
 });
