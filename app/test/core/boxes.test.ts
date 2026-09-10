@@ -10,8 +10,10 @@ import {
   loadBoxTypeCatalog,
   loadRuneBoxCapCatalog,
   loadRuneAutoOpenCatalog,
+  loadRuneWaveCatalog,
   runeAutoOpenReductionSeconds,
   effectiveAutoOpenSeconds,
+  runeWaveCountReduction,
   type RunePurchase,
 } from "../../src/core/boxes";
 
@@ -221,5 +223,40 @@ describe("buildChestState", () => {
     });
 
     expect(state.saveMtime).toBe(100);
+  });
+});
+
+describe("wave-count reduction runes", () => {
+  const wave = loadRuneWaveCatalog();
+
+  it("has zero reduction with no runes", () => {
+    expect(runeWaveCountReduction([], wave)).toBe(0);
+  });
+
+  it("reduces one wave per purchased WaveCountReduction node", () => {
+    const purchases: RunePurchase[] = [{ runeKey: 1171, level: 1 }];
+    expect(runeWaveCountReduction(purchases, wave)).toBe(1);
+  });
+
+  it("sums all three WaveCountReduction nodes", () => {
+    const purchases: RunePurchase[] = [
+      { runeKey: 1171, level: 1 },
+      { runeKey: 1242, level: 1 },
+      { runeKey: 1301, level: 1 },
+    ];
+    expect(runeWaveCountReduction(purchases, wave)).toBe(3);
+  });
+
+  it("weighs by level when a node scales beyond 1", () => {
+    const purchases: RunePurchase[] = [{ runeKey: 1171, level: 3 }];
+    expect(runeWaveCountReduction(purchases, wave)).toBe(3);
+  });
+
+  it("skips unknown rune nodes without affecting the total", () => {
+    const purchases: RunePurchase[] = [
+      { runeKey: 1171, level: 1 },
+      { runeKey: 9999, level: 5 },
+    ];
+    expect(runeWaveCountReduction(purchases, wave)).toBe(1);
   });
 });

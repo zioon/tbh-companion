@@ -19,6 +19,7 @@ import { TrackingService } from "../services/TrackingService";
 import { InventoryService } from "../services/InventoryService";
 import { ChestService } from "../services/ChestService";
 import { PetService } from "../services/PetService";
+import { loadRuneWaveCatalog, runeWaveCountReduction } from "../../core/boxes";
 import { BoxTimerService } from "../services/BoxTimerService";
 import { StageRunService } from "../services/StageRunService";
 import { SessionStateService } from "../services/SessionStateService";
@@ -255,6 +256,9 @@ const tracking = new TrackingService(
     const inv = inventory.parseFromSave(text, mtime);
     chests.onSave(text, mtime, inv.chests);
     pets.onSave(text, mtime);
+    tracking.setRuneWaveReduction(
+      runeWaveCountReduction(chests.getRunePurchases(), loadRuneWaveCatalog()),
+    );
     return inv;
   },
   (stageKey) => boxTimers.setCurrentStageKey(stageKey),

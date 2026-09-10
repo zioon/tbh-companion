@@ -4,13 +4,16 @@ import type { ChestState } from "../../shared/types";
 // Mock the boxes module so we can control buildChestState output without
 // loading real catalog files from disk. vi.hoisted ensures the mock fn is
 // initialized before vi.mock's hoisted factory runs.
-const { mockBuildChestState } = vi.hoisted(() => ({ mockBuildChestState: vi.fn() }));
+const { mockBuildChestState, mockParseRuneSaveData } = vi.hoisted(() => ({
+  mockBuildChestState: vi.fn(),
+  mockParseRuneSaveData: vi.fn(() => [] as Array<{ runeKey: number; level: number }>),
+}));
 vi.mock("../../src/core/boxes", () => ({
   buildChestState: mockBuildChestState,
   loadBoxTypeCatalog: vi.fn(() => ({})),
   loadRuneBoxCapCatalog: vi.fn(() => ({})),
   loadRuneAutoOpenCatalog: vi.fn(() => ({})),
-  parseRuneSaveData: vi.fn(() => []),
+  parseRuneSaveData: mockParseRuneSaveData,
 }));
 
 vi.mock("../../src/main/services/broadcast", () => ({
@@ -264,5 +267,19 @@ describe("ChestService.setLiveSlots", () => {
       { common: 1, rare: 0 },
       { common: 2, rare: 0 },
     ]);
+  });
+});
+
+describe("ChestService.getRunePurchases", () => {
+  beforeEach(() => {
+    mockBuildChestState.mockReset();
+  });
+
+  it("returns the purchases parsed from the latest save", () => {
+    mockParseRuneSaveData.mockReturnValue([{ runeKey: 1171, level: 1 }]);
+    const service = new ChestService();
+
+    service.onSave("text", 1000, []);
+    expect(service.getRunePurchases()).toEqual([{ runeKey: 1171, level: 1 }]);
   });
 });

@@ -1,0 +1,9 @@
+{
+  "runeLabel": "Rune of Brevity",
+  "reductionPerLevel": {
+    "1171": 1,
+    "1242": 1,
+    "1301": 1
+  },
+  "note": "WaveCountReduction (Rune of Brevity) rune nodes from game RuneInfoData/RuneLevelInfoData. Three nodes (1171/1242/1301), MaxLevel 1 each, Value 1 = -1 stage wave per level."
+}

@@ -80,3 +80,17 @@ export function effectiveAutoOpenSeconds(
   const reduction = runeAutoOpenReductionSeconds(purchases, autoOpenCatalog);
   return Math.max(0, autoOpenCatalog.baseSeconds - reduction);
 }
+
+/** Total stage waves shaved off by purchased wave-count reduction runes (Rune of Brevity). */
+export function runeWaveCountReduction(
+  purchases: RunePurchase[],
+  catalog: { reductionPerLevel: Record<string, number> },
+): number {
+  let reduction = 0;
+  for (const p of purchases) {
+    const perLevel = catalog.reductionPerLevel[String(p.runeKey)];
+    if (perLevel === undefined) continue;
+    reduction += p.level * perLevel;
+  }
+  return reduction;
+}

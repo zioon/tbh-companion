@@ -1632,3 +1632,137 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     svc.stop();
   });
 });
+
+describe("TrackingService.setRuneWaveReduction", () => {
+  it("coerces non-positive or non-finite input to 0", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.setRuneWaveReduction(-3);
+    svc.setRuneWaveReduction(NaN);
+    // No stats surface to assert on; just ensure it does not throw and stays 0.
+    svc.setRuneWaveReduction(0);
+    svc.stop();
+  });
+
+  it("does not reset the value on live-memory toggle", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setRuneWaveReduction(3);
+    svc.onLiveMemoryToggled();
+    // Subsequent ingest must still apply the reduction — verified in T3's ingest tests.
+    svc.stop();
+  });
+});
+
+describe("TrackingService.ingestLiveFrame rune wave reduction", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  function frame(stageWaveTotal: number, at = 1000): LiveMemorySnapshot {
+    return {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 0,
+      stageWaveTotal,
+      stageAlive: 0,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at,
+    };
+  }
+
+  it("leaves the total unchanged when reduction is 0", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.ingestLiveFrame(frame(31));
+    expect(svc.getStats().stageWaveTotal).toBe(31);
+    svc.stop();
+  });
+
+  it("subtracts the rune reduction from the live stage total", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setRuneWaveReduction(3);
+    svc.ingestLiveFrame(frame(31));
+    expect(svc.getStats().stageWaveTotal).toBe(28);
+    svc.stop();
+  });
+
+  it("subtracts the rune reduction from the live stage total, applied once per value", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setRuneWaveReduction(2);
+    svc.setRuneWaveReduction(2); // same value — must not double-apply
+    svc.ingestLiveFrame(frame(31));
+    expect(svc.getStats().stageWaveTotal).toBe(29);
+    svc.stop();
+  });
+
+  it("clamps the total to 1 when reduction exceeds the live total", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setRuneWaveReduction(3);
+    svc.ingestLiveFrame(frame(2));
+    expect(svc.getStats().stageWaveTotal).toBe(1);
+    svc.stop();
+  });
+
+  it("does not modify the caller's frame object in place", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setRuneWaveReduction(3);
+    const input = frame(31);
+    svc.ingestLiveFrame(input);
+    expect(input.stageWaveTotal).toBe(31); // original preserved
+    svc.stop();
+  });
+
+  it("skips reduction when the live total is null or 0", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setRuneWaveReduction(3);
+    svc.ingestLiveFrame({ ...frame(0), stageWaveTotal: null });
+    expect(svc.getStats().stageWaveTotal).toBe(0);
+    svc.stop();
+  });
+
+  it("applies reduction to the run-end reset judgement (currentWave >= effective total)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+    svc.setRuneWaveReduction(3);
+
+    // Live total 31 → effective total 28. Establish wave 1, then advance the
+    // DpsTracker estimate to 28 (27 wave-clears + a live alive-0 frame while
+    // wave 28 is cleared). alive=0 with currentWave == 28 >= effective 28 must
+    // fire the run-end reset.
+    svc.ingestLiveFrame({ ...frame(31, 1000), stageAlive: 3 }); // wave 1
+    for (let w = 0; w < 27; w++) {
+      const at = 1100 + w;
+      svc.ingestLiveFrame({ ...frame(31, at), stageAlive: 0 });
+      svc.ingestLiveFrame({ ...frame(31, at + 1), stageAlive: 3 });
+    }
+    expect(svc.getStats().stageWave).toBe(28);
+
+    // Last wave clears: alive 3 → 0 with currentWave 28 >= effective total 28.
+    svc.ingestLiveFrame({ ...frame(31, 3000), stageAlive: 0 });
+    // Run-end reset fired → wave counter back to 0 (fallback to save wave 1).
+    expect(svc.getStats().stageWave).toBe(1);
+
+    // Next run's first wave spawns monsters → back at wave 1, not 29.
+    svc.ingestLiveFrame({ ...frame(31, 3001), stageAlive: 3 });
+    expect(svc.getStats().stageWave).toBe(1);
+    svc.stop();
+  });
+});

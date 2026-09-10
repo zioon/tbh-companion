@@ -4,6 +4,7 @@ import {
   loadRuneAutoOpenCatalog,
   loadRuneBoxCapCatalog,
   parseRuneSaveData,
+  type RunePurchase,
 } from "../../core/boxes";
 import type { ChestHolding, ChestState } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
@@ -31,6 +32,12 @@ export class ChestService {
   private readonly runeCap = loadRuneBoxCapCatalog();
   private readonly runeAutoOpen = loadRuneAutoOpenCatalog();
   private lastChests: ChestState | null = null;
+  /**
+   * Latest `RunePurchase[]` parsed from the save. Consumers (rune wave-count
+   * reduction) read this to avoid re-parsing the whole decrypted save a second
+   * time — `parseRuneSaveData` already ran inside `resolveAndPush`.
+   */
+  private lastRunePurchases: RunePurchase[] = [];
   /**
    * Callback fired on every successful save parse with the current per-category
    * slot counts. The AutoClassifyService uses this to reconcile its queue
@@ -86,6 +93,10 @@ export class ChestService {
     return this.lastChests;
   }
 
+  getRunePurchases(): RunePurchase[] {
+    return this.lastRunePurchases;
+  }
+
   /**
    * Register a callback fired on every save parse with the current per-category
    * slot counts. The AutoClassifyService reconciles its queue against these
@@ -115,6 +126,7 @@ export class ChestService {
   private resolveAndPush(chests: ChestHolding[], text: string, mtime: number): void {
     try {
       const purchases = parseRuneSaveData(text);
+      this.lastRunePurchases = purchases;
       this.lastChests = buildChestState(
         chests,
         purchases,

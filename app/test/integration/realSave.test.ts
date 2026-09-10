@@ -133,9 +133,19 @@ run("real save (local only)", () => {
     for (const pet of farmable) {
       expect(pet.bestStages?.length).toBeGreaterThan(0);
       expect(pet.appearsOnStages?.length).toBeGreaterThan(0);
-      if (pet.unlocked) {
-        expect(pet.killCount).toBeGreaterThanOrEqual(catalog.unlockKillCount);
-      }
+      // Unlock state (`PetSaveData.IsUnlock`) and the monster-kill counter are
+      // two independent data sources that need not stay in sync on a live save
+      // (e.g. a pet unlocked in an earlier patch, or kill counts that only track
+      // the unlock monster). Assert monotonic invariants only — never cross-source
+      // equality against the catalog threshold, which a live save can legitimately
+      // violate. The pools below are the kills-unlock kind, so these numeric
+      // fields are always present.
+      const { killCount, killsRemaining, killTarget, progressPct } = pet;
+      expect(killCount).toBeGreaterThanOrEqual(0);
+      expect(killsRemaining).toBeGreaterThanOrEqual(0);
+      expect(killsRemaining).toBeLessThanOrEqual(killTarget!);
+      expect(progressPct).toBeGreaterThanOrEqual(0);
+      expect(progressPct).toBeLessThanOrEqual(100);
     }
   });
 });

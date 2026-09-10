@@ -58,7 +58,7 @@ python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
 
 ### 步骤 1.5：符文数据（`rune_box_cap.json` / `rune_auto_open.json` / `box_types.json`）
 
-> 这三个文件**不是管道2产物**，由 `RuneInfoData` / `RuneLevelInfoData` TextAsset **手动提取**。游戏符文系统更新（新符文链、新宝箱槽位类型）时需同步刷新。
+> 这四个文件**不是管道2产物**，由 `RuneInfoData` / `RuneLevelInfoData` TextAsset **手动提取**。游戏符文系统更新（新符文链、新宝箱槽位类型、减波节点）时需同步刷新。
 
 **数据源**：`sharedassets0.assets` 内嵌两个 CSV TextAsset：
 
@@ -73,6 +73,7 @@ python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
 |------|------|
 | `rune_box_cap.json` | 每个槽位类别（common/stageBoss/actBoss/plague*）的 `boxType` + `baseCapacity` + `bonusPerLevel` + 该类别全部 `MaxAmount*Chest` 的 `runeKeys` |
 | `rune_auto_open.json` | 每类别 `baseSeconds`（`UnlockAutoOpen*Chest` 的 Value）+ `perLevelSeconds`（`ReduceAutoOpen*ChestTime` 各节点每级 Value，键为 RuneKey 字符串） |
+| `rune_wave.json` | `reductionPerLevel`：Rune of Brevity（`STATTYPE = WaveCountReduction`）各节点每级 Value（键为 RuneKey 字符串），即减波数 |
 | `box_types.json` | boxType → label/category/color；与 `core/boxes/catalog.ts` 的 `BoxTypeCatalog` 一致 |
 
 **更新步骤**：临时脚本 `scripts/_dump_rune_tables.py` 过滤 `MaxAmount|UnlockAutoOpen|ReduceAutoOpen` 的 STATTYPE，按类别分组导出；对照游戏新增符文链手工更新上述 JSON 后删除临时脚本。任何新增 `BoxCategory` 值（如 v1.02.00 的 `plagueCommon/plagueRare/plagueAct`）需同步 `shared/types.ts`、`chestSlots.ts` 前缀分类、`boxOpenLog.ts` boxType 映射、AutoClassify 类别遍历、UI/locale。

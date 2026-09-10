@@ -53,6 +53,13 @@ export interface RuneAutoOpenCatalog {
   note?: string;
 }
 
+export interface RuneWaveCatalog {
+  runeLabel: string;
+  /** 每级减少的关卡波数，键为符文节点 RuneKey 字符串。 */
+  reductionPerLevel: Record<string, number>;
+  note?: string;
+}
+
 export function loadBoxTypeCatalog(): BoxTypeCatalog {
   return readBundledJson<BoxTypeCatalog>("box_types.json");
 }
@@ -63,6 +70,10 @@ export function loadRuneBoxCapCatalog(): RuneBoxCapCatalog {
 
 export function loadRuneAutoOpenCatalog(): RuneAutoOpenCatalog {
   return readBundledJson<RuneAutoOpenCatalog>("rune_auto_open.json");
+}
+
+export function loadRuneWaveCatalog(): RuneWaveCatalog {
+  return readBundledJson<RuneWaveCatalog>("rune_wave.json");
 }
 
 export function boxTypeIndex(catalog: BoxTypeCatalog): Map<number, BoxTypeEntry> {

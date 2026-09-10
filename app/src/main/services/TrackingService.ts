@@ -59,6 +59,21 @@ export class TrackingService {
   private lastLiveFrame: LiveMemorySnapshot | null = null;
   private lastLiveBroadcastMs = 0;
   /**
+   * Account-wide stage-wave reduction from purchased Rune of Brevity nodes
+   * (computed from the save's RuneSaveData by appState and pushed in). Applied
+   * at `ingestLiveFrame` to the live `stageWaveTotal`. Archive property — NOT
+   * reset on live-memory toggle. 0 = no reduction (identity behaviour).
+   */
+  private runeWaveReduction = 0;
+  /**
+   * Throttle for the "wave total clamped to 1" warn: keyed by
+   * `${stageKey}|${raw}|${reduction}`. `null` = no clamp logged yet, so the
+   * first occurrence always warns. A repeated identical clamp is ignored until
+   * a different triple arrives (or `warnClampedWaveTotal` is reset). Keep cheap
+   * — it only tracks the most recent triple, not a growing set.
+   */
+  private lastClampedWaveKey: string | null = null;
+  /**
    * XP/gold totals captured at the last recorded stage-clear event, used to
    * compute this run's gained XP/gold as a delta. `null` means the next clear
    * is the first since attach/reset — its true start is unknown, so it seeds
@@ -525,6 +540,37 @@ export class TrackingService {
     return this.lastLiveFrame?.stageKey ?? this.lastSnap?.stageKey ?? null;
   }
 
+  /**
+   * Set the account-wide stage-wave reduction (Rune of Brevity) derived from
+   * the save. Logs only on an actual change (low frequency — once per save
+   * rewrite at most). Non-finite / non-positive values are coerced to 0.
+   */
+  setRuneWaveReduction(n: number): void {
+    const next = Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+    if (next === this.runeWaveReduction) return;
+    log.info(`rune wave reduction: ${this.runeWaveReduction} → ${next}`);
+    this.runeWaveReduction = next;
+  }
+
+  /**
+   * Warn (throttled per stage/raw/reduction triple) that the wave total was
+   * clamped to 1 because the rune reduction meets or exceeds the live total.
+   * A `raw <= reduction` result almost always means the live `waveAmount`
+   * already incorporated the reduction — so subtracting it again over-shoots
+   * and produces a double-count. This warn is the signal a maintainer watches
+   * for to decide whether the assumption in `ingestLiveFrame` still holds or
+   * a static-baseline correction is needed.
+   */
+  private warnClampedWaveTotal(stageKey: number | null, raw: number, reduction: number): void {
+    const key = `${stageKey ?? "?"}|${raw}|${reduction}`;
+    if (key === this.lastClampedWaveKey) return; // throttled
+    this.lastClampedWaveKey = key;
+    log.warn(
+      `rune wave reduction ${reduction} >= live wave total ${raw} for stage ${stageKey ?? "?"} ` +
+        `— total clamped to 1 (possible double-count: game may already apply the reduction)`,
+    );
+  }
+
   resetLootBox(boxKey: string): void {
     this.boxOpenTracker.resetBox(boxKey);
     this.sessionState?.flush(
@@ -708,6 +754,23 @@ export class TrackingService {
    */
   ingestLiveFrame(snap: LiveMemorySnapshot): void {
     if (!snap.connected) return;
+
+    // Account-wide Rune of Brevity reduction applied to the live stage-total.
+    // Single choke point: both `buildStats` (reads lastLiveFrame) and the
+    // wave-total run-end reset below read `snap`, so correcting here keeps the
+    // two consumers consistent. Only the total is touched — stageWave/stageKey/
+    // stageAlive/heroes/DPS are passed through untouched. The caller's frame
+    // object is never mutated (we swap in a copy only when a reduction applies).
+    if (this.runeWaveReduction > 0 && snap.stageWaveTotal != null && snap.stageWaveTotal > 0) {
+      const raw = snap.stageWaveTotal;
+      const effective = raw - this.runeWaveReduction;
+      if (effective < 1) {
+        this.warnClampedWaveTotal(snap.stageKey, raw, this.runeWaveReduction);
+        snap = { ...snap, stageWaveTotal: 1 };
+      } else {
+        snap = { ...snap, stageWaveTotal: effective };
+      }
+    }
     this.lastLiveFrame = snap;
 
     const stage =
