@@ -80,6 +80,56 @@ describe("parseInventory", () => {
     expect(snap.saveMtime).toBe(123);
   });
 
+  it("v1.2.2: reads unopened chests from BoxBucketGetBoxList + itemSaveDatas", () => {
+    // v1.2.2 移除了 BoxData；未开箱子是 itemSaveDatas 里的 STAGEBOX 物品，
+    // 其 UniqueId（超 MAX_SAFE_INTEGER，必须字符串比较）列在 BoxBucketGetBoxList。
+    // UseBoxList 里是已开的，不计入。
+    const inner = `{
+      "BoxBucketUseBoxList":["551278195918946219"],
+      "BoxBucketGetBoxList":["551278195918946161","551278195918946189","551278195918946217"],
+      "itemSaveDatas":[
+        {"ItemKey":910901,"UniqueId":551278195918946161,"IsChaotic":false},
+        {"ItemKey":910901,"UniqueId":551278195918946189,"IsChaotic":false},
+        {"ItemKey":920901,"UniqueId":551278195918946217,"IsChaotic":false},
+        {"ItemKey":910901,"UniqueId":551278195918946219,"IsChaotic":false},
+        {"ItemKey":322111,"UniqueId":514119247889201000,"IsChaotic":false}
+      ]
+    }`;
+    const classify = (key: number) =>
+      key === 910901
+        ? { category: "common" as const, label: "Normal Monster Box Lv90" }
+        : key === 920901
+          ? { category: "rare" as const, label: "Stage Boss Box Lv90" }
+          : null;
+    const snap = parseInventory(wrapPlayer(inner), 0, undefined, classify);
+    expect(snap.chests).toEqual([
+      { type: 910901, quantity: 1, category: "common", label: "Normal Monster Box Lv90" },
+      { type: 910901, quantity: 1, category: "common", label: "Normal Monster Box Lv90" },
+      { type: 920901, quantity: 1, category: "rare", label: "Stage Boss Box Lv90" },
+    ]);
+  });
+
+  it("v1.2.2: keeps boxes with unknown item ids as unclassified rows", () => {
+    const inner = `{
+      "BoxBucketGetBoxList":["551278195918946161"],
+      "itemSaveDatas":[{"ItemKey":999999,"UniqueId":551278195918946161,"IsChaotic":false}]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, undefined, () => null);
+    expect(snap.chests).toEqual([
+      { type: 999999, quantity: 1, category: undefined, label: undefined },
+    ]);
+  });
+
+  it("v1.2.2: BoxData path wins when both shapes are present (legacy save)", () => {
+    const inner = `{
+      "BoxBucketGetBoxList":["551278195918946161"],
+      "itemSaveDatas":[{"ItemKey":910901,"UniqueId":551278195918946161,"IsChaotic":false}],
+      "BoxData":{"BoxTypes":[1],"BoxUniqueId":[9],"BoxQuantity":[2]}
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, undefined, () => null);
+    expect(snap.chests).toEqual([{ type: 1, quantity: 2 }]);
+  });
+
   it("leaves unslotted itemSaveDatas rows as unknown location", () => {
     const snap = parseInventory(wrapPlayer(playerInner), 0);
     const unslotted = snap.items.find((i) => i.itemKey === 888888);

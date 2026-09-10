@@ -24,6 +24,16 @@ app/lookup_prices.json
 # Runtime output
 logs/
 
+# Editor / tool output
+.trae/
+.archify/
+
+# Temporary diagnostic dumps (never commit debug scripts / saved data)
+tbh_diag_dump.mjs
+
+# Packaged build artifacts
+app/*.tgz
+
 # Personal save dumps - never commit your own save data
 sample/
 *.es3

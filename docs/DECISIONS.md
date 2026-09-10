@@ -2,6 +2,19 @@
 
 Terse record of architectural decisions. Newest first.
 
+## 2026-09-10 - v1.2.2 宝箱槽位：save 解析取代内存枚举；utilityProcess 消息必须解包
+
+两个教训，一个结论：
+
+1. **v1.2.2 的未开箱子一直在存档里**。`findings/v1.2.2-box-data-migration.md` 曾判定「存档不再包含每类箱子数量」，据此做了运行时逐箱 `BoxData` 清堆枚举（方案 B）。实为误判：未开箱子以普通物品形式存在于 `itemSaveDatas`（STAGEBOX 物品，`910901` Normal / `920901` Stage Boss / `930901` Act Boss），其 `UniqueId` 列在 `BoxBucketGetBoxList`（未开）/ `BoxBucketUseBoxList`（已开）。最终落地为 `parseChests` 的 save 侧路径（`UniqueId` 超 `MAX_SAFE_INTEGER`，必须按原始文本字符串比较；分类由 `InventoryService` 注入 `classifyBoxItemKey`，按 gamedata `type=STAGEBOX` + 物品名前缀），`ChestHolding` 新增可选 `category/label`。方案 B 全部移除。**原则：做内存逆向兜底前，先把存档明文grep 到底——「某 key 不存在」不等于「数据不存在」，实体引用号（bucket id）需要在全文中追踪其落点。**
+2. **Electron `utilityProcess` 子进程的消息回调收到的是事件对象 `{data: payload}`**，真实载荷在 `.data` 上。`process.parentPort.on("message", (msg) => ...)` 直接用 `msg` 会让所有入站消息静默失配。这一缺陷同时潜伏在 `liveMemory/worker.ts`（方案 B 映射从未送达、`stop` 从未生效）与 `services/inventoryWorkerEntry.ts`（init/ready 握手从未成功，P1-6 库存 worker 路径静默回退主线程同步 resolve，"Inventory worker ready." 零出现）两处。两边均已统一解包修复。**原则：worker 通信链路必须在每一跳留下日志证据（发送方记发送、接收方记接收），缺任何一跳的日志都应视为链路断裂而不是「功能未启用」。**
+
+## 2026-09-10 - `unit.cache` bundled backfill（英雄 live 偏移防错）
+
+live-memory 英雄实时数据在 v1.2.2 上「持续回退/数值全错」。经 `probe-meta` 实机校验定位：运行时实际应用的 `unit.cache=0x3b0`，而正确值为 **0x3d0**（bundled 与磁盘缓存都是 0x3d0）。`mergeOffsets` 对 `unit` 结构字段做 `...base` 整体展开，错误 base 的旧值会原样进入 merged 并被写回缓存，运行时稳定采用错误偏移，导致整条 `Hero[] → heroPtr+unit.cache → HeroRuntime` 链解错。
+
+采用与既有 `runtime.stage.alive` backfill 相同的模式：`applyResolvedOffsets` 解析结果与 bundled 表不一致时，以 bundled 的 `unit.cache` 为准。原则：**live-memory 结构常量偏移（`unit.cache`/`heroRuntime.*`/`heroInfoData.heroKey`）以 bundled 表为权威，不应被错误 disk-cache/base 在 merge 时悄悄覆盖**；应用端置 backfill 兜底。完整排障见 `docs/findings/v1.2.2-hero-live-memory-regression.md`。
+
 ## 2026-06-10 - Diagnostic logging (`electron-log`, main-only writes)
 
 Support logs go to `userData/logs/app.log` (1 MB rotation → `app.old.log`), separate

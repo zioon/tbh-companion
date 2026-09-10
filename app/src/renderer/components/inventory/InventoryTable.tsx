@@ -26,7 +26,6 @@ import { Card } from "../../design-system/primitives/Card/Card";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
 import { cn } from "../../lib/cn";
 import { buyOrderAverage, type SortKey } from "../../lib/inventoryFilters";
-import { isUnresolvedLocalizationKey } from "../../lib/lookupFilters";
 import type { TFunction } from "i18next";
 
 function priceSourceTitle(
@@ -89,6 +88,7 @@ function buildColumnDefs(
   t: TFunction<"inventory">,
   itemIndex: Map<number, LookupItem>,
   onNavigate: (itemKey: number) => void,
+  catalogReady: boolean,
 ): ColumnDef[] {
   return [
     {
@@ -99,12 +99,11 @@ function buildColumnDefs(
       alwaysVisible: true,
       render: (row) => {
         const catalogItem = itemIndex.get(row.itemKey);
-        // row.name comes from the runtime-extracted gamedata.json (CatalogRefreshService).
-        // When the EN stringtable lacks an ItemName_<id> entry, the extractor falls back
-        // to the literal placeholder. Fall back to the bundled lookup_items.json name
-        // (same source the tooltip uses via useLookupCatalog) so the row matches.
-        const displayName =
-          isUnresolvedLocalizationKey(row.name) && catalogItem?.name ? catalogItem.name : row.name;
+        // row.name comes from the runtime-extracted gamedata.json (CatalogRefreshService)
+        // and holds the English catalog name after name backfill — not localized to the
+        // current UI language. Prefer the localized lookup_items.json name (the same source
+        // the tooltip uses via useLookupCatalog), falling back to row.name.
+        const displayName = catalogItem?.name ?? row.name;
         const suffix = row.chaoticCount > 0 ? "◆" : undefined;
         const refreshButton = row.marketHashName ? (
           <ItemPriceRefreshButton itemKey={row.itemKey} itemName={displayName} />
@@ -124,6 +123,18 @@ function buildColumnDefs(
               />
               {refreshButton}
             </span>
+          );
+        }
+
+        // 目录尚未就绪时不要渲染灰点/无颜色占位 —— 否则等目录到达后整表
+        // 会出现一次明显的「灰点 → 图标 + 品质色」第二次更新。骨架屏让
+        // 首次可见的渲染就是最终形态。
+        if (!catalogReady) {
+          return (
+            <span
+              className="inline-block h-4 w-28 animate-pulse rounded-sm bg-muted/25"
+              aria-hidden="true"
+            />
           );
         }
 
@@ -431,8 +442,8 @@ export function InventoryTable({
     [catalog],
   );
   const columnDefs = useMemo(
-    () => buildColumnDefs(t, itemIndex, (id) => open({ type: "item", id })),
-    [t, itemIndex, open],
+    () => buildColumnDefs(t, itemIndex, (id) => open({ type: "item", id }), catalog !== null),
+    [t, itemIndex, open, catalog],
   );
   const columns = useMemo(() => visibleColumns(columnDefs, columnPrefs), [columnDefs, columnPrefs]);
   const effectiveEmptyMessage = emptyMessage ?? t("emptyMessage");

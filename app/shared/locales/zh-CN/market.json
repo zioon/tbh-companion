@@ -105,7 +105,9 @@
     "exportFailed": "导出失败：{{reason}}",
     "importConfirm": "导入将用备份数据整体替换当前交易页历史数据，确定继续？",
     "importSuccess": "导入成功，共 {{count}} 种物品",
+    "importConverted": "导入成功，共 {{count}} 种物品（已按汇率换算到当前币种）",
     "importFailed": "导入失败：{{reason}}",
+    "importCurrencyMismatch": "导入失败：备份币种与当前显示币种不一致，且无法换算（缺少汇率表/共同价格可推算）。可先切换回备份对应币种再导入，或放弃导入。",
     "cookieExpired": "Steam Cookie 已过期，历史价格刷新已停止。请前往「设置 → Steam 市场」更新 sessionid 与 steamLoginSecure 后重试。",
     "emptyFiltered": "没有物品匹配这些筛选条件。",
     "filters": {

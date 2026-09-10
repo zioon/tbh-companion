@@ -829,6 +829,29 @@ export function resolveLogManager(
 }
 
 /**
+ * Cheap single-count tail probe for the GetBox log, used by the high-frequency
+ * chest-trap poller (`pollChestTailFast`). Resolves the log-manager singleton +
+ * GetBox list and returns ONLY the current entry count — a handful of memory
+ * reads, no per-entry scan and no array/object allocation. Returns null when
+ * the manager/list can't be resolved (e.g. no battle yet); callers then defer
+ * to the main 25 Hz read path rather than force a decode here.
+ */
+export function peekGetBoxLogCount(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: ChestLogPinState,
+): number | null {
+  if (o.typeInfoRva.logManager === 0n) return null;
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) return null;
+  const list = getBoxLogList(reader, lmPtr, o);
+  if (list == null) return null;
+  return list.count;
+}
+
+/**
  * Chest drops added to the GetBox log since the last read, classified by
  * EMonsterLogType. Tails the log by index; on first read it primes to the
  * current length (so the pre-attach backlog is not counted) and returns `[]`.
@@ -1249,6 +1272,13 @@ const MAX_BOX_OPEN_LOG = 5_000;
  *  2-3 store-instruction sequence the game uses to append a log entry. */
 const BOX_OPEN_LOG_SAMPLES = 3;
 
+/** Maximum consecutive ticks a single BoxOpenLog entry may fail to decode
+ *  before it is force-skipped. A genuine mid-write race resolves within 1-2
+ *  ticks (the writer commits the itemKey within a few store instructions;
+ *  reader polls at ~25Hz); anything persisting longer is a corrupt slot that
+ *  would otherwise wedge the tail forever. Mirrors MAX_CHEST_LOG_RETRIES. */
+const MAX_BOX_OPEN_LOG_RETRIES = 3;
+
 /** Resolve the GetItemWithBoxOpen List<BoxOpenLog> backing array + length. */
 function boxOpenLogList(
   reader: MemoryReader,
@@ -1287,6 +1317,10 @@ export interface ReadBoxOpenLogResult {
     count: number;
     lastCountBefore: number;
     start: number;
+    /** Index parked for the next tick because a mid-write entry couldn't decode. */
+    retryFrom?: number;
+    /** Consecutive ticks `retryFrom` has failed to decode (self-heal/force-skip counter). */
+    retryConsecutive?: number;
   };
 }
 
@@ -1393,15 +1427,35 @@ export function readRuntimeBoxOpenLog(
     return { opens: [], status: "" };
   }
 
-  if (count < pin.lastCount) {
-    // See `handleLogShrink` for the transient-race defense rationale.
-    const next = handleLogShrink(count, pin.lastCount);
+  const lastCountBefore = pin.lastCount;
+  if (count < lastCountBefore) {
+    // See `handleLogShrink` for the transient-race defense rationale. A shrink
+    // invalidates any parked retry position (the log no longer has that
+    // index), so reset the retry state; scanning resumes from the realigned
+    // tail on the next tick.
+    const next = handleLogShrink(count, lastCountBefore);
     if (next == null) return { opens: [], status: "" };
     pin.lastCount = next;
-    return { opens: [], status: "" };
+    pin.retryFrom = null;
+    pin.retryConsecutive = 0;
+    return {
+      opens: [],
+      status: "",
+      debug: {
+        scanned: 0,
+        parsed: 0,
+        nullEntry: 0,
+        badItemKey: 0,
+        count,
+        lastCountBefore,
+        start: next,
+      },
+    };
   }
 
-  const start = pin.lastCount;
+  // Resume scanning from the retry position set by a prior mid-write entry
+  // that failed to decode, or from the normal tail.
+  const start = pin.retryFrom ?? pin.lastCount;
   const opens: BoxOpenEntry[] = [];
   const first = arr + BigInt(o.container.arrayFirst);
   let scanned = 0;
@@ -1424,17 +1478,52 @@ export function readRuntimeBoxOpenLog(
     if (result.ok) {
       opens.push(result.entry);
       parsed++;
-    } else if (result.reason === "null-ptr") {
-      nullEntry++;
-    } else {
-      badItemKey++;
+      continue;
     }
+    if (result.reason === "null-ptr") nullEntry++;
+    else badItemKey++;
+    // Mid-write race: the entry slot exists but its fields aren't committed
+    // yet (e.g. the FIRST item entry of an open-burst — the game bumps the
+    // list size before writing itemKey, and when several boxes are opened in
+    // a row the append window overlaps the reader's tick). Do NOT advance the
+    // tail past it — that would drop the entry permanently. Park `retryFrom`
+    // at this index so the next tick re-reads the same entry after the writer
+    // has finished. If the same index keeps failing for
+    // MAX_BOX_OPEN_LOG_RETRIES ticks it's a corrupt slot — force-skip it so
+    // we can't wedge the tail forever. (Same pattern as readRuntimeChestLog.)
+    const sameAsLast = pin.retryFrom === i;
+    pin.retryConsecutive = sameAsLast ? pin.retryConsecutive + 1 : 1;
+    pin.retryFrom = i;
+    if (pin.retryConsecutive > MAX_BOX_OPEN_LOG_RETRIES) {
+      pin.retryFrom = null;
+      pin.retryConsecutive = 0;
+      continue;
+    }
+    // Park the tail at the failing entry; return whatever decoded so far.
+    pin.lastCount = Math.min(pin.lastCount, i);
+    return {
+      opens,
+      status: "",
+      debug: {
+        scanned,
+        parsed,
+        nullEntry,
+        badItemKey,
+        count,
+        lastCountBefore,
+        start,
+        retryFrom: i,
+        retryConsecutive: pin.retryConsecutive,
+      },
+    };
   }
+  pin.retryFrom = null;
+  pin.retryConsecutive = 0;
   pin.lastCount = count;
   return {
     opens,
     status: "",
-    debug: { scanned, parsed, nullEntry, badItemKey, count, lastCountBefore: start, start },
+    debug: { scanned, parsed, nullEntry, badItemKey, count, lastCountBefore, start },
   };
 }
 

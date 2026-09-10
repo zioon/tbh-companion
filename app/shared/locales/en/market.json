@@ -105,7 +105,9 @@
     "exportFailed": "Export failed: {{reason}}",
     "importConfirm": "Importing will replace all current trading history with the backup. Continue?",
     "importSuccess": "Imported {{count}} items",
+    "importConverted": "Imported {{count}} items (converted to the current currency)",
     "importFailed": "Import failed: {{reason}}",
+    "importCurrencyMismatch": "Import failed: the backup's currency doesn't match the current one, and no conversion rate could be confirmed (missing FX table / no shared price to derive it). Switch back to the backup's currency first, or skip the import.",
     "cookieExpired": "Steam cookies have expired, so history refresh was stopped. Update sessionid and steamLoginSecure under Settings → Steam Market, then retry.",
     "emptyFiltered": "No items match these filters.",
     "filters": {

@@ -72,11 +72,13 @@ describe("loadActBossTrackerRoutes", () => {
     expect(actRoutes.every((r) => !rareIds.has(r.boxId))).toBe(true);
   });
 
-  it("maps Normal 1-10 (1110) to Lv1 act boss route", () => {
+  it("maps Normal 1-10 (1110) to Lv12 act boss route", () => {
+    // Act Boss Box 1 (930101) drops on Normal 1-10; its level is inferred from
+    // the stage (StageLevel 12 in game v1.2.2).
     const routes = loadActBossTrackerRoutes();
-    const lv1 = routes.find((r) => r.level === 1);
-    expect(lv1).toBeTruthy();
-    expect(lv1?.dropStageKeys).toContain(1110);
+    const lv12 = routes.find((r) => r.level === 12);
+    expect(lv12).toBeTruthy();
+    expect(lv12?.dropStageKeys).toContain(1110);
   });
 
   it("maps Torment 3-10 (4310) to Lv90 act boss route", () => {
@@ -131,12 +133,14 @@ describe("loadCommonChestTrackerRoutes", () => {
   });
 
   it("maps Torment 1-3 (4103) to Lv80 common chest route", () => {
-    // High-level COMMON and RARE levels coincide (both Lv80 on 4103-4309).
+    // High-level COMMON and RARE levels coincide on 4103-4208 (both Lv80).
+    // Torment 3-1..3-9 (4301+) now drops the Lv90 common chest (910901).
     const routes = loadCommonChestTrackerRoutes();
     const lv80 = routes.find((r) => r.level === 80);
     expect(lv80).toBeTruthy();
     expect(lv80?.dropStageKeys).toContain(4103);
-    expect(lv80?.dropStageKeys).toContain(4309);
+    expect(lv80?.dropStageKeys).toContain(4208);
+    expect(lv80?.dropStageKeys).not.toContain(4309);
   });
 });
 

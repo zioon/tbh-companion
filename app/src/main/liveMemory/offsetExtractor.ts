@@ -508,18 +508,24 @@ export function extractOffsets(
 
       hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
 
-      unit: { cache: 0x3b0 }, // v1.00.27+ layout (was 0x3a8 pre-1.00.27)
+      // Hero runtime struct offsets are layout-coupled to the game build, not
+      // stable across major versions (v1.2.2 shifted unit.cache 0x3b0→0x3d0 and
+      // heroRuntime level/exp fields into the 0x600/0x650 range). Prefer the
+      // base (bundled/cache) table's values when present — the extractor has no
+      // way to re-derive them by shape — and only fall back to the v1.00.27+
+      // constants for versions without a bundled table.
+      unit: { cache: base?.unit.cache ?? 0x3b0 }, // v1.00.27+ layout (was 0x3a8 pre-1.00.27)
 
       heroRuntime: {
-        info: 0x30,
-        levelHidden: 0xd0,
-        levelKey: 0xd4,
+        info: base?.heroRuntime.info ?? 0x30,
+        levelHidden: base?.heroRuntime.levelHidden ?? 0xd0,
+        levelKey: base?.heroRuntime.levelKey ?? 0xd4,
         // v1.00.27+ widened exp to ObscuredDouble (was 0x110/0x114 ObscuredFloat pre-1.00.27)
-        expHidden: 0x118,
-        expKey: 0x120,
+        expHidden: base?.heroRuntime.expHidden ?? 0x118,
+        expKey: base?.heroRuntime.expKey ?? 0x120,
       },
 
-      heroInfoData: { heroKey: 0x30 },
+      heroInfoData: { heroKey: base?.heroInfoData.heroKey ?? 0x30 },
 
       currency: { key: 0x10, quantity: 0x18 },
 

@@ -20,6 +20,8 @@ export interface LookupFilterState {
   uniqueOnly: boolean;
   /** 仅显示用户星标关注的物品（默认开启，可在 UI 关闭）。 */
   watchedOnly: boolean;
+  /** 仅显示瘟疫物品（contentType === "PLAGUE"）。 */
+  plagueOnly: boolean;
   /** `[lo, hi]` over LEVEL_MIN..LEVEL_MAX; the full span means "no level filter". */
   levelRange: [number, number];
   sortKey: LookupSortKey;
@@ -218,6 +220,7 @@ export function filterAndSortItems(
       return false;
     }
     if (state.uniqueOnly && !item.stats?.unique) return false;
+    if (state.plagueOnly && item.contentType !== "PLAGUE") return false;
     // Material-safe: items without a level (materials) always pass the level check,
     // so a persisted level band only narrows gear.
     if (!fullLevel && item.level != null && (item.level < minLevel || item.level > maxLevel)) {

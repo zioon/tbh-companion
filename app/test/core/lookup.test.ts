@@ -61,7 +61,7 @@ describe("lookup catalog", () => {
   it("usedIn is present on craftable materials only", () => {
     const sources = loadLookupSources();
     const withUsedIn = Object.values(sources.items).filter((src) => (src.usedIn?.length ?? 0) > 0);
-    expect(withUsedIn).toHaveLength(31);
+    expect(withUsedIn).toHaveLength(36);
     expect(sources.items["301011"]?.usedIn).toBeUndefined();
     expect(sources.items["112005"]?.usedIn).toBeUndefined();
     expect(sources.items["144002"]?.usedIn?.length).toBeGreaterThan(0);

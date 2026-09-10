@@ -11,8 +11,10 @@ const STAT_NAME_PREFIX = "StatName_";
 const STAT_TEMPLATE_PREFIX = "Stat_";
 const BASE_STAT_NAME_PREFIX = "BaseStatName_";
 const HERO_NAME_PREFIX = "HeroName_";
+const SKILL_NAME_PREFIX = "SkillName_";
 const STASH_FILTER_PREFIX = "StashItemFilterType_";
 const ITEM_PARTS_PREFIX = "ItemParts_";
+const UNIQUE_MOD_PREFIX = "UniqueMod_";
 
 // Stat template mod suffixes — keys like "Stat_<statKey>_<MOD>" or
 // "Stat_<statKey>_<MOD>_MinMax" are the game's own attribute-line formatters
@@ -63,6 +65,18 @@ export interface GameLabelsSection {
    * MainWeapon/SubWeapon, which don't appear in `gearGroups` or `types`.
    */
   itemParts?: Record<string, string>;
+  /**
+   * Game-supplied unique-effect templates keyed by suffix (e.g.
+   * "UniqueMod_SkillCooldownReduce" → "{0}技能的冷却时间减少{1}%。"). The suffix
+   * matches `LookupUniqueMod.mod`. Consumed by `itemLabels.uniqueModLabel`.
+   */
+  uniqueMods?: Record<string, string>;
+  /**
+   * Game-supplied skill display names keyed by SkillKey numeric string (e.g.
+   * "SkillName_10401" → "神盾领域"). Used to fill the `{0}` skill-name
+   * placeholder in unique-effect templates.
+   */
+  skillNames?: Record<string, string>;
 }
 
 /**
@@ -85,6 +99,8 @@ export function flatGameKeysToLabels(game: Record<string, string>): GameLabelsSe
   const statTemplates: Record<string, string> = {};
   const baseStatNames: Record<string, string> = {};
   const itemParts: Record<string, string> = {};
+  const uniqueMods: Record<string, string> = {};
+  const skillNames: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(game)) {
     if (key.startsWith(GRADE_PREFIX)) {
@@ -113,6 +129,8 @@ export function flatGameKeysToLabels(game: Record<string, string>): GameLabelsSe
     } else if (key.startsWith(HERO_NAME_PREFIX)) {
       const cls = HERO_ID_TO_CLASS[key.slice(HERO_NAME_PREFIX.length)];
       if (cls) classes[cls] = value;
+    } else if (key.startsWith(SKILL_NAME_PREFIX)) {
+      skillNames[key.slice(SKILL_NAME_PREFIX.length)] = value;
     } else if (key.startsWith(STASH_FILTER_PREFIX)) {
       const group = key.slice(STASH_FILTER_PREFIX.length);
       // Only include WEAPON/ARMOR/ACCESSORY (skip ALL, MATERIAL, CLASS_*)
@@ -121,6 +139,8 @@ export function flatGameKeysToLabels(game: Record<string, string>): GameLabelsSe
       }
     } else if (key.startsWith(ITEM_PARTS_PREFIX)) {
       itemParts[key.slice(ITEM_PARTS_PREFIX.length)] = value;
+    } else if (key.startsWith(UNIQUE_MOD_PREFIX)) {
+      uniqueMods[key.slice(UNIQUE_MOD_PREFIX.length)] = value;
     } else if (MATERIAL_KINDS.has(key)) {
       types[key] = value;
     }
@@ -136,5 +156,7 @@ export function flatGameKeysToLabels(game: Record<string, string>): GameLabelsSe
   if (Object.keys(statTemplates).length > 0) result.statTemplates = statTemplates;
   if (Object.keys(baseStatNames).length > 0) result.baseStatNames = baseStatNames;
   if (Object.keys(itemParts).length > 0) result.itemParts = itemParts;
+  if (Object.keys(uniqueMods).length > 0) result.uniqueMods = uniqueMods;
+  if (Object.keys(skillNames).length > 0) result.skillNames = skillNames;
   return Object.keys(result).length > 0 ? result : null;
 }

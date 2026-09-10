@@ -238,7 +238,13 @@ export function Trading() {
       const res = await window.tbh.importMarketVolumeHistory();
       if (res.canceled) return;
       if (res.ok && res.itemCount !== undefined)
-        setHistoryNotice(t("trading.importSuccess", { count: res.itemCount }));
+        setHistoryNotice(
+          res.converted
+            ? t("trading.importConverted", { count: res.itemCount })
+            : t("trading.importSuccess", { count: res.itemCount }),
+        );
+      else if (res.reason === "currency_mismatch")
+        setHistoryNotice(t("trading.importCurrencyMismatch"));
       else setHistoryNotice(t("trading.importFailed", { reason: res.reason ?? "unknown" }));
     } finally {
       if (mountedRef.current) setImporting(false);

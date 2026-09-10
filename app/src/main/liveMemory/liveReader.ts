@@ -43,6 +43,7 @@ import {
   makeSmPinState,
   makeStageClearPinState,
   peekBoxOpenLogCount,
+  peekGetBoxLogCount,
   readRuntimeBoxOpenLog,
   readRuntimeChestLog,
   readRuntimeCombatGold,
@@ -64,10 +65,12 @@ import {
   type ReadInventoryResult,
   type ReadPetsResult,
 } from "../../core/liveMemory/runtime";
+import { makeHeroStableState, stabilizeHeroes } from "../../core/liveMemory/heroStable";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
 import { WinProcess } from "./winProcess";
 import { readRuntimeChestSlots, type ReadChestSlotsResult } from "../../core/liveMemory/chestSlots";
 import { readClassFields } from "../../core/liveMemory/il2cppScanner";
+import { StaleWaveGuard } from "../../core/liveMemory/staleWaveGuard";
 import { loadBoxTypeCatalog, boxTypeIndex } from "../../core/boxes/catalog";
 import type {
   BoxCategory,
@@ -298,6 +301,12 @@ export class LiveMemoryReader {
   private smWasAvailable = false;
   /** Last wall-clock (ms) a TBH_WAVE_DEBUG diagnostic line was emitted (throttle). */
   private lastWaveDebugAt = -1;
+  /** Stale live-wave guard — see `core/liveMemory/staleWaveGuard.ts`. */
+  private readonly staleWave = new StaleWaveGuard();
+  /** Per-hero monotonic debounce — see `core/liveMemory/heroStable.ts`.
+   *  Guards against dirty live hero reads that would otherwise emit a level/exp
+   *  rollback (v1.2.2-style layout drift) into the wave/fail heuristics. */
+  private readonly heroStable = makeHeroStableState();
   /**
    * One-shot flag set by `read()` when StageManager transitions from
    * unavailable to available while the reader is on a stale fallback baseline.
@@ -639,6 +648,22 @@ export class LiveMemoryReader {
     appBuild: string,
   ): void {
     this.offsets = resolved.table;
+    // Backfill the Hero `unit.cache` offset from the bundled table when the
+    // resolved table carries a stale value. v1.2.2 shifted `unit.cache`
+    // 0x3b0→0x3d0; a stale disk cache / extractor-merged base that predates the
+    // shift can carry 0x3b0, which makes every hero read resolve the wrong
+    // HeroRuntime (heroKey/level/exp all garbage → "英雄实时经验回退"). The
+    // bundled table for the current version is authoritative here, so when the
+    // resolved value differs from it, prefer the bundled one.
+    if (this.offsets && this.gameVersion) {
+      const bundled = offsetsForVersion(this.gameVersion);
+      if (bundled && bundled.unit.cache > 0 && this.offsets.unit.cache !== bundled.unit.cache) {
+        this.offsets = {
+          ...this.offsets,
+          unit: { ...this.offsets.unit, cache: bundled.unit.cache },
+        };
+      }
+    }
     // Backfill the StageManager `alive` offset from the bundled table when the
     // resolved table lacks it. Older disk caches (written before the field
     // existed) and extractor output (which can't derive it) both omit it — the
@@ -1043,6 +1068,19 @@ export class LiveMemoryReader {
     const o = this.offsets;
     const ga = this.ga;
     if (!p || !o || !ga || !p.isAlive()) return;
+    // Cheap tail probe: read only the current entry count — no per-entry scan,
+    // no array/object allocation. When the count is unchanged and nothing is
+    // parked for a cross-tick settle, there are no new drops to chase, so bail
+    // out and let an idle tick cost a handful of memory reads instead of a
+    // full decode. The 5ms cadence (and the transient-entry coverage it buys)
+    // is preserved; the main 25Hz `read()` still backstops entries landed and
+    // evicted between two fast ticks.
+    const count = peekGetBoxLogCount(p, ga.base, ga.size, o, this.chestPin);
+    if (count != null && count === this.chestPin.lastCount && this.chestPin.pendingIdx == null) {
+      return;
+    }
+    // Count moved (new drop / shrink) or a settle is pending — decode the tail
+    // and stash any new drops into pendingChestDrops.
     const res = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
     if (res.drops && res.drops.length > 0) {
       this.pendingChestDrops.push(...res.drops);
@@ -1145,6 +1183,23 @@ export class LiveMemoryReader {
     const monsterHp = monsterData?.monsterHps ?? null;
     const deadMonsterCount = monsterData?.deadCount ?? null;
 
+    // Stale-wave guard (see `core/liveMemory/staleWaveGuard.ts`): a build
+    // whose runtimeWave offset drifted can return a CONSTANT non-zero wave
+    // (measured: v1.01.05 pinned at 2 across dozens of monster wave clears)
+    // — stats.ts prefers any live wave > 0, so the constant would freeze the
+    // UI at "2/31". When the same value persists across monster wave
+    // transitions it is judged stale and reported null so the estimate
+    // takes over; any value change re-arms trust.
+    const rawStageWave = stage.wave;
+    const waveGuard = this.staleWave.update(stage.wave, monsterHp?.length ?? null, Date.now());
+    if (waveGuard.flagged) {
+      this.log(
+        `stale live wave ${stage.wave} — constant across wave transitions; ` +
+          "falling back to monster-count wave estimate",
+      );
+    }
+    stage.wave = waveGuard.report;
+
     const heroesResult = readRuntimeHeroes(p, o, smPtr);
     const heroesStatus =
       heroesResult.heroes == null &&
@@ -1189,7 +1244,7 @@ export class LiveMemoryReader {
     // is 0 too, the list walk itself yields nothing.
     {
       const bo = boxOpenResult;
-      const sig = `opens=${bo.opens?.length ?? "null"} status="${bo.status}" pinLast=${this.boxOpenPin.lastCount} primed=${this.boxOpenPin.primed}${bo.debug ? ` [scanned=${bo.debug.scanned} parsed=${bo.debug.parsed} nullPtr=${bo.debug.nullEntry} badKey=${bo.debug.badItemKey}]` : ""}`;
+      const sig = `opens=${bo.opens?.length ?? "null"} status="${bo.status}" pinLast=${this.boxOpenPin.lastCount} primed=${this.boxOpenPin.primed}${bo.debug ? ` [scanned=${bo.debug.scanned} parsed=${bo.debug.parsed} nullPtr=${bo.debug.nullEntry} badKey=${bo.debug.badItemKey}${bo.debug.retryFrom != null ? ` retry=${bo.debug.retryFrom}x${bo.debug.retryConsecutive ?? 0}` : ""}]` : ""}`;
       if (sig !== this.boxOpenLogSig) {
         this.boxOpenLogSig = sig;
         this.log(`DBG box-opens: ${sig}`);
@@ -1280,6 +1335,8 @@ export class LiveMemoryReader {
 
     // Live chest slot counts (high-frequency, every tick). Falls back to null
     // when offsets unavailable — the renderer falls back to save-derived counts.
+    // v1.2.2 起 save 中的未开箱子改由 parseChests 的 BoxBucketGetBoxList 路径
+    // 提供（见 core/inventory/parse.ts），不再需要内存侧兜底。
     const chestSlotsResult: ReadChestSlotsResult = readRuntimeChestSlots(
       p,
       ga.base,
@@ -1311,7 +1368,7 @@ export class LiveMemoryReader {
       if (nowWaveDebug - this.lastWaveDebugAt >= 1000) {
         this.lastWaveDebugAt = nowWaveDebug;
         this.log(
-          `DBG wave: rawWave=${stage.wave} alive=${stage.alive} ` +
+          `DBG wave: rawWave=${rawStageWave} alive=${stage.alive} ` +
             `waveTotal=${stage.waveTotal} monsterHps=` +
             `${monsterData?.monsterHps?.length ?? "null"} ` +
             `dead=${monsterData?.deadCount ?? "null"} ` +
@@ -1332,7 +1389,7 @@ export class LiveMemoryReader {
       gold:
         readRuntimeCombatGold(p, ga.base, ga.size, o, this.combatGoldPin) ??
         readRuntimeGold(p, ga.base, ga.size, o, this.goldPin),
-      heroes: heroesResult.heroes,
+      heroes: stabilizeHeroes(this.heroStable, heroesResult.heroes),
       heroesStatus,
       chestDrops: this.consumePendingChestDrops(chestResult.drops),
       chestDropsStatus: chestResult.status || undefined,
@@ -1342,9 +1399,16 @@ export class LiveMemoryReader {
       boxOpens: boxOpenResult.opens,
       boxOpensStatus: boxOpenResult.status || undefined,
       stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
-      inventoryItems: this.cachedInventory?.items ?? null,
+      // Low-frequency fields (inventory/pets) are re-read only every
+      // `LOW_FREQ_EVERY_N_TICKS` (~2s); present them ONLY on the refresh frame.
+      // On interleaving frames they're `null` (= "unchanged"), which the main
+      // process backfills from its last-known copy before broadcasting — so the
+      // large arrays are cloned across IPC ~2s apart instead of on every 40ms
+      // frame. Without this, a tens-of-thousands-entry inventory gets
+      // structurally-cloned 25×/s, hammering CPU and V8 GC.
+      inventoryItems: this.lowFreqTick === 0 ? (this.cachedInventory?.items ?? null) : null,
       inventoryItemsStatus: this.cachedInventory?.status || undefined,
-      petData: this.cachedPets?.pets ?? null,
+      petData: this.lowFreqTick === 0 ? (this.cachedPets?.pets ?? null) : null,
       petDataStatus: this.cachedPets?.status || undefined,
       monsterHp,
       deadMonsterCount,

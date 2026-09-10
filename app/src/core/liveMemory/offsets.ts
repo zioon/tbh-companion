@@ -815,6 +815,115 @@ const V1_01_05: LiveOffsets = {
   goldKey: 100001,
 };
 
+// v1.2.2 — captured from a live run via `scripts/capture-live-offsets.ts`
+// (extractor Rev 15, critical path, 2026-09-09). Major-version jump from the
+// 1.00.x / 1.01.x family: TypeInfo RVAs re-derived, and the hero runtime
+// struct layout SHIFTED relative to v1.01.05:
+//  - `unit.cache` 0x3b0 → 0x3d0 (heroKey chain heroPtr+0x3d0 → +0x30 → +0x30
+//    verified against the live party 401/201/301).
+//  - `heroRuntime.levelHidden/levelKey` 0xd0/0xd4 → 0x610/0x614,
+//    `heroRuntime.expHidden/expKey` 0x118/0x120 → 0x658/0x660 (ACTk
+//    ObscuredInt/Double decode verified: level=101, exp=2302085081 on hero 401).
+//  - `runtime.stage.currentCache` 0x88 → 0xa8, `runtime.stage.alive` 0x78 → 0
+//    (not derived on this build).
+//
+// Known gaps (0) mirror v1.01.05: player.boxData / boxData.* not derivable
+// (ES3 byte stream), runtime.monster.* not extractable by shape, and only the
+// deployed party's first hero (player-controlled) carries live exp/level — the
+// follow-up HeroRuntime slots are placeholder shells (read 0).
+const V1_2_2: LiveOffsets = {
+  gameVersion: "1.2.2",
+  typeInfoRva: {
+    commonSaveData: 0n, // not static-reachable — save layer is ES3 byte stream
+    currencyManager: 0x5f4b8c8n, // re-derived (gold probe passed on this build)
+    stageCacheManager: 0x5f4c658n,
+    stageManager: 0x5f76f00n,
+    localInventoryManager: 0n,
+    logManager: 0x5f455c0n,
+    monsterSpawnManager: 0x5f24d38n,
+  },
+  player: {
+    commonSaveData: 0x10,
+    currency: 0x48,
+    heroSaveDatas: 0x50,
+    petSaveDatas: 0x70,
+    itemSaveDatas: 0xa8,
+    aggregates: 0xb8,
+    boxData: 0, // ES3 byte stream — not derivable at runtime (see v1.01.05 notes)
+  },
+  boxData: {
+    boxTypes: 0,
+    boxQuantity: 0,
+  },
+  common: {
+    playTime: 0x20,
+    arrangedHeroKey: 0x48,
+    maxCompletedStage: 0x54,
+    currentStageKey: 0x58,
+    currentStageWave: 0x5c,
+  },
+  hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+  unit: { cache: 0x3d0 }, // shifted +0x20 from v1.01.05 (0x3b0) — live-verified 2026-09-09
+  heroRuntime: {
+    info: 0x30,
+    levelHidden: 0x610,
+    levelKey: 0x614,
+    expHidden: 0x658,
+    expKey: 0x660,
+  },
+  heroInfoData: { heroKey: 0x30 },
+  currency: { key: 0x10, quantity: 0x18 },
+  petSaveData: { petKey: 0x10, isUnlock: 0x14 },
+  inventoryItem: { itemKey: 0x10, isChaotic: 0x20 },
+  runtime: {
+    currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
+    stage: {
+      currentCache: 0xa8, // shifted from 0x88 (v1.01.05) — extractor-derived
+      cacheInfoData: 0x10,
+      stageKey: 0x30,
+      waveAmount: 0x54,
+      runtimeWave: 0x138, // inherited — not re-verified on this build
+      alive: 0, // not derived on this build
+    },
+    currencyInfoKey: 0x30,
+    heroList: 0x30, // extractor field-name derived (matched class "bck")
+    log: {
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      stageClearTypeKey: 1,
+      getItemWithBoxOpenTypeKey: 2,
+    },
+    getBoxLog: {
+      monsterType: 0x50,
+    },
+    boxOpenLog: {
+      itemStringKey: 0x40,
+      itemGradeType: 0x48,
+      gradeSO: 0x50,
+      gradeSOGrade: 0x10,
+      boxType: 0,
+      level: 0,
+    },
+    stageClearLog: {
+      act: 0x40,
+      stage: 0x44,
+      clearTimeSec: 0x48,
+    },
+    monster: {
+      monsterList: 0,
+      summonedList: 0,
+      deadMonsterList: 0,
+      monsterHealth: 0,
+      hpCurrent: 0,
+      hpMax: 0,
+    },
+  },
+  container: CONTAINER,
+  dict: DICT,
+  il2cppClass: IL2CPP_CLASS,
+  goldKey: 100001,
+};
+
 const TABLE: Record<string, LiveOffsets> = {
   "1.00.21": V1_00_21,
   "1.00.23": V1_00_23,
@@ -822,6 +931,7 @@ const TABLE: Record<string, LiveOffsets> = {
   "1.00.28": V1_00_28,
   "1.01.01": V1_01_01,
   "1.01.05": V1_01_05,
+  "1.2.2": V1_2_2,
 };
 
 /** Parse a "MAJOR.MINOR.PATCH" version string into a numeric tuple. */

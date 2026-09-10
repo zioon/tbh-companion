@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TBH 业务流程可视化</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>TBH 业务流程可视化</h1>
+      <div class="status">
+        <span id="status-parse" title="各章节 mermaid 语法校验结果"></span>
+        <label class="theme-toggle">
+          <input type="checkbox" id="theme-toggle" autocomplete="off" />
+          <span>深色</span>
+        </label>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <input id="search" type="search" placeholder="搜索流程 / 服务…" autocomplete="off" />
+        <nav>
+          <h2>流程列表</h2>
+          <ul id="flow-list"></ul>
+          <h2>服务列表</h2>
+          <ul id="service-list"></ul>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <div class="tabs">
+          <button id="tab-flow" class="active">当前流程图</button>
+          <button id="tab-global">全流程关联图</button>
+        </div>
+        <div class="diagram-toolbar" id="diagram-toolbar" hidden>
+          <select id="diagram-select" title="切换本章子图"></select>
+          <span class="spacer"></span>
+          <button id="zoom-out" title="缩小">−</button>
+          <button id="zoom-in" title="放大">+</button>
+          <button id="zoom-reset" title="复位">复位</button>
+        </div>
+        <div id="canvas-wrap">
+          <div id="diagram-title"></div>
+          <div id="diagram"></div>
+        </div>
+        <footer id="detail"></footer>
+      </main>
+    </div>
+
+    <script src="vendor/mermaid.min.js"></script>
+    <script>
+      // CDN fallback when the local vendor file is missing (offline-first otherwise).
+      if (typeof mermaid === "undefined") {
+        document.write('<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"><\/script>');
+      }
+    </script>
+    <script src="flow-viz-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

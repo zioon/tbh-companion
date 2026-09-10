@@ -9,12 +9,16 @@ import type {
 import { Trading } from "../../src/renderer/tabs/Trading";
 import { useMarketVolumeItems } from "../../src/renderer/lib/useMarketVolumeItems";
 import { EntityPanelContext } from "../../src/renderer/context/entityPanelContext";
+import { TbhContext } from "../../src/renderer/context/tbhContext";
 
-// Trading 通过 useLookupCatalog/useEntityPanel 依赖 window.tbh，需在此 mock。
-Object.defineProperty(window, "tbh", {
-  value: { getLookupCatalog: vi.fn(async () => []) },
-  configurable: true,
-});
+// Trading 通过 useLookupCatalog（消费 TbhContext）与 useEntityPanel 依赖全局
+// provider，测试里以端到端 Provider 包裹；lookupCatalog 为空不影响筛选断言。
+const TBH_VALUE = {
+  inventory: null,
+  catalogStatus: null,
+  refreshCatalog: async () => ({ ok: false, gameVersion: null, itemCount: 0, resolvedNames: 0 }),
+  lookupCatalog: [],
+};
 
 const ITEMS: MarketVolumeItem[] = [
   {
@@ -86,11 +90,13 @@ vi.mock("../../src/renderer/lib/useMarketVolume", () => ({
 
 function renderTrading() {
   return render(
-    <EntityPanelContext.Provider
-      value={{ node: null, open: () => {}, navigate: () => {}, close: () => {}, isOpen: false }}
-    >
-      <Trading />
-    </EntityPanelContext.Provider>,
+    <TbhContext.Provider value={TBH_VALUE}>
+      <EntityPanelContext.Provider
+        value={{ node: null, open: () => {}, navigate: () => {}, close: () => {}, isOpen: false }}
+      >
+        <Trading />
+      </EntityPanelContext.Provider>
+    </TbhContext.Provider>,
   );
 }
 

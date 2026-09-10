@@ -63,6 +63,32 @@ describe("resolveChestHoldings", () => {
 
     expect(rows[0].category).toBe("unclassified");
   });
+
+  it("v1.2.2: prefers the holding's own category/label over the boxType catalog", () => {
+    // v1.2.2+ 的 holding.type 是 gamedata 物品 id（不在 boxTypeCatalog 中），
+    // 分类/标签由 save 解析侧按物品名前缀注入。
+    const chests: ChestHolding[] = [
+      { type: 910901, quantity: 1, category: "common", label: "Normal Monster Box Lv90" },
+      { type: 910901, quantity: 1, category: "common", label: "Normal Monster Box Lv90" },
+      { type: 920901, quantity: 1, category: "rare", label: "Stage Boss Box Lv90" },
+    ];
+
+    const rows = resolveChestHoldings(chests, boxTypes);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      boxType: 910901,
+      category: "common",
+      label: "Normal Monster Box Lv90",
+      quantity: 2,
+    });
+    expect(rows[1]).toMatchObject({
+      boxType: 920901,
+      category: "rare",
+      label: "Stage Boss Box Lv90",
+      quantity: 1,
+    });
+  });
 });
 
 describe("box capacity by category", () => {

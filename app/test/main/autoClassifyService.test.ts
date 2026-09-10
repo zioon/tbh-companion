@@ -2116,6 +2116,131 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
   });
 
+  it("classifies ALL pending bursts to a single decreased category (manual open-all split across bursts)", () => {
+    // A single manual "open all" can be surfaced by the box-open reader as
+    // MULTIPLE bursts (one per live frame / flush batch), even for one
+    // category. When exactly one category's slot count decreased, every
+    // pending burst is unambiguously that category — all must be reclassified
+    // (not treated as ambiguous just because there are several bursts).
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Three common chests drop (serial-queue: autoOpenAtMs 301000/601000/901000).
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    chestDropTracker.recordLiveChestDrop("common", 3.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 3, rare: 0, act: 0 });
+
+    // Player manually opens all three in quick succession; the reader surfaces
+    // each open in a different frame → one pending burst per open.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 4.0);
+    boxOpenTracker.flushUnclassified();
+    boxOpenTracker.recordOpen("unclassified", 200, "Shield", "COMMON", 1, 4.5);
+    boxOpenTracker.flushUnclassified();
+    boxOpenTracker.recordOpen("unclassified", 300, "Helm", "COMMON", 1, 5.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(3);
+
+    // Next save shows common=0 (all opened). Single category decreased →
+    // classify every pending burst to common, not leave them unclassified.
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
+  it("classifies pending bursts via excess-prune signal when tick already decremented liveSlots (stacked manual open-all)", () => {
+    // Stacked chests: autoOpenAtMs elapsed long before the player manually
+    // opens everything. The 1Hz tick decremented liveSlots for the elapsed
+    // items first, so on save reconcile the liveSlots delta is 0 — the
+    // fallback must classify via the excess-prune signal (queue > slots).
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+    // Two common chests drop: autoOpenAtMs 301000 / 601000.
+    chestDropTracker.recordLiveChestDrop("common", 1.0);
+    chestDropTracker.recordLiveChestDrop("common", 2.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 2, rare: 0, act: 0 });
+
+    // Advance past both autoOpenAtMs and tick: liveSlots is decremented to 0
+    // (chests "should have opened" per the timer), but the queue items remain
+    // (expiresAt = autoOpenAt + 330s, still in the future).
+    vi.setSystemTime(610_000);
+    service.tick();
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
+    expect(service.getQueueSnapshot().totalQueued).toBe(2);
+
+    // Player manually opens both; bursts miss the ±5s grace window (autoOpenAt
+    // long past) → both pend.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 611.0);
+    boxOpenTracker.flushUnclassified();
+    boxOpenTracker.recordOpen("unclassified", 200, "Shield", "COMMON", 1, 612.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(2);
+
+    // Save shows common=0. Step 1 prunes the 2 excess queue items
+    // (prunedByCategory.common=2); liveSlots delta is 0, so the fallback
+    // excess-prune signal classifies both bursts to common.
+    service.reconcileWithChestSlots({ common: 0, rare: 0, act: 0 });
+
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
+  it("classifies pending bursts via absolute save-slot decrease when tick already decremented liveSlots", () => {
+    // The category's queue items already TTL-expired (pruned by tick), so
+    // excess-prune has nothing to count; the only remaining signal is the
+    // absolute slot decrease vs the previous save (prevSlots > saveSlots).
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: { common: 300, stageBoss: 600, actBoss: 60 },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Initial save: one common chest already held (backfills 1 queue item).
+    service.reconcileWithChestSlots({ common: 1, rare: 0, act: 0 });
+    // A rare chest drops during the session (keeps the queue non-empty so the
+    // upcoming burst pends instead of routing to the prompt path).
+    chestDropTracker.recordLiveChestDrop("rare", 1.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 1, rare: 1, act: 0 });
+
+    // Advance past the common item's TTL: tick decrements liveSlots.common and
+    // prunes the expired common queue item; the rare item stays queued.
+    vi.setSystemTime(645_000);
+    service.tick();
+    expect(service.getQueueSnapshot().liveSlots).toEqual({ common: 0, rare: 0, act: 0 });
+    // Queue holds only the rare item now (common expired & pruned).
+    expect(service.getQueueSnapshot().items.every((i) => i.boxKey.startsWith("rare"))).toBe(true);
+
+    // Player manually opens the stacked common chest; burst misses all queue
+    // items (rare's autoOpenAt=601000, burst at 650000 → delta 49s) → pends.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 650.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Save shows common 1→0, rare 0→1 (rare still held). liveSlots delta is 0,
+    // excess-prune has nothing to prune → only the absolute decrease of
+    // common (prevSlots.common=1 > saveSlots.common=0) lights up → classify.
+    service.reconcileWithChestSlots({ common: 0, rare: 1, act: 0 });
+
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
   it("leaves burst unclassified when multiple categories decreased (ambiguous)", () => {
     // Setup: liveSlots common=1, rare=1. Two pending bursts arrive (one for
     // each category, both outside grace). Next save shows common=0, rare=0

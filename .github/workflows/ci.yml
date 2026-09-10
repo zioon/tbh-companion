@@ -8,6 +8,8 @@ on:
       - ".github/workflows/**"
       - "data/**"
       - "docs/agent/**"
+      - "docs/flow-viz/**"
+      - "docs/BUSINESS-FLOWS.md"
       - ".cursor/skills/**"
       - ".claude/skills/**"
       - "scripts/sync-agent-skills.mjs"
@@ -19,6 +21,8 @@ on:
       - ".github/workflows/**"
       - "data/**"
       - "docs/agent/**"
+      - "docs/flow-viz/**"
+      - "docs/BUSINESS-FLOWS.md"
       - ".cursor/skills/**"
       - ".claude/skills/**"
       - "scripts/sync-agent-skills.mjs"
@@ -58,6 +62,10 @@ jobs:
       - name: Verify generated agent docs
         working-directory: .
         run: node scripts/sync-agent-docs.mjs --check
+
+      - name: Verify flow-viz data
+        working-directory: .
+        run: node docs/agent/scripts/build-flow-viz.mjs --check
 
       - name: Automated QA gate
         run: pnpm qa

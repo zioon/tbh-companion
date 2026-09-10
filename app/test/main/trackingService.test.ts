@@ -1092,6 +1092,178 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     svc.stop();
   });
 
+  it("seeds the wave counter from the save wave when live tracking starts mid-run", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    // The save snapshot says the current run is on wave 20 (mid-run attach).
+    onSnapshot?.({
+      heroes: [{ key: "101", level: 5, exp: 100, unlocked: true }],
+      totalHeroExp: 100,
+      playTime: 0,
+      saveMtime: 100,
+      stageKey: 3205,
+      stageWave: 20,
+      maxStage: 0,
+      gold: 0,
+    });
+
+    function frame(
+      at: number,
+      monsterHps: Array<[number, number, number]> | null,
+      stageKey = 3205,
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey,
+        stageWave: 0, // drifted runtimeWave on v1.01.05 — estimate drives the UI
+        stageWaveTotal: 31,
+        stageAlive: monsterHps == null ? 0 : monsterHps.length,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: monsterHps,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // First live frame lands mid-run with monsters on the field: the estimate
+    // must continue from the save wave (20), not restart from 1.
+    svc.ingestLiveFrame(frame(1000, [[100, 50, 100]]));
+    expect(svc.getStats().stageWave).toBe(20);
+
+    // Wave clear → next wave: 21 (not 2).
+    svc.ingestLiveFrame(frame(1040, []));
+    svc.ingestLiveFrame(frame(1080, [[100, 50, 100]]));
+    expect(svc.getStats().stageWave).toBe(21);
+
+    // A later stage change starts a fresh run: count from 1, do NOT re-seed
+    // the old save wave (20) onto the new stage.
+    svc.ingestLiveFrame(frame(2000, [[100, 50, 100]], 3320));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    svc.stop();
+  });
+
+  it("defers the wave seed until the first save read when the save lags live attach", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    // Real startup order: the first live frame (~40 ms after attach) lands
+    // BEFORE the save watcher's first poll (5s) delivers a snapshot.
+
+    function frame(
+      at: number,
+      monsterHps: Array<[number, number, number]> | null,
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0, // drifted runtimeWave — estimate drives the UI
+        stageWaveTotal: 31,
+        stageAlive: monsterHps == null ? 0 : monsterHps.length,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: monsterHps,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    // First live frame without any save snapshot: counts from wave 1 for now.
+    svc.ingestLiveFrame(frame(1000, [[100, 50, 100]]));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    // The first save poll lands 5s later with the run on wave 20 — the
+    // deferred seed fires now and the estimate jumps to the real wave.
+    onSnapshot?.({
+      heroes: [{ key: "101", level: 5, exp: 100, unlocked: true }],
+      totalHeroExp: 100,
+      playTime: 0,
+      saveMtime: 100,
+      stageKey: 3205,
+      stageWave: 20,
+      maxStage: 0,
+      gold: 0,
+    });
+    expect(svc.getStats().stageWave).toBe(20);
+
+    // A later save poll must NOT re-seed over the live counter.
+    onSnapshot?.({
+      heroes: [{ key: "101", level: 5, exp: 100, unlocked: true }],
+      totalHeroExp: 100,
+      playTime: 0,
+      saveMtime: 100,
+      stageKey: 3205,
+      stageWave: 25,
+      maxStage: 0,
+      gold: 0,
+    });
+    expect(svc.getStats().stageWave).toBe(20);
+
+    svc.stop();
+  });
+
+  it("starts from wave 1 when the save has no static wave to seed", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.({
+      heroes: [{ key: "101", level: 5, exp: 100, unlocked: true }],
+      totalHeroExp: 100,
+      playTime: 0,
+      saveMtime: 100,
+      stageKey: 3205,
+      stageWave: 0, // save doesn't carry a wave (e.g. never entered a stage)
+      maxStage: 0,
+      gold: 0,
+    });
+
+    function frame(
+      at: number,
+      monsterHps: Array<[number, number, number]> | null,
+    ): LiveMemorySnapshot {
+      return {
+        connected: true,
+        stageKey: 3205,
+        stageWave: 0,
+        stageWaveTotal: 31,
+        stageAlive: monsterHps == null ? 0 : monsterHps.length,
+        gold: null,
+        heroes: null,
+        chestDrops: null,
+        chestSlots: null,
+        inventoryItems: null,
+        stageClears: null,
+        boxOpens: null,
+        petData: null,
+        monsterHp: monsterHps,
+        deadMonsterCount: null,
+        source: "memory test",
+        readMs: 1,
+        at,
+      };
+    }
+
+    svc.ingestLiveFrame(frame(1000, [[100, 50, 100]]));
+    expect(svc.getStats().stageWave).toBe(1);
+
+    svc.stop();
+  });
+
   it("resets the wave counter when alive hits 0 at the stage total (wave-total run-end catch)", () => {
     const svc = new TrackingService(vi.fn());
     svc.start(baseConfig);
@@ -1239,20 +1411,23 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     }
 
     // Wave 1 → wave 2, then the party withdraws (run ends) with no stage-clear
-    // in between — a failed run.
+    // in between — a failed run. The withdrawal is debounced: the party must
+    // stay absent for WITHDRAW_CONFIRM_MS (400ms) before the run is confirmed
+    // ended (see StageRunFailDetector).
     svc.ingestLiveFrame(frame(1000, 3, party));
     svc.ingestLiveFrame(frame(1001, 0, party)); // wave cleared
     svc.ingestLiveFrame(frame(1200, 3, party)); // wave 2 begins
     svc.ingestLiveFrame(frame(1201, 0, party)); // wave 2 cleared → waves=2
-    svc.ingestLiveFrame(frame(2000, 0, null)); // heroes gone, no clear
+    svc.ingestLiveFrame(frame(2000, 0, null)); // heroes gone — debounce starts
+    svc.ingestLiveFrame(frame(2500, 0, null)); // still absent 500ms later → confirmed
 
     expect(onLiveStageFail).toHaveBeenCalledTimes(1);
     expect(onLiveStageFail).toHaveBeenCalledWith(3205, 2);
 
     // A fresh run heals the detector — a menu gap without a deployed hero must
     // not re-fire (no prior run in flight).
-    svc.ingestLiveFrame(frame(2001, 0, null));
-    svc.ingestLiveFrame(frame(2300, 0, null));
+    svc.ingestLiveFrame(frame(2600, 0, null));
+    svc.ingestLiveFrame(frame(2900, 0, null));
     expect(onLiveStageFail).toHaveBeenCalledTimes(1);
 
     svc.stop();
@@ -1358,18 +1533,21 @@ describe("TrackingService wave from StageManager alive when monsterHp is unavail
     }
 
     // Two waves cleared, then the party leaves (run ends) without a clear.
+    // The withdrawal is confirmed only after the party stays absent for
+    // WITHDRAW_CONFIRM_MS (400ms) — a single blank tick is treated as read noise.
     svc.ingestLiveFrame(frame(1000, 3, party));
     svc.ingestLiveFrame(frame(1001, 0, party));
     svc.ingestLiveFrame(frame(1200, 3, party));
     svc.ingestLiveFrame(frame(1201, 0, party));
-    svc.ingestLiveFrame(frame(2000, 0, null)); // heroes gone
+    svc.ingestLiveFrame(frame(2000, 0, null)); // heroes gone — debounce starts
+    svc.ingestLiveFrame(frame(2500, 0, null)); // still absent 500ms later → confirmed
 
     expect(onLiveStageFail).toHaveBeenCalledTimes(1); // judged a failure at wave 2
     expect(onLiveStageFail).toHaveBeenCalledWith(3205, 2);
 
     // A fast retry re-deploys the party: the wave counter must be back at 1,
     // not continuing to accumulate from the failed run.
-    svc.ingestLiveFrame(frame(2100, 3, party));
+    svc.ingestLiveFrame(frame(2600, 3, party));
     expect(svc.getStats().stageWave).toBe(1);
 
     svc.stop();

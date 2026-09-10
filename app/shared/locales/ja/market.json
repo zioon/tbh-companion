@@ -105,7 +105,9 @@
     "exportFailed": "エクスポート失敗：{{reason}}",
     "importConfirm": "インポートすると現在の取引履歴がバックアップで置き換わります。続行しますか？",
     "importSuccess": "{{count}} 件のアイテムをインポートしました",
+    "importConverted": "{{count}} 件のアイテムをインポートしました（現在の通貨に換算済み）",
     "importFailed": "インポート失敗：{{reason}}",
+    "importCurrencyMismatch": "インポート失敗：バックアップの通貨が現在の通貨と一致せず、換算レートを確認できませんでした（レート表なし／共通価格で推測不可）。先にバックアップの通貨に切り替えるか、インポートを中止してください。",
     "cookieExpired": "Steam Cookie の有効期限が切れたため、価格履歴の更新を停止しました。「設定 → Steam マーケット」で sessionid と steamLoginSecure を更新してから再試行してください。",
     "emptyFiltered": "これらのフィルター条件に一致するアイテムはありません。",
     "filters": {

@@ -43,6 +43,7 @@ export function Lookup() {
   // watchedOnly 默认 true：进入图鉴时只显示已星标的物品，让用户聚焦于
   // 自己关心的价格跟踪目标。可在 UI 关闭查看全部。
   const [watchedOnly, setWatchedOnly] = useState(true);
+  const [plagueOnly, setPlagueOnly] = useState(false);
   const watchedSet = useWatchedHashesSet();
   const watchedCount = watchedSet.size;
   const [levelRange, setLevelRange] = useState<[number, number]>([LEVEL_MIN, LEVEL_MAX]);
@@ -89,6 +90,7 @@ export function Lookup() {
         effectFilter,
         uniqueOnly,
         watchedOnly,
+        plagueOnly,
         levelRange,
         sortKey,
         sortDir,
@@ -105,6 +107,7 @@ export function Lookup() {
     effectFilter,
     uniqueOnly,
     watchedOnly,
+    plagueOnly,
     watchedSet,
     levelRange,
     sortKey,
@@ -156,6 +159,7 @@ export function Lookup() {
         uniqueOnly={uniqueOnly}
         watchedOnly={watchedOnly}
         watchedCount={watchedCount}
+        plagueOnly={plagueOnly}
         levelRange={levelRange}
         sortKey={sortKey}
         sortDir={sortDir}
@@ -173,6 +177,7 @@ export function Lookup() {
         onEffectFilterChange={setEffectFilter}
         onUniqueOnlyChange={setUniqueOnly}
         onWatchedOnlyChange={setWatchedOnly}
+        onPlagueOnlyChange={setPlagueOnly}
         onLevelRangeChange={setLevelRange}
         onSortKeyChange={handleSortKeyChange}
         onSortDirToggle={toggleSortDir}

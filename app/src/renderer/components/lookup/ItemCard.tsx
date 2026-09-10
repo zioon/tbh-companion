@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { CardContent, CardHeader } from "../../design-system/primitives/Card/CardParts";
-import { formatStatRow } from "../../lib/itemLabels";
+import { formatStatRow, uniqueModLabel } from "../../lib/itemLabels";
 import { ItemCardHeader, MaterialGroup, StatGroup } from "./itemCardParts";
 import { LookupPrice } from "./LookupPrice";
 import { WatchedStarToggle } from "./WatchedStarToggle";
@@ -76,7 +76,16 @@ export const ItemCard = memo(function ItemCard({
               {item.stats.unique ? (
                 <StatGroup
                   title={t("stats.unique")}
-                  rows={[{ display: item.stats.unique.text }]}
+                  rows={[
+                    {
+                      display: uniqueModLabel(
+                        item.stats.unique.mod,
+                        item.stats.unique.text,
+                        t,
+                        item.stats.unique.params,
+                      ),
+                    },
+                  ]}
                   tone="unique"
                 />
               ) : null}

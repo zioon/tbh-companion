@@ -26,7 +26,7 @@ const parentPort = (
   process as unknown as {
     parentPort?: {
       postMessage: (m: InventoryWorkerOutbound) => void;
-      on: (e: "message", cb: (m: InventoryWorkerInbound) => void) => void;
+      on: (e: "message", cb: (evt: unknown) => void) => void;
     };
   }
 ).parentPort;
@@ -37,7 +37,14 @@ function post(msg: InventoryWorkerOutbound): void {
   parentPort?.postMessage(msg);
 }
 
-parentPort?.on("message", (msg: InventoryWorkerInbound) => {
+parentPort?.on("message", (evt: unknown) => {
+  // utilityProcess 的 parentPort 遵循 MessagePort API：监听器收到的是事件
+  // 对象，真实载荷在 `data` 字段上。直接当载荷用会让 msg.type 永远 undefined
+  // —— init/ready 握手曾因此静默失败（worker 路径从未启用，全部回退到主
+  // 线程同步 resolve），"stop" 也同样失效（仅靠宿主 kill() 兜底）。
+  const msg = (
+    evt != null && typeof evt === "object" && "data" in evt ? (evt as { data: unknown }).data : evt
+  ) as InventoryWorkerInbound;
   if (msg.type === "init") {
     state = handleInit(state, msg);
     post({ type: "ready" });

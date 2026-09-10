@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStats } from "./useStats";
 import { reportIpcError } from "./reportError";
+import { moneySig, pctSig, useStableBySignature } from "./useStableBySignature";
 import type {
   AutoClassifyStatePayload,
   BoxCategory,
+  BoxOpenBreakdownRow,
   BoxOpenHistoryEntry,
   BoxOpenStats,
   ClassifyPromptPayload,
@@ -39,6 +41,54 @@ const EMPTY_STATE: AutoClassifyStatePayload = {
   pendingBurstsCount: 0,
 };
 
+/**
+ * Display signature for one `BoxOpenBreakdownRow`, rounded to display precision.
+ * The 5 Hz stats broadcast rebuilds these objects each tick with a drifty
+ * wall-clock `hourlyValue`; rounding to the precision the Loot UI renders keeps
+ * the string stable between ticks so the box table can be memoized.
+ */
+function breakdownRowSig(row: BoxOpenBreakdownRow): string {
+  return [
+    row.itemKey,
+    row.name,
+    row.grade ?? "",
+    row.count,
+    pctSig(row.dropPct),
+    moneySig(row.buyOrderUnit),
+    moneySig(row.hourlyValue),
+  ].join("|");
+}
+
+/** Display signature for one `BoxOpenStats` (only fields `LootBoxSection` renders). */
+function boxOpenStatsSig(s: BoxOpenStats): string {
+  return [
+    s.boxKey,
+    s.category,
+    s.level ?? -1,
+    s.totalItems,
+    Math.round(s.trackingSinceWallTime ?? -1),
+    moneySig(s.hourlyValue),
+    s.breakdown.map(breakdownRowSig).join("."),
+  ].join("|");
+}
+
+/** Display signature for the whole `boxOpens` list. */
+function boxOpensSig(boxOpens: BoxOpenStats[]): string {
+  return boxOpens.map(boxOpenStatsSig).join(";");
+}
+
+/**
+ * Display signature for the recent-drops list: exactly the columns the
+ * `LootRecentDrops` table renders. New drops carry a fresh `wallTime` so the
+ * signature changes precisely when the list contents change — never on an
+ * unrelated box-stat drift.
+ */
+function recentDropsSig(drops: BoxOpenHistoryEntry[]): string {
+  return drops
+    .map((d) => [d.wallTime, d.itemKey, d.count, d.boxKey, d.itemName, d.grade ?? ""].join("|"))
+    .join(";");
+}
+
 export function useLoot(): {
   boxOpens: BoxOpenStats[];
   lootStatus: string | undefined;
@@ -59,7 +109,8 @@ export function useLoot(): {
   dismissClassifyPrompt: () => void;
 } {
   const stats = useStats();
-  const boxOpens = useMemo(() => stats?.boxOpens ?? [], [stats?.boxOpens]);
+  // Raw fresh-reference list from the 5 Hz stats broadcast.
+  const rawBoxOpens = useMemo(() => stats?.boxOpens ?? [], [stats?.boxOpens]);
   const lootStatus = stats?.lootStatus;
   // stageKey is 0 in the default Stats shape before live memory connects; treat
   // that as "no stage" so LootBoxSection doesn't pre-fill an invalid level.
@@ -67,14 +118,20 @@ export function useLoot(): {
   // Merge every boxKey's visible history slice (already newest-first per
   // BoxOpenTracker) and take the top N by wallTime. Each boxKey contributes
   // up to HISTORY_VISIBLE (50) entries, so the merge is bounded.
-  const recentDrops = useMemo<BoxOpenHistoryEntry[]>(() => {
+  const derivedDrops = useMemo<BoxOpenHistoryEntry[]>(() => {
     const all: BoxOpenHistoryEntry[] = [];
-    for (const b of boxOpens) {
+    for (const b of rawBoxOpens) {
       for (const h of b.history) all.push(h);
     }
     all.sort((a, b) => b.wallTime - a.wallTime);
     return all.slice(0, RECENT_DROPS_LIMIT);
-  }, [boxOpens]);
+  }, [rawBoxOpens]);
+  // Reference-stabilize the hot derived lists so downstream React.memo
+  // components skip re-rendering between 5 Hz stats ticks. References only
+  // churn when the *displayed* content actually changes (a new drop, or a box
+  // stat crossing a display-precision boundary).
+  const recentDrops = useStableBySignature(derivedDrops, recentDropsSig);
+  const boxOpens = useStableBySignature(rawBoxOpens, boxOpensSig);
 
   // Per-category latest chest *drop* wall time, sourced from
   // `chestDrops.history`. Used by the Loot page chest-card border ring so

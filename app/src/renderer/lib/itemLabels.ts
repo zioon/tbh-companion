@@ -11,7 +11,12 @@
 // - 没传 `t` 时也回退到 Title Case，方便测试与无 i18n 上下文的场景。
 
 import type { TFunction } from "i18next";
-import type { LookupItem, LookupMaterialOutcome, LookupStatRow } from "../../../shared/types";
+import type {
+  LookupItem,
+  LookupMaterialOutcome,
+  LookupStatRow,
+  LookupUniqueModParam,
+} from "../../../shared/types";
 import { classForGearType } from "../../core/lookup/classRestriction";
 import { humanizeStatKey } from "./lookupDisplay";
 
@@ -359,4 +364,85 @@ export function formatMaterialOutcome(outcome: LookupMaterialOutcome, t?: TFunct
       : fillStatTemplate(template, [outcome.displayMin]);
   }
   return outcome.displayText;
+}
+
+/**
+ * Localize a gear unique-effect text. Looks up `common:labels.uniqueMods.<mod>`
+ * in i18next (merged from the game locale by `flatGameKeysToLabels`) and
+ * returns the localized template.
+ *
+ * Resolution policy:
+ * - Template with no `{N}` placeholders → returned verbatim.
+ * - Template with placeholders AND `params` provided → each param is resolved
+ *   (numeric conversions / skill name / hero class); only when **every**
+ *   placeholder resolves does the template get filled. Any unresolvable param
+ *   (element, StatValueUp `unknown`) collapses the whole line back to `text`.
+ * - Missing template, no `t`, or no `params` when the template has
+ *   placeholders → falls back to `text` (the raw English suffix). This keeps
+ *   behavior identical to bundles shipped before `params` existed.
+ */
+export function uniqueModLabel(
+  mod: string,
+  text: string,
+  t?: TFunction,
+  params?: LookupUniqueModParam[],
+): string {
+  if (t) {
+    const i18nKey = `common:labels.uniqueMods.${mod}`;
+    const template = t(i18nKey, { interpolation: { skipInterpolation: true } });
+    const strippedKey = i18nKey.replace(/^common:/, "");
+    if (template && template !== i18nKey && template !== strippedKey) {
+      if (!/\{\d+\}/.test(template)) return template;
+      if (params && params.length) {
+        const display: Array<number | string> = [];
+        for (const p of params) {
+          if (!resolvableUniqueParamKind(p.kind)) {
+            display.length = 0;
+            break;
+          }
+          const r = resolveUniqueModParam(p, t);
+          if (r == null) {
+            display.length = 0;
+            break;
+          }
+          display.push(r);
+        }
+        if (display.length > 0) return fillStatTemplate(template, display);
+      }
+    }
+  }
+  return text;
+}
+
+/** Whether a unique-mod param's display text can be resolved by the renderer. */
+function resolvableUniqueParamKind(kind: LookupUniqueModParam["kind"]): boolean {
+  return (
+    kind === "percent" ||
+    kind === "number" ||
+    kind === "scale100" ||
+    kind === "skill" ||
+    kind === "hero"
+  );
+}
+
+/** Resolve a single unique-mod param to a display string, or null if unresolvable. */
+function resolveUniqueModParam(p: LookupUniqueModParam, t: TFunction): number | string | null {
+  switch (p.kind) {
+    case "percent": // Raw_Divide1000 → value/10（百分数展示，如 2000→"200"）
+      return formatStatValue(Number(p.value) / 10);
+    case "number": // Divided 合法整数，原样
+      return formatStatValue(p.value);
+    case "scale100": // Raw_Divide100 → value/100（SkillRangeUp 500→"5"，待复核）
+      return formatStatValue(Number(p.value) / 100);
+    case "skill": {
+      // SkillKey → t(common:labels.skillNames.<value>)：当前语言的技能名
+      const key = `common:labels.skillNames.${p.value}`;
+      const v = t(key, { interpolation: { skipInterpolation: true } });
+      return v && v !== key && v !== key.replace(/^common:/, "") ? v : null;
+    }
+    case "hero": // class key → 职业名（复用 hero class name 本地化）
+      return classLabel(p.value, t);
+    default: // element / unknown → 不可解析
+      return null;
+  }
 }

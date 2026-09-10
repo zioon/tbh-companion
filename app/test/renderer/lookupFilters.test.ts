@@ -140,6 +140,7 @@ const baseState: LookupFilterState = {
   effectFilter: [],
   uniqueOnly: false,
   watchedOnly: false,
+  plagueOnly: false,
   levelRange: [LEVEL_MIN, LEVEL_MAX],
   sortKey: "name",
   sortDir: "asc",

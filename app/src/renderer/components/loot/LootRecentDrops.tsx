@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type { BoxOpenHistoryEntry, LookupItem } from "../../../../shared/types";
 import { translateBoxLabel } from "../../lib/boxLabel";
@@ -7,12 +8,15 @@ import { gradeColor } from "../../lib/gradeColor";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { ItemLink } from "../ItemLink";
 
-export function LootRecentDrops({
+export const LootRecentDrops = memo(function LootRecentDrops({
   drops,
   itemIndex,
+  catalogReady,
 }: {
   drops: BoxOpenHistoryEntry[];
   itemIndex: Map<number, LookupItem>;
+  /** 图鉴目录是否已就绪。未就绪时用骨架屏而非灰点占位，避免目录到达后整卡二次更新。 */
+  catalogReady: boolean;
 }) {
   const { t } = useTranslation("loot");
   const { open: openEntity } = useEntityPanel();
@@ -40,6 +44,22 @@ export function LootRecentDrops({
               {drops.map((d, i) => {
                 const color = d.grade ? gradeColor(d.grade) : undefined;
                 const catalogItem = itemIndex.get(d.itemKey);
+                // 目录未就绪时用骨架条占位，首次可见渲染即为「图标 + 品质色」。
+                if (!catalogItem && !catalogReady) {
+                  return (
+                    <tr key={`${d.wallTime}-${d.itemKey}-${i}`} className="align-baseline">
+                      <td className="px-3 py-2">
+                        <span
+                          className="inline-block h-4 w-32 animate-pulse rounded-sm bg-muted/25"
+                          aria-hidden="true"
+                        />
+                      </td>
+                      <td className="px-3 py-2" />
+                      <td className="px-3 py-2" />
+                      <td className="px-3 py-2" />
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={`${d.wallTime}-${d.itemKey}-${i}`} className="align-baseline">
                     <td className="truncate px-3 py-2">
@@ -85,4 +105,4 @@ export function LootRecentDrops({
       </div>
     </Card>
   );
-}
+});

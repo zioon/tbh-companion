@@ -28,7 +28,7 @@ import { boxIconPath } from "../../lib/boxIconPath";
 import { translateBoxDropName } from "../../lib/boxDisplay";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
-import { craftingTypeLabel, gradeLabel, formatStatRow } from "../../lib/itemLabels";
+import { craftingTypeLabel, gradeLabel, formatStatRow, uniqueModLabel } from "../../lib/itemLabels";
 import { fmtDropPct, fmtLookupPct, hasDropChance } from "../../lib/lookupDisplay";
 import { filterUsedInOutputs, sortUsedInRecipes } from "../../lib/usedInFilters";
 import type { LookupNavNode } from "../../lib/useLookupNav";
@@ -347,7 +347,16 @@ export function ItemDetailCard({
                 {item.stats.unique ? (
                   <StatGroup
                     title={t("stats.unique")}
-                    rows={[{ display: item.stats.unique.text }]}
+                    rows={[
+                      {
+                        display: uniqueModLabel(
+                          item.stats.unique.mod,
+                          item.stats.unique.text,
+                          t,
+                          item.stats.unique.params,
+                        ),
+                      },
+                    ]}
                     tone="unique"
                   />
                 ) : null}

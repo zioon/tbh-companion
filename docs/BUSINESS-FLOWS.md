@@ -35,43 +35,78 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 
 ### 数据流总览
 
-```
-[游戏写 SaveFile_Live.es3] ─── mtime 变化 ───► SaveWatcher.tick (poll)
-                                                  │
-                       ┌──────────────────────────┴───────────────────────────┐
-                       ▼                                                       ▼
-              readAndDecrypt + parseSnapshot                            parseInventory
-              → SaveSnapshot                                              → InventorySnapshot
-                       │                                                       │
-                       ▼                                                       ▼
-            TrackingService.onSnapshot                              InventoryService.onInventory
-              ├─ detectHeroLevelUps ─► NotificationService           ├─ resolveAndPushInventory
-              ├─ sessionState.tryRestoreOnSnapshot (首次)             │   └─ inventoryWorker (utility process)
-              ├─ tracker.update(snap) ─► XpTracker                    ├─ checkAlmostFull ─► NotificationService
-              ├─ onStageKey ─► BoxTimerService.setCurrentStageKey     └─ broadcast(IPC.INVENTORY)
-              ├─ parseInventorySnapshot:
-              │     ├─ inventory.parseFromSave
-              │     ├─ chests.onSave ─► ChestService ─► AutoClassify.reconcile
-              │     └─ pets.onSave  ─► PetService
-              └─ pushStats ─► broadcast(IPC.STATS)
+#### 流程图
 
-[Live Memory Worker ~25 Hz] ─── LiveMemorySnapshot ───► TrackingService.ingestLiveFrame
-                                                          ├─ tracker.updateLive ─► XpTracker (live 路径)
-                                                          ├─ dpsTracker.update
-                                                          ├─ chestAggregator.feed ─► chestDropTracker.recordLiveChestDrop
-                                                          │     └─ onDrop ─► AutoClassify.handleChestDrop
-                                                          ├─ onLiveStageBossDrop ─► BoxTimer.tryMarkDroppedFromLiveStage
-                                                          │     └─ markDropped ─► onChestDropped ─► NotificationService
-                                                          ├─ onLiveStageClear ─► StageRunService.recordClear
-                                                          ├─ boxOpenTracker.recordOpen (per entry)
-                                                          │     └─ onUnclassified (microtask) ─► AutoClassify.handleUnclassifiedBatch
-                                                          └─ pushStats (节流 200ms) ─► broadcast(IPC.STATS)
+图例：圆柱 = 外部实体，方框 = 处理步骤/动作，括号圆 = 数据对象；彩色节点为共享服务（label 以服务名开头，跨图同名即同一服务）。
 
-[TrackingService 1 Hz tick]    autoClassify.tick + stale-frame guard + pushStats
-[SessionStateService 15 s]     autosave ─► userData/session_state.json
-[BoxTimerService 1 Hz tick]    buildState ─► onChestReady ─► NotificationService + broadcast(IPC.BOX_TIMERS)
-[UpdateService 30 s 后台]      autoUpdater.checkForUpdates ─► showUpdateAvailable
-[CatalogRefreshService 启动]   extractCatalog + extractLocales ─► reloadLocaleCatalog
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  subgraph savePath [Save 解析路径]
+    SaveFile([SaveFile_Live.es3]) --> SaveWatcherTick[SaveWatcher.tick 轮询]
+    SaveWatcherTick --> ReadDecrypt[readAndDecrypt + parseSnapshot]
+    ReadDecrypt --> SaveSnap((SaveSnapshot))
+    SaveSnap --> OnSnap[TrackingService.onSnapshot]
+    OnSnap --> HeroLevelUp[detectHeroLevelUps]
+    HeroLevelUp --> Notify[NotificationService]
+    OnSnap --> SessionRestore[SessionStateService.tryRestoreOnSnapshot 首次]
+    OnSnap --> XpUpdate[XpTracker.update]
+    OnSnap --> StageKey[onStageKey → BoxTimerService.setCurrentStageKey]
+    OnSnap --> SaveStats[pushStats → 广播 IPC.STATS]
+    ReadDecrypt --> ParseInv[parseInventorySnapshot]
+    ParseInv --> InvSnap((InventorySnapshot))
+    InvSnap --> InvOn[InventoryService.onInventory]
+    InvOn --> ResolveInv[InventoryService.resolveAndPushInventory]
+    ResolveInv --> InvWorker[InventoryWorker]
+    ResolveInv --> AlmostFull[checkAlmostFull]
+    AlmostFull --> Notify
+    InvOn --> InvBcast[广播 IPC.INVENTORY]
+    ParseInv --> ChestsOn[chests.onSave]
+    ChestsOn --> ChestSvc[ChestService]
+    ChestSvc --> Reconcile[AutoClassifyService.reconcileWithChestSlots]
+    ChestsOn --> ChestBcast[广播 IPC.CHESTS]
+    ParseInv --> PetsOn[pets.onSave]
+    PetsOn --> PetSvc[PetService]
+    PetsOn --> PetBcast[广播 IPC.PETS]
+  end
+  subgraph livePath [Live Memory 实时路径]
+    LiveWorker[LiveMemoryWorker ~25Hz] --> Ingest[TrackingService.ingestLiveFrame]
+    Ingest --> XpLive[XpTracker.updateLive]
+    Ingest --> DpsUpdate[DpsTracker.update]
+    Ingest --> ChestFeed[chestAggregator.feed]
+    ChestFeed --> ChestDrop[ChestDropTracker.recordLiveChestDrop]
+    ChestDrop --> OnDrop[onDrop]
+    OnDrop --> ClassifyDrop[AutoClassifyService.handleChestDrop]
+    Ingest --> BossDrop[onLiveStageBossDrop]
+    BossDrop --> BoxMark[BoxTimerService.tryMarkDroppedFromLiveStage]
+    BoxMark --> OnDropped[markDropped → onChestDropped]
+    OnDropped --> Notify
+    Ingest --> StageClear[onLiveStageClear]
+    StageClear --> StageRec[StageRunService.recordClear]
+    StageRec --> StageBcast[持久化 + 广播 IPC.STAGE_RUNS]
+    Ingest --> BoxOpenRec[BoxOpenTracker.recordOpen]
+    BoxOpenRec --> OnUnclass[onUnclassified]
+    OnUnclass --> ClassifyBatch[AutoClassifyService.handleUnclassifiedBatch]
+    Ingest --> LiveStats[pushStats 节流 200ms → 广播 IPC.STATS]
+  end
+  subgraph bgTasks [后台周期任务]
+    Tick1[TickTimer 1Hz] --> AutoTick[AutoClassifyService.tick]
+    Tick1 --> StaleGuard[stale-frame guard 5s]
+    Tick1 --> TickStats[pushStats 节流]
+    SessionAuto[SessionStateService 15s] --> SessionPersist[autosave → session_state.json]
+    BoxTick[BoxTimerService 1Hz] --> BuildState[buildState]
+    BuildState --> ReadyNotify[onChestReady]
+    ReadyNotify --> Notify
+    BuildState --> BoxBcast[广播 IPC.BOX_TIMERS]
+    UpdTick[UpdateService 30s] --> CheckUpd[checkForUpdates]
+    CheckUpd --> UpdNotify[showUpdateAvailable]
+    UpdNotify --> Notify
+    CatStart[CatalogRefreshService 启动/版本变化] --> ExtractCat[extractCatalog + extractLocales]
+    ExtractCat --> ReloadLocale[reloadLocaleCatalog]
+  end
+  class SaveWatcherTick,OnSnap,Notify,SessionRestore,XpUpdate,StageKey,InvOn,ResolveInv,InvWorker,ChestSvc,Reconcile,PetSvc,LiveWorker,Ingest,XpLive,DpsUpdate,ChestDrop,ClassifyDrop,BoxMark,StageRec,BoxOpenRec,ClassifyBatch,AutoTick,SessionAuto,BoxTick,UpdTick,CatStart svc
+  class SaveFile ext
+  class SaveSnap,InvSnap,SessionPersist data
 ```
 
 ---
@@ -79,6 +114,56 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 ## 1. 启动流程
 
 入口：`app/src/main/index.ts`。
+
+### 流程图
+
+主流程：模块加载副作用 → 单实例锁 → `whenReady` 主流程 → 窗口恢复；`startTracking` 装配细节见下方 subgraph。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Boot[顶层副作用导入 appIdentity / logInit] --> AssetScheme[registerAssetProtocolScheme]
+  AssetScheme --> Lock{acquireSingleInstanceLock}
+  Lock -- 未拿到 --> Quit[app.quit]
+  Lock -- 拿到 --> Second[注册 second-instance → 聚焦主窗口]
+  Second --> LinkGuard[web-contents-created → attachExternalLinkHandlers]
+  LinkGuard --> Ready[app.whenReady]
+  Ready --> AssetHandler[registerAssetProtocolHandler]
+  Ready --> I18n[initMainI18n loadConfig]
+  Ready --> StartCall[startTracking]
+  StartCall --> GetSvc[getAppServices]
+  GetSvc --> RegisterIpc[registerIpc 全部 IPC handler]
+  RegisterIpc --> StartUpdates[services.startUpdates 30s 后台]
+  StartUpdates --> CreateTray[createTray]
+  CreateTray --> RestoreWin[restoreSessionWindows 按 session_state.json 恢复窗口]
+  Ready --> QuitHook[before-quit → setAppQuitting → stopUpdates → flushSession → destroyTray]
+  Ready --> ClosedHook[window-all-closed → stopTracking → 退出]
+  subgraph startTracking [startTracking 装配]
+    LoadCfg[loadConfig 重载配置] --> InitMarket[InventoryService.initMarket / loadGameData]
+    InitMarket --> LookupStart[LookupPriceService.start loadFromDisk + refresh]
+    LookupStart --> PollCfg[LookupPricePollingService.setConfig]
+    PollCfg --> LiveCond{liveMemory 启用且同意?}
+    LiveCond -- 是 --> LiveStart[LiveMemoryService.start + setOnSnapshot → ingestLiveFrame]
+    LiveStart --> SessionLoad[SessionStateService.load]
+    LiveCond -- 否 --> SessionLoad
+    SessionLoad --> TrackStart[TrackingService.start 启动 watcher / tickTimer / autosave]
+    TrackStart --> InjectCatalog[注入 catalog 到 6 个服务]
+    InjectCatalog --> AutoNew[AutoClassifyService 构造]
+    AutoNew --> SetReconcile[ChestService.setOnReconcile → reconcileWithChestSlots]
+    SetReconcile --> ReloadLocale[reloadLocaleCatalog 按 language]
+    ReloadLocale --> RePush[InventoryService.resolveAndPushInventory 重推]
+    RePush --> CatRefresh{CatalogRefreshService 需要刷新?}
+    CatRefresh -- 是 --> CatRun[CatalogRefreshService extractCatalog + extractLocales]
+    CatRun --> ReloadAgain[reloadLocaleCatalog + 重推 stats/boxTimers/stageRuns/inventory]
+    CatRefresh -- 否 --> Done[返回 ui]
+    ReloadAgain --> Done
+  end
+  StartCall --> LoadCfg
+  Done --> RestoreWin
+  class InitMarket,LookupStart,PollCfg,LiveStart,SessionLoad,TrackStart,InjectCatalog,AutoNew,SetReconcile,ReloadLocale,RePush,CatRun,ReloadAgain,Done data
+  class Lock,LiveCond,CatRefresh dec
+  class Boot,AssetScheme,Second,LinkGuard,Ready,AssetHandler,I18n,GetSvc,RegisterIpc,StartUpdates,CreateTray,RestoreWin,QuitHook,ClosedHook,Quit data
+```
 
 ### 1.1 时序
 
@@ -168,6 +253,51 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 
 ## 2. 配置加载与 configPatch
 
+### 流程图
+
+`applyConfigPatch` 依次检测各配置项变化并触发对应服务回调；菱形为决策节点，"否"直接进入下一个判断。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  LoadCfg[loadConfig 搜索 userData / cwd / cwd.. config.json] --> Normalize[sanitize* 清洗字段]
+  Normalize --> Persist[saveConfig 合并 + normalize 写回 userData/config.json]
+  Patch[applyConfigPatch 收到 partial patch] --> DetectNeeds{needsWatcher / needsTracker / csvToggled}
+  DetectNeeds --> Next[normalizeConfigFromRaw 合并 + setConfig + saveConfig]
+  Next --> QSavePath{savePath 变化?}
+  QSavePath -- 是 --> A1[TrackingService.onSavePathChanged 清 lastSnap + 重置 tracker]
+  QSavePath -- 否 --> QCurr{currency 变化?}
+  A1 --> QCurr
+  QCurr -- 是 --> A2[onCurrencyChanged 清市场历史 + clearLookupLocalFields]
+  QCurr -- 否 --> QTrack{needsTracker?}
+  A2 --> A3[InventoryService 换币 + resolveAndPushInventory + ensureOwnedPrices]
+  A3 --> QTrack
+  QTrack -- 是 --> A4[重建 XpTracker 保留 logHistoryCsv hook]
+  QTrack -- 否 --> QWatch{needsWatcher?}
+  A4 --> QWatch
+  QWatch -- 是 --> A5[SaveWatcher.restartWatcher]
+  QWatch -- 否 --> QLive{liveMemory 启用状态变化?}
+  A5 --> QLive
+  QLive -- 是 --> A6[setLiveMemoryEnabled + onLiveMemoryToggled 重置 tracker]
+  QLive -- 否 --> QMarket{market 参数变化?}
+  A6 --> QMarket
+  QMarket -- 是 --> A7[同步 marketAutoScan / threshold 给 InventoryService]
+  QMarket -- 否 --> QLang{language 变化?}
+  A7 --> QLang
+  QLang -- 是 --> A8[onLanguageChanged → reloadLocaleCatalog + push + rebuildTrayMenu]
+  QLang -- 否 --> QPoll{lookupPricePolling 变化?}
+  A8 --> QPoll
+  QPoll -- 是 --> A9[onLookupPricePollingChanged]
+  QPoll -- 否 --> QTop{topmost 变化?}
+  A9 --> QTop
+  QTop -- 是 --> A10[setAlwaysOnTop 应用到三窗口]
+  QTop -- 否 --> Final[pushStats + InventoryService.resolveAndPushInventory 重推]
+  A10 --> Final
+  Final --> Return[返回 next config]
+  class LoadCfg,Normalize,Persist,Patch,Next,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,Final,Return data
+  class DetectNeeds,QSavePath,QCurr,QTrack,QWatch,QLive,QMarket,QLang,QPoll,QTop dec
+```
+
 ### 2.1 config.json 加载（`app/src/main/config.ts`）
 
 - **搜索路径**：`app.getPath("userData")/config.json` → `process.cwd()/config.json` → `process.cwd()/../config.json`。
@@ -186,7 +316,7 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 1. 检测三类 needs：`needsWatcher`（savePath/pollIntervalSeconds/es3Password 变了）、`needsTracker`（rollingWindowMinutes 变了）、`csvToggled`（logHistoryCsv 变了）。
 2. `next = normalizeConfigFromRaw({...prev, ...patch})` → `setConfig(next)` → `saveConfig(next)`。
 3. 若 savePath 变了 → `onSavePathChange()`（实为 `tracking.onSavePathChanged()`：清 lastSnap、重置所有 tracker、`sessionState.notifyNewSession()`）。
-4. currency 变了 → `market.setCurrency` + `resolveAndPushInventory` + `ensureOwnedPrices(true)`。
+4. currency 变了 → `market.setCurrency` + `resolveAndPushInventory` + `ensureOwnedPrices(true)`；**且当币种确实变化（大小写不敏感比较 prev ≠ next）时**，先回调 `onCurrencyChanged()`（清空 MarketVolumeService 以旧币计价的交易额历史/采样并立即以新币落盘、广播空数据）与 `clearLookupLocalFields()`（清空图鉴快照的本地 polling 价格字段，回退 CI USD × fx），再执行 inventory 重推。提交相同币种不触发清账（避免误清历史），见 8.7.3 多货币同步。
 5. `needsTracker` → 重建 `XpTracker`（保留 logHistoryCsv hook）；否则仅 csvToggled 时切换 hook。
 6. `needsWatcher` → `restartWatcher()`。
 7. liveMemory 变了 → `setLiveMemoryEnabled(nextActive)`；若 prevActive ≠ nextActive → `onLiveMemoryToggled()`（重置所有 tracker，避免 live/save 基线混合污染）。
@@ -201,6 +331,52 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 ---
 
 ## 3. Save 解密与解析
+
+### 流程图
+
+轮询主流程 + 读取/解密细节（subgraph）；失败时不前进 mtime，下次 poll 重试，是处理 mid-write 的关键。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Watcher[SaveWatcher.start 立即 tick + setInterval] --> Tick[SaveWatcher.tick]
+  Tick --> Stat{statSync mtime}
+  Stat -- 不存在 --> Err1[onError save not found]
+  Stat -- 成功 --> Same{mtime == lastMtimeMs?}
+  Same -- 是 --> Idle[跳过 未变化]
+  Same -- 否 --> ReadAndDecrypt
+  subgraph ReadAndDecrypt [readAndDecrypt 流程]
+    Exists{existsSync}
+    Exists -- 否 --> E1[SaveReadError save not found]
+    Exists -- 是 --> Stat2[statSync mtime epoch 秒]
+    Stat2 --> ReadBytes[readBytesShared 4 次重试 50ms]
+    ReadBytes -- 失败 --> E2[SaveReadError]
+    ReadBytes -- 成功 --> Es3[es3.decryptToText]
+    subgraph Es3 [ES3 解密]
+      LEN{length <= 16?}
+      LEN -- 是 --> E3[Es3Error too small]
+      LEN -- 否 --> Split[iv + ciphertext]
+      Split --> MOD{ciphertext % 16 != 0?}
+      MOD -- 是 --> E4[Es3Error mid-write 检测]
+      MOD -- 否 --> KEY[PBKDF2-HMAC-SHA1 派生 key]
+      KEY --> AES[AES-128-CBC 解密]
+      AES --> PAD{PKCS7 校验失败?}
+      PAD -- 是 --> E5[Es3Error wrong password]
+      PAD -- 否 --> TEXT[UTF-8 明文 JSON]
+    end
+  end
+  ReadAndDecrypt -- 成功 --> Advance[lastMtimeMs = mtimeMs]
+  ReadAndDecrypt -- 失败 --> NoAdvance[不前进 mtime 下次 poll 重试]
+  Advance --> Parse[parseSnapshot → SaveSnapshot]
+  Parse --> OnSnap[TrackingService.onSnapshot]
+  Parse --> QInv{onInventory 提供?}
+  QInv -- 是 --> ParseInv[parseInventorySnapshot]
+  ParseInv --> InvOn[InventoryService.onInventory]
+  QInv -- 否 --> End[完成]
+  class Watcher,Tick,ReadAndDecrypt,Parse,OnSnap,ParseInv,InvOn,Advance,NoAdvance data
+  class Stat,Same,Exists,Stat2,LEN,MOD,PAD,QInv dec
+  class Err1,E1,E2,E3,E4,E5 data
+```
 
 ### 3.1 SaveWatcher 轮询（`app/src/main/saveWatcher.ts`）
 
@@ -273,6 +449,46 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 ---
 
 ## 4. Tracker 双路径业务流程
+
+### 流程图
+
+双路径所有权模型：save 路径与 live 路径（~25Hz）各管其指标；`LIVE_TAKEOVER_SEC=5`，live 5s 无帧则 save 接管并 handover 重置基线。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Tracking[TrackingService 持有 XpTracker / ChestDropTracker / BoxOpenTracker / DpsTracker / SaveWatcher / tickTimer]
+  Tracking --> UpdateSnap[XpTracker.update save 路径]
+  Tracking --> UpdateLive[XpTracker.updateLive live 路径 ~25Hz]
+  subgraph savePath [save 路径 update]
+    First{首次初始化?}
+    First -- 是 --> Init[写入 prevHero + RateMeter init 返回 0]
+    First -- 否 --> Driving{live 5s 内有帧?}
+    Driving -- 是 --> SkipSave[跳过 save 处理 由 live 接管]
+    Driving -- 否 --> Handover{之前 live owning?}
+    Handover -- 是 --> ResetBase[handover 重置基线不计 gain]
+    Handover -- 否 --> Delta[heroDeltaGain 跨级桥接 + updateGold 仅计正向 delta]
+    ResetBase --> Next1[继续速率计算]
+    Delta --> Next1
+    Next1 --> Gain1{gain > 0?}
+    Gain1 -- 是 --> Acc1[累加 + prune + recomputeRates + push HistoryEntry cap 500]
+    Gain1 -- 否 --> End1[结束]
+  end
+  subgraph livePath [live 路径 updateLive]
+    NotInit{已初始化?}
+    NotInit -- 否 --> Return2[直接 return 须先有 save]
+    NotInit -- 是 --> TakeOver{首次接管?}
+    TakeOver -- 是 --> Restore[liveGold / liveXp.restore 基线重置 + reanchor]
+    TakeOver -- 否 --> Guards[逐 hero 校验 exp ≤1e12 / level-drop / same-level dip]
+    Guards --> Gain2{gain 通过 plausibleLiveHeroGain ≤1e7?}
+    Gain2 -- 否 --> RefreshOnly[meter.refreshRolling]
+    Gain2 -- 是 --> Sync[applyGain + syncXpFromLiveMeter]
+    Sync --> Heal[healInflatedXpTotals 自愈]
+    Heal --> Push2[push HistoryEntry]
+  end
+  class Tracking,Init,ResetBase,Delta,Next1,Acc1,Restore,Guards,Sync,Heal,Push2,RefreshOnly data
+  class First,Driving,Handover,Gain1,NotInit,TakeOver,Gain2 dec
+```
 
 `TrackingService`（`app/src/main/services/TrackingService.ts`）持有：
 - `XpTracker`（XP/金币会话与速率）
@@ -365,7 +581,7 @@ heroDeltaGain(prev, curLevel, curExp) → number
 - `liveXp = liveFrame?.connected === true && tracker.xpLiveActive()` — live 帧已连接且 5 秒内有数据。
 - **heroes**：liveHeroes 为 true → 用 `liveFrame.heroes` 构造 `HeroRate[]`（含 `heroLevelEstimate` 计算 `xpToNextLevel` 和 `timeToLevelSec`）；否则用 `lastSnap?.heroes ?? tracker.heroes`，过滤 `unlocked || exp > 0`。
 - **stageKey**：live 优先（`liveFrame.stageKey`），否则 `lastSnap.stageKey ?? 0`。
-- **stageWave**：live `stageWave`（**必须 > 0**）→ `dpsTracker.currentWave`（怪物数量波次判断，**无论 live 是否连接**都参与）→ `lastSnap.stageWave`（兜底），并**以 `stageWaveTotal` 封顶**（wave 超过关卡总波次时显示总数，防止漏检 stage clear 导致的跨局累计显示成 "30/16"）。`> 0` 校验防止**已漂移的 StageManager runtimeWave 偏移**（如 v1.01.05 的 +0x138 恒读 0）把 0 当作权威值、屏蔽后续 fallback —— 否则 mini 悬浮窗波次会永久卡在 `0/N`。`dpsTracker.currentWave` 由怪物数量（HP 数组或 StageManager alive 计数）驱动，因此即使 live 波次字段缺失/无效、甚至 live 帧断开，只要 DpsTracker 有怪物数量波次判断就用它，最后才落到 save 的静态值。
+- **stageWave**：live `stageWave`（**必须 > 0**）→ `dpsTracker.currentWave`（怪物数量波次判断，**无论 live 是否连接**都参与）→ `lastSnap.stageWave`（兜底），并**以 `stageWaveTotal` 封顶**（wave 超过关卡总波次时显示总数，防止漏检 stage clear 导致的跨局累计显示成 "30/16"）。`> 0` 校验防止**已漂移的 StageManager runtimeWave 偏移**（如 v1.01.05 的 +0x138 恒读 0）把 0 当作权威值、屏蔽后续 fallback —— 否则 mini 悬浮窗波次会永久卡在 `0/N`。`dpsTracker.currentWave` 由怪物数量（HP 数组或 StageManager alive 计数）驱动，因此即使 live 波次字段缺失/无效、甚至 live 帧断开，只要 DpsTracker 有怪物数量波次判断就用它，最后才落到 save 的静态值。**stale 波次清洗（2026-09-02）**：实测 v1.01.05 的 runtimeWave +0x138 还可能读到**恒定的非零值**（实测恒 2，怪物清波循环 25+ 波不变）——过 `> 0` 校验后被当作权威，UI 波次永久卡在 "2/31"。修复：`liveReader` 层 `StaleWaveGuard`（`core/liveMemory/staleWaveGuard.ts`）跟踪「同一非零值持续 ≥ 8s 且期间怪物存活数发生过 0↔N 波切换」→ 判定 stale → `stageWave` 报 null，stats 自动回落到怪物计数推断；数值一旦变化立即恢复信任。日志 `stale live wave N — constant across wave transitions; falling back to monster-count wave estimate`（一次性）。
 - **status**：`statusOverride` > `lastError` > `secondsSinceGain > 120 ? "No XP gained for Xs..."` > `"Tracking"`。
 - **secondsSinceRead**：`nowSeconds() - lastSnap.saveMtime`（save 内容年龄，非 poll 间隔）。
 - 其它字段：rollingRate、sessionRate、goldRate、cumulativeGained、goldGained、elapsed、secondsSinceGain、stageName（用 catalog 本地化）、history（visible 50 条，每条带 stageName）、chestDrops、boxOpens、dps、mapDamage、mapMobsKilled、sessionDamage、sessionMobsKilled、aliveMonsters、hpSum、hpMaxSum。
@@ -404,6 +620,36 @@ detectHeroLevelUps(prev: HeroSnapshot[], next: HeroSnapshot[]) → HeroLevelUpEv
 ---
 
 ## 5. LiveMemory 业务流程
+
+### 流程图
+
+启动条件 → fork worker → 附加游戏进程 → 解析 offsets → 25Hz 轮询 → 三类消息回传主进程。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Cond{liveMemory.enabled && consentAccepted?}
+  Cond -- 是 --> Start[LiveMemoryService.start 幂等 fork worker]
+  Start --> Worker[utilityProcess fork liveMemoryWorker.js]
+  Worker --> Loop[worker.loop 1500ms 重试轮询]
+  Loop --> Attach{WinProcess.findByNames TaskBarHero?}
+  Attach -- 未找到 --> Retry[1500ms 后重试]
+  Attach -- 找到 --> Open[OpenProcess 只读权限]
+  Open --> Refresh[refreshGameContext 版本 + gameassembly.dll base]
+  Refresh --> Resolve[resolveOffsets bundled → cache → extractor → degraded]
+  Resolve --> Poll[25Hz 轮询读取 runtime]
+  Poll --> Msg{worker → 主进程消息}
+  Msg -- snapshot --> Snap[后处理 localizeHeroes + 缓存 lastSnapshot]
+  Snap --> QThrottle{200ms 节流?}
+  QThrottle -- 是 --> Bcast[广播 IPC.LIVE_MEMORY 5Hz]
+  QThrottle -- 否 --> Ingest[snapshotCb → TrackingService.ingestLiveFrame 25Hz]
+  Msg -- status --> Status[缓存 lastStatus + 广播 IPC.LIVE_MEMORY_STATUS]
+  Status --> QVer{gameVersion 变化?}
+  QVer -- 是 --> OnVersion[onGameVersionChanged → CatalogRefreshService]
+  Msg -- log --> Log[转发 main logger]
+  class Cond,Start,Worker,Loop,Attach,Open,Refresh,Resolve,Poll,Snap,Bcast,Ingest,Status,OnVersion,Log data
+  class Cond,Attach,QThrottle,QVer dec
+```
 
 ### 5.1 启动条件
 
@@ -491,6 +737,7 @@ type WorkerMessage =
 - 精确命中：`fallback=false`，`source="bundled"`。
 - 同 major.minor 邻近版本命中：`fallback=true`，table 上贴 `_fallbackFromVersion: <bestVersion>`，`source="bundled"`。
 - 都不命中：`base=null`，准备走纯 extractor 路径。
+- **版本表现状（2026-09-09）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / **1.2.2**。v1.2.2 是 1.x 大版本跳升，英雄运行时结构偏移与 1.01.x 不同（`unit.cache` 0x3b0→0x3d0、`heroRuntime.levelHidden/levelKey` 0xd0/0xd4→0x610/0x614、`heroRuntime.expHidden/expKey` 0x118/0x120→0x658/0x660、`runtime.stage.currentCache` 0x88→0xa8）。跨 major.minor 版本（如 1.3.x）不会 fallback 到旧表，只能走纯 extractor / 磁盘 cache 路径。
 
 **Step 2 — Disk cache**（`liveReader.ts:612-635`）：
 - `loadCachedOffsets(cacheDir, version, EXTRACTOR_REVISION)`：
@@ -513,6 +760,7 @@ type WorkerMessage =
   - `enrichmentOnly=!useCriticalBudget` — critical 模式跑全部锚点；enrichment 模式只跑 LogManager / BoxOpenLog / MonsterSpawnManager / PlayerSaveData。
   - 任意 critical 锚点失败（StageManager / StageCacheManager）→ 返回 null。
   - CurrencyManager 失败不再致命（v1.00.28 重构后无法推导）。
+  - **英雄结构字段从 base 继承（2026-09-09）**：extractor 无法按形状派生 `unit.cache` / `heroRuntime.{info,levelHidden,levelKey,expHidden,expKey}` / `heroInfoData.heroKey`，输出表直接取 `base` 的同名字段（bundled/cache 提供），仅在 base 缺失时回退到 v1.00.27+ 硬编码常量。否则 v1.2.2 这类布局迁移版本会被旧常量（0x3b0 等）覆盖导致英雄实时数据整体失效。
 - derived 非 null → `mergeOffsets(baseForMerge, derived.offsets)`：
   - 同版本 base：base 非零字段被信任，derived 填空。
   - fallback base（`_fallbackFromVersion` 存在）：**derived-wins** — derived 非零字段覆盖 base。保证 fallback 表的 stale RVAs 能被 extractor 重新推导覆盖。
@@ -603,27 +851,47 @@ loop():
 | StageManager 单例 | `resolveStageManager` (`runtime.ts:515`) | 25Hz | `smPin` — 缓存指针 + 每次重新 `isLiveStageManager` 验证 |
 | Stage | `readRuntimeStage` (`runtime.ts:40`) | 25Hz | 复用 smPin；读 `StageCacheManager → StageCache → StageInfoData` |
 | Monster HP | `readRuntimeMonsterHp` (`runtime.ts:1718`) | 25Hz | `monsterPin` — 缓存 MonsterSpawnManager 指针 + cachedHpOffsets |
-| Heroes | `readRuntimeHeroes` (`runtime.ts:473`) | 25Hz | 复用 smPin；读 `StageManager.HeroList → Unit.cache → HeroRuntime` |
-| Chest drops | `readRuntimeChestLog` (`runtime.ts:721`) | 25Hz | `chestPin` — 缓存 LogManager 指针 + tail 位置 + primed 标志 + 失败重试状态 + 跨 tick settle 状态；entry 读取带 `CHEST_LOG_SAMPLES=3` 单次 tick 内采样重试，**且当某 entry 3 次采样仍解码失败时（BOSS 死亡/stage transition 的 mid-write race），tail 不再像旧版那样直接推进到 `count` 而永久丢弃该掉落；而是把 `retryFrom` 停在失败 index，下个 tick 重读该 entry**（`MAX_CHEST_LOG_RETRIES=3` 连续失败则强制跳过，防永久损坏槽位卡死 tail）。**此外 2026-08-27 起新增「跨 tick settle」：BOSS 掉落 entry 的 `monsterType` 是分段写入的（先写 0=common 再提交 1=rare），同一 tick 内的采样全都在提交前 → 会误把 rare/act 判成 common；因此每次读取的**最新一条被 hold 一 tick**（`pendingIdx/pendingCat`），下一 tick 按绝对 index 重读，以提交后的 `monsterType` 为准（common→rare 收敛），彻底解决「关卡/Lv80 BOSS 宝箱偶发被记成普通宝箱」的漏识别（实现见 `app/src/core/liveMemory/runtime.ts:readRuntimeChestLog`；回归测试见 `app/test/core/liveMemoryRuntime.test.ts:corrects a provisional common → settled rare cross-tick`）。**再补「连续高频 tail 抢读」**：诊断证实 BOSS 掉落的 GetBoxLog 条目也可能是「先写入、随即被日志伸缩/清场立即吞掉」的亚 tick 瞬时条目——单帧 25Hz 扫描会整条错过（日志零痕迹、完全没记录，用户反馈「关卡宝箱完全没有任何新条目」）；且**这种瞬时大概率不留下任何可观测的 count 变化/shrink**，所以「检测到活动才 burst」仍漏（16:30 实例）。因此改为 `liveReader.pollChestTailFast()` + worker `FAST_CHEST_POLL_MS=5` 的**非阻塞 setInterval 高频 tail 监测**（attached+supported 时每 ~5ms 扫一次 GetBox tail，读到的新掉落存入 `pendingChestDrops`，由下一次 `read()` 折叠进 `snap.chestDrops`），把瞬时 rare/act 记录进下一帧；`consumePendingChestDrops` 负责合并 + 清空，`readRuntimeChestLog` 按 index 追尾保证 fast 轮询与主 read 永不重复。quiet/未 attached 时定时器不启动，零开销。LogManager liveness 校验为 dict 结构校验（`logByType` 指针非 null + count > 0 且 < 1000 + entries array 非空）——比"dict 指针非 null"严格（防止非 LogManager 对象误通过），比"GetBox bucket 可 walk"宽松（避免战斗中 bucket 暂时不可读时 LogManager 被误判失效） |
-| Box opens | `readRuntimeBoxOpenLog` (`runtime.ts:1006`) | 25Hz | `boxOpenPin` — 同 chest pin 结构 |
+| Heroes | `readRuntimeHeroes` (`runtime.ts:473`) | 25Hz | 复用 smPin；读 `StageManager.HeroList → Unit.cache → HeroRuntime`，回传后经 `liveReader.heroStable` 单调去抖（见 5.5.2） |
+| Chest drops | `readRuntimeChestLog` (`runtime.ts:721`) | 25Hz | `chestPin` — 缓存 LogManager 指针 + tail 位置 + primed 标志 + 失败重试状态 + 跨 tick settle 状态；entry 读取带 `CHEST_LOG_SAMPLES=3` 单次 tick 内采样重试，**且当某 entry 3 次采样仍解码失败时（BOSS 死亡/stage transition 的 mid-write race），tail 不再像旧版那样直接推进到 `count` 而永久丢弃该掉落；而是把 `retryFrom` 停在失败 index，下个 tick 重读该 entry**（`MAX_CHEST_LOG_RETRIES=3` 连续失败则强制跳过，防永久损坏槽位卡死 tail）。**此外 2026-08-27 起新增「跨 tick settle」：BOSS 掉落 entry 的 `monsterType` 是分段写入的（先写 0=common 再提交 1=rare），同一 tick 内的采样全都在提交前 → 会误把 rare/act 判成 common；因此每次读取的**最新一条被 hold 一 tick**（`pendingIdx/pendingCat`），下一 tick 按绝对 index 重读，以提交后的 `monsterType` 为准（common→rare 收敛），彻底解决「关卡/Lv80 BOSS 宝箱偶发被记成普通宝箱」的漏识别（实现见 `app/src/core/liveMemory/runtime.ts:readRuntimeChestLog`；回归测试见 `app/test/core/liveMemoryRuntime.test.ts:corrects a provisional common → settled rare cross-tick`）。**再补「连续高频 tail 抢读」**：诊断证实 BOSS 掉落的 GetBoxLog 条目也可能是「先写入、随即被日志伸缩/清场立即吞掉」的亚 tick 瞬时条目——单帧 25Hz 扫描会整条错过（日志零痕迹、完全没记录，用户反馈「关卡宝箱完全没有任何新条目」）；且**这种瞬时大概率不留下任何可观测的 count 变化/shrink**，所以「检测到活动才 burst」仍漏（16:30 实例）。因此改为 `liveReader.pollChestTailFast()` + worker `FAST_CHEST_POLL_MS=5` 的**非阻塞 setInterval 高频 tail 监测**（attached+supported 时每 ~5ms 扫一次 GetBox tail，读到的新掉落存入 `pendingChestDrops`，由下一次 `read()` 折叠进 `snap.chestDrops`），把瞬时 rare/act 记录进下一帧；`consumePendingChestDrops` 负责合并 + 清空，`readRuntimeChestLog` 按 index 追尾保证 fast 轮询与主 read 永不重复。**2026-09-04 起 fastpoll 加 count 短路**：为避免平静期每 5ms 都做一次完整 tail 解码（数组/对象分配 + 可能的条目采样），fastpoll 先用 `runtime.ts:peekGetBoxLogCount` 轻量探测——只读取 GetBox 当前 `count`（少量内存读、零分配）；仅当 `count ≠ chestPin.lastCount`（有新掉落或 shrink）或 `pendingIdx != null`（有待跨 tick settle）时，才调用全量 `readRuntimeChestLog` 合并进 `pendingChestDrops`，否则直接 return。5ms 高频语义不变（瞬时条目覆盖不缩水），平静 tick 的 worker CPU 从「每 5ms 完整扫描」降到「每 5ms 一次 count 读」。quiet/未 attached 时定时器不启动，零开销。LogManager liveness 校验为 dict 结构校验（`logByType` 指针非 null + count > 0 且 < 1000 + entries array 非空）——比"dict 指针非 null"严格（防止非 LogManager 对象误通过），比"GetBox bucket 可 walk"宽松（避免战斗中 bucket 暂时不可读时 LogManager 被误判失效） |
+| Box opens | `readRuntimeBoxOpenLog` (`runtime.ts:1006`) | 25Hz | `boxOpenPin` — 同 chest pin 结构；entry 读取带 `BOX_OPEN_LOG_SAMPLES=3` 单 tick 内采样重试，**且 2026-09-02 起新增跨 tick retry**：当某 entry 3 次采样仍解码失败（连开多个宝箱时第一个物品 entry 先 bump list size、itemKey 后提交的 mid-write race 会命中），tail 不再推进到 `count` 而永久丢弃；而是把 `retryFrom` 停在失败 index，下 tick 重读（`MAX_BOX_OPEN_LOG_RETRIES=3` 连续失败则强制跳过，防损坏槽位卡死 tail）。shrink 时重置 retry 状态（旧 index 失效） |
 | Box-open event 探测 | `peekBoxOpenLogCount` (`runtime.ts:973`) | 25Hz（仅当 enrichment 未完成） | 复用 boxOpenPin 但不动 tail |
-| Inventory | `readRuntimeInventory` (`runtime.ts:1229`) | 0.5Hz（每 50 tick） | `cachedInventory` — tick 间复用 |
-| Pets | `readRuntimePets` (`runtime.ts:1360`) | 0.5Hz | `cachedPets` |
+| Inventory | `readRuntimeInventory` (`runtime.ts:1229`) | 0.5Hz（每 50 tick 重读；**仅该帧携带到快照**，其余 49 帧置 `null`） | `cachedInventory` — tick 间复用 |
+| Pets | `readRuntimePets` (`runtime.ts:1360`) | 0.5Hz（每 50 tick 重读；**仅该帧携带到快照**，其余 49 帧置 `null`） | `cachedPets` |
 | Chest slots | `readRuntimeChestSlots` (`chestSlots.ts:91`) | 25Hz | 无 pin（廉价） |
 | Combat gold | `readRuntimeCombatGold` (`runtime.ts:210`) | 25Hz | `combatGoldPin` — 缓存 list/arr/entryIndex |
 | Wallet gold | `readRuntimeGold` (`runtime.ts:144`) | 25Hz（仅当 combat gold 返回 null） | `goldPin` — 缓存 entry pointer |
 | Stage clears | `readRuntimeStageClears` (`runtime.ts:856`) | 25Hz | `stageClearPin`；entry 读取带 `STAGE_CLEAR_LOG_SAMPLES=3` 重试（防 stage clear 时的 mid-write race 静默丢条目，保留 `valid=false` 语义处理持续损坏的条目） |
 
-低频字段（inventory/pets）的原因：库存最多 100k 条目、宠物最多 500 条，25Hz 全读会爆 V8 GC。50 tick 缓存（~2s）够用因为这些字段只在 save 事件变化。
+低频字段（inventory/pets）的原因：库存最多 100k 条目、宠物最多 500 条，25Hz 全读会爆 V8 GC。50 tick 缓存（~2s）够用因为这些字段只在 save 事件变化。**2026-09-04 起新增「仅低频帧携带 + 主进程回填」**：worker 只在每 50 tick 的重读帧把 `inventoryItems`/`petData` 放进 snapshot，其余 49 帧置 `null`（=「未变化」，见上表）；`LiveMemoryService.backfillLowFrequencyFields`（`app/src/main/services/LiveMemoryService.ts`）收到 snapshot 后，若字段为 `null` 则用其上次缓存（`lastInventoryItems`/`lastPetData`）回填，再赋给 `lastSnapshot` 并广播。这样对 TrackingService / renderer 完全透明，但 `inventoryItems`/`petData` 的跨进程结构化克隆从「每 40ms 一次（25Hz）」降到「每 ~2s 一次」——消除了高档位库存下每秒数十 MB 的重复 IPC 克隆与随之而来的 V8 GC 压力（内存上涨与 CPU 高的重要来源之一）。
+
+#### 5.5.2 英雄 live 读取稳健化（`app/src/core/liveMemory/heroStable.ts`）
+
+**英雄实时经验「回退」的治理（v1.2.2 实测校准，2026-09-10）：**
+
+v1.2.2 是布局迁移版本（`stage.currentCache` 0x88→0xa8、`unit.cache` 0x3b0→0x3d0）。英雄实时数据「持续回退/数值全错」的**最终根因**（经 `probe-meta` 实机校验，详见 `docs/findings/v1.2.2-hero-live-memory-regression.md`）：
+
+- 运行时实际应用的 `unit.cache=0x3b0`，而正确值是 **0x3d0**（bundled/磁盘缓存都是 0x3d0）。`mergeOffsets` 对 `unit` 结构字段做 `...base` 整体展开，错误 base 的 0x3b0 会原样进入 merged 并被写回缓存，运行时即稳定采用错误偏移。
+- 用错误的 0x3b0 解 `Hero[] → heroPtr + unit.cache → HeroRuntime → heroInfoData.heroKey`，整条链全错 → UI 显示回退/错误等级经验。
+
+因此有两层治理：
+
+1. **`applyResolvedOffsets` bundled backfill**（治本）：解析结果与 bundled 表不一致时，`unit.cache` 以 bundled（0x3d0）为准——与既有 `runtime.stage.alive` backfill 同一模式，防止错误缓存/base 覆盖正确值。
+2. **读取稳健化**（防抖/防倒退）：
+   - **`heroStable` 防读数倒退**（`app/src/core/liveMemory/heroStable.ts`）：`read()` 塞进 snapshot 前经 `stabilizeHeroes`，对每个 `heroKey` 只进不退：
+     - level 回退 → 保持上一帧，不推进；level 升级 → 以重置后 exp 为新基线；同 level 的 exp 回退 → 保持且不推进基线；其余前向 → 接受并推进；`null`/空透传（撤场边界由 failDetector 治理），回归测试 `app/test/core/heroStable.test.ts`。
+   - **`StageRunFailDetector` 撤场防抖**（见 12.3）：瞬时 `heroes` 离场（smPtr 抖动致 `snap.heroes=null`）不被当作真实撤场，避免误归零波次、误记虚假失败。
+
+   > 曾经的方案「`probeHeroListOffset` 运行期探测并改写 `o.runtime.heroList`」被**移除**：实测 `runtime.heroList=0x30` 正确，探测既无必要，且偶发命中错误偏移会反过来污染 heroList。
 
 ### 5.6 snapshot 帧从 worker 传回主进程 + bufferPool
 
 ```
-worker.read() → LiveMemorySnapshot 对象
+worker.read() → LiveMemorySnapshot 对象（Inventory/Pets 仅在低频重读帧携带，其余帧为 null）
   ↓ parentPort.postMessage({type:"snapshot", snapshot: snap})
-  ↓ structured clone 序列化跨进程
+  ↓ structured clone 序列化跨进程（低频字段 ~2s 一次，非 25Hz 一次）
   ↓ LiveMemoryService.on("message") 反序列化为新对象
   ↓ localizeHeroes(snap) — 就地修改（safe，因为是新反序列化的对象）
+  ↓ backfillLowFrequencyFields(snap) — null 字段回填 lastInventoryItems/lastPetData
   ↓ lastSnapshot = snap
   ↓ broadcast(IPC.LIVE_MEMORY, snap) — 200ms 节流，发送给 renderer
   ↓ snapshotCb(snap) — 不节流，调用 tracking.ingestLiveFrame
@@ -638,6 +906,34 @@ worker.read() → LiveMemorySnapshot 对象
 
 ### 5.7 TrackingService.ingestLiveFrame 处理流程
 
+#### 流程图
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Ingest[TrackingService.ingestLiveFrame] --> QConn{snap.connected?}
+  QConn -- 否 --> Return[直接 return]
+  QConn -- 是 --> Cache[lastLiveFrame = snap]
+  Cache --> UpdateLive[tracker.updateLive 喂 XpTracker]
+  UpdateLive --> Baseline[stageEventBaseline 首次 seed]
+  Baseline --> Dps[DpsTracker 分路喂入 monsterHp / updateAlive + 击杀推断]
+  Dps --> QWave{stageAlive==0 且 currentWave >= stageWaveTotal?}
+  QWave -- 是 --> RunEnd[DpsTracker.onRunEnd 波次归零]
+  QWave -- 否 --> ChestDrop[chestAggregator.feed → ChestDropTracker.recordLiveChestDrop]
+  ChestDrop -- rare 掉落 --> BossDrop[onLiveStageBossDrop → BoxTimerService.tryMarkDroppedFromLiveStage]
+  Dps --> QClear{stageClears 非空?}
+  QClear -- 是 --> BeginMap[DpsTracker.beginMap]
+  BeginMap --> Alloc[按 n 分配 xp/gold + resolveClearedStageKey]
+  Alloc --> OnClear[onLiveStageClear → StageRunService.recordClear]
+  QClear -- 否 --> BoxOpens[逐 entry resolveBoxOpenEntry → BoxOpenTracker.recordOpen]
+  OnClear --> BoxOpens
+  BoxOpens --> QPush{200ms 节流?}
+  QPush -- 是 --> PushStats[pushStats 广播]
+  QPush -- 否 --> Done[结束]
+  class Ingest,Cache,UpdateLive,Baseline,Dps,RunEnd,ChestDrop,BossDrop,BeginMap,Alloc,OnClear,BoxOpens,PushStats data
+  class QConn,QWave,QClear,QPush dec
+```
+
 `TrackingService.ts:688-845`。按调用顺序：
 
 1. `!snap.connected` 直接 return。
@@ -651,9 +947,10 @@ worker.read() → LiveMemorySnapshot 对象
    - **击杀数推断兜底**（2026-08-28）：v1.01.05 的 `deadMonsterList` 偏移 0x30 不可派生（实测该偏移处 List 恒 0），`deadMonsterCount` 恒 0 → 击杀数恒 0。`DpsTracker.update()` 现用**存活列表消失的怪物数**推断击杀：当 dead 计数不可用（null，或卡在 0 而怪物明显消失）时，把本帧从存活列表消失的怪物数计入击杀。波次切换整波消失即整波被击杀，计数准确。正常版本（dead 计数可用）仍优先用 dead delta。
    - **关卡重开兜底**（`dpsTracker.trackStageEndFromAlive`）：`update`/`updateAlive` 每次都会检测 **alive 连续为 0 超过 2s** 即判定关卡结束（结算画面通常 ~1-2s，而波间隙多为亚秒级；阈值由 0.5s 放宽到 2s 于 2026-08-25，避免每波怪物少时波间隙被误判为关卡结束、UI 波次 0/1 跳动），新一局怪物刷新（alive>0）时重置 `_wavesCleared` 到 0、波次从 1 重新计数。这是 **stage-clear 事件被日志尾部漏检**（`readRuntimeStageClears` 25Hz 采样偶发错过 entry 写入→清空窗口，实测约 40% 漏检率）时的兜底，防止 `_wavesCleared` 跨局累计成 "30/16"。
    - **波次达到关卡总波数时的强制重置**（2026-08-27，wave-total catch）：快速自动刷关（如 v1.01.05 刷 4309）时，结算间隙可能 < 2s（躲过 `STAGE_END_ALIVE_ZERO_SEC` 检测）且 heroes 跨关卡不消失（躲过 `onRunEnd` 的队伍撤离检测）——两个关卡结束重置信号都失效，`_wavesCleared` 跨关卡无限累计，UI 波次卡在 "31/31"（被 stats.ts 按 waveTotal cap）。修复：`TrackingService.ingestLiveFrame` 在 failDetector 之后加判断——当 `snap.stageAlive === 0` 且 `dpsTracker.currentWave >= snap.stageWaveTotal` 时调用 `dpsTracker.onRunEnd()` 重置波次。放在 failDetector 之后，保证最后一波团灭（无 clear）仍先按旧波次判定失败，再重置下一局从 1 开始。与 stage-clear 的 beginMap 不冲突（clear 正常到达时波次已重置，`currentWave < waveTotal`，catch 不触发）。日志 `wave: alive=0 at stage total N — run-end reset`。
+   - **波次种子化（2026-09-02）**：live 跟踪**在关卡进行中**建立时（应用重启、重新 attach），DpsTracker 从零开始数波会把 UI 波次显示成错误的 "1/N"（v1.01.05 的 live `stageWave` 偏移 +0x138 恒读 0 无法提供权威修正），直到切换地图（`beginMap`）才重新对齐。修复：用存档静态波次 `lastSnap.stageWave`（`save.common.currentStageWave`）调用 `dpsTracker.seedStageWave(wave)`（置 `_wavesCleared = wave-1`、`_wasAlive=false`）——下一帧怪在场即得 `currentWave = wave`，此后正常推进；更晚的 stage 切换**不**重新种子（计数器已从 run 起点开始跟踪，必须从 1 数起）。**种子有两个触发点**（`waveSeeded` 仅在成功时置位，防止锁死）：(a) `ingestLiveFrame` 首个 live 帧的 `beginMap()` 之后——仅当 `lastSnap` 已就绪；(b) **save watcher 的 `onSnapshot`**——实测启动时序是**首个 live 帧（attach 后 ~40ms）先于首次 save 读取（5s poll）**，首帧时 `lastSnap` 通常仍为 null，种子被推迟到首次 save 读到达（`lastLiveStage != null` 保证 beginMap 已跑过）；后续 5s 轮询因 `waveSeeded` 已 true 而跳过，不会覆盖运行中的波次计数。`waveSeeded` 在 `start()`/`onLiveMemoryToggled()` 时复位。存档无波次（≤0）时跳过种子、保持从 1 计数。日志 `wave: seeded from save stage wave N (mid-run attach on first live frame)` / `(first save read after attach)` / `wave: no save stage wave yet — deferring seed to first save read`。
    - **注意**：stage 内 wave 推进（1→2→3...）**不**触发 `beginMap()` —— 早期实现把 `stageWave` 变化也视为地图切换，导致 `_wavesCleared` 每波重置为 0、`currentWave` 永远卡在 1（"波次识别卡住" bug）。per-map 计数（`mapDamage`/`mapMobsKilled`）在 stage 内跨波累计，符合"当前地图总量"语义。
 6. **live chest drops**：检测 `snap.chestLogDebug.count < lastCountBefore` → warn（log 缩小是重复记录的特征）。`chestAggregator.feed(snap.chestDrops ?? [], chestAt)` 返回 collapsed categories，对每个 category 调用 `chestDropTracker.recordLiveChestDrop(category, chestAt)` → 成功且 category="rare" → `onLiveStageBossDrop?.(stageKey)` → `boxTimers.tryMarkDroppedFromLiveStage`。**burst 聚合**（`collapseLiveChestDrops`）保留 burst 中出现的**每个 category（含 lone singleton）**——stage-boss（rare）/act-boss（act）宝箱可能只产生 1 条 GetBoxLog，若与其他类别 burst 混合时被当作噪声抑制，会漏掉真实 boss 掉落（"有时漏识别"）。分类（monsterType 0/1/2）上游已有 `CHEST_LOG_SAMPLES` 竞态防御，误判噪声概率低，代价远小于漏掉真实掉落。
-7. `onLiveChestSlots?.(snap.chestSlots)` — 当前不路由到 AutoClassify（保留接口）。
+7. `onLiveChestSlots?.(snap.chestSlots)` — 路由到 `ChestService.setLiveSlots` 作为 AutoClassify reconcile 的实时槽位覆盖（仅旧版本有效；v1.2.2 下 `snap.chestSlots` 为 null，回落 save 派生值，见 13.5）。
 8. **stage clears**：若 `snap.stageClears.length > 0`：
    - `dpsTracker.beginMap()`（关卡完成也重置 per-map 计数）。
    - `fallbackStageKey = snap.stageKey ?? lastSnap?.stageKey ?? 0`。
@@ -890,6 +1187,50 @@ else                              → "attached"
 
 ## 6. Inventory 业务流程
 
+### 流程图
+
+解析 → onInventory → resolveAndPushInventory（worker / sync fallback）→ locale 后处理 → 广播。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  Text[decryptedText] --> Parse[parseInventory]
+  subgraph ParseInv [parseInventory 核心]
+    Items[物品实例解析 字符串正则 / 对象遍历]
+    Norm[catalog id 归一化 truncate 前缀]
+    Loc[location 推断 equipped/inventory/stash/trading]
+    Chests[parseChests BoxTypes + BoxQuantity]
+    Mat[材料堆叠 aggregateSaveDatas]
+    Cap[背包容量 parseSlotCapacity]
+  end
+  Items --> Snapshot
+  Norm --> Snapshot
+  Loc --> Snapshot
+  Chests --> Snapshot
+  Mat --> Snapshot
+  Cap --> Snapshot
+  Parse --> Snapshot[InventorySnapshot]
+  Snapshot --> OnInv[InventoryService.onInventory]
+  OnInv --> Resolve[resolveAndPushInventory]
+  Resolve --> QReady{worker.isReady?}
+  QReady -- 是 --> WorkerResolve[InventoryWorker.resolve 异步]
+  WorkerResolve -- 成功 --> Publish[publishResolved]
+  WorkerResolve -- 崩溃/超时 5s --> Fallback[resolveAndPublishSync]
+  QReady -- 否 --> Fallback
+  Publish --> Locale[locale 后处理 替换本地化名]
+  Fallback --> Locale
+  Locale --> Cache[缓存 lastInventory]
+  Cache --> Bcast[广播 IPC.INVENTORY]
+  Bcast --> Hook[onInventoryUpdated → tracking.setInventorySnapshot]
+  OnInv --> QAuto{autoScanEnabled?}
+  QAuto -- 是 --> Owned[ensureOwnedPrices 异步刷新]
+  QAuto -- 否 --> Almost[checkAlmostFull]
+  Almost -- used/capacity 超阈 上升沿 --> Notify[NotificationService.showInventoryAlmostFull]
+  class Parse,Snapshot,OnInv,Resolve,WorkerResolve,Publish,Fallback,Locale,Cache,Bcast,Hook,Owned,Almost,Items,Norm,Loc,Chests,Mat,Cap data
+  class QReady,QAuto dec
+  class Notify svc
+```
+
 ### 6.1 parseInventory（`app/src/core/inventory/parse.ts`）
 
 `parseInventory(decryptedText, saveMtime = 0, isMaterialItemKey?) → InventorySnapshot`：
@@ -1010,6 +1351,42 @@ else                              → "attached"
 
 ## 7. Lookup 业务流程
 
+### 流程图
+
+LookupService 加载 bundled 目录；LookupPriceService（CI 快照）与 LookupPricePollingService（本地轮询）双路径，polling 数据 merge 进内存快照。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  subgraph dataSources [LookupService 数据源]
+    Items[lookup_items.json] --> Catalog[LookupService.getCatalog]
+    Sources[lookup_sources.json] --> Catalog
+    Synth[synthesis_model.json] --> Catalog
+    Offer[offerings.json] --> Catalog
+    Catalog --> Localize[gameItemName 本地化 + sourceName 保留英文]
+  end
+  subgraph ciSnapshot [LookupPriceService CI 快照]
+    Start1[start loadFromDisk + refresh] --> Poll1[setInterval 30 分钟]
+    Poll1 --> Fetch1[拉 GitHub release prices.json]
+    Fetch1 --> Etag{ETag 304?}
+    Etag -- 是 --> Skip[跳过]
+    Etag -- 否 --> Validate{isLookupPriceSnapshot 校验?}
+    Validate -- 失败 --> KeepOld[保留旧快照 warn]
+    Validate -- 通过 --> Replace[replaceSnapshot 内存替换 + 广播 不落盘]
+  end
+  subgraph localPolling [LookupPricePollingService 本地轮询]
+    Start2[start 立即 cycle + setInterval intervalMinutes] --> Target[selectPollingTargets 仅星标 watched ≤50]
+    Target --> Fetch2[串行 fetchOne 三档价格]
+    Fetch2 --> Batch[每 10 个一批 + 2min 批间等待]
+    Batch --> Q429{连续 3 次 429?}
+    Q429 -- 是 --> Abort[中止本轮 aborted]
+    Q429 -- 否 --> Merge[mergeUpdatesIntoSnapshot → replaceSnapshot]
+    Start2 --> LocalFields[localCurrency 生命周期 切币 clearLocalFields]
+  end
+  class Items,Sources,Synth,Offer,Catalog,Localize,Start1,Poll1,Fetch1,Skip,KeepOld,Replace,Start2,Target,Fetch2,Batch,Abort,Merge,LocalFields data
+  class Etag,Validate,Q429 dec
+```
+
 ### 7.1 数据源（`app/src/main/services/LookupService.ts`）
 
 构造时一次性加载四个 bundled JSON（通过 `app/src/core/lookup/catalog.ts` 的 loader）：
@@ -1021,12 +1398,15 @@ else                              → "attached"
 
 `LookupService.getCatalog()` 返回 `LookupItem[]`，并在 `localeCatalog` 非空时通过 `gameItemName(item, localeCatalog)` 本地化 name，同时把原始英文名存到 `item.sourceName`（关键：保证 `marketHashName` 仍派生英文 hash）。
 
+**渲染端共享**（2026-09 起）：renderer 不再在每个标签页挂载时各自 fetch 目录 —— `TbhProvider` 启动即预取一次并随语言切换重新拉取，经 `TbhContext.lookupCatalog` 供所有页面共享（`useLookupCatalog` 只是消费该字段）。目录未就绪（返回 null）时，物品栏表名单元格与掉落页名称单元格渲染骨架条而非灰点占位，首次可见渲染即「图标 + 品质色」，避免目录到达后出现明显的第二次更新。
+
 ### 7.2 box / item / offering 查询（`app/src/core/lookup/`）
 
 - **offerings.ts**：`offeringForCoin(model, coinKey)`、`offeringSourcesForItem(model, itemKey)` 按 `poolPct` 降序。
 - **synthesis.ts**：`pathsToItem(item, model)` 返回所有合成路径含 `pGrade / pLevel / itemPoolPct / chance`；`simulate(...)` 给定参数下所有可能产物的概率分布。
 - **boxDisplay.ts**：UI 展示用纯函数（`boxCategoryLabel`、`boxDropViaLabel`、`summarizeSpawnPcts` 等）。
 - **classRestriction.ts**：`classForGearType(gearType)` 武器 gearType → 英雄职业（Knight/Ranger/Sorcerer/Priest/Hunter/Slayer）；`LOOKUP_CLASS_ORDER` 6 个职业的固定展示顺序。
+- **唯一效果渲染本地化**：图鉴装备「唯一效果」文本（`LookupItem.stats.unique`）渲染走 `app/src/renderer/lib/itemLabels.ts` 的 `uniqueModLabel(mod, text, t?, params?)`——按 `mod` 后缀查 i18next `common:labels.uniqueMods.<mod>`（由 `flatGameKeysToLabels` 从游戏 locale 的 `UniqueMod_*` 前缀摊平而来）。`scripts/build_tbh_data.py` 的 `gear_unique()` 现在从 `SkillInfoData` 构建技能键集合，把 `UniqueModInfoData.Param1..5 + ParamXExchangeType` 归类为 `params:[{value,exchange,kind}]` 写入 `lookup_items.json`（kind ∈ percent/number/scale100/element/skill/hero/unknown）。渲染端填充：技能名经 `common:labels.skillNames.<SkillKey>`（新增 `SkillName_` 前缀分支）、职业名经 `labels.classes`、`percent/scale100/number` 数值换算后填入模板；**任一占位符不可解析**（元素 `element`、`StatValueUp` 的 `unknown`）或缺少 `params` 时整行回退 `text`（英文后缀）。图鉴卡片 `ItemCard.tsx` / `ItemDetailCard.tsx` 两处接线。
 
 ### 7.3 LookupPriceService vs LookupPricePollingService
 
@@ -1046,6 +1426,7 @@ else                              → "attached"
 - **数据来源**：直接调 Steam `priceoverview` + `itemordershistogram`。
 - **职责**：本地周期性刷新**用户收藏（星标）物品**的价格，merge 进内存 snapshot。
 - **抓取三档价格**：`pricesLocal[hash]`（最低出售价）、`medianLocal[hash]`（最近成交价中位数）、`buyOrderLocal[hash]`（最高收购价）。
+- **localCurrency 生命周期与货币切换**：polling 以「cycle 开始时的显示货币」抓取上述三档价格，并把 `localCurrency` 写成快照级字段的该货币。图鉴展示（`resolveLookupPrice`）仅在 `localCurrency` 与当前显示货币一致时才走 local 路径，否则回退 CI 快照 USD × fx。**切换货币时**（`SET_CURRENCY` handler / Settings 补丁）由 `appState` 调用 `LookupPriceService.clearLocalFields()` 清空 `pricesLocal/medianLocal/buyOrderLocal/localCurrency`（保留 CI 的 `prices`/`fx`/`fetchedUtc`）并广播——防止「未经新币覆盖的 hash 残留旧币数值、却随新 `localCurrency` 被当作新币展示」；下一次 polling cycle 会以新货币重新抓取回填。
 - **配置**（`LookupPricePollingPrefs`）：`enabled`、`intervalMinutes`（5-60，默认 10）、`thresholdUsd`（默认 1.0）、`watchedHashes`（用户收藏）。
 - **目标选择**（`app/src/core/lookupPrice/polling.ts` 的 `selectPollingTargets`）：**图鉴页仅轮询星标（watched）物品**，无条件入选，去重去空、保序；上限 `maxTargets = 50`。`thresholdUsd` 与快照/拥有集合不再参与图鉴轮询目标筛选（交易页「刷新历史价格」另有全量高价值集合，见 8.7 `selectHistoryRefreshTargets`）。
 - **cycle 流程**：互斥锁 `cycleRunning`；串行遍历 targets（上限 `maxTargets = 50`），调 `fetchOne(hash, targetCurrency)`；每个 item 后 `sleep(FETCH_DELAY_MS = 3000)`；**每拉完 `MAX_TARGETS_PER_BATCH = 10` 个且还有剩余目标时，等待 `BATCH_GAP_MS = 2min` 再拉下一批**（与市场交易额 `refreshHistory` 的批间等待同理，避免 >10 个目标一次跑完触发 Steam 限流）；任一子调用 429 → `consecutiveRateLimits++`；达 `MAX_CONSECUTIVE_RATE_LIMITS = 3` 中止本轮（`aborted: true`）；priced > 0 时 `mergeUpdatesIntoSnapshot` 调 `lookupPrices.replaceSnapshot` 广播。
@@ -1066,7 +1447,7 @@ else                              → "attached"
 - **CI 端**：`lookup-prices` GitHub Action 跑 `assembleSnapshot`，发布到 release tag `lookup-prices` 的 `prices.json` asset。
 - **客户端缓存**：`userData/lookup_prices.json`。
 - **失效策略**：ETag 304 → 跳过；`generatedUtc` 相同 → 跳过；校验失败 → 保留旧快照，log warn；30 分钟轮询保证及时性；用户在 Settings 清除 app data 时 → 删 `lookup_prices.json`。
-- **本地 polling 数据**：只在内存，不落盘；CI 快照刷新时通过 `mergeLocalFields` 保留 `pricesLocal/medianLocal/buyOrderLocal/localCurrency`。
+- **本地 polling 数据**：只在内存，不落盘；CI 快照刷新时通过 `mergeLocalFields` 保留 `pricesLocal/medianLocal/buyOrderLocal/localCurrency`。**切换显示货币时**由 `LookupPriceService.clearLocalFields()` 清空这些本地字段并广播（回退 CI USD × fx，见 7.3），下一轮 polling 以新货币重新抓取。
 
 ### 7.6 Watched hashes（用户收藏）存储与轮询
 
@@ -1078,6 +1459,41 @@ else                              → "attached"
 ---
 
 ## 8. Market 业务流程
+
+### 流程图
+
+价格请求链路：marketHashName → priceoverview → 缓存 + 买单价（item_nameid → histogram）。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  Name[marketHashName 构造 sourceName / gearMarketHash] --> QPrice{isPriceableItem?}
+  QPrice -- 否 --> Skip[跳过不探查]
+  QPrice -- 是 --> Fetch[fetchSteamPrice priceoverview]
+  subgraph FetchDetail [fetchSteamPrice]
+    Url[URL priceoverview appid 3678970]
+    Cur[currencyCode ISO → Steam id]
+    Proxy[getProxyDispatcher 系统代理桥接]
+    Timeout[AbortSignal 30s 超时]
+    Url --> Req[GET 请求 User-Agent TBH Companion]
+    Cur --> Req
+    Proxy --> Req
+    Timeout --> Req
+    Req --> Q429{HTTP 429?}
+    Q429 -- 是 --> RetryAfter[reason=http + retryAfterMs parseRetryAfterMs]
+    Q429 -- 否 --> Parse[parseMoney 解析本地化价格]
+  end
+  Fetch --> QOk{ok?}
+  QOk -- 是 --> CacheWrite[SteamMarketProvider.priceOneHash 写入价格缓存]
+  QOk -- 否 --> Fail[reason/status 记录 counters.failed++]
+  CacheWrite --> BuyOrder[attachBuyOrder 买单价]
+  BuyOrder --> NameId[SteamItemNameIdService.resolve item_nameid]
+  NameId --> Histogram[fetchSteamBuyOrder itemordershistogram + Referer]
+  Histogram --> Levels[parseBuyOrderLevels buy_order_table / buy_order_graph]
+  CacheWrite --> Persist[每 5 个新价格 persistPriceCache + cycle 结束写 fetchedUtc]
+  class Name,Fetch,Req,Parse,CacheWrite,BuyOrder,NameId,Histogram,Levels,Persist,Fail,Url,Cur,Proxy,Timeout,RetryAfter data
+  class QPrice,Q429,QOk dec
+```
 
 ### 8.1 Steam Market price 请求链路
 
@@ -1170,6 +1586,7 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 - **历史拉取**：`refreshHistory(now, opts?)` 带两档去抖——距上次拉取 < `HISTORY_REFRESH_MS`（1 小时）或已在刷新中则跳过（除非 `opts.force`）；`historyFetchedAtMs` 随 `market_volume_history.json` 持久化，重启后仍命中 1 小时缓存，避免每次都重跑。目标物品默认 = `owned ∪ watched`（`deps.getTargetHashes`），可传 `opts.targets` 覆盖（交易页「刷新历史价格」按钮用：星标 ∪ 快照价格达标物品，见 `selectHistoryRefreshTargets`）；按每批 `MAX_HISTORY_TARGETS=10` 个分组串行拉取（Steam 对 pricehistory 限流极严，每批超过约 10 个即触发）：批内请求间隔 `HISTORY_FETCH_DELAY_MS=1500ms`，批间等待 `HISTORY_BATCH_DELAY_MS=2min` 再拉下一批，直到覆盖全部目标；单个物品失败不影响其余。**Cookie 失效提前终止**：一旦某物品返回 400（`reason="unauthorized"`，见 8.7.1）即判定登录态整体失效，`refreshHistory` **立即中止整次刷新**（`outer` 标签跳出循环，不再拉取后续目标避免白白触发限流），并通过 `onHistoryProgress` 上报 `cookieExpired=true`（前端据此提示用户更新 Cookie，见 8.7.4）。**deps 新增 `getCookie`（返回 `config.steamCookie ?? ""`），每次 `fetchOne(hash, currency, cookie)` 把用户 Cookie 透传给 `fetchSteamPriceHistory`**。
 - **历史聚合**：`aggregateHistoryToHourly`（`app/src/core/marketVolume.ts`）把各 hash 的 `pricehistory` 原始点按小时桶（`floor(timestamp/3600)`）聚合成 `HourlyHistoryBucket`（`hour`、`total`、`byCategory`），成交额 = Σ(volume × price)——`volume` 是**该时间段的成交量增量**（非累计值，时间点越新粒度越细，最旧为天、最近为小时），直接累加即真实成交额，无需差分。**一次刷新即拿到该物品全部历史**（仅粒度随新旧变化），故**保留全部小时桶、不截断**（全量走势），并额外把**原始 pricehistory 点**（`hash -> PriceHistoryPoint[]`，保留天/小时混合粒度）持久化到 `priceHistory` 字段，供后续按需再聚合；**刷新时逐 hash 合并（`mergePriceHistoryPoints`，按 UTC 天分组、点数多的一方视为更细粒度，保留小时粒度、避免被新的日粒度降级覆盖；不再全量覆盖，非本次目标的 hash 也保留）**；同时统计本次覆盖的物品种数（`itemCount`）与各分类物品种数（`itemCountsByCategory`）。
 - **类别**：`volumeCategoryKey` 把物品归到 **5 大分类**——武器（GEAR 且 gearGroup=WEAPON）、防具（GEAR 且 gearGroup=ARMOR）、饰品（GEAR 且 gearGroup=ACCESSORY）、硬币（MATERIAL 且 materialType=OFFERING）、材料（其余 MATERIAL）；`aggregateVolume` / `aggregateHistoryToHourly` 汇总时未匹配到图鉴的 hash 归 `OTHER`。
+- **持久化结构（含货币标记）**：`market_volume_history.json` 的 payload 为 `{ version, currency, samples, historyHourly, priceHistory, liveHistory, itemCount, itemCountsByCategory, historyFetchedAtMs, lastRefreshAt }`。`currency` 记录**入库时**价格线的显示货币；`saveHistory`/`exportHistory` 写入当前显示货币。载入（`loadHistory`）/导入（`importHistory`）时先**确认文件货币**（新格式取顶层 `currency`；旧格式无该字段时从 `samples[].currency` 推断）：确认与当前显示货币一致 → 无损保留细粒度历史（旧格式同时迁移落盘补写 `currency`）；不一致或无法确认则**丢弃金额类数据**或**拒绝导入**，绝不把旧币数值标成当前货币展示（详见 8.7.3 多货币同步政策）。载入丢弃时 `historyFetchedAtMs`/`lastRefreshAt` 也一并清空，避免 1 小时缓存阻碍新币下尽快重拉。
 - **统计**：`getStats()` 返回 `{ latest, hourly, itemCount, itemCountsByCategory, currency }`，`hourly` 为历史小时桶（`MarketVolumeHourPoint[]`，含 `byCategory`），`itemCount` / `itemCountsByCategory` 供前端标注覆盖物品数量。**当 `historyHourly` 为空（pricehistory 尚未拉到或拉取失败）但存在采样快照时，`hourly` 回退为 `aggregateSamplesToTrend(this.samples)` 构建的走势点**（按小时桶平均、分类 key 归一化 `OFFERING→COIN`），保证 Market 页「走势图直接给出」；此时 `itemCount` 取最新采样的 `items`，`itemCountsByCategory` 置空（采样快照只含分类金额、不含分类物品种数，图例物品数显示 0）。
 - **物品维度**：`getVolumeItems()` 返回 `MarketVolumeItemStats`（`{ items, currency }`，交易页用）。**合并三路数据**：`aggregateItemVolume`（把 `priceHistory` 原始点按物品聚合成 `MarketVolumeItem`：总交易额 = Σ(volume × price)、小时走势 points 按小时桶累加、附展示名与分类，`kind` 缺省）为主；`aggregateLiveActivityItems`（`app/src/core/marketVolume.ts`，把 `liveHistory` 各 hash 的采样点转成 `kind="live"` 卡片：`total` = 最近一次有效采样 volume × median、points 为各采样点）补充 pricehistory 尚未覆盖到的物品；`aggregateLiveItems`（用 `live` 快照，无走势）**兜底** liveHistory 尚未累积的 hash。**同一 hash 以 pricehistory 优先，其次活跃度采样历史**，最终统一按 `total` 降序。卡片带 `kind` 字段区分数据口径：`history`（真实小时增量，可按窗口求和）vs `live`（24h 滚动累计，**不可求和**，取窗口内最新值）。打开交易页（`getMarketVolumeItems`）时同样触发 `refreshHistory()`（与 Market 页一致），让卡片尽量带上逐小时走势。**交易页「刷新历史价格」按钮**（`refreshMarketVolumeItems`）用 `selectHistoryRefreshTargets` 计算目标集 = **星标 ∪ 快照价格 ≥ 阈值**（`app/src/core/lookupPrice/polling.ts`，星标优先、快照达标部分按价格降序），调 `refreshHistory(now, { targets, force: true })` 强制绕过 1 小时缓存全量重拉（**targets 顺序 = renderer 传入的「物品卡排序」**，即主列表按当前时间窗口成交额降序的 hash 顺序——`refresh()` 把 `cardOrder` 传给 `tbh.refreshMarketVolumeItems(cardOrder)`，使逐个更新的顺序严格等于交易页卡片当前排序；未传时回退到 `selectHistoryRefreshTargets` + `sortTargetsByVolume` 全量交易额顺序），刷新成功后同时 `broadcast` `MARKET_VOLUME` 与 `MARKET_VOLUME_ITEMS`。**刷新进度反馈**：`refreshHistory` 在刷新开始时先推送一次带 `pending`（本次待刷新的占位卡片，自动/手动刷新共用，驱动交易页亮环提示）的进度，此后每处理完一个 hash 调用一次 `deps.onHistoryProgress({ running, total, done, current, updatedItem })`（开始携带当前 hash、单个完成 current=null、全部结束 running=false），`appState` 把回调转为 `MarketVolumeRefreshProgress` 经新 push 通道 `MARKET_VOLUME_REFRESH_PROGRESS` 推给 renderer；**顶部走势实时联动**——每个成功返回的物品并入 `priceHistory` 后即调用 `recomputeHistoryTrend()` 重算 `historyHourly`，并通过进度回调的 `trendChanged=true` 触发 `appState` 额外 `broadcast(MARKET_VOLUME)`，使最上方的交易额走势（`hourly`）时间范围随每个成功物品**实时更新**（而非等整批刷新结束），交易页与 Market 页的走势图均生效；**单品实时更新**——单个 hash 拉到数据后即实时写入内存态 `priceHistory`（持久化在全部拉完之后统一做），并通过 `updatedItem`（该 hash 聚合的最新 `MarketVolumeItem`，含走势）随进度一起推送，renderer 收到后在刷新占位列表里就地替换对应占位卡片，实现「当前轮次已经刷新价格的物品实时更新结果」；同时 `refreshMarketVolumeItems` 返回 `MarketVolumeRefreshResult = { stats, pending }`，其中 `pending = buildPendingItems(targets)` 为待刷新目标的**占位卡片**（`MarketVolumeItem`，按目标顺序去重）。**若该 hash 已有交易额数据（合并口径：pricehistory 聚合 + 活跃度采样历史 + live 快照），则复用该数据生成带走势/金额的卡片**（与主列表口径一致，刷新过程中不因尚未拉到最新数据而丢失图表或金额）；否则回退为 `total=0`、`points=[]` 的空白占位（首次刷新 / 尚无任何数据，仅展示名与分类，未命中图鉴回退 hash/OTHER），供刷新期间提前展示。**刷新顺序**：目标集先经 `marketVolume.sortTargetsByVolume(targets)` 按已有交易额（`getVolumeItems` 合并口径：pricehistory 聚合为主、live 快照 volume×median 补充）从高到低排序，再传给 `buildPendingItems` 与 `refreshHistory`——二次及以后刷新「先刷新交易额高的物品」，占位卡片与拉取顺序一致；首次刷新（尚无任何交易额数据）保持目标集原顺序（星标优先、快照达标按价格降序）。
 
@@ -1178,6 +1595,14 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 - 只覆盖「被轮询到的高价值 / 收藏物品」子集，是相对市场活跃度指标，非全市场总盘子（代码注释与 UI 空态文案均有说明）。
 - 轮询默认关闭（`config.lookupPricePolling.enabled`），未启用时无数据，UI 显示空态。
 - **历史价格货币对齐（重要）**：`pricehistory` 忽略 `currency` 参数、返回区域锁定货币（见 8.7.1），故入库前在 `MarketVolumeService.maybeCalibrateHistory` 处理——当 `r.currency` 解析出的货币与显示货币（`getCurrency`）不一致时，取该物品 `priceoverview` 的中位价（显示货币，`deps.fetchAnchorMedian`，默认走 `fetchSteamPrice`）作锚，连同 pricehistory 里最近一个有成交量的价格（源点）经 `calibratePricesWithMedian`（`app/src/core/marketVolume.ts`）求出换算系数，把整条历史价格线等比校正到显示货币后再合并入库（`refreshItem` / `refreshHistory` 均接入）；货币解析不出、与显示货币一致或锚不可用时**不换算**（保守保留原值）。这保证历史价格曲线金额单位正确；采样回退仍用轮询返回的 `median`。
+- **多货币同步政策（保存 / 再次展示正确货币价格）**：交易页历史数据（`market_volume_history.json`）中所有金额均以「入库时的显示货币」计价，全部边界按以下规则处理，保证**绝不把旧币数值标成新币展示**——
+  - **落盘**：`saveHistory` / `exportHistory` 写入 `currency` 字段 = 当前显示货币（`deps.getCurrency()`）。
+  - **重启载入（`loadHistory`，先确认货币再决定保留/丢弃）**：`confirmFileCurrency` 先确认文件货币——新格式取顶层 `currency`；旧格式（无该字段）用 `inferMarketVolumeCurrency`（`app/src/core/marketVolume.ts`）从 `samples[].currency` 推断（旧版每条采样都记录了当时显示货币）。确认与当前显示货币一致（大小写不敏感）→ **无损保留全部细粒度历史**（含 `priceHistory` 的混合粒度点、`liveHistory`、`samples`），若为旧格式推断所得则立即 `saveHistory()` **迁移落盘**（补写顶层 `currency` 字段，只需一次）；不一致或无法确认（无采样 / 采样货币混杂）→ 丢弃 `samples`/`historyHourly`/`priceHistory`/`liveHistory`/`itemCount(s)` 与 `historyFetchedAtMs`/`lastRefreshAt`（清空重积，不清空会导致 1 小时缓存阻碍新货币下尽快重拉），记 warn 日志。
+  - **运行中切换货币**：两条入口——Market/Settings 页 `SET_CURRENCY` handler（`appState.setCurrency`）与 `applyConfigPatch` 的 currency 分支。二者都**先**把 `config.currency` 写成新值，**仅在币种确实变化（大小写不敏感）时**调用 `marketVolume.onCurrencyChanged()`（清空全部金额态与采样去抖元数据、立即以新币落盘）以及 `lookupPrices.clearLocalFields()`（清图鉴本地 polling 价格字段），随后 `broadcast(MARKET_VOLUME/MARKET_VOLUME_ITEMS)` 推送空数据，使 Market/交易页立即停止显示旧币数值；提交相同币种不触发清账（避免误清历史）。
+  - **采样护栏**：`recordVolume(hash, volume, median, currency)` 丢弃 `currency` 与当前显示货币不符的采样——防止「cycle 在切换货币前开始、切换后结束」的竞态窗口把旧币采样混入 `live`/`liveHistory`；下一轮 polling 以新货币重新抓取。
+  - **导入（`importHistory`，不一致时优先换算导入）**：先经 `confirmFileCurrency` 确认备份货币（旧格式从 `samples[].currency` 推断）。与当前显示货币不一致时**不再直接拒绝**——用 `computeConversionRate`（`app/src/core/marketVolume.ts`）确认换算比例：**优先图鉴汇率表 `fx`**（比例 = `fx(目标)/fx(来源)`），**回退用现有价格历史**（备份与当前内存 priceHistory 的共同 hash，取时间戳最接近的一对点求价格比、多 hash 中位数抗噪）；得到有效比例后由 `rescaleParsedHistory` 把备份全部金额（samples/hourly/priceHistory/liveHistory）等比换算到当前货币再导入，返回 `{ ok:true, itemCount, converted:true }`，交易页显示 `trading.importConverted` 提示已换算；**拿不到比例**（文件货币无法确认 / 无 fx 且无共同价格可推算）才拒绝，返回 `{ ok:false, reason:"currency_mismatch" }`（不改动现有数据），显示 `trading.importCurrencyMismatch`。非法 JSON/结构错误返回 `reason:"invalid_backup"`。`MarketVolumeDeps.getFxRates` 由 `appState` 注入 `lookupPrices.getSnapshot()?.fx`。
+  - **图鉴本地价格（7.3）**：`pricesLocal/medianLocal/buyOrderLocal/localCurrency` 只在内存，切换货币经 `clearLocalFields()` 清空后回退 CI 快照 USD × fx（任意货币下都正确）；下一轮 polling 以新币重新抓取回填。
+  - **inventory 市场缓存（6.5）**：`prices.<CUR>.json` 按货币分文件 + 载入时强制覆盖 `currency` 字段，天然隔离，不受切换影响。
 - `refreshHistory` 按需拉取 + 1 小时缓存 + 每批封顶（`config.marketHistoryBatchSize`，默认 10，范围 1–100）+ 批间间隔（`config.marketHistoryBatchDelaySec`，默认 120 秒 = 2 分钟，范围 0–600 秒，均可于 Settings → Steam Market → 价格历史查询调整），批内每个物品间隔 1.5s，避免高频请求触发 Steam 限流；429 处理：单物品连续 429 达 3 次即中止整批刷新（保留已完成数据）；每次 429 后按 Steam `retryAfterMs`（缺失时 1500ms）等待再继续下一个物品，等待可被用户手动取消中断；成功响应会复位连续 429 计数。**仅当本次确拉到数据（`agg.points.length > 0`）才覆盖 `historyHourly`/`priceHistory`，失败不清空已有好数据**；`historyFetchedAtMs` 无论成败都更新，命中 1 小时缓存去抖，避免每次轮询/打开页面高频重试加剧限流。批次数量与批间间隔通过 `MarketVolumeDeps.getHistoryBatchSize()` / `getHistoryBatchDelaySec()`（秒，内部换算为 ms）读取，`appState.ts` 从 `config` 注入，改配置后下次刷新即时生效。
 - **刷新目标排序优化（用最少刷新覆盖最多交易额）**：交易市场呈长尾分布——少量高交易额物品贡献了绝大部分成交额。因此刷新目标不再按「价格降序 / 全量历史累计」，而是按**最近 24h 时间窗成交额**降序（`core/marketVolume.ts` 的 `orderRefreshTargets` 纯函数 + `MarketVolumeService.recentVolumeByHash`）。排序规则：**星标（watched）无条件最前** → 有窗口交易额者按交易额降序 → 仅价格者（图鉴快照价格，`deps.getSnapshotPriceUsd`）按价格降序 → 无数据者保持原相对顺序。让「先刷新交易额高的物品」——用尽量少的刷新覆盖尽量多的交易额。
   - **统一口径**：`sortTargetsByVolume`（交易页手动「刷新历史价格」默认路径，`refreshMarketVolumeItems` 未传 `cardOrder` 时）与自动路径共用该 24h 排序；交易页手动路径本身由 renderer 传 `cardOrder`（当前窗口成交额降序），两者口径一致。
@@ -1207,8 +1632,8 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 交易页历史数据（`userData/market_volume_history.json`）支持 JSON 完整备份与恢复，入口为交易页工具栏「导出历史数据」「导入历史数据」按钮。
 
-- **导出**：`window.tbh.exportMarketVolumeHistory()` → IPC `market:export-history` → `appState.exportMarketVolumeHistory` → `dialog.showSaveDialog`（默认文件名 `market_volume_history_<yyyyMMdd>.json`）→ `MarketVolumeService.exportHistory()` 返回完整快照（与落盘 payload 同构，含 `version: 1` / `samples` / `historyHourly` / `priceHistory` / `liveHistory` / `itemCount` / `itemCountsByCategory` / `historyFetchedAtMs`）→ 写文件。返回 `{ ok, path }` / `{ canceled }` / `{ ok:false, reason }`。
-- **导入（整体替换）**：交易页先 `window.confirm` 确认 → `window.tbh.importMarketVolumeHistory()` → IPC `market:import-history` → `dialog.showOpenDialog`（JSON）→ 读文件 → `MarketVolumeService.importHistory(json)`：`parseMarketVolumeHistory`（`app/src/core/marketVolume.ts`，校验 + 逐字段过滤，顶层非法 / JSON 解析失败返回 null）→ 成功则整体替换内存数据并 `saveHistory()` 落盘 → appState 广播 `MARKET_VOLUME` + `MARKET_VOLUME_ITEMS` 让交易页实时刷新 → 返回 `{ ok, itemCount }`。失败 `{ ok:false, reason:"invalid_backup" }` 且不改动现有数据。
+- **导出**：`window.tbh.exportMarketVolumeHistory()` → IPC `market:export-history` → `appState.exportMarketVolumeHistory` → `dialog.showSaveDialog`（默认文件名 `market_volume_history_<yyyyMMdd>.json`）→ `MarketVolumeService.exportHistory()` 返回完整快照（与落盘 payload 同构，含 `version: 1` / **`currency`（当前显示货币）** / `samples` / `historyHourly` / `priceHistory` / `liveHistory` / `itemCount` / `itemCountsByCategory` / `historyFetchedAtMs` / `lastRefreshAt`）→ 写文件。返回 `{ ok, path }` / `{ canceled }` / `{ ok:false, reason }`。
+- **导入（整体替换）**：交易页先 `window.confirm` 确认 → `window.tbh.importMarketVolumeHistory()` → IPC `market:import-history` → `dialog.showOpenDialog`（JSON）→ 读文件 → `MarketVolumeService.importHistory(json)`：`parseMarketVolumeHistory`（`app/src/core/marketVolume.ts`，校验 + 逐字段过滤，顶层非法 / JSON 解析失败返回 null）→ **确认备份货币与当前显示货币**（新格式取顶层 `currency`；旧格式从 `samples[].currency` 推断）——一致则直接替换；**不一致则用 `computeConversionRate` 确认换算比例并 `rescaleParsedHistory` 换算后导入**（优先图鉴 `fx`，回退共同价格推算；拿不到比例才拒绝 `currency_mismatch`，见 8.7.3） → 成功则整体替换内存数据并 `saveHistory()` 落盘（旧格式备份同时完成迁移）→ appState 广播 `MARKET_VOLUME` + `MARKET_VOLUME_ITEMS` 让交易页实时刷新 → 返回 `{ ok, itemCount, converted? }`。失败 `{ ok:false, reason:"invalid_backup" }`（JSON/结构非法）且不改动现有数据；`converted=true` 时交易页显示 `trading.importConverted`，`currency_mismatch` 显示 `trading.importCurrencyMismatch` 专用文案。
 - **错误处理**：导出 / 导入对话框取消静默返回 `canceled`；导出写入失败返回 `reason` 由交易页提示；导入文件非 JSON / 结构非法返回 `reason`，现有数据不受影响。
 - **关键文件**：`app/src/main/services/MarketVolumeService.ts`（exportHistory / importHistory）、`app/src/core/marketVolume.ts`（parseMarketVolumeHistory）、`app/src/main/app/appState.ts`（对话框编排 + 广播）、`app/src/main/ipc/handlers/market.ts`（IPC 入口）、`app/src/preload/index.ts`、`app/src/renderer/tabs/Trading.tsx`（按钮）。
 
@@ -1216,11 +1641,45 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ## 9. Catalog Refresh 业务流程
 
+### 流程图
+
+三种触发时机 → 扫描游戏目录 → 从 Unity bundle 提取 catalog/locale → 写入并推送给下游服务。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  Start[appState 构造 CatalogRefreshService] --> Trigger{触发时机}
+  Trigger -- 启动 首次或 stale --> Delay[延迟 3s AUTO_REFRESH_DELAY_MS]
+  Delay --> Resolve[resolveAssetPaths 扫描游戏目录]
+  Trigger -- IPC CATALOG_REFRESH 手动 --> Resolve
+  Trigger -- gameVersion 变化 --> Banner[仅广播 CATALOG_STATUS stale banner 不自动 refresh]
+  Resolve --> Paths[sharedassets0 / sharedBundle / enBundle / localeBundles]
+  Paths --> Extract[extractCatalog + extractLocales]
+  subgraph ExtractCatalog [catalogExtractor]
+    NameMap[loadNameMap hash → ItemName_xxx → 英文名]
+    Csv[loadCsvText 找 ItemInfoData TextAsset]
+    NameMap --> Join[hash join 得到 item 名称表]
+    Csv --> Join
+    Join --> Catalog[ExtractedCatalog]
+  end
+  subgraph ExtractLocales [localeExtractor]
+    LocScan[scanLocaleEntries 聚合 16 语言 StringTables]
+    LocScan --> HashJoin[hash join → Record lang → key → 翻译]
+    HashJoin --> Locales[ExtractedLocales]
+  end
+  Extract --> Write[写入 gamedata + locale 数据]
+  Write --> Reload[reloadLocaleCatalog 注入 6 个服务]
+  Reload --> RePush[InventoryService.reloadGameData + setLookupCatalog]
+  RePush --> Status[广播 CATALOG_STATUS 更新]
+  class Start,Resolve,Delay,Paths,Extract,Write,Reload,RePush,Status,Banner data
+  class Trigger dec
+```
+
 文件：`app/src/main/catalogRefreshService.ts`。
 
 ### 9.1 启动时机
 
-`CatalogRefreshService` 在 `appState.ts` 顶部构造。**自动触发**：启动时若 `localeData` 为空（首次运行）或 `status.stale`（catalog 版本 ≠ 游戏版本），自动 refresh。**手动触发**：IPC `CATALOG_REFRESH` → `catalogRefresh.refresh()` → 成功后 `reloadLocaleCatalog()` + `inventory.reloadGameData(...)` + `inventory.setLookupCatalog(...)`。**gameVersion 变化触发**：`liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged())` — 仅广播 `CATALOG_STATUS`（让 UI 显示 stale banner），**不自动 refresh**（避免游戏运行中读 asset 文件冲突）。
+`CatalogRefreshService` 在 `appState.ts` 顶部构造。**自动触发**：启动时若 `localeData` 为空（首次运行）或 `status.stale`，自动 refresh。**`stale` = catalog 版本 ≠ 游戏版本，或已加载 catalog 的 `schemaVersion` ≠ `CATALOG_SCHEMA_VERSION`（如 `IsDeletedInServer` 过滤加入前生成的旧 `userData/gamedata.json`，仍含 Lv85 装备）**——两者都会触发一次 refresh 用新逻辑重写缓存（旧缓存自愈）。自动 refresh 会**延迟 3s**（`AUTO_REFRESH_DELAY_MS`）：`extractCatalog`/`extractLocales` 在主进程同步解析大体积 Unity bundle 会阻塞全部 IPC handler，若与启动首帧重叠会拖住 renderer 的首批 `getLookupCatalog`/`getInventory` 请求，导致物品栏/掉落页先渲染灰点占位、目录到达后再整体刷新一次；延迟后首帧（图标 + 品质色）先完成，refresh 完成后的 re-emit 成为后台小更新。**手动触发**：IPC `CATALOG_REFRESH` → `catalogRefresh.refresh()` → 成功后 `reloadLocaleCatalog()` + `inventory.reloadGameData(...)` + `inventory.setLookupCatalog(...)`。**gameVersion 变化触发**：`liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged())` — 仅广播 `CATALOG_STATUS`（让 UI 显示 stale banner），**不自动 refresh**（避免游戏运行中读 asset 文件冲突）。
 
 ### 9.2 resolveAssetPaths 扫描游戏目录
 
@@ -1253,9 +1712,17 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 3. 找 name 为 `"ItemInfoData"` 的 TextAsset，返回其 script（CSV 文本）。
 
 #### 步骤 3：解析 CSV
-- 去除 BOM，按行 split，header 含 `ItemKey, NameKey, GRADE, ITEMTYPE, Level, IsCanExchangeMarketable` 等列。
+- 去除 BOM，按行 split，header 含 `ItemKey, NameKey, GRADE, ITEMTYPE, Level, IsCanExchangeMarketable, IsDeletedInServer` 等列。
 - 每行：`ItemKey` 非数字 skip；`NameKey` 以 `ItemName_` 开头从 nameMap 查找；字面量直接用；空则 `#${itemKey}` 占位。
-- **NameKey-only entries**：nameMap 中存在但 CSV 没有的，追加为 `{ id, name, grade: "", type: "", level: null, marketTradable: false }`。
+- **服务器已删除过滤**：`IsDeletedInServer=True` 的行（不可获取物品，如 v1.2.2 全部 Lv85 装备）**跳过**，其 id 记入 `deletedIds`。这些行仍在游戏 CSV 中（官方仅打标记未删除行记录），不过滤会导致图鉴列出游戏内不存在的物品。
+- **NameKey-only entries**：nameMap 中存在但 CSV 没有的，追加为 `{ id, name, grade: "", type: "", level: null, marketTradable: false }`；**已出现在 `deletedIds` 的 id 不追加**（其 `ItemName_<id>` key 仍存在于本地化表，否则会以空 type 行被拉回）。
+- 返回 `ExtractedCatalog` 带 **`schemaVersion`**（`CATALOG_SCHEMA_VERSION = 2`，`app/src/core/unityAssets/catalogExtractor.ts`）：提取输出形状/过滤语义变化时递增，用于驱动旧缓存自愈（见 9.1 / 9.5）。
+
+#### 占位名回填（9.5 步骤 6）
+
+`extractCatalog` 的 nameMap 来自 enBundle 的 `scanMarkerEntries`（二进制标记扫描），可能漏掉部分 `ItemName_<id>` key —— 典型是多品阶/多等级共享一个基础名称的物品（如物品 id `160103` 的 NameKey 其实是 `ItemName_160003`），这些 key 运行时二进制扫描抓不到。因此 `extractCatalog` 对这类物品返回的 `name` 是 `ItemName_xxx` 占位符。
+
+`CatalogRefreshService.refresh()` 在写入 `userData/gamedata.json` 前调用 `backfillItemNames(items, getLocaleData())`（`app/src/main/catalogRefreshService.ts`），用「bundled 全表转储 `data/_game_locale_dump.json`（由 `scripts/dump_game_locale.py` 经 UnityPy typetree 全表解析生成，捕获每种本地化 key）+ 运行时 overlay」合并的 locale 表，**按占位符 name 内嵌的 key**（而非物品 id）解析真实名称；无法解析的占位符保持原样。游戏升级新增物品时，重跑 `scripts/dump_game_locale.py` 更新转储，下次目录刷新即自动识别。为让 Lookup 页可检索到、且 Inventory/Loot 显示中文名，`LookupService.setGameData()`（`app/src/main/services/LookupService.ts`）把 gamedata 里 `lookup_items.json` 缺失的可玩法物品（GEAR/MATERIAL）并入查找目录，name 经 `gameItemName+localeCatalog` 本地化；每次 `reloadLocaleCatalog()` 重新并入并重注入到 tracking/inventory。并入项按类型推导图标名（材料 `item-<id>`、装备 `<GEARTYPE小写>-<id>`，`GEARTYPE` 由 `catalogExtractor` 写入 gamedata），`data/icons` 存在对应文件才填 `iconPath`，否则渲染回退等级色点。
 
 ### 9.4 localeExtractor 提取 16 种语言 labels
 
@@ -1274,24 +1741,59 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 1. `resolveGameInstallDir(getGameInstallDir())` → null 抛错。
 2. `resolveAssetPaths(installDir)` → 检查三个核心文件存在。
 3. `readFileSync` 三个核心 buffer。
-4. `extractCatalog({ sharedassets0, sharedBundle, enBundle })` → `{ items, stats, gameVersion }`。
+4. `extractCatalog({ sharedassets0, sharedBundle, enBundle })` → `{ items, stats, gameVersion, schemaVersion }`。
 5. `gameVersion = liveMemory.getStatus()?.gameVersion ?? extracted.gameVersion`（优先用运行中游戏的版本）。
-6. 写 `userData/gamedata.json` = `{ gameVersion, items: extracted.items }`。
-7. `gameData.reload(userDataDir)`：GameDataProvider 重新加载。
-8. **locale 提取**（best-effort）：
+6. **占位名回填**：`backfillItemNames(items, getLocaleData())`（见 9.3）把 `ItemName_<id>` 占位名解析为完整 locale 表的真实名；先 `clearBundledJsonCache()` 确保读到最新 `data/_game_locale_dump.json`。回填数量大于 0 时记一条 info 日志。
+7. 写 `userData/gamedata.json` = `{ gameVersion, schemaVersion, items: extracted.items }`（`schemaVersion = CATALOG_SCHEMA_VERSION`，供下次启动判断 stale / 旧缓存自愈）。
+8. `gameData.reload(userDataDir)`：GameDataProvider 重新加载。
+9. **locale 提取**（best-effort）：
    - 读所有 localeBuffers。
    - `extractLocales({ sharedBundle, locales: localeBuffers })`。
    - 成功 → 写 `userData/locale.json` + 更新 `cachedLocale` + 日志 per-language entry count。
    - 失败 → per-locale 诊断日志。
-9. `lastRefreshMs = Date.now()`、`lastError = null`。
-10. `broadcastStatus()` → `broadcast(IPC.CATALOG_STATUS, getStatus())`。
-11. 返回 `CatalogRefreshResult = { ok: true, gameVersion, itemCount, resolvedNames }`。
+10. `lastRefreshMs = Date.now()`、`lastError = null`。
+11. `broadcastStatus()` → `broadcast(IPC.CATALOG_STATUS, getStatus())`。
+12. 返回 `CatalogRefreshResult = { ok: true, gameVersion, itemCount, resolvedNames }`。
 
 **`reloadLocaleCatalog()`**（`appState.ts`）在 refresh 成功后被调用：把 `catalogRefresh.getLocaleData()` 合并到 base LocaleCatalog，然后 fan-out 到所有服务：`tracking.setLocaleCatalog`、`inventory.setLocaleCatalog`、`boxTimers.setLocaleCatalog`、`stageRuns.setLocaleCatalog`、`liveMemory.setLocaleCatalog`、`lookup.setLocaleCatalog`。
+
+**渲染侧消费**：renderer 通过 `tryMergeGameLocale`（`app/src/renderer/i18n.ts`）经 `window.tbh.getLocaleData()` 拿同一份 locale 数据，用 `flatGameKeysToLabels`（`app/src/renderer/lib/gameLocaleLabels.ts`）把 `Grade_/Stat_/BaseStatName_/UniqueMod_/SkillName_` 等前缀摊入 i18next `common:labels.*`。图鉴装备「唯一效果」经 `common:labels.uniqueMods.<mod>` → `itemLabels.uniqueModLabel` 渲染；其中含占位符的模板会结合 `lookup_items.json` 里 `stats.unique.params`（构建时由 `gear_unique()` 从 `UniqueModInfoData.Param*` 归类）填充：技能名走 `common:labels.skillNames.*`、职业名走 `labels.classes`、数值按 `Raw_Divide1000/Raw_Divide100/Divided` 换算，任一占位符不可解析（元素、StatValueUp `unknown`）或模板缺 `params` 时回退 `text`。
 
 ---
 
 ## 10. Session 持久化（`app/src/main/services/SessionStateService.ts`）
+
+### 流程图
+
+load 校验恢复 / 15s autosave / 首次 save 解析时的 tryRestoreOnSnapshot（含 mtime 连续性与数值合理性双校验）。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Load[load config → 读 userData/session_state.json] --> QExist{文件存在?}
+  QExist -- 否 --> Default[返回默认 ui]
+  QExist -- 是 --> QValid{isPersistedSessionState 校验?}
+  QValid -- 否 --> Warn[warn + 返回默认 ui]
+  QValid -- 是 --> QMatch{sessionMatchesConfig savePath/rolling/liveMemory 一致?}
+  QMatch -- 否 --> NoRestore[返回 ui 不 restore]
+  QMatch -- 是 --> Fill[填充 pending + lastSaveMtime]
+  Fill --> Ui[返回 ui]
+  StartAuto[startAutosave 15s interval] --> QPersist{有可持久化内容?}
+  QPersist -- 否 --> Skip[直接 return]
+  QPersist -- 是 --> Payload[构造 PersistedSessionState version 1]
+  Payload --> Write[writeFileSync 失败仅 warn]
+  Restore[tryRestoreOnSnapshot 首次 save 解析] --> QPending{pendingTracker 存在?}
+  QPending -- 否 --> Fresh[返回 fresh 设 lastSaveMtime]
+  QPending -- 是 --> QCont{mtime 连续性?}
+  QCont -- 否 --> Discard1[清空 pending + New session + deleteFile 返回 discarded]
+  QCont -- 是 --> QPlaus{isPlausibleTrackerSnapshot?}
+  QPlaus -- 否 --> Discard1
+  QPlaus -- 是 --> Apply[applySnapshot 三个 tracker + liveXp.restore + 强制 save 路径开始]
+  Apply -- 抛错 --> Discard2[清空 + deleteFile 返回 discarded]
+  Apply -- 成功 --> Restored[返回 restored 清 pending]
+  class Load,Fill,Ui,StartAuto,Payload,Write,Restore,Apply,Fresh,Discard1,Discard2 data
+  class QExist,QValid,QMatch,QPersist,QPending,QCont,QPlaus dec
+```
 
 ### 10.1 状态字段
 
@@ -1365,6 +1867,42 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ## 11. BoxTimer 业务流程（`app/src/main/services/BoxTimerService.ts`）
 
+### 流程图
+
+1Hz tick 的 buildState 检测冷却→就绪转换并发通知；阶段 BOSS 掉落经 `tryMarkDroppedFromLiveStage` 进入冷却（含自动启用逻辑）。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Load[构造时 load 读 box_timers.json + seedWasOnCooldown] --> Tick[1Hz tickTimer 订阅者引用计数]
+  Tick --> Build[buildState]
+  Build --> Loop[遍历 routeBoxIds]
+  Loop --> QEnabled{enabledBoxIds 包含?}
+  QEnabled -- 否 --> Skip[跳过 从 wasOnCooldown 删除]
+  QEnabled -- 是 --> Row[buildRow 计算 remaining/active/progress]
+  Row --> QExpired{!active 计时器过期?}
+  QExpired -- 是 --> Del[timers.delete + persistDirty]
+  QExpired -- 否 --> QNotif{prevOnCooldown && !active && resolveNotifyWhenReady?}
+  Del --> QNotif
+  QNotif -- 是 --> Ready[收集 onChestReady → NotificationService.showChestReady]
+  QNotif -- 否 --> Sort[rows.sort cooldown-first / ready-first]
+  Ready --> Sort
+  Sort --> Persist[persistDirty → flush]
+  Persist --> Bcast[返回 BoxTimerState 广播]
+  MarkDrop[markDropped 设置冷却] --> Commit[commitState persist + buildState + broadcast]
+  MarkDrop --> NotifyDrop[onChestDropped → NotificationService.showChestDrop]
+  LiveStage[tryMarkDroppedFromLiveStage] --> Resolve[resolveTrackedDropBoxIdForStage 候选匹配]
+  Resolve --> QAuto{无候选且匹配 canonical route?}
+  QAuto -- 是 --> AutoEnable[自动启用最高等级 box]
+  AutoEnable --> IsCooldown{已在冷却?}
+  QAuto -- 否 --> IsCooldown
+  Resolve --> IsCooldown
+  IsCooldown -- 是 --> Idempotent[幂等返回 true]
+  IsCooldown -- 否 --> MarkDrop
+  class Load,Tick,Build,Loop,Row,Del,Sort,Persist,Bcast,Commit,NotifyDrop,Resolve,AutoEnable,MarkDrop data
+  class QEnabled,QExpired,QNotif,QAuto,IsCooldown dec
+```
+
 ### 11.1 数据来源
 
 - `catalogFile = loadStageBoxCatalogFile()`：读 `data/stage_boxes.json`，含 `defaultCooldownSeconds`。
@@ -1437,6 +1975,31 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ## 12. StageRun 业务流程（`app/src/main/services/StageRunService.ts` + `app/src/core/stageRunTracker.ts`）
 
+### 流程图
+
+仅 live 路径触发：clear 事件直接记录；失败由 StageRunFailDetector 用"英雄在场下降沿"推断。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  Live[TrackingService.ingestLiveFrame] --> QClear{stageClears 非空?}
+  QClear -- 是 --> RecordClear[StageRunService.recordClear]
+  RecordClear --> Valid{stageKey > 0 && clearTimeSec > 0?}
+  Valid -- 否 --> Drop1[过滤无效]
+  Valid -- 是 --> Push[tracker.recordClear history.push cap 200]
+  Push --> Persist[persist 立即写 stage_run_history.json]
+  Persist --> Bcast[广播 IPC.STAGE_RUNS getStats]
+  Live --> FailDet[StageRunFailDetector 逐帧喂入]
+  FailDet --> QHero{英雄持续离场 ≥ WITHDRAW_CONFIRM_MS?}
+  QHero -- 是 --> QFail{本场无 clear 且峰值波次 ≥ MIN_WAVES?}
+  QFail -- 是 --> RecordFail[recordFailure stageKey + 峰值波次]
+  RecordFail --> DpsEnd[DpsTracker.onRunEnd 波次归零]
+  QFail -- 否 --> Reset[状态复位]
+  Load[构造时 load 校验 + applySnapshot 过滤] --> Stats[getStats 最近 20 条 + withStageName 重算]
+  class Live,RecordClear,Push,Persist,Bcast,FailDet,RecordFail,DpsEnd,Reset,Load,Stats data
+  class QClear,Valid,QHero,QFail dec
+```
+
 ### 12.1 触发时机
 
 `StageRunService.recordClear(stageKey, clearTimeSec, xpGained, goldGained)` 由 TrackingService 在 `ingestLiveFrame` 内检测到 `snap.stageClears.length > 0` 时通过 `onLiveStageClear` 回调调用。`StageRunService.recordFailure(stageKey, failedWave)` 由同一调用链内对"失败 run"的推断触发（见 12.3 检测规则）。两者**仅在 live memory 路径触发**，save 路径不触发（save 无 stageClears / alive 数据）。
@@ -1455,8 +2018,11 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 游戏没有失败日志类，因此失败**无法直接读取**，只能由 live memory 推断，检测逻辑收敛在 `app/src/core/stageRunFailDetector.ts`（`StageRunFailDetector`），由 `TrackingService.ingestLiveFrame` 每帧喂入：
 
 - **run 边界信号（英雄在场）**：失败判定以**部署队伍**（`StageManager.HeroList`，即 `snap.heroes` 是否非空）为 run 边界。英雄在一整场战斗中都留在场上，只在 run 结束时撤下——要么通关离开、要么失败撤走。因此"英雄从在场(`heroes.length>0`)变为不在场"的**下降沿**就是一次 run 结束。对比用场上怪数(`alive`)：英雄信号在**波间隙不会触发**（波隙时英雄始终在场上），所以**不需要"空场持多久"的时间阈值**，快速自动重开也能捕捉。
-- **判定失败**：当英雄撤离（run 结束）且本场**无 clear 事件**（`runHadClear === false`）且 run 已清波 **≥ `MIN_WAVES(2)`**（过滤"进图即退"）时，调用一次 `onLiveStageFail(stageKey, waves)`。判后状态复位，下一场独立判定。从未部署过英雄（菜单/大厅）不触发。**同一英雄下降沿也会调用 `DpsTracker.onRunEnd()`** 立即把波次归零，使失败/通关后快速自动重开时 UI 波次回落到第 1 波（旧的 `alive` 归零 2s 兜底只覆盖慢结算）。
-- **成功通关不误判**：有 clear 事件的 run 会置 `runHadClear=true`，撤离时不会判为失败；且通关后结算同样会让英雄撤下，但因已记成功记录（首次 clear 因基线差分取 0 增益也照常记录）不会重复失败。额外防御：TrackingService 在任何有效 clear 的 tick 先 `failDetector.reset()`，杜绝 clear/撤离时序抖动带来的误判。阈值 `MIN_WAVES` 为启发式可调常量，仍存在极有限误判风险（如无需 clear 就撤离的换图/退出场景）。
+- **撤场防抖（2026-09-09）**：`readParty` 会在英雄 live 经验回退 / offsets 抖动 / 场景切换时让 `heroes` 短暂为空（`null` 或空数组）。若把每个这样的下降沿都当作真实撤场，会 (a) 中途清零 `DpsTracker` 波次、(b) 记录一条**虚假失败**关卡。因此下降沿**去抖**：英雄必须持续不在场 ≥ `WITHDRAW_CONFIRM_MS`（400ms，`snap.at` 时钟）才确认撤场；窗口内恢复在场（`heroes` 复现非空）则取消待确认判定。真实撤场是持续离场（列表恒为空），不会因窗口漏检。
+- **判定失败**：当英雄**确认撤离**（run 结束）且本场**无 clear 事件**（`runHadClear === false`）且 run 峰值波次 **≥ `MIN_WAVES(2)`**（过滤"进图即退"）时，调用一次 `onLiveStageFail(stageKey, failedWave)`。`update` 现返回 `{ fail, runEnded }`（`StageRunFailJudgement`）：`fail` 仅在失败时非空、`runEnded` 在确认撤场（胜或败）时恒 true。**失败判定与撤场处理都排在该确认 tick 上、先 fail 后 `runEnded`**：`fail` 先读**峰值波次（`runMaxWaves`）**——团灭时「怪物清空 → 波次达到关卡总波数的强制重置（R4）」会在撤离前几个 tick 把 `DpsTracker` 波次清零，读瞬时值会因 `< MIN_WAVES` 静默丢弃真实关底失败（2026-09-02 修复）；随后用 `runEnded` 调 `DpsTracker.onRunEnd()` 把波次归零，使失败/通关后快速自动重开时 UI 波次回落到第 1 波。判后状态复位，下一场独立判定。从未部署过英雄（菜单/大厅）不触发。
+
+  > 旧签名返回单一 `StageRunFailResult | null` 不再成立：`onRunEnd` 必须在**任意**确认撤场（含成功通关）时触发，而不仅是失败，故拆为 `{ fail, runEnded }`。
+- **成功通关不误判**：有 clear 事件的 run 会置 `runHadClear=true`，确认撤场时不会判失败；且通关后结算同样会让英雄撤下，但因已记成功记录（首次 clear 因基线差分取 0 增益也照常记录）不会重复失败。额外防御：TrackingService 在任何有效 clear 的 tick 先 `failDetector.reset()`，且去抖窗口内若读到 clear 同样置 `runHadClear=true`，杜绝 clear/撤离时序抖动带来的误判。阈值 `MIN_WAVES` 与 `WITHDRAW_CONFIRM_MS` 为启发式可调常量，仍存在极有限误判风险（如无需 clear 就撤离的换图/退出场景）。
 
 ### 12.4 独立持久化
 
@@ -1474,6 +2040,28 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 ---
 
 ## 13. ChestService 业务流程（`app/src/main/services/ChestService.ts`）
+
+### 流程图
+
+onSave 解析 → buildChestState 聚合/容量/开箱时间 → reconcile 校准 AutoClassify → 广播。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  OnSave[ChestService.onSave text, mtime, chests 由 parseInventorySnapshot 调用] --> Purchases[parseRuneSaveData 解析 rune 购买]
+  Purchases --> Build[buildChestState chests + purchases + catalog]
+  Build --> Rows[resolveChestHoldings 按 boxType 聚合]
+  Build --> Cap[commonCapTotal / stageCapTotal / actCapTotal + runeBonusSlots]
+  Build --> Slot[boxSlotState 数量/容量/isFull/slotsRemaining]
+  Build --> AutoOpen[effectiveAutoOpenSeconds rune 减少开箱时间]
+  Rows --> State[ChestState]
+  Cap --> State
+  Slot --> State
+  AutoOpen --> State
+  State --> Reconcile[AutoClassifyService.reconcileWithChestSlots 校准队列]
+  State --> Bcast[广播 IPC.CHESTS]
+  class OnSave,Purchases,Build,Rows,Cap,Slot,AutoOpen,State,Reconcile,Bcast data
+```
 
 ### 13.1 onSave 触发
 
@@ -1504,9 +2092,59 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 - **`setOnReconcile(cb)`**：appState 装配时注入 `(slots) => autoClassify.reconcileWithChestSlots(slots)`。
 - **`getAutoOpenSeconds()`**：AutoClassifyService.handleChestDrop 时调用，返回 `{ common, stageBoss, actBoss }` 或 null（首次 save 解析前）。null 时 AutoClassify 用 FALLBACK_AUTO_OPEN = `{ common: 300, stageBoss: 600, actBoss: 60 }`。
 
+### 13.5 v1.2.2 宝箱槽位：save 侧 BoxBucketGetBoxList 路径
+
+v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除，但**未开箱子仍以普通物品形式存在于 save**：`itemSaveDatas` 中的 STAGEBOX 物品（如 `910901` Normal Monster Box Lv90），其 `UniqueId` 列在 `BoxBucketGetBoxList`（未开）/ `BoxBucketUseBoxList`（已开）。
+
+**解析**（`app/src/core/inventory/parse.ts → parseChests`）：
+1. `player.BoxData` 存在 → 走旧路径（BoxTypes × BoxQuantity）。
+2. 否则从 `playerStr` 正则提取 `BoxBucketGetBoxList` 的 bucket-id 字符串集合；`splitTopLevelObjects(itemSaveDatas)` 逐对象按原始文本取 `UniqueId`（超 `Number.MAX_SAFE_INTEGER`，**必须字符串比较**，禁止 JSON.parse 后转 number）——命中集合即为未开箱子，`type` 携带 gamedata 物品 id。
+3. 分类由调用方注入 `classifyBoxItemKey`（`InventoryService.parseFromSave` 按 gamedata `type === "STAGEBOX"` + 物品名前缀：`Normal Monster Box*`→common、`Stage Boss Box*`→rare、`Act Boss Box*`→act，`categoryFromBoxItemName` 在 `core/liveMemory/chestSlots.ts`）；分类结果写入 `ChestHolding.category/label`。
+4. `resolveChestHoldings`（`core/boxes/resolve.ts`）优先采用 holding 自带的 `category/label`，缺省回退 boxTypeCatalog（旧版本行为不变）。
+5. 分类失败的箱子仍以 unclassified 行展示（`Type <itemId>`），不静默丢弃，便于发现 gamedata 过期。
+
+历史教训：曾尝试内存侧「逐箱 BoxData 清堆枚举」兜底（方案 B，已移除）——其前提是"save 无法提供逐类数量"，实为误判；且 v1.2.2 堆中箱子对象无稳定类名（`BoxData` 不在 GA 类索引），枚举不可靠。**v1.2.2 宝箱槽位以 save 为唯一数据源**，live 快照 `chestSlots` 在 v1.2.2 下为 null，`ChestService.setLiveSlots(null)` 回落 save 派生值。
+
+另注：方案 B 曾长期静默失效的直接原因是 utilityProcess 消息未解包——`process.parentPort.on("message")` 回调收到的是事件对象 `{data: payload}`，真实载荷在 `.data` 上（`worker.ts` 已修复，"stop" 指令曾同样因此失效）。
+
 ---
 
 ## 14. AutoClassify 业务流程（`app/src/main/services/AutoClassifyService.ts`）
+
+### 流程图
+
+两条入口（live 掉落 / 开箱结果）进入 per-category 串行队列；1Hz tick 推进队列与超时处理。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  subgraph inputs [两条入口]
+    ChestDrop[chestDropTracker.onDrop] --> HandleDrop[AutoClassifyService.handleChestDrop]
+    Unclass[boxOpenTracker.onUnclassified] --> Group[groupBoxOpenEvents 按 2s gap 分组]
+    Group --> HandleEvent[processEvent]
+  end
+  HandleDrop --> Recalib[maybeRecalibrateQueue 漂移检测]
+  Recalib --> Resolve[resolveDropBoxKey common/rare/act 推断 level]
+  Resolve --> QFull{inventory full?}
+  QFull -- 是 --> AnchorPause[droppedAtMs 锚定 pauseStart]
+  QFull -- 否 --> AnchorWall[droppedAtMs = event.wallTime]
+  AnchorPause --> Enqueue[enqueue 串行链式计算 autoOpenAtMs]
+  AnchorWall --> Enqueue
+  Enqueue --> LiveSlot[liveSlots 自增]
+  HandleEvent --> Match{findBurstMatch ±15s?}
+  Match -- 是 --> Reclassify[reclassifyItem + liveSlots-- + resetSlotTimersForCategory]
+  Match -- 否 --> QEmpty{队列空?}
+  QEmpty -- 是 --> Prompt[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]
+  QEmpty -- 否 --> PendingBurst[PendingBurst 5 分钟 TTL]
+  subgraph tickLoop [1Hz tick]
+    Tick[AutoClassifyService.tick] --> QPause{inventory 满?}
+    QPause -- 是 --> Shift[shiftQueueTimes 暂停]
+    QPause -- 否 --> Decrement[autoOpenAtMs <= now 的 item liveSlots-- + WeakSet]
+    Decrement --> Prune[pruneExpired + prompt 超时 + pendingBursts TTL]
+  end
+  class ChestDrop,Unclass,Group,HandleDrop,HandleEvent,Recalib,Resolve,AnchorPause,AnchorWall,Enqueue,LiveSlot,Reclassify,Prompt,PendingBurst,Tick,Shift,Decrement,Prune data
+  class QFull,Match,QEmpty,QPause dec
+```
 
 详细规约见 [`docs/findings/auto-classify-business-logic.md`](./findings/auto-classify-business-logic.md)，本节是摘要。
 
@@ -1534,6 +2172,27 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ### 14.3 processEvent(itemKeys, burstWallTimeSec)
 
+#### 流程图
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Proc[processEvent itemKeys, burstWallTimeSec] --> QPrompt{已有 pending prompt?}
+  QPrompt -- 是 --> Accum[累加 itemKeys 不重复 broadcast return]
+  QPrompt -- 否 --> Match{findBurstMatch ±15s?}
+  Match -- Stage1 head 匹配 --> Hit[匹配成功]
+  Match -- Stage2 全队列搜索 --> Hit
+  Match -- 未匹配 --> QEmpty{队列空?}
+  QEmpty -- 是 --> Broadcast[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]
+  QEmpty -- 否 --> Pending[创建 PendingBurst 5 分钟 TTL 等下次 reconcile]
+  Hit --> Remove[从 queue 移除]
+  Remove --> Reclass[reclassifyItem 每个 itemKey]
+  Reclass --> LiveDec[liveSlots-- WeakSet 防双减]
+  LiveDec --> Reslot[resetSlotTimersForCategory 重排链式 autoOpenAtMs]
+  class Proc,Accum,Remove,Reclass,LiveDec,Reslot,Broadcast,Pending data
+  class QPrompt,Match,QEmpty dec
+```
+
 1. 若已有 pending prompt → 累加 itemKeys（不重复 broadcast），return。
 2. `burstMs = burstWallTimeSec * 1000`。
 3. `match = findBurstMatch(burstMs)`：
@@ -1550,12 +2209,39 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ### 14.4 reconcileWithChestSlots(slots) — 每次 save 解析触发
 
+#### 流程图
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  Reconcile[reconcileWithChestSlots slots] --> Recalib[maybeRecalibrateQueue]
+  Recalib --> Step1[Step1 excess-prune 队列数 > 槽位数 移除最老]
+  Step1 --> Step2{Step2 比较 liveSlots 与 save slots}
+  Step2 -- 1 category decreased --> AllBurst[所有 pending burst reclassify 到该类别 + resetSlotTimersForCategory]
+  Step2 -- 0 decreased --> Signals{信号 A excess-prune 或 信号 B save 槽位绝对值减少}
+  Signals -- 指向恰一个类别 --> Classify[归类]
+  Signals -- 多类别 真歧义 --> Wait[等待 TTL prune 仅重置 timer]
+  Step2 -- 多 category decreased --> Wait
+  Classify --> Step3[Step3 liveSlots = slots save 是 ground truth]
+  AllBurst --> Step3
+  Wait --> Step3
+  Step3 --> Step4[Step4 backfill 队列数 < 槽位数 用 placeholder 锚定]
+  Step4 --> Step5{Step5 漏掉掉落补偿 rare/act}
+  Step5 -- save 槽位增量 > 0 --> Missed[recordLiveChestDrop 补偿 + rare 时 onLiveStageBossDrop]
+  Step5 -- 否 --> Done[结束]
+  class Reconcile,Recalib,Step1,AllBurst,Classify,Wait,Step3,Step4,Missed data
+  class Step2,Signals,Step5 dec
+```
+
 1. `maybeRecalibrateQueue()`。
 2. **Step 1: excess-prune**：对每个 category，queue 数 > slot 数 → 移除最老的 `excess` 个（autoOpenAtMs 最早的，本应已开）。
-3. **Step 2: classifyPendingBursts(slots)**：比较 `liveSlots`（pre-save 实时）与 save 的 slots：
-   - 0 category decreased → 等待（TTL prune）。
-   - 1 category decreased + 1 pending burst → reclassify burst items 到该 category + resetSlotTimersForCategory。
-   - 多 category decreased（ambiguous）→ 不 reclassify，所有 category 用 earliestBurstMs + per-cat autoOpenSec 重置 timer。
+3. **Step 2: classifyPendingBursts(slots, prevSlots, prunedByCategory)**：比较 `liveSlots`（pre-save 实时）与 save 的 slots：
+   - 1 category decreased（无论 pending burst 数量）→ 把**所有** pending burst 的 items 都 reclassify 到该 category + `resetSlotTimersForCategory`（anchor = 最晚 burstMs + per-cat autoOpenSec）。**多 burst 不构成歧义**——开箱 reader 会把一次手动"开全部"按 live 帧/批次拆成多个 burst（每个帧 flush 一个），但既然只有单一类别槽位减少，这些 burst 必然全部属于该类别（2026-09-01 修复：原实现要求 pendingBursts 恰好为 1）。
+   - 0 category decreased → 用两个**无竞态的第二信号**（save 派生）兜底，二者指向**恰一个**类别才归类（多类别点亮=真歧义→等待 TTL prune）：
+     - **信号 A（excess-prune 计数）**：Step 1 中 `prunedByCategory[cat] > 0` 即"队列数>槽位数"，证明有宝箱被打开但未被 burst 消耗；
+     - **信号 B（save 槽位绝对值减少）**：`prevSlots[cat] > slots[cat]`（上次 save vs 本次 save）。
+     两者覆盖"堆积宝箱手动全开、autoOpenAtMs 早已过、1Hz tick 抢先把 liveSlots 减掉导致 delta 为 0"的场景（2026-09-02 修复：原来 delta=0 时无脑等待，burst 5 分钟 TTL prune 后物品滞留未分类）。
+   - 多 category decreased（真正歧义）→ 不 reclassify，所有 category 用 earliestBurstMs + per-cat autoOpenSec 重置 timer。
 4. **Step 3: liveSlots = {...slots}** — save 是 ground truth，覆盖实时调整。
 5. **Step 4: backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
 6. **Step 5: 漏掉掉落补偿（rare/act）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。对每个 `missedLive = Math.min(increase, deficit)` 个补偿掉落：
@@ -1592,6 +2278,40 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ## 15. Notification 业务流程（`app/src/main/services/NotificationService.ts`）
 
+### 流程图
+
+五类触发源按 kind 路由：声音类 / 系统通知类 / 仅系统通知类。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  subgraph sources [触发源]
+    S1[BoxTimerService.onChestDropped] --> M1[showChestDrop]
+    S2[BoxTimerService.onChestReady] --> M2[showChestReady]
+    S3[TrackingService.onHeroLevelUp] --> M3[showHeroLevelUp]
+    S4[InventoryService.onAlmostFull] --> M4[showInventoryAlmostFull]
+    S5[UpdateService.onUpdateAvailable] --> M5[showUpdateAvailable]
+  end
+  M1 --> QSound{通知启用且该 kind 的 pref 开启?}
+  M2 --> QSound
+  M3 --> QSound
+  QSound -- 是 --> Play[playKindSound pref.sound + volume]
+  Play --> Send[webContents.send IPC.PLAY_NOTIFICATION_SOUND]
+  QSound -- 否 --> Skip1[跳过]
+  M4 --> QOS{Notification.isSupported?}
+  QOS -- 是 --> OSNotif[new Notification → show + click 聚焦主窗口]
+  OSNotif --> Play
+  QOS -- 否 --> Skip2[跳过]
+  M5 --> QUpd{notificationsEnabled && notifyOnUpdateAvailable?}
+  QUpd -- 是 --> QDup{lastNotifiedVersion == version?}
+  QDup -- 否 --> OSNotif2[OS Notification 仅通知 无声音]
+  QDup -- 是 --> Skip3[同版本去重跳过]
+  QUpd -- 否 --> Skip4[跳过]
+  class S1,S2,S3,S4,S5,M1,M2,M3,M4,M5,Play,Send,OSNotif,OSNotif2 data
+  class QSound,QOS,QUpd,QDup dec
+  class Skip1,Skip2,Skip3,Skip4 data
+```
+
 ### 15.1 触发源
 
 | 触发源 | 方法 | 触发条件 |
@@ -1623,6 +2343,35 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 
 ## 16. Update 业务流程（`app/src/main/services/UpdateService.ts`）
 
+### 流程图
+
+状态机：checking → available → downloading → ready → error；quitAndInstall 需 phase=ready。
+
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  Start[UpdateService.start 幂等] --> Packaged{app.isPackaged?}
+  Packaged -- 否 --> Disabled[phase=disabled]
+  Packaged -- 是 --> Setup[autoDownload=false autoInstallOnAppQuit=false]
+  Setup --> Events[注册 6 个 autoUpdater 事件]
+  Events --> Timer[setTimeout 30s 后台检查]
+  Timer --> Check[checkForUpdates]
+  Check --> InFlight{in-flight 或 downloading 或 ready?}
+  InFlight -- 是 --> RetStatus[返回当前 status]
+  InFlight -- 否 --> UpCheck[autoUpdater.checkForUpdates]
+  UpCheck -- checking-for-update --> PhaseCheck[phase=checking]
+  UpCheck -- update-available --> PhaseAvail[phase=available + onUpdateAvailable 版本]
+  UpCheck -- update-not-available --> PhaseNA[phase=not-available]
+  UpCheck -- error --> Friendly[friendlyUpdateError 映射网络/GitHub/404 错误]
+  Friendly --> PhaseErr[phase=error]
+  PhaseAvail --> Download[downloadUpdate 需 phase=available]
+  Download -- download-progress --> PhaseDown[phase=downloading + percent]
+  PhaseDown -- update-downloaded --> PhaseReady[phase=ready]
+  PhaseReady --> Quit[quitAndInstall 需 phase=ready → setAppQuitting + quitAndInstall]
+  class Start,Setup,Events,Timer,Check,UpCheck,PhaseCheck,PhaseAvail,PhaseNA,PhaseErr,PhaseDown,PhaseReady,Quit,Friendly,RetStatus data
+  class Packaged,InFlight dec
+```
+
 ### 16.1 启动
 
 `start()`：幂等。`!app.isPackaged` → 设 phase="disabled" + log + return。
@@ -1649,6 +2398,27 @@ packaged 模式：
 ---
 
 ## 17. Pet 业务流程（`app/src/main/services/PetService.ts` + `app/src/core/pets/*`）
+
+### 流程图
+
+由 save 解析的 `parseInventorySnapshot` 回调触发，解析三路输入后构建 PetState 并广播。
+
+```mermaid
+%% TBH flow diagram
+flowchart TD
+  OnSave[PetService.onSave text, mtime 由 parseInventorySnapshot 调用] --> ParseRows[parsePetSaveData petKey + unlocked]
+  OnSave --> ParseKills[parseMonsterKillCounts monster → killCount]
+  OnSave --> ParseArranged[parseArrangedPetKey 当前装备宠物 key]
+  ParseRows --> Build[buildPetState catalog + saveRows + killCounts + arrangedPetKey]
+  ParseKills --> Build
+  ParseArranged --> Build
+  Build --> Resolve[resolvePetRow 区分 dlc / kills 解锁类型]
+  Resolve --> Bonus[aggregatePassiveBonuses 聚合被动加成]
+  Resolve --> Farm[expectedKillsPerClear / runsToUnlock / formatRunsMessage]
+  Bonus --> Bcast[广播 IPC.PETS]
+  Farm --> Bcast
+  class OnSave,ParseRows,ParseKills,ParseArranged,Build,Resolve,Bonus,Farm,Bcast data
+```
 
 ### 17.1 onSave 触发
 
@@ -1681,65 +2451,39 @@ packaged 模式：
 
 ## 18. 跨服务数据流总览
 
-```
-[游戏写 SaveFile_Live.es3]
-        ↓ mtime 变化
-SaveWatcher.tick (poll)
-        ↓ readAndDecrypt
-        ↓ parseSnapshot → SaveSnapshot
-        ├─→ TrackingService.onSnapshot:
-        │     ├─ detectHeroLevelUps → NotificationService.showHeroLevelUp
-        │     ├─ sessionState.tryRestoreOnSnapshot (首次)
-        │     ├─ tracker.update(snap) → XpTracker
-        │     ├─ onStageKey → BoxTimerService.setCurrentStageKey
-        │     └─ pushStats → broadcast(IPC.STATS)
-        └─→ parseInventorySnapshot(text, mtime):
-              ├─ inventory.parseFromSave → InventorySnapshot
-              │     └─ inventory.onInventory → broadcast(IPC.INVENTORY)
-              ├─ chests.onSave(text, mtime, inv.chests):
-              │     ├─ buildChestState → ChestState
-              │     ├─ reconcile → AutoClassifyService.reconcileWithChestSlots
-              │     └─ broadcast(IPC.CHESTS)
-              └─ pets.onSave(text, mtime):
-                    ├─ buildPetState → PetState
-                    └─ broadcast(IPC.PETS)
+下图聚焦**服务间关联**：方框为共享服务（label 即服务名），箭头为服务间数据流/事件流；动作级细节见第 0 章"数据流总览"及各章节流程图。本图也是交互式可视化页"全流程关联图"的数据基础。
 
-[Live Memory Worker ~25Hz]
-        ↓ LiveMemorySnapshot
-TrackingService.ingestLiveFrame
-        ├─ tracker.updateLive → XpTracker (live path)
-        ├─ dpsTracker.update
-        ├─ chestAggregator.feed → chestDropTracker.recordLiveChestDrop
-        │     └─ onDrop → AutoClassifyService.handleChestDrop
-        ├─ onLiveStageBossDrop → BoxTimerService.tryMarkDroppedFromLiveStage
-        │     └─ markDropped → onChestDropped → NotificationService.showChestDrop
-        ├─ onLiveStageClear → StageRunService.recordClear
-        │     └─ persist + broadcast(IPC.STAGE_RUNS)
-        ├─ boxOpenTracker.recordOpen (per entry)
-        │     └─ onUnclassified (microtask) → AutoClassifyService.handleUnclassifiedBatch
-        └─ pushStats (节流 200ms) → broadcast(IPC.STATS)
-
-[TrackingService 1Hz tick]
-        ├─ autoClassify.tick (queue prune + prompt timeout + inventory pause)
-        ├─ stale-frame guard (5s)
-        └─ pushStats (若未节流)
-
-[SessionStateService 15s autosave]
-        └─ persist → userData/session_state.json
-
-[BoxTimerService 1Hz tick (subscribers > 0)]
-        └─ buildState:
-              ├─ 检测 cooldown → ready 转换
-              ├─ onChestReady → NotificationService.showChestReady
-              └─ broadcast(IPC.BOX_TIMERS)
-
-[UpdateService 30s 后台检查]
-        └─ autoUpdater.checkForUpdates
-              └─ update-available → NotificationService.showUpdateAvailable
-
-[CatalogRefreshService 启动 + gameVersion 变化]
-        └─ extractCatalog + extractLocales
-              └─ reloadLocaleCatalog → 6 个服务 setLocaleCatalog
+```mermaid
+%% TBH flow diagram
+flowchart LR
+  SaveFile([SaveFile_Live.es3]) --> SaveWatcher[SaveWatcher]
+  LiveGame([TaskBarHero.exe]) --> LiveMemoryWorker[LiveMemoryWorker]
+  SaveWatcher --> TrackingService[TrackingService]
+  LiveMemoryWorker --> TrackingService
+  TrackingService --> XpTracker[XpTracker]
+  TrackingService --> DpsTracker[DpsTracker]
+  TrackingService --> ChestDropTracker[ChestDropTracker]
+  ChestDropTracker --> AutoClassifyService[AutoClassifyService]
+  TrackingService --> BoxOpenTracker[BoxOpenTracker]
+  BoxOpenTracker --> AutoClassifyService
+  TrackingService --> BoxTimerService[BoxTimerService]
+  BoxTimerService --> NotificationService[NotificationService]
+  TrackingService --> StageRunService[StageRunService]
+  TrackingService --> SessionStateService[SessionStateService]
+  TrackingService --> InventoryService[InventoryService]
+  InventoryService --> InventoryWorker[InventoryWorker]
+  TrackingService --> ChestService[ChestService]
+  ChestService --> AutoClassifyService
+  TrackingService --> PetService[PetService]
+  TrackingService --> NotificationService
+  AutoClassifyService --> NotificationService
+  SessionStateService --> Persist[写 session_state.json]
+  UpdateService[UpdateService] --> NotificationService
+  CatalogRefreshService[CatalogRefreshService] --> TrackingService
+  CatalogRefreshService --> NotificationService
+  class SaveWatcher,TrackingService,XpTracker,DpsTracker,ChestDropTracker,BoxOpenTracker,BoxTimerService,StageRunService,SessionStateService,InventoryService,InventoryWorker,ChestService,AutoClassifyService,PetService,NotificationService,UpdateService,CatalogRefreshService,LiveMemoryWorker svc
+  class SaveFile,LiveGame ext
+  class Persist data
 ```
 
 ---
@@ -1885,6 +2629,8 @@ TrackingService.ingestLiveFrame
 5. **跨文档链接**：引用其他文档时使用相对路径（如 `[auto-classify-business-logic](./findings/auto-classify-business-logic.md)`），便于离线阅读。
 6. **审计/调研文档独立**：专项审计报告（如 `docs/findings/*.md`）作为本文档的细化补充，不在本文档内重复其细节，仅给出摘要 + 链接。
 7. **`docs/agent/generated/`** 是 code-derived 自动生成清单，不手编辑；本文档是 hand-curated 业务流程单一真理源，不与 generated 重复。
+8. **mermaid 图随正文同步**：各章节的 ```` ```mermaid ```` 流程图与正文是同一流程的两种呈现，业务改动落地时必须**同步更新对应章节的图**（含节点、流向、分支），不允许只改文字。
+9. **共享服务命名契约**：跨图引用共享服务时，节点 label 必须**以 `docs/agent/scripts/build-flow-viz.mjs` 顶部 `SVC_NAMES` 注册表中的服务名开头**（如 `TrackingService.onSnapshot`），以便可视化工具据此聚合"服务参与的流程"与"跨服务关联"。**修改注册表需在同 PR 内同步所有相关图的 label，并重新生成 `docs/flow-viz/flow-viz-data.js`**（`node docs/agent/scripts/build-flow-viz.mjs`）。
 
 ---
 

@@ -518,6 +518,8 @@ export function calibratePricesWithMedian(
 export interface ParsedMarketVolumeHistory {
   /** 备份格式版本；当前恒为 1。解析时保留，供未来迁移。 */
   version?: number;
+  /** 数据入库存档时价格线的显示货币 ISO 码。缺失 = 旧格式文件，货币未知。 */
+  currency?: string;
   samples: MarketVolumeSample[];
   historyHourly: MarketVolumeHourPoint[];
   priceHistory: Record<string, PriceHistoryPoint[]>;
@@ -549,6 +551,192 @@ function isPriceHistoryPoint(pt: unknown): pt is PriceHistoryPoint {
 function isLiveVolumePoint(pt: unknown): pt is LiveVolumePoint {
   const v = pt as LiveVolumePoint;
   return !!pt && Number.isFinite(v.ts) && Number.isFinite(v.volume);
+}
+
+/**
+ * 从旧格式文件的采样记录确认「价格线货币」。旧版 `market_volume_history.json`
+ * 顶层没有 `currency` 字段，但每条 {@link MarketVolumeSample} 在写入时都记录了
+ * 当时计算交易额所用的货币（`aggregateVolume` 的 `currency` 参数）。若全部采样
+ * 的货币一致，即可确认该文件金额数据的货币（顶层价格线与采样同源、同一显示
+ * 货币），供调用方在与当前显示货币比对一致后无损保留细粒度历史。
+ *
+ * @returns 确认的货币 ISO 码；无采样、货币缺失/混杂（含新旧不同拼写）时返回 null。
+ */
+export function inferMarketVolumeCurrency(
+  samples: readonly Partial<MarketVolumeSample>[],
+): string | null {
+  let found: string | null = null;
+  for (const s of samples) {
+    const code = typeof s?.currency === "string" ? s.currency.trim().toUpperCase() : "";
+    if (!code) continue;
+    if (found == null) found = code;
+    else if (found !== code) return null; // 混杂：无法确认，保守放弃
+  }
+  return found;
+}
+
+/** 中位数（抗单点噪声）。空数组返回 NaN。 */
+function median(values: number[]): number {
+  if (values.length === 0) return NaN;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * 为「备份货币 → 当前货币」计算换算比例（把历史金额等比缩放到当前货币）。
+ *
+ * 币种不一致的导入不再直接拒绝，而是先用「现有数据」确认比例：
+ *  1. **优先 fx 汇率表**：`fx` 为 ISO → 每 1 USD 的单位数，比例 = fx(目标) / fx(来源)
+ *     （两者都有且 > 0 时最权威、最稳定）。
+ *  2. **回退用现有价格历史推算**：拿备份 `backupPriceHistory` 与当前已加载的
+ *     `currentPriceHistory` 的共同 hash，对每个 hash 取「时间戳最接近的一对点」
+ *     求价格比（当前价 / 备份价），多 hash 中位数抗噪声。
+ *  3. 二者都拿不到 → 返回 null，调用方保守拒绝导入。
+ *
+ * @param opts.from 备份货币 ISO。
+ * @param opts.to   当前显示货币 ISO。
+ * @param opts.fx   可选的图鉴汇率表（ISO → 每 1 USD 单位）。
+ * @param opts.backupPriceHistory  备份的价格历史（备份币）。
+ * @param opts.currentPriceHistory 当前内存里的价格历史（当前币）。
+ */
+export function computeConversionRate(opts: {
+  from: string;
+  to: string;
+  fx?: Readonly<Record<string, number>>;
+  backupPriceHistory?: ReadonlyMap<string, readonly PriceHistoryPoint[]>;
+  currentPriceHistory?: ReadonlyMap<string, readonly PriceHistoryPoint[]>;
+}): number | null {
+  const from = opts.from.toUpperCase();
+  const to = opts.to.toUpperCase();
+  if (!from || !to || from === to) return null;
+
+  // 1. fx 汇率表优先
+  if (opts.fx) {
+    const f = opts.fx[from];
+    const t = opts.fx[to];
+    if (
+      typeof f === "number" &&
+      Number.isFinite(f) &&
+      f > 0 &&
+      typeof t === "number" &&
+      Number.isFinite(t) &&
+      t > 0
+    ) {
+      return t / f;
+    }
+  }
+
+  // 2. 用现有价格历史推算（共同 hash、时间最接近的一对点）
+  const backup = opts.backupPriceHistory;
+  const current = opts.currentPriceHistory;
+  if (backup && current) {
+    const ratios: number[] = [];
+    for (const [hash, bp] of backup) {
+      const cp = current.get(hash);
+      if (!cp || cp.length === 0 || bp.length === 0) continue;
+      const bpLast = nearestVolumePoint(bp);
+      if (!bpLast) continue;
+      // 当前历史里找时间戳与备份最近点最接近的、有成交量的价格点
+      const curNear = nearestInTime(cp, bpLast.timestamp);
+      if (!curNear) continue;
+      const curPrice =
+        typeof curNear.price === "number" && curNear.price > 0 ? curNear.price : null;
+      const bPrice = typeof bpLast.price === "number" && bpLast.price > 0 ? bpLast.price : null;
+      if (curPrice == null || bPrice == null) continue;
+      const r = curPrice / bPrice;
+      if (Number.isFinite(r) && r > 0) ratios.push(r);
+    }
+    const m = median(ratios);
+    if (Number.isFinite(m) && m > 0) return m;
+  }
+
+  return null;
+}
+
+/** 取序列里「最近一个有成交量」的点（从末尾往回找，价格有效）。 */
+function nearestVolumePoint(
+  points: readonly PriceHistoryPoint[],
+): Pick<PriceHistoryPoint, "timestamp" | "price"> | null {
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    if (Number.isFinite(p.price) && p.price > 0) return p;
+  }
+  return null;
+}
+
+/** 在升序序列里找时间戳最接近 `targetSec` 的、价格有效的点（二分到最接近）。 */
+function nearestInTime(
+  points: readonly PriceHistoryPoint[],
+  targetSec: number,
+): Pick<PriceHistoryPoint, "timestamp" | "price"> | null {
+  if (points.length === 0) return null;
+  let lo = 0;
+  let hi = points.length - 1;
+  let best: PriceHistoryPoint | null = null;
+  let bestDist = Infinity;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const p = points[mid];
+    if (Number.isFinite(p.price) && p.price > 0) {
+      const d = Math.abs(p.timestamp - targetSec);
+      if (d < bestDist) {
+        bestDist = d;
+        best = p;
+      }
+    }
+    if (p.timestamp < targetSec) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return best;
+}
+
+/**
+ * 把导出的历史快照里全部金额字段按 `ratio` 等比缩放，得到「当前货币」下的数据。
+ * 只缩放金额：`samples[].total/byCategory`、`historyHourly[].total/byCategory`、
+ * `priceHistory[].price`、`liveHistory[].median`；成交量/数量/时间戳/size 不变。
+ * 返回新对象，不改动入参。
+ */
+export function rescaleParsedHistory(
+  parsed: ParsedMarketVolumeHistory,
+  ratio: number,
+): ParsedMarketVolumeHistory {
+  if (!Number.isFinite(ratio) || ratio <= 0) return parsed;
+  const samples = parsed.samples.map((s) => ({
+    ...s,
+    total: s.total * ratio,
+    byCategory: rescaleRecord(s.byCategory, ratio) ?? {},
+  }));
+  const historyHourly = parsed.historyHourly.map((h) => ({
+    ...h,
+    total: h.total * ratio,
+    byCategory: rescaleRecord(h.byCategory, ratio),
+  }));
+  const priceHistory: Record<string, PriceHistoryPoint[]> = {};
+  for (const [hash, pts] of Object.entries(parsed.priceHistory)) {
+    priceHistory[hash] = pts.map((p) => ({ ...p, price: p.price * ratio }));
+  }
+  let liveHistory: ParsedMarketVolumeHistory["liveHistory"];
+  if (parsed.liveHistory) {
+    liveHistory = {};
+    for (const [hash, pts] of Object.entries(parsed.liveHistory)) {
+      liveHistory[hash] = pts.map((p) => ({
+        ...p,
+        median: p.median == null ? null : p.median * ratio,
+      }));
+    }
+  }
+  return { ...parsed, samples, historyHourly, priceHistory, liveHistory };
+}
+
+function rescaleRecord(
+  rec: Record<string, number> | undefined,
+  ratio: number,
+): Record<string, number> | undefined {
+  if (!rec) return rec;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rec)) out[k] = v * ratio;
+  return out;
 }
 
 /**
@@ -599,6 +787,9 @@ export function parseMarketVolumeHistory(raw: unknown): ParsedMarketVolumeHistor
     result.liveHistory = liveHistory;
   }
   if (typeof p.version === "number") result.version = p.version;
+  if (typeof p.currency === "string" && p.currency.trim().length > 0) {
+    result.currency = p.currency.trim();
+  }
   if (typeof p.historyFetchedAtMs === "number") result.historyFetchedAtMs = p.historyFetchedAtMs;
   if (p.lastRefreshAt && typeof p.lastRefreshAt === "object") {
     const lastRefreshAt: Record<string, number> = {};

@@ -71,10 +71,15 @@ export class TrackingService {
   private stageEventBaseline: { xp: number; gold: number } | null = null;
   /** Last stage seen in a live frame — used to detect stage/wave changes for per-map DPS. */
   private lastLiveStage: { stageKey: number; stageWave: number } | null = null;
+  /**
+   * Whether the wave counter has been seeded from the save's static wave on
+   * the first live frame of this tracking session. Seeding happens exactly
+   * once per attach (see `ingestLiveFrame`): on later stage changes the
+   * counter is already tracking the run from its start and must count from 1.
+   */
+  private waveSeeded = false;
   /** Heuristic stage-run failure detector (see `core/stageRunFailDetector.ts`). */
   private readonly failDetector = new StageRunFailDetector();
-  /** Previous tick's deployed-party presence (used to reset DPS waves on run end). */
-  private lastHeroesPresent = false;
   private lastError: string | null = null;
   private config!: AppConfig;
   private restoreApplied = false;
@@ -203,8 +208,8 @@ export class TrackingService {
     this.dpsTracker = new DpsTracker();
     this.stageEventBaseline = null;
     this.lastLiveStage = null;
+    this.waveSeeded = false;
     this.failDetector.reset();
-    this.lastHeroesPresent = false;
     if (config.logHistoryCsv) {
       this.tracker.onHistory = makeHistoryLogger();
     }
@@ -674,6 +679,8 @@ export class TrackingService {
    */
   onLiveMemoryToggled(): void {
     this.lastLiveFrame = null;
+    this.lastLiveStage = null;
+    this.waveSeeded = false;
     this.tracker.reset();
     this.chestDropTracker.reset();
     this.chestAggregator.reset();
@@ -741,6 +748,31 @@ export class TrackingService {
     if (stageChanged) {
       this.dpsTracker.beginMap();
       this.lastLiveStage = { stageKey, stageWave };
+      // First live frame of a tracking session while a run is already in
+      // progress (mid-run attach / app restart): without a seed the wave
+      // detector counts from wave 1 and would show a wrong "1/N" until the
+      // next stage change. The save snapshot's static wave is the best
+      // available baseline — seed the counter with it ONCE per attach; later
+      // stage changes must keep counting from 1 (the counter then tracked
+      // the run start). See `DpsTracker.seedStageWave`.
+      //
+      // NOTE: the first live frame (~40 ms after attach) usually lands BEFORE
+      // the first save read (5s watcher poll), so `lastSnap` is often still
+      // null here. On that miss the seed is NOT dropped — `waveSeeded` stays
+      // false and the retry runs in the save watcher's onSnapshot once the
+      // first snapshot arrives.
+      if (!this.waveSeeded) {
+        const saveWave = this.lastSnap?.stageWave ?? 0;
+        if (saveWave > 0) {
+          this.dpsTracker.seedStageWave(saveWave);
+          this.waveSeeded = true;
+          log.info(
+            `wave: seeded from save stage wave ${saveWave} (mid-run attach on first live frame)`,
+          );
+        } else {
+          log.info("wave: no save stage wave yet — deferring seed to first save read");
+        }
+      }
     }
 
     // DPS / Damage / Mobs tracking from monster HP data (address-based, per tbh-meter).
@@ -869,25 +901,28 @@ export class TrackingService {
     // threshold is needed and fast auto-retries are caught naturally.
     const hadClear = !!(snap.stageClears && snap.stageClears.some((c) => c.valid));
     // A clear definitively means the run WON, so it cancels any pending failure
-    // judgement (defensive against clear/party ordering jitter).
+    // judgement (defensive against clear/party ordering jitter). The detector
+    // also refuses to fail a run that saw a clear inside its confirm window.
     if (hadClear) this.failDetector.reset();
     const heroesPresent = !!(snap.heroes && snap.heroes.length > 0);
     const feedStageKey = snap.stageKey ?? this.lastLiveStage?.stageKey ?? 0;
-    // Judge the run end FIRST (its failedWave reads the pre-reset wave count),
-    // then reset the wave counter so a fast auto-retry starts at wave 1 again.
-    const fail = this.failDetector.update(
+    // Debounce against dirty reads: a single tick whose hero list reads blank
+    // (hero-exp rollback / offset bounce) must NOT be mistaken for a withdrawal,
+    // otherwise it would zero the wave counter mid-run and record a phantom
+    // failed stage. `update` only reports a run end once the party has been
+    // absent for a sustained confirm window, so both `fail` (failure only) and
+    // `runEnded` (clear or defeat) land on the confirmed tick together. Judge
+    // the failure FIRST so its `failedWave` reads the pre-reset wave count, then
+    // reset the wave counter so a fast auto-retry starts at wave 1 again.
+    const judgement = this.failDetector.update(
       heroesPresent,
       hadClear,
       feedStageKey,
       this.dpsTracker.currentWave,
+      snap.at,
     );
-    if (fail) this.onLiveStageFail?.(fail.stageKey, fail.failedWave);
-    // Run boundary: when the deployed party withdraws (clear or defeat), reset
-    // the DpsTracker wave counter so the next run is back at wave 1 (the
-    // alive-based fallback only fires after alive stays 0 for ~2s, which a slow
-    // resume also covers; a fast auto-retry would otherwise keep accumulating).
-    if (this.lastHeroesPresent && !heroesPresent) this.dpsTracker.onRunEnd();
-    this.lastHeroesPresent = heroesPresent;
+    if (judgement.fail) this.onLiveStageFail?.(judgement.fail.stageKey, judgement.fail.failedWave);
+    if (judgement.runEnded) this.dpsTracker.onRunEnd();
 
     // Wave-total run-end catch. When the alive-monster count drops to 0 while
     // the wave counter has reached the stage's total wave count, the run's last
@@ -954,6 +989,21 @@ export class TrackingService {
         }
         this.lastSnap = snap;
         this.lastError = null;
+        // Wave-seed retry (mid-run attach): the first live frame usually
+        // arrives before the first save read, so `ingestLiveFrame` deferred the
+        // seed. Once a snapshot is available and live tracking has started
+        // (`lastLiveStage` set by the first live frame's beginMap), seed the
+        // wave counter here — later polls skip this because `waveSeeded` is
+        // already true. A stale wave in the snapshot (written a few seconds
+        // ago) only costs the 1–2 waves cleared since attach, far better than
+        // counting from wave 1 for the whole run.
+        if (!this.waveSeeded && this.lastLiveStage != null && snap.stageWave > 0) {
+          this.dpsTracker.seedStageWave(snap.stageWave);
+          this.waveSeeded = true;
+          log.info(
+            `wave: seeded from save stage wave ${snap.stageWave} (first save read after attach)`,
+          );
+        }
         if (!this.restoreApplied && this.sessionState) {
           this.sessionState.tryRestoreOnSnapshot(
             this.tracker,

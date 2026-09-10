@@ -109,6 +109,25 @@ export class LookupPriceService {
     this.onSnapshotUpdated?.(snapshot);
   }
 
+  /**
+   * 显示货币切换时清空本地 polling 写入的价格字段（pricesLocal/medianLocal/
+   * buyOrderLocal/localCurrency）。
+   *
+   * 这些字段以「抓取时的显示货币」计价，切换货币后未经新货币覆盖的 hash 仍残留
+   * 旧币数值，却会随快照级 `localCurrency` 更新而被当作新币展示。清空后图鉴价格
+   * 统一回退到 CI 快照 USD × fx 换汇（任意货币下都正确），下一次 polling cycle
+   * 会以新货币重新抓取并回填。仅改动内存快照并广播，不落盘（磁盘上保持 CI 纯净）。
+   */
+  clearLocalFields(): void {
+    const cur = this.snapshot;
+    if (!cur) return;
+    const { pricesLocal, medianLocal, buyOrderLocal, localCurrency, ...rest } = cur;
+    if (!pricesLocal && !medianLocal && !buyOrderLocal && !localCurrency) return;
+    this.snapshot = rest;
+    this.broadcastFn(IPC.LOOKUP_PRICES, rest);
+    this.onSnapshotUpdated?.(rest);
+  }
+
   /** Re-read the cache after a Settings clear (file deleted → snapshot null). */
   reloadFromDisk(): void {
     this.etag = null;

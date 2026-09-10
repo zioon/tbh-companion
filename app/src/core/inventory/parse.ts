@@ -8,6 +8,7 @@ import type {
   ChestHolding,
   InventorySnapshot,
   ItemLocation,
+  BoxCategory,
 } from "../../../shared/types";
 
 function toNum(v: unknown, fallback = 0): number {
@@ -253,17 +254,41 @@ function parseItemsFromPlayerObject(player: Record<string, unknown>): {
   };
 }
 
-function parseChests(player: Record<string, unknown> | undefined): ChestHolding[] {
+function parseChests(
+  player: Record<string, unknown> | undefined,
+  playerStr?: string | null,
+  classifyBoxItemKey?: (itemKey: number) => { category: BoxCategory; label: string } | null,
+): ChestHolding[] {
   const chests: ChestHolding[] = [];
   if (!player) return chests;
   const box = player.BoxData as Record<string, unknown> | undefined;
-  if (!box || typeof box !== "object") return chests;
-  const types = Array.isArray(box.BoxTypes) ? (box.BoxTypes as unknown[]) : [];
-  const quantities = Array.isArray(box.BoxQuantity) ? (box.BoxQuantity as unknown[]) : [];
-  for (let i = 0; i < types.length; i++) {
-    const quantity = Math.trunc(toNum(quantities[i], 0));
-    if (quantity <= 0) continue;
-    chests.push({ type: Math.trunc(toNum(types[i], 0)), quantity });
+  if (box && typeof box === "object") {
+    const types = Array.isArray(box.BoxTypes) ? (box.BoxTypes as unknown[]) : [];
+    const quantities = Array.isArray(box.BoxQuantity) ? (box.BoxQuantity as unknown[]) : [];
+    for (let i = 0; i < types.length; i++) {
+      const quantity = Math.trunc(toNum(quantities[i], 0));
+      if (quantity <= 0) continue;
+      chests.push({ type: Math.trunc(toNum(types[i], 0)), quantity });
+    }
+    return chests;
+  }
+  // v1.2.2+：BoxData 被移除，未开箱子以普通物品形式存在于 itemSaveDatas，
+  // 其 UniqueId 列在 BoxBucketGetBoxList。UniqueId 超 Number.MAX_SAFE_INTEGER，
+  // 必须走原始文本（playerStr）按字符串比较，与 parseItemsFromPlayerString 同理。
+  if (!playerStr) return chests;
+  const bucketMatch = /"BoxBucketGetBoxList"\s*:\s*\[([^\]]*)\]/.exec(playerStr);
+  if (!bucketMatch) return chests;
+  const unopenedIds = new Set(bucketMatch[1]!.match(/\d+/g) ?? []);
+  if (unopenedIds.size === 0) return chests;
+  const arr = sliceJsonArray(playerStr, '"itemSaveDatas":');
+  for (const objText of splitTopLevelObjects(arr)) {
+    const uniqueId = extractRawNumberText(objText, "UniqueId");
+    if (uniqueId == null || !unopenedIds.has(uniqueId)) continue;
+    const itemKeyText = extractRawNumberText(objText, "ItemKey");
+    if (itemKeyText === null) continue;
+    const itemKey = Math.trunc(Number(itemKeyText));
+    const meta = classifyBoxItemKey?.(itemKey) ?? null;
+    chests.push({ type: itemKey, quantity: 1, category: meta?.category, label: meta?.label });
   }
   return chests;
 }
@@ -272,6 +297,7 @@ export function parseInventory(
   decryptedText: string,
   saveMtime = 0,
   isMaterialItemKey?: (itemKey: number) => boolean,
+  classifyBoxItemKey?: (itemKey: number) => { category: BoxCategory; label: string } | null,
 ): InventorySnapshot {
   const root = JSON.parse(decryptedText) as Record<string, unknown>;
   const playerEntry = root?.PlayerSaveData as { value?: unknown } | undefined;
@@ -286,7 +312,7 @@ export function parseInventory(
     ({ items, marketPipelineOnlyCatalogKeys } = parseItemsFromPlayerObject(player));
   }
 
-  const chests = parseChests(player);
+  const chests = parseChests(player, playerStr, classifyBoxItemKey);
   let materialStacks: Map<number, number> | undefined;
   if (isMaterialItemKey) {
     materialStacks = materialStacksFromAggregates(parseAggregateEntries(player), isMaterialItemKey);

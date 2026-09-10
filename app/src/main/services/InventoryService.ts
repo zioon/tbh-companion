@@ -4,6 +4,7 @@ import { ownedPriceTargets, ownedPriceTargetForItem, parseInventory } from "../.
 import { flattenOwnedHashes } from "../../core/inventory/ownedPriceTargets";
 import { getTbhMarketFeeRates } from "../../core/steamMarketFeeBundled";
 import { isPlaceholderItemName } from "../../core/marketName";
+import { categoryFromBoxItemName } from "../../core/liveMemory/chestSlots";
 import { lookupItemIndex } from "../../core/lookup/catalog";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 import { gameItemName, type GameItem } from "../../core/gamedata";
@@ -417,7 +418,19 @@ export class InventoryService {
   }
 
   parseFromSave(text: string, mtime: number): InventorySnapshot {
-    return parseInventory(text, mtime, (key) => this.gameData.get(key)?.type === "MATERIAL");
+    return parseInventory(
+      text,
+      mtime,
+      (key) => this.gameData.get(key)?.type === "MATERIAL",
+      // v1.2.2+：未开箱子是 itemSaveDatas 里的 STAGEBOX 物品（见 parseChests）。
+      // 按 gamedata 物品名前缀归类（Normal Monster Box→common 等）。
+      (key) => {
+        const item = this.gameData.get(key);
+        if (!item || item.type !== "STAGEBOX") return null;
+        const category = categoryFromBoxItemName(item.name);
+        return category ? { category, label: item.name } : null;
+      },
+    );
   }
 
   getInventory(): ResolvedInventory | null {

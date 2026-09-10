@@ -7,6 +7,7 @@ import {
   readRuntimeStageClears,
   readRuntimeBoxOpenLog,
   peekBoxOpenLogCount,
+  peekGetBoxLogCount,
   readRuntimeInventory,
   readRuntimePets,
   readRuntimeMonsterHp,
@@ -465,6 +466,49 @@ function seedLogChain(m: FakeMemory, monsterTypes: number[]): FakeMemory {
   }
   return m;
 }
+
+describe("peekGetBoxLogCount", () => {
+  it("returns null when logManager RVA is 0 (not derived for this version)", () => {
+    const peek = peekGetBoxLogCount(
+      new FakeMemory(),
+      GA_BASE,
+      GA_SIZE,
+      O, // unpatched: logManager RVA = 0n
+      makeChestLogPinState(),
+    );
+    expect(peek).toBeNull();
+  });
+
+  it("returns null when the log manager can't be resolved (no battle yet)", () => {
+    const peek = peekGetBoxLogCount(
+      new FakeMemory(), // empty heap: no LogManager instance to scan
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      makeChestLogPinState(),
+    );
+    expect(peek).toBeNull();
+  });
+
+  it("returns the current GetBox entry count without scanning or updating the tail", () => {
+    const pin = makeChestLogPinState();
+    const m = seedLogChain(new FakeMemory(), [0, 1, 2]);
+    expect(peekGetBoxLogCount(m, GA_BASE, GA_SIZE, LOG_O, pin)).toBe(3);
+    // A cheap probe must not advance the tail or park anything for settle —
+    // those are owned by readRuntimeChestLog.
+    expect(pin.lastCount).toBe(0);
+    expect(pin.pendingIdx).toBeNull();
+    expect(pin.retryFrom).toBeNull();
+  });
+
+  it("observes a count increase via a later probe", () => {
+    const pin = makeChestLogPinState();
+    const m = seedLogChain(new FakeMemory(), [0]);
+    expect(peekGetBoxLogCount(m, GA_BASE, GA_SIZE, LOG_O, pin)).toBe(1);
+    seedLogChain(m, [0, 1, 2]); // drops appended
+    expect(peekGetBoxLogCount(m, GA_BASE, GA_SIZE, LOG_O, pin)).toBe(3);
+  });
+});
 
 describe("readRuntimeChestLog", () => {
   it("returns null when logManager RVA is 0 (not derived for this version)", () => {
@@ -1028,13 +1072,15 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(result.opens![0].itemKey).toBe(530018);
   });
 
-  it("drops an entry whose itemKey stays null across all samples", () => {
-    // Slot is allocated but itemKey never becomes valid (e.g. the game's
-    // write was preempted). After BOX_OPEN_LOG_SAMPLES samples, the entry
-    // is dropped — no entry surfaces, but the tail still advances.
+  it("parks the tail on a mid-write entry instead of dropping it permanently", () => {
+    // Slot is allocated but itemKey never becomes valid this tick (e.g. the
+    // game's write was preempted — the classic FIRST item of an open-burst).
+    // After BOX_OPEN_LOG_SAMPLES samples the tail is PARKED at the failing
+    // index (lastCount does NOT advance) so the next tick can re-read it,
+    // instead of the entry being dropped permanently.
     const pin = makeBoxOpenPinState();
     const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
-    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
 
     // Append a phantom slot: pointer is null (unreadable). All 3 samples fail.
     const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
@@ -1042,8 +1088,68 @@ describe("readRuntimeBoxOpenLog", () => {
     m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 2);
 
     const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
-    expect(result.opens).toEqual([]); // phantom slot dropped
-    expect(pin.lastCount).toBe(2); // tail still advances past the bad slot
+    expect(result.opens).toEqual([]); // nothing decodes this tick
+    expect(pin.lastCount).toBe(1); // tail parked — NOT advanced past the bad slot
+    expect(pin.retryFrom).toBe(1); // next tick re-reads index 1
+    expect(result.debug?.retryFrom).toBe(1);
+  });
+
+  it("recovers a parked mid-write entry on the next tick", () => {
+    // First tick sees a mid-write slot (itemKey still 0) and parks the tail.
+    // The writer then commits; the next tick re-reads from retryFrom and
+    // surfaces the entry — the "first item of a multi-box open" survives.
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
+
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+    const newEntry = 0xb70000n;
+    m.writePtr(first + 8n, newEntry);
+    m.writeI32(newEntry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 0); // mid-write
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 2);
+
+    const r1 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r1.opens).toEqual([]);
+    expect(pin.retryFrom).toBe(1);
+    expect(pin.retryConsecutive).toBe(1);
+
+    // Writer commits itemKey; next tick recovers the parked entry.
+    m.writeI32(newEntry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 530018);
+    const r2 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r2.opens).toHaveLength(1);
+    expect(r2.opens![0].itemKey).toBe(530018);
+    expect(pin.lastCount).toBe(2);
+    expect(pin.retryFrom).toBeNull();
+  });
+
+  it("force-skips a permanently corrupt entry after MAX retries to avoid a wedged tail", () => {
+    // The same entry fails to decode across MAX_BOX_OPEN_LOG_RETRIES ticks —
+    // a genuinely corrupt slot. The tail must eventually skip it (and keep
+    // moving) rather than wedge forever.
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
+
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+    m.writePtr(first + 8n, 0n); // permanently unreadable slot
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 2);
+
+    // Tick #1: park (consecutive=1).
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(pin.retryFrom).toBe(1);
+    expect(pin.retryConsecutive).toBe(1);
+    // Tick #2: park again (consecutive=2).
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(pin.retryConsecutive).toBe(2);
+    // Tick #3: park again (consecutive=3).
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(pin.retryConsecutive).toBe(3);
+    // Tick #4: consecutive exceeds MAX (3) → force-skip, tail advances.
+    const r = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r.opens).toEqual([]);
+    expect(pin.lastCount).toBe(2);
+    expect(pin.retryFrom).toBeNull();
+    expect(pin.retryConsecutive).toBe(0);
   });
 
   // Regression: v1.00.28 stores itemStringKey as a System.String pointer.

@@ -71,7 +71,9 @@ PlayerSaveData.value (nested JSON string) ->
                      IsServerPendingItem, EnchantCount[3], EnchantData[6], ... },
                    ... ]                            # master list of instances
                                                    # (field order: see note below)
-  BoxData: { BoxTypes[], BoxUniqueId[], BoxQuantity[] }  # held (unopened) chests
+  BoxData: { BoxTypes[], BoxUniqueId[], BoxQuantity[] }  # held (unopened) chests (removed in v1.2.2)
+  BoxBucketGetBoxList: string[]   # v1.2.2+: UniqueIds of UNOPENED chests (into itemSaveDatas)
+  BoxBucketUseBoxList: string[]   # v1.2.2+: UniqueIds of already-opened chests
   aggregateSaveDatas: [ { Type, SubKey, Value }, ... ]   # lifetime counters
   PetSaveData: [ { PetKey, IsUnlock, IsViewed }, ... ]   # companion unlock state
 ```
@@ -117,6 +119,13 @@ formation (passives apply whether equipped or not).
   (`BoxTypes[i]`, `BoxQuantity[i]`). Opened stage-box instances also appear in
   `itemSaveDatas` at `910xxx` / `920xxx` / `930xxx` ItemKeys (see
   `docs/findings/item-mapping.md`).
+  **v1.2.2 removed `BoxData`**: unopened chests are ordinary STAGEBOX entries in
+  `itemSaveDatas` whose `UniqueId` is listed in `BoxBucketGetBoxList`
+  (`BoxBucketUseBoxList` = already opened). Classify by `ItemKey` → gamedata
+  name prefix (`Normal Monster Box*`→common, `Stage Boss Box*`→rare,
+  `Act Boss Box*`→act). Parser: `core/inventory/parse.ts:parseChests`
+  (string-exact `UniqueId` match per the precision warning above). History:
+  `docs/findings/v1.2.2-box-data-migration.md`.
 - **`aggregateSaveDatas`** are lifetime counters `{ Type, SubKey, Value }`.
   Type `0` rows with mappable SubKeys supplement **material stack counts** (see
   `core/inventory/aggregates.ts`). Many SubKeys (e.g. `10021`) are still undecoded.

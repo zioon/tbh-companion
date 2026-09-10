@@ -88,13 +88,19 @@
 - `liveSlots[cat] > saveSlots[cat]` → 该 category 有 chest 被打开（live 比 save 多，因为 drop 时 ++ 但 open 没有匹配到 slot 来 --）
 
 ### 5.4 分类规则
-1. **单一 slot 减少 + 单一 pending burst**：
-   - 分类 burst 到该 category（reclassify items）
-   - 重置该 slots 倒计时（anchor = `burstMs + autoOpenSec`，即新 head 的 autoOpenAtMs）
-2. **多个 slots 减少（兜底）**：
+1. **单一 slot 减少（无论 pending burst 数量）**：
+   - 分类**所有** pending burst 到该 category（reclassify items）
+   - 重置该 slots 倒计时（anchor = 最晚 burstMs + autoOpenSec，即新 head 的 autoOpenAtMs）
+   - 说明：开箱 reader 会把一次手动"开全部"按 live 帧/批次拆成多个 burst，但只要只有单一类别槽位减少，这些 burst 必然全部属于该类别——多 burst 不构成歧义（2026-09-01 修复，原实现要求恰好 1 个 burst）。
+2. **无 slot 减少（liveSlots delta = 0）**：
+   - 用两个无竞态的第二信号兜底（2026-09-02 新增）：
+     - 信号 A：excess-prune 计数（queue > slots 证明有宝箱被打开但未被 burst 消耗）；
+     - 信号 B：save 槽位绝对值减少（prevSlots > slots）。
+   - 二者指向**恰一个**类别 → 归类所有 pending burst 到该类别；多类别点亮或无信号 → 保留等待（TTL pruning）。
+3. **多个 slots 减少（兜底）**：
    - burst 留在未分类（不 reclassify）
    - 重置所有 slots 倒计时（anchor = 最早 burst 的 `burstMs + per-cat autoOpenSec`）
-3. **无 slot 减少**：
+4. **无 slot 减少且无第二信号**：
    - pending bursts 保留（等待 TTL pruning）
 
 ### 5.5 后续处理

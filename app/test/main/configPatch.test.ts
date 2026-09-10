@@ -517,4 +517,64 @@ describe("applyConfigPatch", () => {
     expect(applyConfigPatch(deps, undefined as unknown as Partial<AppConfig>)).toEqual(prev);
     expect(saveConfig).not.toHaveBeenCalled();
   });
+
+  it("calls onCurrencyChanged and clearLookupLocalFields when currency actually changes", () => {
+    let cfg = baseConfig();
+    const onCurrencyChanged = vi.fn();
+    const clearLookupLocalFields = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        onCurrencyChanged,
+        clearLookupLocalFields,
+      },
+      { currency: "BRL" },
+    );
+
+    expect(onCurrencyChanged).toHaveBeenCalledTimes(1);
+    expect(clearLookupLocalFields).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips the currency cleanup callbacks when the submitted currency is unchanged", () => {
+    let cfg = baseConfig();
+    const onCurrencyChanged = vi.fn();
+    const clearLookupLocalFields = vi.fn();
+
+    applyConfigPatch(
+      {
+        getConfig: () => cfg,
+        setConfig: (c) => {
+          cfg = c;
+        },
+        saveConfig: vi.fn(),
+        getTracker: () => new XpTracker(300),
+        setTracker: vi.fn(),
+        getMarket: () => ({ setCurrency: vi.fn() }) as never,
+        restartWatcher: vi.fn(),
+        setAlwaysOnTop: vi.fn(),
+        pushStats: vi.fn(),
+        resolveAndPushInventory: vi.fn(),
+        ensureOwnedPrices: vi.fn(),
+        onCurrencyChanged,
+        clearLookupLocalFields,
+      },
+      { currency: "usd" },
+    );
+
+    expect(onCurrencyChanged).not.toHaveBeenCalled();
+    expect(clearLookupLocalFields).not.toHaveBeenCalled();
+  });
 });

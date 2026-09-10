@@ -35,10 +35,18 @@ export {
   commonBoxState,
 } from "./capacity";
 
-function aggregateHoldings(chests: ChestHolding[]): Map<number, number> {
-  const byType = new Map<number, number>();
-  for (const { type, quantity } of chests) {
-    byType.set(type, (byType.get(type) ?? 0) + quantity);
+function aggregateHoldings(chests: ChestHolding[]): Map<number, ChestHolding> {
+  const byType = new Map<number, ChestHolding>();
+  for (const c of chests) {
+    const prev = byType.get(c.type);
+    if (prev) {
+      prev.quantity += c.quantity;
+      // 同 type 的分类/标签一致，保留首个非空值即可。
+      prev.category ??= c.category;
+      prev.label ??= c.label;
+    } else {
+      byType.set(c.type, { ...c });
+    }
   }
   return byType;
 }
@@ -51,13 +59,16 @@ export function resolveChestHoldings(
   const byType = aggregateHoldings(chests.filter((c) => c.quantity > 0));
   const rows: ResolvedChestRow[] = [];
 
-  for (const [boxType, quantity] of byType) {
+  for (const [boxType, holding] of byType) {
     const meta = index.get(boxType);
     rows.push({
       boxType,
-      label: meta?.label ?? `Type ${boxType}`,
-      category: meta?.category ?? "unclassified",
-      quantity,
+      // v1.2.2+：holding 自带分类/标签（save 解析时按 gamedata 物品名前缀
+      // 分类），优先于 boxTypeCatalog 查找——此时 boxType 是 gamedata 物品
+      // id，不在 boxTypeCatalog 中。
+      label: holding.label ?? meta?.label ?? `Type ${boxType}`,
+      category: holding.category ?? meta?.category ?? "unclassified",
+      quantity: holding.quantity,
     });
   }
 

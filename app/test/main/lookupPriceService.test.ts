@@ -151,3 +151,60 @@ describe("LookupPriceService.reloadFromDisk", () => {
     expect(broadcasts[1]).toEqual({ channel: IPC.LOOKUP_PRICES, payload: null });
   });
 });
+
+describe("LookupPriceService.clearLocalFields", () => {
+  it("清空 polling 本地价格字段并广播（保留 CI 的 prices/fx/fetchedUtc）", () => {
+    const broadcasts: Array<{ channel: string; payload: unknown }> = [];
+    const service = new LookupPriceService({
+      cacheFilePath: () => file,
+      broadcastFn: (channel, payload) => broadcasts.push({ channel, payload }),
+    });
+    service.replaceSnapshot({
+      ...snapshot("x"),
+      pricesLocal: { A: 12.3 },
+      medianLocal: { A: 12 },
+      buyOrderLocal: { A: 11 },
+      localCurrency: "CNY",
+      fetchedUtc: { A: "2026-08-01T00:00:00Z" },
+    });
+    broadcasts.length = 0;
+
+    service.clearLocalFields();
+    const cur = service.getSnapshot();
+    expect(cur).not.toBeNull();
+    expect(cur!.pricesLocal).toBeUndefined();
+    expect(cur!.medianLocal).toBeUndefined();
+    expect(cur!.buyOrderLocal).toBeUndefined();
+    expect(cur!.localCurrency).toBeUndefined();
+    // CI 数据保留：图鉴价格回退 USD × fx 换汇
+    expect(cur!.prices).toEqual({ A: 1 });
+    expect(cur!.fx).toEqual({ USD: 1, BRL: 5 });
+    expect(cur!.fetchedUtc).toEqual({ A: "2026-08-01T00:00:00Z" });
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0].channel).toBe(IPC.LOOKUP_PRICES);
+  });
+
+  it("无本地字段时 no-op（不广播）", () => {
+    const broadcasts: Array<{ channel: string; payload: unknown }> = [];
+    const service = new LookupPriceService({
+      cacheFilePath: () => file,
+      broadcastFn: (channel, payload) => broadcasts.push({ channel, payload }),
+    });
+    service.replaceSnapshot(snapshot("x"));
+    broadcasts.length = 0;
+
+    service.clearLocalFields();
+    expect(broadcasts).toHaveLength(0);
+    expect(service.getSnapshot()?.prices).toEqual({ A: 1 });
+  });
+
+  it("快照为空时 no-op", () => {
+    const service = new LookupPriceService({
+      cacheFilePath: () => file,
+      broadcastFn: () => {
+        throw new Error("should not broadcast");
+      },
+    });
+    expect(() => service.clearLocalFields()).not.toThrow();
+  });
+});

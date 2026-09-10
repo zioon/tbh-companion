@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ResolvedInventory } from "../../../shared/types";
+import type { LookupItem, ResolvedInventory } from "../../../shared/types";
 import { handleNotificationSoundPayload } from "../lib/notificationSounds";
 import { ensureMarketVolumeRefreshSubscription } from "../lib/marketVolumeRefreshStore";
 import { reportIpcError } from "../lib/reportError";
 import { useCatalogStatus } from "../lib/useCatalogStatus";
-import { initRendererI18n } from "../i18n";
+import { initRendererI18n, i18next } from "../i18n";
 import { TbhContext } from "./tbhContext";
 
 export function TbhProvider({ children }: { children: ReactNode }) {
   const [inventory, setInventory] = useState<ResolvedInventory | null>(null);
+  const [lookupCatalog, setLookupCatalog] = useState<LookupItem[] | null>(null);
   const [i18nReady, setI18nReady] = useState(false);
   const { status: catalogStatus, refresh: refreshCatalog } = useCatalogStatus();
 
@@ -61,13 +62,42 @@ export function TbhProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // 应用启动即预取一次图鉴目录，供所有标签页共享；语言切换时重新拉取
+  // 本地化名称。集中在这里预取，使 Inventory/Loot 等页挂载时目录通常已
+  // 就绪 —— 它们的行可以一次渲染出「图标 + 正确品质色」，而不是先渲染
+  // 灰点占位、等目录到达后再整体刷新一遍。
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchCatalog = (): void => {
+      void window.tbh
+        .getLookupCatalog()
+        .then((catalog) => {
+          if (mounted) setLookupCatalog(catalog);
+        })
+        .catch(reportIpcError);
+    };
+
+    fetchCatalog();
+    // 语言切换事件由 Settings 页触发。主进程在 savePartial 之后才会应用
+    // 新语言（LookupService.setLocaleCatalog），因此监听器里同一事件循环
+    // 内发起的 fetch 拿到的是新语言的目录（见 Settings.tsx 的时序注释）。
+    const onLanguageChanged = (): void => fetchCatalog();
+    i18next.on("languageChanged", onLanguageChanged);
+    return () => {
+      mounted = false;
+      i18next.off("languageChanged", onLanguageChanged);
+    };
+  }, []);
+
   const value = useMemo(
     () => ({
       inventory,
       catalogStatus,
       refreshCatalog,
+      lookupCatalog,
     }),
-    [inventory, catalogStatus, refreshCatalog],
+    [inventory, catalogStatus, refreshCatalog, lookupCatalog],
   );
 
   if (!i18nReady) return null;

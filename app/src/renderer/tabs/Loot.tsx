@@ -197,7 +197,13 @@ export function Loot() {
           autoOpenEnabled={autoOpenEnabled}
           fillPrediction={fillPrediction}
         />
-        {recentDrops.length > 0 && <LootRecentDrops drops={recentDrops} itemIndex={itemIndex} />}
+        {recentDrops.length > 0 && (
+          <LootRecentDrops
+            drops={recentDrops}
+            itemIndex={itemIndex}
+            catalogReady={catalog !== null}
+          />
+        )}
       </div>
 
       {boxOpens.length === 0 ? (
@@ -216,7 +222,8 @@ export function Loot() {
                 onReclassify={reclassifyItem}
                 lastDropWallTime={lastDropWallTimeByCategory[stats.category] ?? null}
                 itemIndex={itemIndex}
-                boxTimers={boxTimers}
+                catalogReady={catalog !== null}
+                boxCatalog={boxTimers?.catalog}
                 ringSeconds={ringSeconds}
                 onUpdateRingSeconds={updateRingSeconds}
                 className={stats.category === "unclassified" ? "col-span-2" : undefined}

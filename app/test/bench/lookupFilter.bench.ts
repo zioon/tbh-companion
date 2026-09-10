@@ -13,6 +13,7 @@ const baseState = {
   effectFilter: [] as string[],
   uniqueOnly: false,
   watchedOnly: false,
+  plagueOnly: false,
   levelRange: [LEVEL_MIN, LEVEL_MAX] as [number, number],
   sortKey: "name" as const,
   sortDir: "asc" as const,

@@ -50,8 +50,9 @@ describe("BoxTimerService", () => {
     expect(state.enabledCount).toBe(4);
     expect(state.rows).toHaveLength(4);
     // Catalog covers all canonical RARE tracker routes. Box 1/2/3/6 phantom
-    // tracker entries were removed, leaving 10 routes (Lv4/5/7/15/20/30/40/50/65/80).
-    expect(state.catalog).toHaveLength(10);
+    // tracker entries were removed; game v1.2.2 added higher-level 925xxx stage
+    // boss boxes, bringing the tracked routes to 71.
+    expect(state.catalog).toHaveLength(71);
     expect(state.defaultCooldownSeconds).toBe(720);
   });
 
@@ -153,8 +154,8 @@ describe("BoxTimerService", () => {
   it("falls back to auto-enabling box when a lower-level box is enabled but boss stage maps higher", async () => {
     const svc = await loadService();
     svc.setEnabledBoxIds([920151]);
-    // 4309 also maps to Lv80 (920801) — auto-enabled even with Lv15 on.
-    expect(svc.tryMarkDroppedFromLiveStage(4309)).toBe(true);
+    // 4208 also maps to Lv80 (920801) — auto-enabled even with Lv15 on.
+    expect(svc.tryMarkDroppedFromLiveStage(4208)).toBe(true);
     expect(svc.getState().rows.find((r) => r.boxId === 920801)?.status).toBe("cooldown");
   });
 

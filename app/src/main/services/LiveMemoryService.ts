@@ -5,7 +5,12 @@
 import { utilityProcess, type UtilityProcess } from "electron";
 import { join } from "node:path";
 import { IPC } from "../../../shared/ipc";
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type {
+  LiveInventoryItem,
+  LiveMemorySnapshot,
+  LiveMemoryStatus,
+  LivePetData,
+} from "../../../shared/types";
 import { LIVE_MEMORY_USER_DATA_ENV } from "../liveMemory/liveMemoryCacheDir";
 import { broadcast } from "./broadcast";
 import { createLogger } from "../log";
@@ -30,6 +35,16 @@ export class LiveMemoryService {
   private snapshotCb: ((snap: LiveMemorySnapshot) => void) | null = null;
   private lastBroadcastMs = 0;
   private onGameVersionChanged?: () => void;
+  /**
+   * Last-known copies of the low-frequency snapshot fields (`inventoryItems`,
+   * `petData`). The worker ships these only on its ~2s refresh frames (null =
+   * "unchanged" on the frames in between); this service re-splices the previous
+   * values back in so every downstream consumer (TrackingService, renderers)
+   * sees a coherent snapshot while the large arrays are cloned across IPC only
+   * once every ~2s instead of on every 40ms frame.
+   */
+  private lastInventoryItems: LiveInventoryItem[] | null = null;
+  private lastPetData: LivePetData[] | null = null;
   /**
    * LocaleCatalog used for populating `LiveHeroData.name` on each snapshot.
    * The worker (utility process) can't swap catalogs at runtime, so the main
@@ -100,6 +115,10 @@ export class LiveMemoryService {
         // Mutates the snapshot in-place — it's fresh per message (deserialized
         // from IPC), so no other consumer sees the un-localized version.
         this.localizeHeroes(msg.snapshot);
+        // The worker ships inventory/pets only on its ~2s refresh frames; on
+        // interleaving frames they're null (= "unchanged"). Re-splice the
+        // last-known copies so consumers always see a coherent snapshot.
+        this.backfillLowFrequencyFields(msg.snapshot);
         this.lastSnapshot = msg.snapshot;
         // Throttle the renderer broadcast — the worker produces ~25 Hz but the
         // UI only needs ~5 Hz (200 ms) for smooth display. The snapshotCb
@@ -218,6 +237,25 @@ export class LiveMemoryService {
     if (!snap.heroes || snap.heroes.length === 0) return;
     for (const hero of snap.heroes) {
       hero.name = heroName(String(hero.heroKey), this.localeCatalog);
+    }
+  }
+
+  /**
+   * Re-splice the last-known copies of the low-frequency snapshot fields into
+   * frames where the worker shipped them as `null` (= "unchanged"). A non-null
+   * value refreshes the cache; a null value (or first frame before any refresh)
+   * falls back to the cache so consumers never observe a missing field.
+   */
+  private backfillLowFrequencyFields(snap: LiveMemorySnapshot): void {
+    if (snap.inventoryItems != null) {
+      this.lastInventoryItems = snap.inventoryItems;
+    } else {
+      snap.inventoryItems = this.lastInventoryItems ?? null;
+    }
+    if (snap.petData != null) {
+      this.lastPetData = snap.petData;
+    } else {
+      snap.petData = this.lastPetData ?? null;
     }
   }
 }

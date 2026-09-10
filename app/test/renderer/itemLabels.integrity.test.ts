@@ -13,7 +13,11 @@ import { initReactI18next } from "react-i18next";
 import { buildI18nConfig } from "../../src/core/i18n/factory";
 import { LOCALE_RESOURCES } from "../../shared/locales";
 import { flatGameKeysToLabels } from "../../src/renderer/lib/gameLocaleLabels";
-import { formatStatRow, formatMaterialOutcome } from "../../src/renderer/lib/itemLabels";
+import {
+  formatStatRow,
+  formatMaterialOutcome,
+  uniqueModLabel,
+} from "../../src/renderer/lib/itemLabels";
 import { readBundledJson } from "../../src/core/bundledData";
 import { loadLookupItems } from "../../src/core/lookup/catalog";
 import type { ResolvedLanguage } from "../../shared/language";
@@ -146,6 +150,35 @@ describe("formatStatRow integrity (real catalog + game locale)", () => {
   describe("Chinese (zh-CN)", () => {
     const i = buildI18nWithGameLocale("zh-CN");
     const t = i.t.bind(i) as Parameters<typeof formatStatRow>[1];
+
+    it("every unique effect renders with no bare {N} placeholder leaked, params-fill works, and at least some are localized", () => {
+      const barePlaceholder: string[] = [];
+      let filled = 0;
+      let paramsFilled = 0;
+      let skillFilled = 0;
+      for (const item of items) {
+        if (!item.stats?.unique) continue;
+        const u = item.stats.unique;
+        const out = uniqueModLabel(u.mod, u.text, t, u.params);
+        // Never leak a raw positional placeholder into the UI.
+        if (/\{\d+\}/.test(out))
+          barePlaceholder.push(`[zh unique] ${item.id} ${u.mod}: out="${out}"`);
+        if (out !== u.text) filled += 1;
+        // Params-driven fills: params present && a placeholder-bearing template
+        // got resolved to something different from the raw English suffix.
+        if (u.params && u.params.length > 0 && out !== u.text) paramsFilled += 1;
+        if (u.params?.some((p) => p.kind === "skill") && out.includes("技能")) skillFilled += 1;
+      }
+      if (barePlaceholder.length > 0)
+        console.log("BARE PLACEHOLDER (first 30):\n" + barePlaceholder.slice(0, 30).join("\n"));
+      expect(barePlaceholder.slice(0, 30)).toEqual([]);
+      expect(filled).toBeGreaterThan(0);
+      // The new params pipeline must be resolving at least one Skill* mod in
+      // the real catalog (skill-name + numeric placeholder fill), proving the
+      // static SkillInfoData → SkillName_ → skillNames path works end to end.
+      expect(paramsFilled).toBeGreaterThan(0);
+      expect(skillFilled).toBeGreaterThan(0);
+    });
 
     it("every base stat row preserves the display's numeric tokens", () => {
       const failures: string[] = [];

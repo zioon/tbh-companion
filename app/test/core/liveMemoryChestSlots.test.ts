@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { readIntArray, readRuntimeChestSlots } from "../../src/core/liveMemory/chestSlots";
+import {
+  readIntArray,
+  readRuntimeChestSlots,
+  categoryFromBoxItemName,
+} from "../../src/core/liveMemory/chestSlots";
 import { offsetsForVersion } from "../../src/core/liveMemory/offsets";
 import type { LiveOffsets } from "../../src/core/liveMemory/offsets";
 import { FakeMemory } from "./liveMemoryFake";
@@ -271,5 +275,16 @@ describe("readRuntimeChestSlots — full path", () => {
     const r = readRuntimeChestSlots(m, GA_BASE, GA_SIZE, o, makeCatalog(), /* override */ null);
     expect(r.slots).toBeNull();
     expect(r.status).toContain("PlayerSaveData");
+  });
+});
+
+describe("v1.2.2 箱子物品名 → category 分类", () => {
+  it("categoryFromBoxItemName maps Normal/StageBoss/ActBoss → common/rare/act", () => {
+    expect(categoryFromBoxItemName("Normal Monster Box Lv90")).toBe("common");
+    expect(categoryFromBoxItemName("Stage Boss Box Lv90")).toBe("rare");
+    expect(categoryFromBoxItemName("Act Boss Box Lv65")).toBe("act");
+    expect(categoryFromBoxItemName("some gear")).toBeNull();
+    expect(categoryFromBoxItemName(null)).toBeNull();
+    expect(categoryFromBoxItemName("")).toBeNull();
   });
 });

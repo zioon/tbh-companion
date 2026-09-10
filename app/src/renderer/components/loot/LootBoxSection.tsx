@@ -4,7 +4,7 @@ import type { TFunction } from "i18next";
 import type {
   BoxOpenBreakdownRow,
   BoxOpenStats,
-  BoxTimerState,
+  BoxTimerCatalogEntry,
   LookupItem,
   LootRingSeconds,
 } from "../../../../shared/types";
@@ -81,10 +81,12 @@ function LootItemNameCell({
   row,
   itemIndex,
   onOpenItem,
+  catalogReady,
 }: {
   row: BoxOpenBreakdownRow;
   itemIndex: Map<number, LookupItem>;
   onOpenItem: (itemKey: number) => void;
+  catalogReady: boolean;
 }) {
   const catalogItem = itemIndex.get(row.itemKey);
   const color = row.grade ? gradeColor(row.grade) : undefined;
@@ -98,6 +100,16 @@ function LootItemNameCell({
         iconPath={catalogItem.iconPath}
         onNavigate={() => onOpenItem(row.itemKey)}
         peekItem={(id) => itemIndex.get(id)}
+      />
+    );
+  }
+
+  // 目录未就绪时用骨架条占位，避免目录到达后「灰点 → 图标 + 品质色」二次更新。
+  if (!catalogReady) {
+    return (
+      <span
+        className="inline-block h-4 w-28 animate-pulse rounded-sm bg-muted/25"
+        aria-hidden="true"
       />
     );
   }
@@ -126,7 +138,8 @@ export const LootBoxSection = memo(function LootBoxSection({
   onReclassify,
   lastDropWallTime,
   itemIndex,
-  boxTimers,
+  catalogReady = true,
+  boxCatalog,
   ringSeconds,
   onUpdateRingSeconds,
   className,
@@ -138,7 +151,9 @@ export const LootBoxSection = memo(function LootBoxSection({
   onReclassify?: (itemKey: number, fromBoxKey: string, toBoxKey: string) => void;
   lastDropWallTime: number | null;
   itemIndex: Map<number, LookupItem>;
-  boxTimers: BoxTimerState | null;
+  /** 图鉴目录是否已就绪。未就绪时名称单元格渲染骨架屏而非灰点占位。 */
+  catalogReady?: boolean;
+  boxCatalog: BoxTimerCatalogEntry[] | undefined;
   ringSeconds: LootRingSeconds;
   onUpdateRingSeconds: (next: LootRingSeconds) => void;
   className?: string;
@@ -169,7 +184,7 @@ export const LootBoxSection = memo(function LootBoxSection({
   const ringKey = ringKeyForCategory(stats.category);
   const ringLapSeconds = ringKey != null ? ringSeconds[ringKey] : null;
 
-  const catalog = boxTimers?.catalog;
+  const catalog = boxCatalog;
 
   const { levelOptions: reclassifyLevelOptions, defaultLevel } = useMemo(() => {
     const set = new Set<number>();
@@ -394,7 +409,12 @@ export const LootBoxSection = memo(function LootBoxSection({
                 ? [
                     {
                       content: (
-                        <LootItemNameCell row={row} itemIndex={itemIndex} onOpenItem={onOpenItem} />
+                        <LootItemNameCell
+                          row={row}
+                          itemIndex={itemIndex}
+                          onOpenItem={onOpenItem}
+                          catalogReady={catalogReady}
+                        />
                       ),
                     },
                     { content: String(row.count), align: "right" },
@@ -439,7 +459,12 @@ export const LootBoxSection = memo(function LootBoxSection({
                 : [
                     {
                       content: (
-                        <LootItemNameCell row={row} itemIndex={itemIndex} onOpenItem={onOpenItem} />
+                        <LootItemNameCell
+                          row={row}
+                          itemIndex={itemIndex}
+                          onOpenItem={onOpenItem}
+                          catalogReady={catalogReady}
+                        />
                       ),
                     },
                     { content: String(row.count), align: "right" },

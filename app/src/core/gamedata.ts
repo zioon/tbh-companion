@@ -9,6 +9,8 @@ export interface GameItem {
   name: string;
   grade: string; // COMMON..COSMIC
   type: string; // GEAR | MATERIAL | STAGEBOX | ...
+  /** Gear category (from ItemInfoData.GEARTYPE), e.g. "sword"/"amulet". Null for non-gear / unknown. */
+  gearType?: string | null;
   level: number | null; // gear item level; null for materials / unknown
   marketTradable: boolean;
 }
@@ -70,6 +72,7 @@ export function normalizeGameItem(raw: Record<string, unknown>): GameItem | null
     name: String(raw.name ?? `#${id}`),
     grade: String(raw.grade ?? "UNKNOWN"),
     type: String(raw.type ?? "UNKNOWN"),
+    gearType: raw.gearType ? String(raw.gearType) : null,
     level:
       levelRaw === null || levelRaw === undefined
         ? null

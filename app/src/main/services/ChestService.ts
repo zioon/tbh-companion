@@ -32,9 +32,36 @@ export class ChestService {
    * (queue < slots).
    */
   private onReconcile?: (slots: ChestSlotCounts) => void;
+  /**
+   * v1.2.2 逐箱实时槽位（由 live snapshot 注入；null = 用 save 派生值）。
+   * 注：v1.2.2 起 save 的未开箱子由 parseChests 的 BoxBucketGetBoxList 路径
+   * 提供（见 core/inventory/parse.ts），该覆盖主要服务仍可 live 读 BoxData
+   * 的旧版本。
+   */
+  private liveSlotsOverride: ChestSlotCounts | null = null;
 
   onSave(text: string, mtime: number, chests: ChestHolding[]): void {
     this.resolveAndPush(chests, text, mtime);
+  }
+
+  /**
+   * Live 实时槽位覆盖（由 live snapshot 注入；null = 用 save 派生值）。
+   * v1.2.2 起 save 的未开箱子由 parseChests 的 BoxBucketGetBoxList 路径提供
+   * （见 core/inventory/parse.ts）；该覆盖主要服务仍可 live 读 BoxData 的旧版本。
+   */
+  setLiveSlots(slots: ChestSlotCounts | null): void {
+    // 仅当槽位实际变化时才重新 reconcile（live snapshot 每帧都会回调，
+    // 槽位不变时跳过，避免无谓的 AutoClassify reconcile/日志噪声）。
+    const prev = this.liveSlotsOverride;
+    const unchanged =
+      slots != null &&
+      prev != null &&
+      prev.common === slots.common &&
+      prev.rare === slots.rare &&
+      prev.act === slots.act;
+    if (unchanged) return;
+    this.liveSlotsOverride = slots;
+    this.reconcile();
   }
 
   getChests(): ChestState | null {
@@ -88,12 +115,19 @@ export class ChestService {
    * and chests that predate live tracking.
    */
   private reconcile(): void {
-    if (!this.lastChests || !this.onReconcile) return;
-    this.onReconcile({
-      common: this.lastChests.common.quantity,
-      // stageBoss slot maps to the "rare" auto-classify category.
-      rare: this.lastChests.stageBoss.quantity,
-      act: this.lastChests.actBoss.quantity,
-    });
+    if (!this.onReconcile) return;
+    // 有 v1.2.2 实时兜底时优先用它（save 在 v1.2.2 下无法提供逐类数量）；
+    // 否则回落到 save 派生的 lastChests。
+    const slots =
+      this.liveSlotsOverride ??
+      (this.lastChests
+        ? {
+            common: this.lastChests.common.quantity,
+            // stageBoss slot maps to the "rare" auto-classify category.
+            rare: this.lastChests.stageBoss.quantity,
+            act: this.lastChests.actBoss.quantity,
+          }
+        : null);
+    if (slots) this.onReconcile(slots);
   }
 }

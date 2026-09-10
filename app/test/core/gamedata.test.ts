@@ -25,6 +25,29 @@ describe("gamedata", () => {
       name: "Void Staff",
       grade: "RARE",
       type: "GEAR",
+      gearType: null,
+      level: 50,
+      marketTradable: false,
+    });
+  });
+
+  it("normalizes gearType from catalog rows", () => {
+    expect(
+      normalizeGameItem({
+        id: 322111,
+        name: "Void Staff",
+        grade: "RARE",
+        type: "GEAR",
+        gearType: "staff",
+        level: 50,
+        marketTradable: false,
+      }),
+    ).toEqual({
+      id: 322111,
+      name: "Void Staff",
+      grade: "RARE",
+      type: "GEAR",
+      gearType: "staff",
       level: 50,
       marketTradable: false,
     });

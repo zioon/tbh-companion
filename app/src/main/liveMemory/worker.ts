@@ -320,7 +320,12 @@ function loop(): void {
   }
 }
 
-parentPort?.on("message", (msg) => {
+parentPort?.on("message", (evt) => {
+  // utilityProcess 的 parentPort 遵循 MessagePort API：监听器收到的是事件
+  // 对象，真实载荷在 `data` 字段上。直接当载荷用会让 msg === "stop" 永不
+  // 成立（停止指令曾因此静默失效，仅靠父进程 kill() 兜底）。
+  const msg: unknown =
+    evt != null && typeof evt === "object" && "data" in evt ? (evt as { data: unknown }).data : evt;
   if (msg === "stop") {
     if (fastPollTimer) {
       clearInterval(fastPollTimer);

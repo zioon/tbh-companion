@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createI18n } from "../../src/core/i18n/factory";
 import type { LookupStatRow, LookupMaterialOutcome } from "../../shared/types";
-import { formatStatRow, formatMaterialOutcome } from "../../src/renderer/lib/itemLabels";
+import {
+  formatStatRow,
+  formatMaterialOutcome,
+  uniqueModLabel,
+} from "../../src/renderer/lib/itemLabels";
 
 // Build a real i18next instance seeded with game-style stat templates so we
 // can exercise the lookupStatTemplate + fillStatTemplate path. The instance's
@@ -27,6 +31,21 @@ function makeT() {
               Stat_AttackDamage_ADDITIVE: "{0}% Increased Attack Damage",
               Stat_AttackSpeed_ADDITIVE_MinMax: "{0}~{1}% Increased Attack Speed",
             },
+            uniqueMods: {
+              ShieldChargeKillCooldown: "Cooldown resets on Shield Charge kill.",
+              SkillCooldownReduce: "{0} skill cooldown reduced by {1}%.",
+              SkillElementChange: "{0} skill's damage element changes to {1}.",
+              StatValueUp: "{0}",
+              SkillLifeStealUp: "{0} hero's lifesteal becomes {1}x.",
+              AegisFieldAbsorbUp: "Aegis Field's damage absorption increases by {0}.",
+            },
+            skillNames: {
+              "10401": "Aegis Field",
+              "10601": "Chain Strike",
+            },
+            classes: {
+              Slayer: "Slayer",
+            },
           },
         },
       },
@@ -44,6 +63,17 @@ function makeT() {
               Stat_AttackDamage_FLAT: "攻击力 +{0}",
               Stat_AttackSpeed_FLAT: "攻击速度 +{0}",
               Stat_AttackDamage_ADDITIVE: "{0}% 增加攻击伤害",
+            },
+            uniqueMods: {
+              ShieldChargeKillCooldown: "使用Shield Charge击杀时冷却重置。",
+              SkillCooldownReduce: "{0}技能的冷却时间减少{1}%。",
+              SkillElementChange: "{0}技能的伤害属性变更为{1}。",
+              StatValueUp: "{0}",
+              SkillLifeStealUp: "{0}英雄通过技能吸取的生命值变为{1}倍。",
+            },
+            skillNames: {
+              "10401": "神盾领域",
+              "10601": "连环突刺",
             },
           },
         },
@@ -309,5 +339,134 @@ describe("formatMaterialOutcome", () => {
       displayText: "Attack Damage +1",
     };
     expect(formatMaterialOutcome(outcome)).toBe("Attack Damage +1");
+  });
+});
+
+describe("uniqueModLabel", () => {
+  it("returns the localized template when it has no placeholders", () => {
+    const t = makeT();
+    expect(uniqueModLabel("ShieldChargeKillCooldown", "ShieldChargeKillCooldown", t)).toBe(
+      "Cooldown resets on Shield Charge kill.",
+    );
+  });
+
+  it("falls back to text when the template has {N} placeholders", () => {
+    const t = makeT();
+    // Template exists ("{0} skill cooldown reduced by {1}%.") but we lack fill
+    // data, so we must NOT emit a raw placeholder line.
+    expect(uniqueModLabel("SkillCooldownReduce", "SkillCooldownReduce", t)).toBe(
+      "SkillCooldownReduce",
+    );
+  });
+
+  it("falls back to text when the mod is not in the catalog (missing translation)", () => {
+    const t = makeT();
+    expect(uniqueModLabel("UnknownMod", "Foo", t)).toBe("Foo");
+  });
+
+  it("falls back to text when t is undefined", () => {
+    expect(uniqueModLabel("ShieldChargeKillCooldown", "ShieldChargeKillCooldown")).toBe(
+      "ShieldChargeKillCooldown",
+    );
+  });
+
+  it("localizes via the active language template (zh-CN)", () => {
+    const i = createI18n({
+      language: "zh-CN",
+      fallback: "en",
+      resources: {
+        en: {
+          common: {
+            labels: {
+              uniqueMods: {
+                ShieldChargeKillCooldown: "Cooldown resets on Shield Charge kill.",
+              },
+            },
+          },
+        },
+        "zh-CN": {
+          common: {
+            labels: {
+              uniqueMods: {
+                ShieldChargeKillCooldown: "使用Shield Charge击杀时冷却重置。",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(
+      uniqueModLabel("ShieldChargeKillCooldown", "ShieldChargeKillCooldown", i.t.bind(i) as never),
+    ).toBe("使用Shield Charge击杀时冷却重置。");
+  });
+
+  it("fills skill-name + percent placeholders from params (en)", () => {
+    const t = makeT();
+    const out = uniqueModLabel("SkillCooldownReduce", "SkillCooldownReduce", t, [
+      { value: "10401", exchange: "Divided", kind: "skill" },
+      { value: "500", exchange: "Raw_Divide1000", kind: "percent" },
+    ]);
+    expect(out).toBe("Aegis Field skill cooldown reduced by 50%.");
+  });
+
+  it("localizes the skill name via the active language (zh-CN)", () => {
+    const i = createI18n({
+      language: "zh-CN",
+      fallback: "en",
+      resources: {
+        "zh-CN": {
+          common: {
+            labels: {
+              uniqueMods: {
+                SkillCooldownReduce: "{0}技能的冷却时间减少{1}%。",
+              },
+              skillNames: {
+                "10401": "神盾领域",
+              },
+            },
+          },
+        },
+      },
+    });
+    const t = i.t.bind(i) as Parameters<typeof formatStatRow>[1];
+    const out = uniqueModLabel("SkillCooldownReduce", "SkillCooldownReduce", t, [
+      { value: "10401", exchange: "Divided", kind: "skill" },
+      { value: "500", exchange: "Raw_Divide1000", kind: "percent" },
+    ]);
+    expect(out).toBe("神盾领域技能的冷却时间减少50%。");
+  });
+
+  it("fills a plain number param (AegisFieldAbsorbUp)", () => {
+    const t = makeT();
+    const out = uniqueModLabel("AegisFieldAbsorbUp", "AegisFieldAbsorbUp", t, [
+      { value: "500", exchange: "Divided", kind: "number" },
+    ]);
+    expect(out).toBe("Aegis Field's damage absorption increases by 500.");
+  });
+
+  it("fills a hero class param (SkillLifeStealUp)", () => {
+    const t = makeT();
+    const out = uniqueModLabel("SkillLifeStealUp", "SkillLifeStealUp", t, [
+      { value: "Slayer", exchange: "Divided", kind: "hero" },
+      { value: "2000", exchange: "Raw_Divide1000", kind: "percent" },
+    ]);
+    expect(out).toBe("Slayer hero's lifesteal becomes 200x.");
+  });
+
+  it("falls back to text when any param is an element (unresolvable)", () => {
+    const t = makeT();
+    const out = uniqueModLabel("SkillElementChange", "SkillElementChange", t, [
+      { value: "30101", exchange: "Divided", kind: "skill" },
+      { value: "Cold", exchange: "DamageAttribute", kind: "element" },
+    ]);
+    expect(out).toBe("SkillElementChange");
+  });
+
+  it("falls back to text for StatValueUp (unknown param kind)", () => {
+    const t = makeT();
+    const out = uniqueModLabel("StatValueUp", "StatValueUp", t, [
+      { value: "4510001", exchange: "Divided", kind: "unknown" },
+    ]);
+    expect(out).toBe("StatValueUp");
   });
 });

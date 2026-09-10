@@ -16,6 +16,8 @@ export class GameDataProvider {
   private stageBoxIds = stageBoxIdSet();
   private loaded = false;
   private gameVersion: string | null = null;
+  /** Extraction schema version of the loaded gamedata.json (see CATALOG_SCHEMA_VERSION). */
+  private schemaVersion: number | null = null;
 
   private mergeStageBoxes(items: GameItem[]): void {
     this.stageBoxIds = stageBoxIdSet(items);
@@ -52,7 +54,7 @@ export class GameDataProvider {
   load(userDataDir?: string): void {
     const path = resolveBundledDataPath("gamedata.json", userDataDir);
     const raw = readFileSync(path, "utf-8").replace(/^\uFEFF/, "");
-    let parsed: { gameVersion?: string; items?: unknown[] };
+    let parsed: { gameVersion?: string; schemaVersion?: number; items?: unknown[] };
     try {
       parsed = JSON.parse(raw) as typeof parsed;
     } catch {
@@ -71,6 +73,7 @@ export class GameDataProvider {
 
     this.index = indexById(items);
     this.gameVersion = parsed.gameVersion ?? null;
+    this.schemaVersion = typeof parsed.schemaVersion === "number" ? parsed.schemaVersion : null;
     this.loaded = true;
     this.loadStageBoxes();
   }
@@ -99,6 +102,11 @@ export class GameDataProvider {
   /** Catalog's bundled gameVersion (e.g. "1.00.28"). null if unknown. */
   getVersion(): string | null {
     return this.gameVersion;
+  }
+
+  /** Extraction schema version of the loaded catalog; null for legacy files. */
+  getSchemaVersion(): number | null {
+    return this.schemaVersion;
   }
 
   /** Read-only view of the catalog-id → GameItem index. Keys are catalog ids (already normalized). */

@@ -7,6 +7,9 @@
     "sync:skills": "node scripts/sync-agent-skills.mjs",
     "sync:skills:check": "node scripts/sync-agent-skills.mjs --check",
     "sync:agent-docs": "node scripts/sync-agent-docs.mjs",
-    "sync:agent-docs:check": "node scripts/sync-agent-docs.mjs --check"
+    "sync:agent-docs:check": "node scripts/sync-agent-docs.mjs --check",
+    "flow-viz": "node docs/agent/scripts/build-flow-viz.mjs",
+    "flow-viz:check": "node docs/agent/scripts/build-flow-viz.mjs --check",
+    "flow-viz:vendor": "node docs/agent/scripts/build-flow-viz.mjs --vendor"
   }
 }

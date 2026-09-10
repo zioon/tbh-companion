@@ -27,8 +27,18 @@ export interface CatalogExtractionStats {
   nameKeyOnlyAdded: number;
 }
 
+/**
+ * Bumped whenever the extraction output shape or filtering semantics change.
+ * The refresh service writes it into userData/gamedata.json and treats a
+ * missing/older value as stale, so pre-filter caches (e.g. Lv85 gear rows
+ * written before IsDeletedInServer filtering) are re-extracted once.
+ */
+export const CATALOG_SCHEMA_VERSION = 2;
+
 export interface ExtractedCatalog {
   gameVersion: string;
+  /** Extraction schema version ({@link CATALOG_SCHEMA_VERSION}). */
+  schemaVersion: number;
   items: GameItem[];
   stats: CatalogExtractionStats;
 }
@@ -128,6 +138,8 @@ export function extractCatalog(input: CatalogExtractorInput): ExtractedCatalog {
   const iType = colIdx("ITEMTYPE");
   const iLevel = colIdx("Level");
   const iTradable = colIdx("IsCanExchangeMarketable");
+  const iGearType = colIdx("GEARTYPE");
+  const iDeleted = colIdx("IsDeletedInServer");
   if (iItemKey < 0) throw new Error(`CSV missing ItemKey column; header=${header.join(",")}`);
 
   const items: GameItem[] = [];
@@ -135,6 +147,10 @@ export function extractCatalog(input: CatalogExtractorInput): ExtractedCatalog {
   let unresolvedNameKey = 0;
   let literalNames = 0;
   let skipped = 0;
+  /** ItemKeys present in the CSV but server-deleted — must not re-enter via the
+   * NameKey-only fallback below (their ItemName_* keys exist in the locale
+   * table, so without this they'd come back as empty-type rows). */
+  const deletedIds = new Set<number>();
 
   for (const row of rows) {
     const cols = row.split(",");
@@ -144,6 +160,13 @@ export function extractCatalog(input: CatalogExtractorInput): ExtractedCatalog {
       continue;
     }
     const itemKey = parseInt(ikStr, 10);
+    // Server-deleted rows (IsDeletedInServer=True) are not obtainable in-game
+    // (e.g. all Lv85 gear in v1.2.2) — keep them out of the catalog.
+    if (iDeleted >= 0 && parseBool((cols[iDeleted] ?? "").trim())) {
+      deletedIds.add(itemKey);
+      skipped += 1;
+      continue;
+    }
     const nameKey = (cols[iNameKey] ?? "").trim();
     let name: string;
     if (nameKey.startsWith("ItemName_")) {
@@ -164,11 +187,13 @@ export function extractCatalog(input: CatalogExtractorInput): ExtractedCatalog {
     }
     const levelStr = (cols[iLevel] ?? "").trim();
     const level = levelStr ? Number(levelStr) : null;
+    const gearTypeRaw = (cols[iGearType] ?? "").trim();
     items.push({
       id: itemKey,
       name,
       grade: (cols[iGrade] ?? "").trim(),
       type: (cols[iType] ?? "").trim(),
+      gearType: gearTypeRaw || null,
       level: Number.isFinite(level as number) ? (level as number) : null,
       marketTradable: parseBool(cols[iTradable]),
     });
@@ -181,7 +206,7 @@ export function extractCatalog(input: CatalogExtractorInput): ExtractedCatalog {
     const m = /^ItemName_(\d+)$/.exec(nk);
     if (!m) continue;
     const baseId = parseInt(m[1], 10);
-    if (seenIds.has(baseId)) continue;
+    if (seenIds.has(baseId) || deletedIds.has(baseId)) continue;
     items.push({ id: baseId, name, grade: "", type: "", level: null, marketTradable: false });
     nameKeyOnly += 1;
     seenIds.add(baseId);
@@ -189,6 +214,7 @@ export function extractCatalog(input: CatalogExtractorInput): ExtractedCatalog {
 
   return {
     gameVersion: "1.00.28", // overwritten by caller with the actual running version
+    schemaVersion: CATALOG_SCHEMA_VERSION,
     items,
     stats: {
       csvRows: rows.length,

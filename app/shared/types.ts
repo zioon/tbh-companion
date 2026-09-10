@@ -467,6 +467,14 @@ export interface InventoryItemInstance {
 export interface ChestHolding {
   type: number;
   quantity: number;
+  /**
+   * v1.2.2+：存档移除了 BoxData（BoxType 两列 int），未开箱子以普通物品形式
+   * 存在于 itemSaveDatas（UniqueId ∈ BoxBucketGetBoxList）。此时 `type` 携带
+   * 的是 gamedata 物品 id（如 910901），分类/标签由解析侧按物品名前缀给出，
+   * resolve 层优先采用这两个字段而不再查 boxTypeCatalog。
+   */
+  category?: BoxCategory;
+  label?: string;
 }
 
 export interface InventorySnapshot {
@@ -888,7 +896,12 @@ export interface ImportMarketVolumeResult {
   canceled?: boolean;
   /** 导入后历史统计覆盖的物品种数（仅 ok=true 时）。 */
   itemCount?: number;
-  /** 失败原因（仅 ok=false 时，如 "invalid_backup"）。 */
+  /**
+   * 备份货币与当前显示货币不一致但已按确认的汇率换算后导入（仅 ok=true 时）。
+   * UI 可据此提示「已换算到当前币种」。
+   */
+  converted?: boolean;
+  /** 失败原因（仅 ok=false 时，如 "invalid_backup"、"currency_mismatch"）。 */
   reason?: string;
 }
 
@@ -1330,10 +1343,29 @@ export interface LookupStatRow {
   display: string;
 }
 
+export type LookupUniqueModParamKind =
+  | "percent" // Raw_Divide1000 → value/10（百分数展示）
+  | "number" // Divided 合法整数（如 500）
+  | "scale100" // Raw_Divide100 → value/100（仅 SkillRangeUp，展示值待复核）
+  | "element" // DamageAttribute: Cold/Fire/Lightning，无本地化 → 不可解析
+  | "skill" // Divided & 值是 SkillKey → t(common:labels.skillNames.<value>)
+  | "hero" // Divided & 值映射到职业 class key → classLabel
+  | "unknown"; // 不可解释（StatValueUp）→ 不可解析
+
+export interface LookupUniqueModParam {
+  /** 原值：skill 存 SkillKey 数字串、hero 存 class key、percent/number/scale100 存源整数值 */
+  value: string;
+  /** 源列名（如 "Divided" / "Raw_Divide1000"） */
+  exchange: string;
+  kind: LookupUniqueModParamKind;
+}
+
 export interface LookupUniqueMod {
   key: number;
   mod: string;
   text: string;
+  /** 与模板 {0}/{1}/... 位置对应的参数。仅当全部占位符可解析时才填充模板。 */
+  params?: LookupUniqueModParam[];
 }
 
 export interface LookupGearStats {
@@ -1378,6 +1410,11 @@ export interface LookupItem {
   level: number | null;
   iconPath: string;
   marketTradable: boolean;
+  /**
+   * Game content category from ItemInfoData.CONTENTTYPE (e.g. "PLAGUE" for
+   * v1.2.2 plague items). Empty/absent for normal items.
+   */
+  contentType?: string;
   stats?: LookupGearStats;
   gearGroups?: LookupMaterialGearGroup[];
 }

@@ -146,7 +146,7 @@ function makeBoxTimersState(): BoxTimerState {
 // `cloneElement` below injects sensible defaults.
 const DEFAULT_LOOT_PROPS = {
   itemIndex: new Map<number, LookupItem>(),
-  boxTimers: makeBoxTimersState(),
+  boxCatalog: makeBoxTimersState().catalog,
   ringSeconds: { common: 5 * 60, stage: 7 * 60 } as LootRingSeconds,
   onUpdateRingSeconds: vi.fn(),
   lastDropWallTime: null as number | null,
@@ -172,6 +172,7 @@ function renderLootSection(ui: React.ReactElement) {
     clearLastPriceRefreshMessage: () => {},
     catalogStatus: null,
     refreshCatalog: vi.fn().mockResolvedValue({ ok: false }),
+    lookupCatalog: null,
   };
   const uiWithDefaults = cloneElement(ui, DEFAULT_LOOT_PROPS);
   return render(

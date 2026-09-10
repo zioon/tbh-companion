@@ -25,11 +25,14 @@ From repo root:
 ```powershell
 pnpm run sync:agent-docs
 pnpm run sync:agent-docs:check   # CI — fails if generated file stale
+pnpm run flow-viz                # regenerate docs/flow-viz/flow-viz-data.js from BUSINESS-FLOWS.md
+pnpm run flow-viz:check          # CI — fails if generated data stale / diagrams unparsable
 ```
 
 | Output | When to regenerate |
 |--------|-------------------|
 | `docs/agent/generated/bundled-data-catalog.md` | After changing `REQUIRED_BUNDLED_DATA_FILES`, adding/removing `readBundledJson` / `bundledDataPath` for a catalog, or renaming `data/*.json` |
+| `docs/flow-viz/flow-viz-data.js` | After adding/changing a ` ```mermaid ` diagram in `docs/BUSINESS-FLOWS.md`, or editing `SVC_NAMES` in `docs/agent/scripts/build-flow-viz.mjs` |
 
 Commit generated files with the code change that triggered them.
 
@@ -38,6 +41,7 @@ Commit generated files with the code change that triggered them.
 | If your change touches… | Also do… |
 |-------------------------|----------|
 | `data/*.json`, `bundledData.ts`, catalog loaders in `core/` or `main/` | Run `pnpm run sync:agent-docs`; commit generated catalog; follow [layers/DATA.md](layers/DATA.md) |
+| Diagrams / service names in `docs/BUSINESS-FLOWS.md` | Run `pnpm run flow-viz`; commit `docs/flow-viz/flow-viz-data.js`; keep shared-service node labels matching `SVC_NAMES` (see BUSINESS-FLOWS.md ch. 21) |
 | `shared/ipc.ts`, preload, `main/ipc/` | Update `test/ipc/channels.test.ts`; fix any broken links in layer docs you touched |
 | Renderer/main behavior documented in `layers/*.md` | Edit that layer doc **only if** user-visible rules changed; remove dead links (grep `docs/agent` for deleted paths) |
 | Delete or rename a path referenced in docs | `rg "old/path" docs/agent` and fix in the same PR |

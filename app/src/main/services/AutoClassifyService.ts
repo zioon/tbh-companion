@@ -524,6 +524,7 @@ export class AutoClassifyService {
     // the already-opened chest into the new chain, pushing the new head's
     // autoOpenAtMs to anchorMs + N*autoOpenSec (N = opened count) — wrong.
     let prunedTotal = 0;
+    const prunedByCategory: Record<ChestDropCategory, number> = { common: 0, rare: 0, act: 0 };
     for (const category of order) {
       const slotCount = slots[category];
       const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
@@ -533,6 +534,7 @@ export class AutoClassifyService {
       const toRemove = new Set(matching.slice(0, excess));
       this.queue = this.queue.filter((q) => !toRemove.has(q));
       prunedTotal += excess;
+      prunedByCategory[category] += excess;
       log.info(
         `reconcile: pruned ${excess} excess ${category} item(s) ` +
           `(queue ${queueCount} > slots ${slotCount})`,
@@ -552,7 +554,16 @@ export class AutoClassifyService {
     // burstMs is gone, the timer retargets the new head starting at
     // burstMs + autoOpenSec). After step 1's excess-prune, reset only
     // applies to remaining items, so the new head's autoOpenAtMs = anchorMs.
-    this.classifyPendingBursts(slots);
+    //
+    // Two secondary signals are passed in for the case where the liveSlots
+    // delta is 0 — e.g. manual "open all" of STACKED chests whose
+    // autoOpenAtMs already elapsed (the 1Hz tick decremented liveSlots first,
+    // cancelling the delta). Both signals come from race-free save-derived
+    // data: the excess-prune counts (queue > slots proves chests opened
+    // without being consumed by a burst) and the absolute slot decrease
+    // versus the previous save. Read `prevSlots` before the Step 4 update.
+    const prevSlots = this.lastReconcileSlots;
+    this.classifyPendingBursts(slots, prevSlots, prunedByCategory);
 
     // Step 3: Recalibrate liveSlots to the save's absolute values. This
     // discards any real-time adjustments (drops/opens) accumulated since
@@ -563,7 +574,7 @@ export class AutoClassifyService {
     // lagged — save has chests but the queue is empty/short. Backfill with
     // placeholder items anchored to "now", each getting a full autoOpenSeconds
     // countdown. `enqueue` handles serial-queue chaining.
-    const prev = this.lastReconcileSlots;
+    const prev = prevSlots;
     const slotsChanged =
       prev == null ||
       prev.common !== slots.common ||
@@ -671,7 +682,11 @@ export class AutoClassifyService {
    * Called BEFORE `liveSlots` is overwritten with save values — the delta
    * is the classification signal.
    */
-  private classifyPendingBursts(saveSlots: { common: number; rare: number; act: number }): void {
+  private classifyPendingBursts(
+    saveSlots: { common: number; rare: number; act: number },
+    prevSlots: { common: number; rare: number; act: number } | null,
+    prunedByCategory: Record<ChestDropCategory, number>,
+  ): void {
     if (this.pendingBursts.length === 0 || this.liveSlots == null) return;
 
     // Compute per-category deltas: positive = chests opened since last save
@@ -684,48 +699,56 @@ export class AutoClassifyService {
     }
 
     if (decreased.length === 0) {
-      // No slots decreased — pending bursts stay pending (TTL pruned later).
-      log.info(
-        `classifyPendingBursts: ${this.pendingBursts.length} pending burst(s) but no slot decrease; waiting`,
+      // The liveSlots delta is 0 — typically because the 1Hz tick already
+      // decremented liveSlots for stacked chests whose autoOpenAtMs elapsed
+      // before they were manually opened (open-all). Fall back to two
+      // race-free, save-derived signals:
+      //   A. excess-prune counts: queue > slots proves chests opened without
+      //      being consumed by a burst;
+      //   B. absolute slot decrease vs the previous save (prevSlots > save).
+      // Both must agree on a SINGLE category — if they disagree or multiple
+      // categories light up, the window is genuinely ambiguous: keep waiting
+      // (TTL pruned later).
+      const prunedCats = (["common", "rare", "act"] as const).filter(
+        (c) => prunedByCategory[c] > 0,
       );
-      return;
-    }
-
-    if (decreased.length === 1 && this.pendingBursts.length === 1) {
-      // Unambiguous: one category decreased, one pending burst.
-      const cat = decreased[0]!;
-      const burst = this.pendingBursts[0]!;
-      const stageKey = this.deps.getCurrentStageKey() ?? 0;
-      const toBoxKey = this.resolveDropBoxKey({ category: cat }, stageKey);
-      if (toBoxKey) {
-        for (const itemKey of burst.itemKeys) {
-          this.deps.boxOpenTracker.reclassifyItem(UNCLASSIFIED_BOX_KEY, itemKey, toBoxKey);
-        }
+      const saveDecreaseCats = prevSlots
+        ? (["common", "rare", "act"] as const).filter((c) => prevSlots[c] > saveSlots[c])
+        : [];
+      const signalCats = new Set<ChestDropCategory>([...prunedCats, ...saveDecreaseCats]);
+      if (signalCats.size === 1) {
+        const cat = [...signalCats][0]!;
+        log.info(
+          `classifyPendingBursts: no liveSlots delta; classifying ` +
+            `${this.pendingBursts.length} pending burst(s) via secondary signals ` +
+            `(pruned=[${prunedCats.join(",")}], saveDecrease=[${saveDecreaseCats.join(",")}]) → ${cat}`,
+        );
+        this.classifyAllPendingBursts(cat, "secondary-signal");
+        return;
       }
-      // Reset this category's slot timers anchored to the new head's
-      // autoOpenAtMs (= burstMs + autoOpenSec). Under the serial-queue
-      // model, the chest that opened at burstMs is dequeued/excess-pruned,
-      // and the timer retargets the new head starting at burstMs + autoOpenSec.
-      // Using burstMs + autoOpenSec (not burstMs alone) keeps the new head's
-      // autoOpenAtMs in the future, preventing tick from immediately
-      // decrementing liveSlots for items that haven't actually opened yet.
-      const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
-      const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
-      const anchorMs = burst.burstMs + seconds * 1000;
-      this.resetSlotTimersForCategory(cat, anchorMs);
       log.info(
-        `classified pending burst ${burst.burstId} → ${cat} ` +
-          `(burstMs=${burst.burstMs}, anchor=${anchorMs}, ${burst.itemKeys.length} items reclassified)`,
+        `classifyPendingBursts: ${this.pendingBursts.length} pending burst(s) but no ` +
+          `unambiguous signal ` +
+          `(decreased=0, pruned=[${prunedCats.join(",")}], saveDecrease=[${saveDecreaseCats.join(",")}]); waiting`,
       );
-      this.pendingBursts = [];
       return;
     }
 
-    // Ambiguous: multiple categories decreased OR multiple pending bursts.
-    // Per user spec: leave items as unclassified, reset ALL slot timers
-    // anchored to the earliest burst time + autoOpenSec (per category).
-    // Each category may have a different autoOpenSeconds, so the anchor is
-    // computed per-category inside the loop.
+    if (decreased.length === 1) {
+      // Unambiguous: exactly ONE category decreased. ALL pending bursts in
+      // this window must belong to that category — the box-open reader can
+      // split a single manual "open all" into several bursts (one per live
+      // frame / flush batch), so multiple bursts for one category are NOT
+      // ambiguous. Classify every burst to the decreased category.
+      this.classifyAllPendingBursts(decreased[0]!, "liveSlots-delta");
+      return;
+    }
+
+    // Ambiguous: multiple categories decreased in the same window — we can't
+    // tell which burst belongs to which category. Per user spec: leave items
+    // as unclassified, reset ALL slot timers anchored to the earliest burst
+    // time + autoOpenSec (per category). Each category may have a different
+    // autoOpenSeconds, so the anchor is computed per-category inside the loop.
     const earliestBurstMs = this.pendingBursts.reduce(
       (min, b) => (b.burstMs < min ? b.burstMs : min),
       this.pendingBursts[0]!.burstMs,
@@ -739,6 +762,45 @@ export class AutoClassifyService {
       `ambiguous classification: ${decreased.length} categories decreased ` +
         `(${decreased.join(",")}), ${this.pendingBursts.length} pending burst(s); ` +
         `left unclassified, reset all slot timers (earliestBurstMs=${earliestBurstMs}, +per-cat autoOpenSec)`,
+    );
+    this.pendingBursts = [];
+  }
+
+  /**
+   * Reclassify every item in every pending burst to `cat` and clear the
+   * pending-burst list. Resets that category's slot timers anchored to the
+   * new head's autoOpenAtMs. Under the serial-queue model the timer retargets
+   * the new head after the LAST chest opened in this window, so anchor on the
+   * latest burstMs + autoOpenSec (not burstMs alone), keeping the new head's
+   * autoOpenAtMs in the future so tick doesn't immediately decrement
+   * liveSlots for items that haven't actually opened yet.
+   * `signal` is used only for the log line to record which classification
+   * path fired.
+   */
+  private classifyAllPendingBursts(cat: ChestDropCategory, signal: string): void {
+    const stageKey = this.deps.getCurrentStageKey() ?? 0;
+    const toBoxKey = this.resolveDropBoxKey({ category: cat }, stageKey);
+    let reclassified = 0;
+    if (toBoxKey) {
+      for (const burst of this.pendingBursts) {
+        for (const itemKey of burst.itemKeys) {
+          this.deps.boxOpenTracker.reclassifyItem(UNCLASSIFIED_BOX_KEY, itemKey, toBoxKey);
+          reclassified++;
+        }
+      }
+    }
+    const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
+    const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
+    const latestBurstMs = this.pendingBursts.reduce(
+      (max, b) => (b.burstMs > max ? b.burstMs : max),
+      this.pendingBursts[0]!.burstMs,
+    );
+    const anchorMs = latestBurstMs + seconds * 1000;
+    this.resetSlotTimersForCategory(cat, anchorMs);
+    log.info(
+      `classified ${this.pendingBursts.length} pending burst(s) → ${cat} ` +
+        `(signal=${signal}, latestBurstMs=${latestBurstMs}, anchor=${anchorMs}, ` +
+        `${reclassified} items reclassified)`,
     );
     this.pendingBursts = [];
   }

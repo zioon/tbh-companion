@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { LuStar } from "react-icons/lu";
+import { LuRadiation, LuStar } from "react-icons/lu";
 import { cn } from "../../lib/cn";
 import { gradeLabel, typeLabel } from "../../lib/itemLabels";
 import {
@@ -36,6 +36,7 @@ export interface LookupFiltersProps {
   uniqueOnly: boolean;
   watchedOnly: boolean;
   watchedCount: number;
+  plagueOnly: boolean;
   levelRange: [number, number];
   sortKey: LookupSortKey;
   sortDir: "asc" | "desc";
@@ -53,6 +54,7 @@ export interface LookupFiltersProps {
   onEffectFilterChange: (e: string[]) => void;
   onUniqueOnlyChange: (v: boolean) => void;
   onWatchedOnlyChange: (v: boolean) => void;
+  onPlagueOnlyChange: (v: boolean) => void;
   onLevelRangeChange: (range: [number, number]) => void;
   onSortKeyChange: (key: LookupSortKey) => void;
   onSortDirToggle: () => void;
@@ -68,6 +70,7 @@ export function LookupFilters({
   uniqueOnly,
   watchedOnly,
   watchedCount,
+  plagueOnly,
   levelRange,
   sortKey,
   sortDir,
@@ -85,6 +88,7 @@ export function LookupFilters({
   onEffectFilterChange,
   onUniqueOnlyChange,
   onWatchedOnlyChange,
+  onPlagueOnlyChange,
   onLevelRangeChange,
   onSortKeyChange,
   onSortDirToggle,
@@ -196,6 +200,21 @@ export function LookupFilters({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
         />
+        <label
+          className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted"
+          title={t("filters.plagueOnlyHint")}
+        >
+          <Checkbox
+            checked={plagueOnly}
+            onCheckedChange={(c) => onPlagueOnlyChange(c)}
+            aria-label={t("filters.plagueOnly")}
+          />
+          <LuRadiation
+            className={cn("size-3.5", plagueOnly && "fill-current text-lime-400")}
+            aria-hidden
+          />
+          <span className={cn(plagueOnly && "text-lime-400")}>{t("filters.plagueOnly")}</span>
+        </label>
         <label
           className="inline-flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted"
           title={t("filters.watchedOnlyHint", { count: watchedCount })}

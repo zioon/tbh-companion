@@ -71,6 +71,41 @@ describe("GameDataProvider", () => {
     expect(provider.get(999999)).toBeUndefined();
   });
 
+  it("exposes the schema version when present and null for legacy files", () => {
+    writeBundledData({
+      schemaVersion: 2,
+      items: [
+        {
+          id: 322111,
+          name: "Void Staff",
+          grade: "RARE",
+          type: "GEAR",
+          level: 50,
+          marketTradable: false,
+        },
+      ],
+    });
+    const withSchema = new GameDataProvider();
+    withSchema.load();
+    expect(withSchema.getSchemaVersion()).toBe(2);
+
+    writeBundledData({
+      items: [
+        {
+          id: 322111,
+          name: "Void Staff",
+          grade: "RARE",
+          type: "GEAR",
+          level: 50,
+          marketTradable: false,
+        },
+      ],
+    });
+    const legacy = new GameDataProvider();
+    legacy.load();
+    expect(legacy.getSchemaVersion()).toBeNull();
+  });
+
   it("throws when gamedata cannot be resolved", () => {
     vi.spyOn(bundledData, "resolveBundledDataPath").mockImplementation(() => {
       throw new Error("Bundled data file not found: gamedata.json");
@@ -110,8 +145,10 @@ describe("GameDataProvider", () => {
       (process as ProcessWithResources).resourcesPath = emptyTmp;
       const provider = new GameDataProvider();
       provider.load(emptyTmp);
-      expect(provider.itemCount()).toBeGreaterThan(5000);
-      expect(provider.getVersion()).toBe("1.00.28");
+      // The bundled 1.2.2 catalog is filtered to obtainable items (1954 rows
+      // + stage boxes), so it no longer carries the full pre-filter 6000+ rows.
+      expect(provider.itemCount()).toBeGreaterThan(1500);
+      expect(provider.getVersion()).toBe("1.2.2");
     } finally {
       (process as ProcessWithResources).resourcesPath = tempResources;
       rmSync(emptyTmp, { recursive: true, force: true });

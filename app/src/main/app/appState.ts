@@ -147,6 +147,8 @@ const marketVolume = new MarketVolumeService({
     return typeof price === "number" && price > 0 ? price : 0;
   },
   getCoverageThreshold: () => config.marketHistoryCoverageThreshold,
+  // 币种不一致的历史数据导入换算：优先用图鉴快照的 fx 汇率表（ISO → 每 1 USD）。
+  getFxRates: () => lookupPrices.getSnapshot()?.fx ?? {},
   // 历史走势覆盖 owned ∪ watched 的物品集合（与轮询目标一致，控制 pricehistory 请求量）。
   getTargetHashes: () => {
     const watched = config.lookupPricePolling.watchedHashes ?? [];
@@ -267,12 +269,12 @@ const tracking = new TrackingService(
   (stageKey, failedWave) => {
     stageRuns.recordFailure(stageKey, failedWave);
   },
-  // Live chest slot counts from PlayerSaveData.BoxData runtime are no longer
-  // routed to AutoClassifyService — the service now tracks slots via save data
-  // (recalibration on every save parse) + real-time adjustments (drops +1,
-  // opens/auto-opens -1). This works on all game versions including v1.00.28
-  // where the live memory path is unavailable. The `chestSlots` field still
-  // exists in LiveMemorySnapshot for diagnostic/display purposes.
+  // Live chest slot counts → ChestService。旧版用 live 读取的 BoxData 静态
+  // 槽位；v1.2.2 起 live 路径不可用（snap.chestSlots = null），ChestService
+  // 回落到 save 派生值——save 侧由 parseChests 的 BoxBucketGetBoxList 路径
+  // 提供未开箱子（v1.2.2 存档不再有 BoxData，但箱子以 STAGEBOX 物品存在于
+  // itemSaveDatas）。
+  (slots) => chests.setLiveSlots(slots),
 );
 
 let mainWindow: BrowserWindow | null = null;
@@ -330,6 +332,12 @@ function reloadLocaleCatalog(): void {
   stageRuns.setLocaleCatalog(catalog);
   liveMemory.setLocaleCatalog(catalog);
   lookup.setLocaleCatalog(catalog);
+  // Re-merge the game catalog into the lookup directory and re-inject, so a fresh
+  // catalog refresh (which reloaded gamedata with new 1.2.2 items) is reflected in
+  // Lookup / Inventory / Loot. Idempotent; safe when gamedata isn't loaded yet.
+  lookup.setGameData([...inventory.getGameData().asMap().values()]);
+  tracking.setLookupCatalog(lookup.getCatalog());
+  inventory.setLookupCatalog(lookup.getCatalog());
 }
 
 export function startTracking(): SessionUiSnapshot {
@@ -341,6 +349,10 @@ export function startTracking(): SessionUiSnapshot {
   // is preferred over the bundled copy — otherwise a manual catalog refresh
   // wouldn't survive a restart and the UI would show a false "stale" banner.
   inventory.loadGameData(resolveUserDataDir());
+  // Merge the full game catalog (incl. 1.2.2 items missing from lookup_items.json)
+  // into the lookup directory before it's injected below, so the Lookup page finds
+  // new items and Inventory/Loot show their localized (Chinese) names.
+  lookup.setGameData([...inventory.getGameData().asMap().values()]);
   lookupPrices.start();
   // 启动本地高价值价格轮询（如果配置开启了）。start() 内部会立即触发一次
   // 轮询，然后按 intervalMinutes 周期性触发。即使图鉴快照尚未拉到，
@@ -432,7 +444,18 @@ export function startTracking(): SessionUiSnapshot {
   // run (or after a game update). Fire-and-forget: refresh runs in the
   // background, and on success we reload the catalog + re-emit snapshots so
   // the renderer sees the updated names without a manual refresh click.
-  void (async () => {
+  //
+  // The refresh is delayed a few seconds past startup: extractCatalog /
+  // extractLocales parse large Unity bundles synchronously on the main
+  // process, blocking every IPC handler while they run. Running them during
+  // the first frames stalls the renderer's initial getLookupCatalog /
+  // getInventory fetches, which makes Inventory/Loot render their gray-dot
+  // placeholders for seconds and then visibly repaint once the catalog
+  // lands. Deferring lets the first paint (icons + grade colors) complete
+  // first; the post-refresh re-emit below is then invisible if names are
+  // unchanged and a small background update otherwise.
+  const AUTO_REFRESH_DELAY_MS = 3000;
+  void setTimeout(async () => {
     const status = catalogRefresh.getStatus();
     const localeData = catalogRefresh.getLocaleData();
     const needsRefresh = !localeData || status.stale;
@@ -445,7 +468,7 @@ export function startTracking(): SessionUiSnapshot {
     boxTimers.push();
     stageRuns.push();
     inventory.resolveAndPushInventory();
-  })();
+  }, AUTO_REFRESH_DELAY_MS);
 
   return ui;
 }
@@ -557,8 +580,18 @@ export function getAppServices() {
     refreshItemPrices: (itemKey: number) => inventory.refreshItemPrices(itemKey),
     cancelPrices: () => inventory.cancelPrices(),
     setCurrency: (iso: string) => {
+      const prevCurrency = config.currency;
       config.currency = iso;
       saveConfig(config);
+      if (prevCurrency.toUpperCase() !== iso.toUpperCase()) {
+        // 货币切换的清账（见 BUSINESS-FLOWS 8.7.3）：交易页历史/采样数据以
+        // 旧币计价，统一清空重积；图鉴本地 polling 价格字段清空、回退 CI USD × fx。
+        marketVolume.onCurrencyChanged();
+        lookupPrices.clearLocalFields();
+        // 立即推送清空后的市场数据，避免 Market/交易页继续显示旧币数值。
+        broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+        broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+      }
       return inventory.setCurrency(iso);
     },
     setMarketAutoScanEnabled: (enabled: boolean) => {
@@ -616,6 +649,13 @@ export function getAppServices() {
           onLiveMemoryToggled: () => tracking.onLiveMemoryToggled(),
           setMarketAutoScanEnabled: (enabled) => inventory.setAutoScanEnabled(enabled),
           setMarketLowValueThresholdUsd: (value) => inventory.setLowValueThresholdUsd(value),
+          onCurrencyChanged: () => {
+            // Settings 里改币种：交易页历史/采样清账 + 立即推送空数据。
+            marketVolume.onCurrencyChanged();
+            broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
+            broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
+          },
+          clearLookupLocalFields: () => lookupPrices.clearLocalFields(),
           onLookupPricePollingChanged: (cfg) => lookupPricePolling.setConfig(cfg),
           onLanguageChanged: (newLanguage) => {
             changeLanguage(newLanguage);
@@ -836,11 +876,11 @@ export function getAppServices() {
       } catch (err) {
         return { ok: false, reason: (err as Error).message };
       }
-      const itemCount = marketVolume.importHistory(json);
-      if (itemCount === null) return { ok: false, reason: "invalid_backup" };
+      const imported = marketVolume.importHistory(json);
+      if (!imported.ok) return { ok: false, reason: imported.reason };
       broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
       broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
-      return { ok: true, itemCount };
+      return { ok: true, itemCount: imported.itemCount };
     },
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),

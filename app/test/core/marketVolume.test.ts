@@ -280,6 +280,14 @@ describe("parseMarketVolumeHistory", () => {
     });
     expect(parsed!.lastRefreshAt).toEqual({ a: 123, c: 456 });
   });
+
+  it("解析 currency 字段（trim 后保留；缺失/非字符串丢弃）", () => {
+    expect(parseMarketVolumeHistory({ currency: " USD " })!.currency).toBe("USD");
+    expect(parseMarketVolumeHistory({ currency: "cny" })!.currency).toBe("cny");
+    expect(parseMarketVolumeHistory({ currency: 42 })!.currency).toBeUndefined();
+    expect(parseMarketVolumeHistory({ currency: "" })!.currency).toBeUndefined();
+    expect(parseMarketVolumeHistory({})!.currency).toBeUndefined();
+  });
 });
 
 function volumes(entries: [string, RefreshTargetVolume][]): Map<string, RefreshTargetVolume> {

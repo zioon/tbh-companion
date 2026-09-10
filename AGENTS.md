@@ -116,6 +116,7 @@ pnpm dist                # 压缩数据 + 构建 + Windows NSIS 安装包
 - [`docs/STYLING.md`](docs/STYLING.md) - Tailwind + 设计系统 vs 旧版 `styles.css`
 - [`docs/DIAGNOSTIC_LOGGING.md`](docs/DIAGNOSTIC_LOGGING.md) - 支持日志（main/renderer 规则）
 - [`docs/SAVE_FORMAT.md`](docs/SAVE_FORMAT.md) - ES3 解密 + 存档 JSON 结构
+- [`docs/DATA-UPDATE.md`](docs/DATA-UPDATE.md) - **富数据更新全流程（管道2）**：游戏版本更新后重新生成 gamedata/lookup/图标/本地化的操作手册
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) - 性能基准
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) - ADR 日志
 - [`docs/findings/`](docs/findings/) - 研究成果（Steam Market、物品映射、审计报告）

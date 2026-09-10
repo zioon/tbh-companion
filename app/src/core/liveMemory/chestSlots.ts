@@ -157,3 +157,23 @@ export function readRuntimeChestSlots(
   }
   return { slots, status: "" };
 }
+
+// ---------------------------------------------------------------------------
+// v1.2.2 箱子 itemId → category 分类（纯函数）
+//
+// v1.2.2 的未开箱子以普通物品形式存在于 itemSaveDatas（其 UniqueId 列在
+// BoxBucketGetBoxList），itemId 就是 gamedata 的 item id；箱子的类别由物品
+// 名前缀确定（gamedata-guarded name prefixes, see DATA / SAVE_FORMAT docs）：
+//   "Normal Monster Box*" → common
+//   "Stage Boss Box*"     → rare   （stage boss，AutoClassify 的 "rare"）
+//   "Act Boss Box*"       → act
+// ---------------------------------------------------------------------------
+
+/** 依据 gamedata 物品名前缀，把一个箱子 item 归类到 tracker 的 BoxCategory。 */
+export function categoryFromBoxItemName(name: string | null | undefined): BoxCategory | null {
+  if (!name) return null;
+  if (name.startsWith("Normal Monster Box")) return "common";
+  if (name.startsWith("Stage Boss Box")) return "rare";
+  if (name.startsWith("Act Boss Box")) return "act";
+  return null;
+}

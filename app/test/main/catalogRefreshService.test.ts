@@ -1,17 +1,23 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  backfillItemNames,
   CatalogRefreshService,
   parseLocaleBundleFilename,
   resolveGameInstallDir,
 } from "../../src/main/catalogRefreshService";
+import { CATALOG_SCHEMA_VERSION } from "../../src/core/unityAssets/catalogExtractor";
 import type { GameDataProvider } from "../../src/main/gameDataProvider";
 import type { LiveMemoryService } from "../../src/main/services/LiveMemoryService";
 
 function makeMocks() {
-  const gameData: Pick<GameDataProvider, "load" | "reload" | "getVersion" | "itemCount"> = {
+  const gameData: Pick<
+    GameDataProvider,
+    "load" | "reload" | "getVersion" | "getSchemaVersion" | "itemCount"
+  > = {
     load: vi.fn(),
     reload: vi.fn(),
     getVersion: vi.fn().mockReturnValue("1.00.28"),
+    getSchemaVersion: vi.fn().mockReturnValue(CATALOG_SCHEMA_VERSION),
     itemCount: vi.fn().mockReturnValue(6030),
   };
   const liveMemory: Pick<LiveMemoryService, "getStatus"> = {
@@ -85,6 +91,7 @@ describe("CatalogRefreshService", () => {
   it("marks not stale when catalogVersion is null (catalog not loaded)", () => {
     const { gameData, liveMemory } = makeMocks();
     (gameData.getVersion as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    (gameData.getSchemaVersion as ReturnType<typeof vi.fn>).mockReturnValue(null);
     const svc = new CatalogRefreshService(
       gameData as GameDataProvider,
       liveMemory as LiveMemoryService,
@@ -92,6 +99,17 @@ describe("CatalogRefreshService", () => {
     );
     expect(svc.getStatus().stale).toBe(false);
     expect(svc.getStatus().catalogVersion).toBeNull();
+  });
+
+  it("marks stale when the cached catalog predates the current schema", () => {
+    const { gameData, liveMemory } = makeMocks();
+    (gameData.getSchemaVersion as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    const svc = new CatalogRefreshService(
+      gameData as GameDataProvider,
+      liveMemory as LiveMemoryService,
+      "/some/userData",
+    );
+    expect(svc.getStatus().stale).toBe(true);
   });
 
   it("broadcasts status via broadcast callback when provided", () => {
@@ -197,6 +215,49 @@ describe("CatalogRefreshService", () => {
       const result = resolveGameInstallDir("   ");
       expect(result).toBe("C:\\from-env");
     });
+  });
+});
+
+describe("backfillItemNames", () => {
+  const enTable: Record<string, string> = {
+    ItemName_160003: "Kingdom 10th Anniversary Coin",
+    ItemName_145001: "Chaos Shard",
+  };
+
+  it("resolves placeholder names by their embedded key, not the item id", () => {
+    // item id 160103 carries NameKey `ItemName_160003` — resolved by the key.
+    const items = [
+      { id: 160103, name: "ItemName_160003", grade: "RARE", type: "MATERIAL" },
+      {
+        id: 145001,
+        name: "ItemName_145001",
+        grade: "ARCANA",
+        type: "MATERIAL",
+        marketTradable: false,
+      },
+    ];
+    const n = backfillItemNames(items as never, { locales: { en: enTable } });
+    expect(n).toBe(2);
+    expect(items[0].name).toBe("Kingdom 10th Anniversary Coin");
+    expect(items[1].name).toBe("Chaos Shard");
+  });
+
+  it("leaves non-placeholder names and unresolvable keys untouched", () => {
+    const items = [
+      { id: 150001, name: "Normal Monster Box 1", grade: "COMMON", type: "STAGEBOX" },
+      { id: 421131, name: "ItemName_421131", grade: "", type: "GEAR" },
+    ];
+    const n = backfillItemNames(items as never, { locales: { en: enTable } });
+    expect(n).toBe(0);
+    expect(items[0].name).toBe("Normal Monster Box 1");
+    expect(items[1].name).toBe("ItemName_421131");
+  });
+
+  it("returns 0 and is a no-op when no en table is present", () => {
+    const items = [{ id: 160103, name: "ItemName_160003", grade: "RARE", type: "MATERIAL" }];
+    expect(backfillItemNames(items as never, null)).toBe(0);
+    expect(backfillItemNames(items as never, { locales: {} })).toBe(0);
+    expect(items[0].name).toBe("ItemName_160003");
   });
 });
 

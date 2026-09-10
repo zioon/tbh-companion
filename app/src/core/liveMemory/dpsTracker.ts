@@ -253,6 +253,25 @@ export class DpsTracker {
   }
 
   /**
+   * Seed the wave counter from an authoritative static source (the save
+   * file's current wave) when tracking starts MID-run — e.g. the live-memory
+   * worker attaches after the run already began, or the app restarts while
+   * the user is farming a stage. Without this the wave-clear detector counts
+   * from wave 1 and the UI shows a wrong "1/N" (and stays wrong until a stage
+   * change resets it via `beginMap`). Call AFTER `beginMap()` — that method
+   * zeroes `_wavesCleared`.
+   *
+   * `wave` is the wave the run is currently in; the next alive>0 tick yields
+   * `currentWave = (wave-1) + 1 = wave`, and clears keep advancing from there.
+   * Ignored for wave < 1 (a save snapshot with no stage data).
+   */
+  seedStageWave(wave: number): void {
+    if (!Number.isFinite(wave) || wave < 1) return;
+    this._wavesCleared = Math.trunc(wave) - 1;
+    this._wasAlive = false;
+  }
+
+  /**
    * Feed only an alive-monster count when HP data is unavailable (e.g. builds
    * whose monster-HP offsets aren't derived, like v1.01.05). This keeps
    * wave-clear detection alive so {@link currentWave} still advances in real
