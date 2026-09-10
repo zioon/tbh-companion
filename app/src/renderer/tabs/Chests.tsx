@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useChests } from "../lib/useChests";
+import { fmtShortDuration } from "../lib/format";
 import type { BoxSlotStatus, ChestCapacityBreakdown } from "../../../shared/types";
 import { Badge } from "../design-system/primitives/Badge/Badge";
 import { CapacityBar } from "../design-system/primitives/CapacityBar/CapacityBar";
@@ -29,12 +30,15 @@ function ChestCategoryCard({
   title,
   slot,
   breakdown,
+  autoOpenSeconds,
   fillVariant,
 }: {
   title: string;
   slot: BoxSlotStatus;
   breakdown: ChestCapacityBreakdown;
-  fillVariant: "gray" | "blue" | "red";
+  /** Effective seconds this chest type takes to auto-open (base − rune reduction). */
+  autoOpenSeconds: number;
+  fillVariant: "gray" | "blue" | "red" | "green";
 }) {
   const { t } = useTranslation("chests");
   const pct = slot.capacity > 0 ? Math.min(100, (slot.quantity / slot.capacity) * 100) : 0;
@@ -67,6 +71,9 @@ function ChestCategoryCard({
             : t("slotsRemaining", { count: slot.slotsRemaining })
           : "\u00a0"}
       </p>
+      <p className="m-0 mt-1 text-xs text-muted">
+        {t("autoOpenTime", { value: fmtShortDuration(autoOpenSeconds) })}
+      </p>
       <div className="mt-auto flex flex-col gap-0.5 pt-2">
         <p className="m-0 text-xs font-semibold text-fg/80">{t("capacityDetails")}</p>
         <p className="m-0 text-xs text-muted">{capacityParts(t, breakdown).join(", ")}</p>
@@ -88,7 +95,7 @@ export function Chests() {
     );
   }
 
-  const { common, stageBoss, actBoss, totalHeld } = chests;
+  const { common, stageBoss, actBoss, plagueCommon, plagueRare, plagueAct, totalHeld } = chests;
 
   return (
     <TabPage>
@@ -103,19 +110,43 @@ export function Chests() {
             title={t("category.common")}
             slot={common}
             breakdown={chests.capacity.common}
+            autoOpenSeconds={chests.autoOpen.common}
             fillVariant="gray"
           />
           <ChestCategoryCard
             title={t("category.stageBoss")}
             slot={stageBoss}
             breakdown={chests.capacity.stageBoss}
+            autoOpenSeconds={chests.autoOpen.stageBoss}
             fillVariant="blue"
           />
           <ChestCategoryCard
             title={t("category.actBoss")}
             slot={actBoss}
             breakdown={chests.capacity.actBoss}
+            autoOpenSeconds={chests.autoOpen.actBoss}
             fillVariant="red"
+          />
+          <ChestCategoryCard
+            title={t("category.plagueCommon")}
+            slot={plagueCommon}
+            breakdown={chests.capacity.plagueCommon}
+            autoOpenSeconds={chests.autoOpen.plagueCommon}
+            fillVariant="green"
+          />
+          <ChestCategoryCard
+            title={t("category.plagueRare")}
+            slot={plagueRare}
+            breakdown={chests.capacity.plagueRare}
+            autoOpenSeconds={chests.autoOpen.plagueRare}
+            fillVariant="green"
+          />
+          <ChestCategoryCard
+            title={t("category.plagueAct")}
+            slot={plagueAct}
+            breakdown={chests.capacity.plagueAct}
+            autoOpenSeconds={chests.autoOpen.plagueAct}
+            fillVariant="green"
           />
         </div>
       </section>

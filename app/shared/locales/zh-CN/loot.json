@@ -15,7 +15,10 @@
     "common": "普通宝箱",
     "rare": "关卡宝箱",
     "act": "章节首领宝箱",
-    "unclassified": "未分类"
+    "unclassified": "未分类",
+    "plagueCommon": "瘟疫普通宝箱",
+    "plagueRare": "瘟疫关卡宝箱",
+    "plagueAct": "瘟疫章节首领宝箱"
   },
   "levelSuffix": "{{base}} 等级 {{level}}",
   "boxSection": {

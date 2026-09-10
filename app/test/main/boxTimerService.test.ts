@@ -208,6 +208,45 @@ describe("BoxTimerService", () => {
     vi.useRealTimers();
   });
 
+  it("does not arm a second box for one physical drop across a level boundary", async () => {
+    const onDropped = vi.fn();
+    const svc = await loadService();
+    // Lv80 (920801) covers up to Torment 2-8 (4208); Lv90 (920901) starts at
+    // Torment 2-9 (4209) — adjacent levels, so a drop whose live/reconcile
+    // stage snapshots straddle the boundary would arm both.
+    svc.setEnabledBoxIds([920801, 920901]);
+    svc.setOnChestDropped(onDropped);
+
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    // Live path reports the drop at 4208 -> Lv80.
+    expect(svc.tryMarkDroppedFromLiveStage(4208)).toBe(true);
+    expect(svc.getState().rows.find((r) => r.boxId === 920801)?.status).toBe("cooldown");
+
+    // Save-reconcile path re-reports the SAME drop 3s later, its stage snapshot
+    // already advanced to 4209 -> Lv90. It must NOT start a second countdown.
+    vi.setSystemTime(t0 + 3_000);
+    expect(svc.tryMarkDroppedFromLiveStage(4209)).toBe(true);
+    expect(svc.getState().rows.find((r) => r.boxId === 920901)?.status).toBe("ready");
+    expect(onDropped).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("arms a distinct box for a genuine later drop beyond the dedupe window", async () => {
+    const svc = await loadService();
+    svc.setEnabledBoxIds([920801, 920901]);
+
+    vi.useFakeTimers();
+    const t0 = Date.now();
+    expect(svc.tryMarkDroppedFromLiveStage(4208)).toBe(true);
+
+    // Well past the dedupe window: a drop at 4209 is a real, separate drop.
+    vi.setSystemTime(t0 + 20_000);
+    expect(svc.tryMarkDroppedFromLiveStage(4209)).toBe(true);
+    expect(svc.getState().rows.find((r) => r.boxId === 920901)?.status).toBe("cooldown");
+    vi.useRealTimers();
+  });
+
   it("defaults notifyWhenReady to true and persists opt-out", async () => {
     const svc = await loadService();
     svc.setEnabledBoxIds([920151]);

@@ -149,7 +149,14 @@ export function readRuntimeChestSlots(
     };
   }
 
-  const slots: LiveChestSlots = { common: 0, rare: 0, act: 0 };
+  const slots: LiveChestSlots = {
+    common: 0,
+    rare: 0,
+    act: 0,
+    plagueCommon: 0,
+    plagueRare: 0,
+    plagueAct: 0,
+  };
   for (let i = 0; i < types.length; i++) {
     const category = boxTypeCatalog.get(types[i]!);
     if (category == null || category === "unclassified") continue;
@@ -164,14 +171,20 @@ export function readRuntimeChestSlots(
 // v1.2.2 的未开箱子以普通物品形式存在于 itemSaveDatas（其 UniqueId 列在
 // BoxBucketGetBoxList），itemId 就是 gamedata 的 item id；箱子的类别由物品
 // 名前缀确定（gamedata-guarded name prefixes, see DATA / SAVE_FORMAT docs）：
-//   "Normal Monster Box*" → common
-//   "Stage Boss Box*"     → rare   （stage boss，AutoClassify 的 "rare"）
-//   "Act Boss Box*"       → act
+//   "Normal Monster Box*"        → common
+//   "Stage Boss Box*"            → rare   （stage boss，AutoClassify 的 "rare"）
+//   "Act Boss Box*"              → act
+//   "Contaminated Normal Box*"   → plagueCommon  （v1.02.00 Plague 独立保管）
+//   "Contaminated Stage Box*"    → plagueRare
+//   "Contaminated ActBoss Box*"  → plagueAct
 // ---------------------------------------------------------------------------
 
 /** 依据 gamedata 物品名前缀，把一个箱子 item 归类到 tracker 的 BoxCategory。 */
 export function categoryFromBoxItemName(name: string | null | undefined): BoxCategory | null {
   if (!name) return null;
+  if (name.startsWith("Contaminated Normal Box")) return "plagueCommon";
+  if (name.startsWith("Contaminated Stage Box")) return "plagueRare";
+  if (name.startsWith("Contaminated ActBoss Box")) return "plagueAct";
   if (name.startsWith("Normal Monster Box")) return "common";
   if (name.startsWith("Stage Boss Box")) return "rare";
   if (name.startsWith("Act Boss Box")) return "act";

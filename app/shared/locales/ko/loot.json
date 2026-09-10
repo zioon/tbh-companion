@@ -15,7 +15,10 @@
     "common": "일반 보물 상자",
     "rare": "스테이지 보물 상자",
     "act": "액트보스 보물 상자",
-    "unclassified": "미분류"
+    "unclassified": "미분류",
+    "plagueCommon": "역병 일반 보물 상자",
+    "plagueRare": "역병 스테이지 보물 상자",
+    "plagueAct": "역병 액트보스 보물 상자"
   },
   "levelSuffix": "{{base}} 레벨 {{level}}",
   "boxSection": {

@@ -211,7 +211,14 @@ describe("buildChestState", () => {
     expect(state.capacity.stageBoss.runeLabel).toBe("Rune of the Vault");
 
     // No auto-open reduction runes purchased here, so effective = base seconds.
-    expect(state.autoOpen).toEqual({ common: 300, stageBoss: 600, actBoss: 60 });
+    expect(state.autoOpen).toEqual({
+      common: 300,
+      stageBoss: 600,
+      actBoss: 60,
+      plagueCommon: 600,
+      plagueRare: 1200,
+      plagueAct: 120,
+    });
 
     expect(state.saveMtime).toBe(100);
   });

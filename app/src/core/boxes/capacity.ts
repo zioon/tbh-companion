@@ -23,6 +23,30 @@ export function actBossBoxCapacity(purchases: RunePurchase[], catalog: RuneBoxCa
   return boxCapacity(purchases, catalog.actBoss);
 }
 
+/** v1.02.00 Plague (Contaminated) common chest capacity. */
+export function plagueCommonBoxCapacity(
+  purchases: RunePurchase[],
+  catalog: RuneBoxCapCatalog,
+): number {
+  return boxCapacity(purchases, catalog.plagueCommon);
+}
+
+/** v1.02.00 Plague (Contaminated) stage boss chest capacity. */
+export function plagueRareBoxCapacity(
+  purchases: RunePurchase[],
+  catalog: RuneBoxCapCatalog,
+): number {
+  return boxCapacity(purchases, catalog.plagueRare);
+}
+
+/** v1.02.00 Plague (Contaminated) act boss chest capacity. */
+export function plagueActBoxCapacity(
+  purchases: RunePurchase[],
+  catalog: RuneBoxCapCatalog,
+): number {
+  return boxCapacity(purchases, catalog.plagueAct);
+}
+
 export function boxSlotState(heldQty: number, capacity: number): BoxSlotStatus {
   const quantity = Math.max(0, heldQty);
   const cap = Math.max(0, capacity);

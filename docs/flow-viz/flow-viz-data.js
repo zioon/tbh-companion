@@ -2,7 +2,7 @@
 // DO NOT EDIT BY HAND. Regenerate from repo root: node docs/agent/scripts/build-flow-viz.mjs
 window.TBH_FLOW_VIZ = {
   "sourceFile": "docs/BUSINESS-FLOWS.md",
-  "generatedAt": "2026-09-03T04:08:17.857Z",
+  "generatedAt": "2026-09-10T13:51:07.413Z",
   "flows": [
     {
       "number": 0,
@@ -2797,7 +2797,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "流程图",
           "subsection": "流程图",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Load[构造时 load 读 box_timers.json + seedWasOnCooldown] --> Tick[1Hz tickTimer 订阅者引用计数]\n  Tick --> Build[buildState]\n  Build --> Loop[遍历 routeBoxIds]\n  Loop --> QEnabled{enabledBoxIds 包含?}\n  QEnabled -- 否 --> Skip[跳过 从 wasOnCooldown 删除]\n  QEnabled -- 是 --> Row[buildRow 计算 remaining/active/progress]\n  Row --> QExpired{!active 计时器过期?}\n  QExpired -- 是 --> Del[timers.delete + persistDirty]\n  QExpired -- 否 --> QNotif{prevOnCooldown && !active && resolveNotifyWhenReady?}\n  Del --> QNotif\n  QNotif -- 是 --> Ready[收集 onChestReady → NotificationService.showChestReady]\n  QNotif -- 否 --> Sort[rows.sort cooldown-first / ready-first]\n  Ready --> Sort\n  Sort --> Persist[persistDirty → flush]\n  Persist --> Bcast[返回 BoxTimerState 广播]\n  MarkDrop[markDropped 设置冷却] --> Commit[commitState persist + buildState + broadcast]\n  MarkDrop --> NotifyDrop[onChestDropped → NotificationService.showChestDrop]\n  LiveStage[tryMarkDroppedFromLiveStage] --> Resolve[resolveTrackedDropBoxIdForStage 候选匹配]\n  Resolve --> QAuto{无候选且匹配 canonical route?}\n  QAuto -- 是 --> AutoEnable[自动启用最高等级 box]\n  AutoEnable --> IsCooldown{已在冷却?}\n  QAuto -- 否 --> IsCooldown\n  Resolve --> IsCooldown\n  IsCooldown -- 是 --> Idempotent[幂等返回 true]\n  IsCooldown -- 否 --> MarkDrop\n  class Load,Tick,Build,Loop,Row,Del,Sort,Persist,Bcast,Commit,NotifyDrop,Resolve,AutoEnable,MarkDrop data\n  class QEnabled,QExpired,QNotif,QAuto,IsCooldown dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Load[构造时 load 读 box_timers.json + seedWasOnCooldown] --> Tick[1Hz tickTimer 订阅者引用计数]\n  Tick --> Build[buildState]\n  Build --> Loop[遍历 routeBoxIds]\n  Loop --> QEnabled{enabledBoxIds 包含?}\n  QEnabled -- 否 --> Skip[跳过 从 wasOnCooldown 删除]\n  QEnabled -- 是 --> Row[buildRow 计算 remaining/active/progress]\n  Row --> QExpired{!active 计时器过期?}\n  QExpired -- 是 --> Del[timers.delete + persistDirty]\n  QExpired -- 否 --> QNotif{prevOnCooldown && !active && resolveNotifyWhenReady?}\n  Del --> QNotif\n  QNotif -- 是 --> Ready[收集 onChestReady → NotificationService.showChestReady]\n  QNotif -- 否 --> Sort[rows.sort cooldown-first / ready-first]\n  Ready --> Sort\n  Sort --> Persist[persistDirty → flush]\n  Persist --> Bcast[返回 BoxTimerState 广播]\n  MarkDrop[markDropped 设置冷却] --> Commit[commitState persist + buildState + broadcast]\n  MarkDrop --> NotifyDrop[onChestDropped → NotificationService.showChestDrop]\n  LiveStage[tryMarkDroppedFromLiveStage] --> Resolve[resolveTrackedDropBoxIdForStage 候选匹配]\n  Resolve --> QAuto{无候选且匹配 canonical route?}\n  QAuto -- 是 --> AutoEnable[自动启用最高等级 box]\n  AutoEnable --> IsCooldown{已在冷却?}\n  QAuto -- 否 --> IsCooldown\n  Resolve --> IsCooldown\n  IsCooldown -- 是 --> Idempotent[幂等返回 true]\n  IsCooldown -- 否 --> QDedupe{15s 内已 arm 过其它箱子?}\n  QDedupe -- 是 --> Idempotent\n  QDedupe -- 否 --> MarkDrop\n  class Load,Tick,Build,Loop,Row,Del,Sort,Persist,Bcast,Commit,NotifyDrop,Resolve,AutoEnable,MarkDrop data\n  class QEnabled,QExpired,QNotif,QAuto,IsCooldown,QDedupe dec",
           "nodes": [
             {
               "id": "AutoEnable",
@@ -2856,6 +2856,10 @@ window.TBH_FLOW_VIZ = {
               "label": "无候选且匹配 canonical route?"
             },
             {
+              "id": "QDedupe",
+              "label": "15s 内已 arm 过其它箱子?"
+            },
+            {
               "id": "QEnabled",
               "label": "enabledBoxIds 包含?"
             },
@@ -2911,7 +2915,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "from": "IsCooldown",
-              "to": "MarkDrop"
+              "to": "QDedupe"
             },
             {
               "from": "LiveStage",
@@ -2944,6 +2948,14 @@ window.TBH_FLOW_VIZ = {
             {
               "from": "QAuto",
               "to": "IsCooldown"
+            },
+            {
+              "from": "QDedupe",
+              "to": "Idempotent"
+            },
+            {
+              "from": "QDedupe",
+              "to": "MarkDrop"
             },
             {
               "from": "QEnabled",
@@ -3006,7 +3018,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "流程图",
           "subsection": "流程图",
-          "mermaid": "%% TBH flow diagram\nflowchart LR\n  Live[TrackingService.ingestLiveFrame] --> QClear{stageClears 非空?}\n  QClear -- 是 --> RecordClear[StageRunService.recordClear]\n  RecordClear --> Valid{stageKey > 0 && clearTimeSec > 0?}\n  Valid -- 否 --> Drop1[过滤无效]\n  Valid -- 是 --> Push[tracker.recordClear history.push cap 200]\n  Push --> Persist[persist 立即写 stage_run_history.json]\n  Persist --> Bcast[广播 IPC.STAGE_RUNS getStats]\n  Live --> FailDet[StageRunFailDetector 逐帧喂入]\n  FailDet --> QHero{英雄在场下降沿?}\n  QHero -- 是 --> QFail{本场无 clear 且峰值波次 ≥ MIN_WAVES?}\n  QFail -- 是 --> RecordFail[recordFailure stageKey + 峰值波次]\n  RecordFail --> DpsEnd[DpsTracker.onRunEnd 波次归零]\n  QFail -- 否 --> Reset[状态复位]\n  Load[构造时 load 校验 + applySnapshot 过滤] --> Stats[getStats 最近 20 条 + withStageName 重算]\n  class Live,RecordClear,Push,Persist,Bcast,FailDet,RecordFail,DpsEnd,Reset,Load,Stats data\n  class QClear,Valid,QHero,QFail dec",
+          "mermaid": "%% TBH flow diagram\nflowchart LR\n  Live[TrackingService.ingestLiveFrame] --> QClear{stageClears 非空?}\n  QClear -- 是 --> RecordClear[StageRunService.recordClear]\n  RecordClear --> Valid{stageKey > 0 && clearTimeSec > 0?}\n  Valid -- 否 --> Drop1[过滤无效]\n  Valid -- 是 --> Push[tracker.recordClear history.push cap 200]\n  Push --> Persist[persist 立即写 stage_run_history.json]\n  Persist --> Bcast[广播 IPC.STAGE_RUNS getStats]\n  Live --> FailDet[StageRunFailDetector 逐帧喂入]\n  FailDet --> QHero{英雄持续离场 ≥ WITHDRAW_CONFIRM_MS?}\n  QHero -- 是 --> QFail{本场无 clear 且峰值波次 ≥ MIN_WAVES?}\n  QFail -- 是 --> RecordFail[recordFailure stageKey + 峰值波次]\n  RecordFail --> DpsEnd[DpsTracker.onRunEnd 波次归零]\n  QFail -- 否 --> Reset[状态复位]\n  Load[构造时 load 校验 + applySnapshot 过滤] --> Stats[getStats 最近 20 条 + withStageName 重算]\n  class Live,RecordClear,Push,Persist,Bcast,FailDet,RecordFail,DpsEnd,Reset,Load,Stats data\n  class QClear,Valid,QHero,QFail dec",
           "nodes": [
             {
               "id": "Bcast",
@@ -3050,7 +3062,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "QHero",
-              "label": "英雄在场下降沿?"
+              "label": "英雄持续离场 ≥ WITHDRAW_CONFIRM_MS?"
             },
             {
               "id": "RecordClear",
@@ -3541,7 +3553,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "14.4 reconcileWithChestSlots(slots) — 每次 save 解析触发",
           "subsection": "14.4 reconcileWithChestSlots(slots) — 每次 save 解析触发",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Reconcile[reconcileWithChestSlots slots] --> Recalib[maybeRecalibrateQueue]\n  Recalib --> Step1[Step1 excess-prune 队列数 > 槽位数 移除最老]\n  Step1 --> Step2{Step2 比较 liveSlots 与 save slots}\n  Step2 -- 1 category decreased --> AllBurst[所有 pending burst reclassify 到该类别 + resetSlotTimersForCategory]\n  Step2 -- 0 decreased --> Signals{信号 A excess-prune 或 信号 B save 槽位绝对值减少}\n  Signals -- 指向恰一个类别 --> Classify[归类]\n  Signals -- 多类别 真歧义 --> Wait[等待 TTL prune 仅重置 timer]\n  Step2 -- 多 category decreased --> Wait\n  Classify --> Step3[Step3 liveSlots = slots save 是 ground truth]\n  AllBurst --> Step3\n  Wait --> Step3\n  Step3 --> Step4[Step4 backfill 队列数 < 槽位数 用 placeholder 锚定]\n  Step4 --> Step5{Step5 漏掉掉落补偿 rare/act}\n  Step5 -- save 槽位增量 > 0 --> Missed[recordLiveChestDrop 补偿 + rare 时 onLiveStageBossDrop]\n  Step5 -- 否 --> Done[结束]\n  class Reconcile,Recalib,Step1,AllBurst,Classify,Wait,Step3,Step4,Missed data\n  class Step2,Signals,Step5 dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Reconcile[reconcileWithChestSlots slots] --> Recalib[maybeRecalibrateQueue]\n  Recalib --> Step1[Step1 excess-prune 队列数 > 槽位数 移除最老]\n  Step1 --> Step2{Step2 比较 liveSlots 与 save slots}\n  Step2 -- 1 category decreased --> AllBurst[所有 pending burst reclassify 到该类别 + resetSlotTimersForCategory]\n  Step2 -- 0 decreased --> Signals{信号 A excess-prune 或 信号 B save 槽位绝对值减少}\n  Signals -- 指向恰一个类别 --> Classify[归类]\n  Signals -- 多类别 真歧义 --> Wait[等待 TTL prune 仅重置 timer]\n  Step2 -- 多 category decreased --> Wait\n  Classify --> Step3[Step3 liveSlots = slots save 是 ground truth]\n  AllBurst --> Step3\n  Wait --> Step3\n  Step3 --> Step4[Step4 backfill 队列数 < 槽位数 用 placeholder 锚定]\n  Step4 --> Step5{Step5 漏掉掉落补偿 rare/act}\n  Step5 -- save 槽位增量 > 0 --> Missed[recordLiveChestDrop 补偿（不触发 BoxTimer）]\n  Step5 -- 否 --> Done[结束]\n  class Reconcile,Recalib,Step1,AllBurst,Classify,Wait,Step3,Step4,Missed data\n  class Step2,Signals,Step5 dec",
           "nodes": [
             {
               "id": "AllBurst",
@@ -3557,7 +3569,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "Missed",
-              "label": "recordLiveChestDrop 补偿 + rare 时 onLiveStageBossDrop"
+              "label": "recordLiveChestDrop 补偿（不触发 BoxTimer）"
             },
             {
               "id": "Recalib",

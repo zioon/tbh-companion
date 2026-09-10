@@ -6,6 +6,17 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 _Nothing yet._
 
+## [1.22.0] - 2026-09-10
+
+### 瘟疫宝箱
+
+- 支持 **v1.02.00 瘟疫（Contaminated）宝箱**：新增瘟疫普通 / 瘟疫关卡首领 / 瘟疫章节首领三类宝箱的容量、自动开箱计时、分类与本地化，跟随 v1.02.00 的符文解锁规则。
+- **Chests** 页每个宝箱卡片新增**自动开箱所需时间**显示（含符文减时后的实际耗时）。
+
+### 修复
+
+- 修复宝箱自动开箱计时在部分版本下不准确的问题。
+
 ## [1.21.0] - 2026-09-10
 
 ### Internationalization

@@ -28,6 +28,10 @@ export interface RuneBoxCapCatalog {
   common: ChestCapDefinition;
   stageBoss: ChestCapDefinition;
   actBoss: ChestCapDefinition;
+  /** v1.02.00 Plague (Contaminated) chests — stored separately from normal ones. */
+  plagueCommon: ChestCapDefinition;
+  plagueRare: ChestCapDefinition;
+  plagueAct: ChestCapDefinition;
   note?: string;
 }
 
@@ -42,6 +46,10 @@ export interface RuneAutoOpenCatalog {
   common: AutoOpenDefinition;
   stageBoss: AutoOpenDefinition;
   actBoss: AutoOpenDefinition;
+  /** v1.02.00 Plague (Contaminated) chests — stored separately from normal ones. */
+  plagueCommon: AutoOpenDefinition;
+  plagueRare: AutoOpenDefinition;
+  plagueAct: AutoOpenDefinition;
   note?: string;
 }
 

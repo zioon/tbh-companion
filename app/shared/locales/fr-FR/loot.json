@@ -3,7 +3,10 @@
     "common": "Coffre commun",
     "rare": "Coffre de niveau",
     "act": "Coffre de boss d'acte",
-    "unclassified": "Non classé"
+    "unclassified": "Non classé",
+    "plagueCommon": "Coffre commun de la peste",
+    "plagueRare": "Coffre de boss d'étape de la peste",
+    "plagueAct": "Coffre de boss d'acte de la peste"
   },
   "levelSuffix": "{{base}} Niv.{{level}}"
 }

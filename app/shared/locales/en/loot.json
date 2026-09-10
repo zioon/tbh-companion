@@ -15,7 +15,10 @@
     "common": "Common Treasure Chest",
     "rare": "Stage Treasure Chest",
     "act": "Act Boss Treasure Chest",
-    "unclassified": "Unclassified"
+    "unclassified": "Unclassified",
+    "plagueCommon": "Plague Common Treasure Chest",
+    "plagueRare": "Plague Stage Treasure Chest",
+    "plagueAct": "Plague Act Boss Treasure Chest"
   },
   "levelSuffix": "{{base}} Lv{{level}}",
   "boxSection": {

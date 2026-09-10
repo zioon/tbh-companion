@@ -15,7 +15,10 @@
     "common": "一般宝箱",
     "rare": "ステージ宝箱",
     "act": "アクトボス宝箱",
-    "unclassified": "未分類"
+    "unclassified": "未分類",
+    "plagueCommon": "疫病の一般宝箱",
+    "plagueRare": "疫病のステージ宝箱",
+    "plagueAct": "疫病のアクトボス宝箱"
   },
   "levelSuffix": "{{base}} レベル {{level}}",
   "boxSection": {

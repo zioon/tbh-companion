@@ -23,6 +23,9 @@ import {
   actBossBoxCapacity,
   boxSlotState,
   commonBoxCapacity,
+  plagueActBoxCapacity,
+  plagueCommonBoxCapacity,
+  plagueRareBoxCapacity,
   stageBossBoxCapacity,
 } from "./capacity";
 
@@ -31,6 +34,9 @@ export {
   commonBoxCapacity,
   stageBossBoxCapacity,
   actBossBoxCapacity,
+  plagueCommonBoxCapacity,
+  plagueRareBoxCapacity,
+  plagueActBoxCapacity,
   boxSlotState,
   commonBoxState,
 } from "./capacity";
@@ -73,7 +79,20 @@ export function resolveChestHoldings(
   }
 
   rows.sort((a, b) => {
-    const order = (c: string) => (c === "common" ? 0 : c === "rare" ? 1 : c === "act" ? 2 : 3);
+    const order = (c: string) =>
+      c === "common"
+        ? 0
+        : c === "rare"
+          ? 1
+          : c === "act"
+            ? 2
+            : c === "plagueCommon"
+              ? 3
+              : c === "plagueRare"
+                ? 4
+                : c === "plagueAct"
+                  ? 5
+                  : 6;
     const d = order(a.category) - order(b.category);
     return d !== 0 ? d : a.boxType - b.boxType;
   });
@@ -118,15 +137,24 @@ export function buildChestState(
   const commonCapTotal = commonBoxCapacity(purchases, runeCapCatalog);
   const stageCapTotal = stageBossBoxCapacity(purchases, runeCapCatalog);
   const actCapTotal = actBossBoxCapacity(purchases, runeCapCatalog);
+  const plagueCommonCapTotal = plagueCommonBoxCapacity(purchases, runeCapCatalog);
+  const plagueRareCapTotal = plagueRareBoxCapacity(purchases, runeCapCatalog);
+  const plagueActCapTotal = plagueActBoxCapacity(purchases, runeCapCatalog);
 
   const common = buildCategoryState(rows, "common", commonCapTotal);
   const stageBoss = buildCategoryState(rows, "rare", stageCapTotal);
   const actBoss = buildCategoryState(rows, "act", actCapTotal);
+  const plagueCommon = buildCategoryState(rows, "plagueCommon", plagueCommonCapTotal);
+  const plagueRare = buildCategoryState(rows, "plagueRare", plagueRareCapTotal);
+  const plagueAct = buildCategoryState(rows, "plagueAct", plagueActCapTotal);
 
   const capacity = {
     common: buildCapacityBreakdown(purchases, runeCapCatalog.common),
     stageBoss: buildCapacityBreakdown(purchases, runeCapCatalog.stageBoss),
     actBoss: buildCapacityBreakdown(purchases, runeCapCatalog.actBoss),
+    plagueCommon: buildCapacityBreakdown(purchases, runeCapCatalog.plagueCommon),
+    plagueRare: buildCapacityBreakdown(purchases, runeCapCatalog.plagueRare),
+    plagueAct: buildCapacityBreakdown(purchases, runeCapCatalog.plagueAct),
     totalRunePurchases: purchases.length,
   };
 
@@ -134,6 +162,9 @@ export function buildChestState(
     common: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.common),
     stageBoss: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.stageBoss),
     actBoss: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.actBoss),
+    plagueCommon: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.plagueCommon),
+    plagueRare: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.plagueRare),
+    plagueAct: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.plagueAct),
   };
 
   return {
@@ -141,6 +172,9 @@ export function buildChestState(
     common,
     stageBoss,
     actBoss,
+    plagueCommon,
+    plagueRare,
+    plagueAct,
     capacity,
     autoOpen,
     totalHeld: rows.reduce((s, r) => s + r.quantity, 0),

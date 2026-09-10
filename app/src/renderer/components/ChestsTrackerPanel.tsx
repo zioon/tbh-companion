@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppConfig } from "../../../shared/types";
 import { useBoxTimers } from "../lib/useBoxTimers";
 import { reportIpcError } from "../lib/reportError";
 import {
   applyTrackerPreset,
-  enabledCatalogEntries,
+  groupCatalogByLevel,
+  groupEnabledByLevelAndCategory,
+  levelGroupTooltip,
   normalizeBoxTrackerSortOrder,
   toggleTrackedLevel,
   TRACKER_LEVEL_CHIP_GRID_CLASS,
@@ -39,6 +41,12 @@ export function ChestsTrackerPanel() {
     };
   }, []);
 
+  // One chip per LEVEL (not per route): the catalog's Contaminated Stage Box
+  // variants re-use the plain stage-boss levels, so a per-route grid showed
+  // ~21 identical "Lv40/65/90" pills each. Grouped here so the hook order
+  // stays unconditional above the loading early-return.
+  const levelGroups = useMemo(() => (state ? groupCatalogByLevel(state.catalog) : []), [state]);
+
   if (!state) {
     return (
       <section
@@ -53,7 +61,9 @@ export function ChestsTrackerPanel() {
     );
   }
 
-  const enabledEntries = enabledCatalogEntries(state.catalog);
+  // One settings row per (category, level) — plague boxes get their own row so
+  // their (different) auto-open cooldown is configurable separately.
+  const settingsGroups = groupEnabledByLevelAndCategory(state.catalog);
 
   return (
     <section
@@ -118,42 +128,42 @@ export function ChestsTrackerPanel() {
         </div>
         {/* Raw toggle chips — no ToggleChip primitive yet; pill shape + grid density are one-off. */}
         <div className={cn("mt-1.5 grid gap-1", TRACKER_LEVEL_CHIP_GRID_CLASS)}>
-          {state.catalog.map((entry) => (
+          {levelGroups.map((group) => (
             <Tooltip
-              key={entry.boxId}
+              key={group.level ?? "unknown"}
               trigger={
                 <button
                   type="button"
                   className={cn(
                     "box-border cursor-pointer rounded-full border px-1 py-0.5 text-center text-[10px] font-semibold leading-tight break-words whitespace-normal",
                     TRACKER_LEVEL_CHIP_WIDTH_CLASS,
-                    entry.enabled
+                    group.enabled
                       ? "border-accent bg-ideal/15 text-accent"
                       : "border-border bg-card text-muted hover:border-muted hover:text-fg",
                   )}
-                  onClick={() => toggleTrackedLevel(entry, state.catalog)}
+                  onClick={() => toggleTrackedLevel(group, state.catalog)}
                 >
-                  {t("tracker.chipLevel", { level: entry.level })}
+                  {t("tracker.chipLevel", { level: group.level ?? "?" })}
                 </button>
               }
             >
-              {`${entry.idealStageLabel} · ${entry.dropStageRangeLabel}${
-                entry.enabled ? t("tracker.chipTrackingSuffix") : t("tracker.chipTapToTrackSuffix")
+              {`${levelGroupTooltip(group)}${
+                group.enabled ? t("tracker.chipTrackingSuffix") : t("tracker.chipTapToTrackSuffix")
               }`}
             </Tooltip>
           ))}
         </div>
       </PanelSection>
 
-      {enabledEntries.length === 0 ? (
+      {settingsGroups.length === 0 ? (
         <p className="m-0 text-xs text-muted">{t("tracker.pickPrompt")}</p>
       ) : (
         <PanelSection title={t("tracker.perLevelSection")}>
           <div className="grid grid-cols-1 gap-2 min-[640px]:grid-cols-2">
-            {enabledEntries.map((entry) => (
+            {settingsGroups.map((group) => (
               <TrackerConfigRow
-                key={entry.boxId}
-                entry={entry}
+                key={`${group.category ?? "?"}-${group.level ?? "?"}`}
+                group={group}
                 defaultCooldownSeconds={state.defaultCooldownSeconds}
                 notificationsEnabled={notificationsEnabled}
               />

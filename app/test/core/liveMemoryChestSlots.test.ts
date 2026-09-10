@@ -197,7 +197,14 @@ describe("readRuntimeChestSlots — full path", () => {
     seedListInt(m, QTY_LIST_PTR, QTY_ITEMS_PTR, [3, 1, 2, 4, 5]);
 
     const r = readRuntimeChestSlots(m, GA_BASE, GA_SIZE, o, makeCatalog(), PLAYER_PTR);
-    expect(r.slots).toEqual({ common: 7, rare: 1, act: 2 });
+    expect(r.slots).toEqual({
+      common: 7,
+      rare: 1,
+      act: 2,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
     expect(r.status).toBe("");
   });
 
@@ -210,7 +217,14 @@ describe("readRuntimeChestSlots — full path", () => {
     seedListInt(m, TYPES_LIST_PTR, TYPES_ITEMS_PTR, [888, 889]); // unknown types
     seedListInt(m, QTY_LIST_PTR, QTY_ITEMS_PTR, [10, 20]);
     const r = readRuntimeChestSlots(m, GA_BASE, GA_SIZE, o, makeCatalog(), PLAYER_PTR);
-    expect(r.slots).toEqual({ common: 0, rare: 0, act: 0 });
+    expect(r.slots).toEqual({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
   });
 
   it("returns null when types.length !== quantities.length", () => {
@@ -266,7 +280,14 @@ describe("readRuntimeChestSlots — full path", () => {
     seedListInt(m, QTY_LIST_PTR, QTY_ITEMS_PTR, [5, 2]);
 
     const r = readRuntimeChestSlots(m, GA_BASE, GA_SIZE, o, makeCatalog(), /* override */ null);
-    expect(r.slots).toEqual({ common: 5, rare: 2, act: 0 });
+    expect(r.slots).toEqual({
+      common: 5,
+      rare: 2,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
   });
 
   it("returns null when static-field chain is broken and no override provided", () => {

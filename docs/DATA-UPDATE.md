@@ -14,6 +14,8 @@
 | 物品名称（本地化键→英文） | `StreamingAssets/aa/StandaloneWindows64/localization-assets-shared_assets_all.bundle` + `localization-string-tables-english(...)_assets_all.bundle` |
 | 全部语言本地化 | 同目录 `localization-string-tables-*` 全部 bundle |
 | 物品图标 | `sharedassets0.assets` 内 `Item_<id>` / `<GEARTYPE>_<id>` 精灵（含 SpriteAtlas 图集） |
+| 符文基础表（CSV） | `sharedassets0.assets` 内嵌 `RuneInfoData` / `RuneLevelInfoData` TextAsset（**非管道2产物**，见 §3.3） |
+| 宝箱槽位类型 | `data/box_types.json` 手动维护（boxType → label/category/color，见 §3.3） |
 
 管道2 = [`scripts/build_tbh_data.py`](../scripts/build_tbh_data.py)：一次解析上述资源，生成 `data/` 下全部富数据 JSON。
 
@@ -54,7 +56,28 @@ python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
 | `lookup_items.json` | 图鉴条目（stats、gearGroups、iconPath、来源） |
 | `stage_boxes.json` | STAGEBOX 目录 + 追踪元数据 |
 
-### 步骤 2：提取物品图标
+### 步骤 1.5：符文数据（`rune_box_cap.json` / `rune_auto_open.json` / `box_types.json`）
+
+> 这三个文件**不是管道2产物**，由 `RuneInfoData` / `RuneLevelInfoData` TextAsset **手动提取**。游戏符文系统更新（新符文链、新宝箱槽位类型）时需同步刷新。
+
+**数据源**：`sharedassets0.assets` 内嵌两个 CSV TextAsset：
+
+| 表 | 列 | 用途 |
+|----|----|------|
+| `RuneInfoData` | `RuneKey`、`NameKey`、`LevelDataKey`、`NextRuneKey` … | 符文节点 → 效果类型（`MaxAmountNormalChest`、`UnlockAutoOpenNormalChest`、`ReduceAutoOpenNormalChestTime` 等，从 `NameKey` 后缀读取） |
+| `RuneLevelInfoData` | `LevelKey`、`Level`、`STATTYPE`、`Value` | 每级数值：`MaxAmount*Chest` → 容量 +1/级；`UnlockAutoOpen*Chest` → 自动开箱 baseSeconds；`ReduceAutoOpen*ChestTime` → 每级减秒 |
+
+**三个文件各自的口径**：
+
+| 文件 | 口径 |
+|------|------|
+| `rune_box_cap.json` | 每个槽位类别（common/stageBoss/actBoss/plague*）的 `boxType` + `baseCapacity` + `bonusPerLevel` + 该类别全部 `MaxAmount*Chest` 的 `runeKeys` |
+| `rune_auto_open.json` | 每类别 `baseSeconds`（`UnlockAutoOpen*Chest` 的 Value）+ `perLevelSeconds`（`ReduceAutoOpen*ChestTime` 各节点每级 Value，键为 RuneKey 字符串） |
+| `box_types.json` | boxType → label/category/color；与 `core/boxes/catalog.ts` 的 `BoxTypeCatalog` 一致 |
+
+**更新步骤**：临时脚本 `scripts/_dump_rune_tables.py` 过滤 `MaxAmount|UnlockAutoOpen|ReduceAutoOpen` 的 STATTYPE，按类别分组导出；对照游戏新增符文链手工更新上述 JSON 后删除临时脚本。任何新增 `BoxCategory` 值（如 v1.02.00 的 `plagueCommon/plagueRare/plagueAct`）需同步 `shared/types.ts`、`chestSlots.ts` 前缀分类、`boxOpenLog.ts` boxType 映射、AutoClassify 类别遍历、UI/locale。
+
+**步骤 2：提取物品图标**
 
 ```powershell
 python scripts/extract_icons.py
@@ -116,6 +139,16 @@ pnpm build         # 生产构建
 4. **图标不完整/错位**：自定义图集提取方法不可靠 → 改用 `SpriteHelper.get_image_from_sprite` 官方解码路径。
 5. **物品名英文**：`ItemName_*` 占位名未解析 → `backfillItemNames` + 更新 `_game_locale_dump.json`。
 
+### v1.02.00 Plague（瘟疫）符文更新（2026-09-10）
+
+游戏 9/8 更新到 **Ver 1.02.00（瘟疫之地）**。管道2 产物（6 个 JSON）**无实质变化**（仅 fetchedUtc 时间戳，污染宝箱物品 `915xxx/925xxx/935xxx` 早已存在于 gamedata）；真正变化的是**符文表**与宝箱槽位类型：
+
+- `RuneInfoData`/`RuneLevelInfoData` 新增 Plague 系列：`MaxAmountPlagueNormalChest`（1162, 11621-11624）、`MaxAmountPlagueStageBossChest`（1164, 11641-11644）、`MaxAmountPlagueActBossChest`（1166, 11661-11664）、`UnlockAutoOpenPlague*Chest`（600/1200/120s）、`ReduceAutoOpenPlague*ChestTime`（4/8/1s 每级）。
+- **污染宝箱与普通宝箱分开保管**（wiki 确认），容量/自动开箱用独立符文链 → companion 新增 `plagueCommon/plagueRare/plagueAct` 三个 `BoxCategory` 值。
+- 同步改动：`rune_box_cap.json` / `rune_auto_open.json` 各 +3 组、`box_types.json` +3（boxType 3/4/5）、`shared/types.ts` BoxCategory/ChestState、`chestSlots.ts` 前缀分类、`boxOpenLog.ts` boxType 映射、`resolve.ts`/`capacity.ts` 容量、`ChestService`/`AutoClassify` 类别遍历、UI（Chests 页 + CapacityBar green）+ 全部 locale。详见 [`docs/BUSINESS-FLOWS.md`](BUSINESS-FLOWS.md) §13.6。
+- **未做**：live GetBoxLog 的 `monsterType` 仍只映射 0/1/2，污染宝箱实时掉落分类待真机确认后扩展（save 侧解析已完整支持）。
+- **踩坑**：BOX 分类新增值牵连面大（类型联合、sort 顺序、AutoClassify 三处类别遍历、测试断言），改动前先 `grep -n '"common" | "rare" | "act"' app/` 摸底。
+
 ## 6. 快速参考
 
 ```powershell
@@ -126,6 +159,9 @@ python scripts/extract_icons.py
 python scripts/audit_catalog.py
 python scripts/audit_unresolved.py
 python scripts/check_icons.py
+
+# 符文数据（非管道2产物，游戏符文系统变化时手动提取，见步骤 1.5）
+#   python scripts/_dump_rune_tables.py  →  更新 rune_box_cap.json / rune_auto_open.json / box_types.json
 
 # 应用侧
 cd app

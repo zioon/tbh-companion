@@ -27,5 +27,32 @@
       "19020011": 1
     }
   },
-  "note": "baseSeconds from RuneLevelInfoData UnlockAutoOpen*Chest (Mainspring unlock nodes). Per-level reduction from ReduceAutoOpen*ChestTime (Lubrication)."
+  "plagueCommon": {
+    "baseSeconds": 600,
+    "runeLabel": "Rune of Lubrication",
+    "perLevelSeconds": {
+      "11631": 4,
+      "11632": 4,
+      "11633": 4
+    }
+  },
+  "plagueRare": {
+    "baseSeconds": 1200,
+    "runeLabel": "Rune of Lubrication",
+    "perLevelSeconds": {
+      "11651": 8,
+      "11652": 8,
+      "11653": 8
+    }
+  },
+  "plagueAct": {
+    "baseSeconds": 120,
+    "runeLabel": "Rune of Lubrication",
+    "perLevelSeconds": {
+      "11671": 1,
+      "11672": 1,
+      "11673": 1
+    }
+  },
+  "note": "baseSeconds from RuneLevelInfoData UnlockAutoOpen*Chest (Mainspring unlock nodes). Per-level reduction from ReduceAutoOpen*ChestTime (Lubrication). Plague (Contaminated) chest chains from UnlockAutoOpenPlague*Chest / ReduceAutoOpenPlague*ChestTime (v1.02.00)."
 }

@@ -17,7 +17,14 @@ const log = createLogger("chests");
  * auto-classify `BoxCategory` naming (`rare` = stage boss) so the
  * AutoClassifyService can compare directly against its queue.
  */
-export type ChestSlotCounts = { common: number; rare: number; act: number };
+export type ChestSlotCounts = {
+  common: number;
+  rare: number;
+  act: number;
+  plagueCommon: number;
+  plagueRare: number;
+  plagueAct: number;
+};
 
 export class ChestService {
   private readonly boxTypes = loadBoxTypeCatalog();
@@ -53,12 +60,23 @@ export class ChestService {
     // 仅当槽位实际变化时才重新 reconcile（live snapshot 每帧都会回调，
     // 槽位不变时跳过，避免无谓的 AutoClassify reconcile/日志噪声）。
     const prev = this.liveSlotsOverride;
+    // `null` 表示本帧没有 live 槽位数据（如 v1.2.2，ChestService 回落到 save
+    // 派生值）。旧实现要求 `slots != null` 才判“未变化”，于是 null→null 永远
+    // 被当作变化，每帧（~25Hz）都拿**上一次 save**（滞后）去 reconcile。这会在
+    // 同一帧内把刚由 live 入队、但 save 尚未记录的箱子当 excess 剪掉，等 save
+    // 追平后再以“对账时刻”为锚 backfill —— 开箱倒计时锚点被推后、系统性偏慢，
+    // 且后续 save 重读无法回正。没有 live 数据 = 没有新信息，直接跳过；对账改由
+    // save 解析（onSave → reconcile）驱动。
+    if (prev === null && slots === null) return;
     const unchanged =
       slots != null &&
       prev != null &&
       prev.common === slots.common &&
       prev.rare === slots.rare &&
-      prev.act === slots.act;
+      prev.act === slots.act &&
+      prev.plagueCommon === slots.plagueCommon &&
+      prev.plagueRare === slots.plagueRare &&
+      prev.plagueAct === slots.plagueAct;
     if (unchanged) return;
     this.liveSlotsOverride = slots;
     this.reconcile();
@@ -82,7 +100,14 @@ export class ChestService {
    * AutoClassifyService's queue TTL computation. Returns null when no save
    * has been parsed yet; the caller falls back to constants in that case.
    */
-  getAutoOpenSeconds(): { common: number; stageBoss: number; actBoss: number } | null {
+  getAutoOpenSeconds(): {
+    common: number;
+    stageBoss: number;
+    actBoss: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
+  } | null {
     if (!this.lastChests) return null;
     return this.lastChests.autoOpen;
   }
@@ -126,6 +151,9 @@ export class ChestService {
             // stageBoss slot maps to the "rare" auto-classify category.
             rare: this.lastChests.stageBoss.quantity,
             act: this.lastChests.actBoss.quantity,
+            plagueCommon: this.lastChests.plagueCommon.quantity,
+            plagueRare: this.lastChests.plagueRare.quantity,
+            plagueAct: this.lastChests.plagueAct.quantity,
           }
         : null);
     if (slots) this.onReconcile(slots);

@@ -3,7 +3,10 @@
     "common": "Baú Comum",
     "rare": "Baú de Fase",
     "act": "Baú de Chefe de Ato",
-    "unclassified": "Não classificado"
+    "unclassified": "Não classificado",
+    "plagueCommon": "Baú comum da peste",
+    "plagueRare": "Baú de chefe de estágio da peste",
+    "plagueAct": "Baú de chefe de ato da peste"
   },
   "levelSuffix": "{{base}} Nv.{{level}}"
 }

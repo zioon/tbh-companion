@@ -22,7 +22,14 @@ import { createLogger } from "../log";
 const log = createLogger("autoClassify");
 
 /** Fallback auto-open seconds when ChestService has no save yet. */
-const FALLBACK_AUTO_OPEN = { common: 300, stageBoss: 600, actBoss: 60 } as const;
+const FALLBACK_AUTO_OPEN = {
+  common: 300,
+  stageBoss: 600,
+  actBoss: 60,
+  plagueCommon: 600,
+  plagueRare: 1200,
+  plagueAct: 120,
+} as const;
 
 /** Pending prompt lifetime (ms). Items left unclassified after timeout stay unclassified. */
 const PROMPT_TIMEOUT_MS = 60_000;
@@ -109,7 +116,14 @@ export interface AutoClassifyServiceDeps {
   chestDropTracker: ChestDropTracker;
   boxOpenTracker: BoxOpenTracker;
   chestService: {
-    getAutoOpenSeconds(): { common: number; stageBoss: number; actBoss: number } | null;
+    getAutoOpenSeconds(): {
+      common: number;
+      stageBoss: number;
+      actBoss: number;
+      plagueCommon: number;
+      plagueRare: number;
+      plagueAct: number;
+    } | null;
   };
   stageBoxCatalog: () => ReadonlyArray<BoxTimerCatalogEntry>;
   /** LEGENDARY act boss tracker routes, used to infer act boss level from stageKey. */
@@ -131,14 +145,6 @@ export interface AutoClassifyServiceDeps {
    */
   getInventoryStatus: () => { used: number; capacity: number } | null;
   broadcast: (channel: string, payload: unknown) => void;
-  /**
-   * Fire the BoxTimer cooldown when a stage-boss (rare) drop is recovered from
-   * the save slot increase during reconcile (the live-memory reader missed it).
-   * Mirrors the live path in TrackingService, which arms BoxTimer per rare
-   * drop. Idempotent inside BoxTimerService (cooldown check). Optional so
-   * callers/tests that don't wire BoxTimer can omit it.
-   */
-  onLiveStageBossDrop?: (stageKey: number) => void;
 }
 
 /**
@@ -184,7 +190,14 @@ export class AutoClassifyService {
    * Null before the first save parse completes. The renderer falls back to
    * save-derived `slot.quantity` in that case.
    */
-  private liveSlots: { common: number; rare: number; act: number } | null = null;
+  private liveSlots: {
+    common: number;
+    rare: number;
+    act: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
+  } | null = null;
   /**
    * Queue items whose `autoOpenAtMs` has elapsed and whose `liveSlots` decrement
    * has already been applied in `tick()`. Prevents double-decrement when
@@ -202,7 +215,14 @@ export class AutoClassifyService {
    * reconcile calls. Null = first call (always log). Reset to null on disable
    * so re-enable re-logs the initial state.
    */
-  private lastReconcileSlots: { common: number; rare: number; act: number } | null = null;
+  private lastReconcileSlots: {
+    common: number;
+    rare: number;
+    act: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
+  } | null = null;
   /**
    * Last-seen `autoOpenSeconds` from ChestService, used to detect drift
    * (rune purchase, first save parse replacing FALLBACK_AUTO_OPEN, etc.).
@@ -212,7 +232,14 @@ export class AutoClassifyService {
    * accurate over long sessions (per-item error otherwise accumulates
    * down the tail). Null before the first successful read.
    */
-  private lastAutoOpenSeconds: { common: number; stageBoss: number; actBoss: number } | null = null;
+  private lastAutoOpenSeconds: {
+    common: number;
+    stageBoss: number;
+    actBoss: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
+  } | null = null;
   /**
    * Wall-clock ms when the inventory (item bag) became full, or `null` when
    * the inventory is not full (or has never been observed). While non-null,
@@ -360,7 +387,7 @@ export class AutoClassifyService {
     // already pushed autoOpenAtMs forward, so effectiveNow falls back to
     // Date.now() and countdowns resume from where they left off.
     const now = this.getEffectiveNow();
-    const order = ["common", "rare", "act"] as const;
+    const order = ["common", "rare", "act", "plagueCommon", "plagueRare", "plagueAct"] as const;
     const byCategory = order.map((category) => {
       const items = this.queue.filter((item) => categoryFromBoxKey(item.boxKey) === category);
       let nextAutoOpenInMs: number | null = null;
@@ -506,38 +533,61 @@ export class AutoClassifyService {
    * which reflects the game's behavior: opening a chest (manual or auto)
    * promotes the new head without altering its precomputed auto-open moment.
    */
-  reconcileWithChestSlots(slots: { common: number; rare: number; act: number }): void {
+  reconcileWithChestSlots(slots: {
+    common: number;
+    rare: number;
+    act: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
+  }): void {
     if (!this.enabled) return;
     // Drift check: a save parse is the canonical moment when rune purchases
     // and other state changes become visible to ChestService, so this is the
     // primary trigger for queue recalibration.
     this.maybeRecalibrateQueue();
 
-    const order = ["common", "rare", "act"] as const;
+    const order = ["common", "rare", "act", "plagueCommon", "plagueRare", "plagueAct"] as const;
 
     // Step 1: Excess-prune FIRST (before classifyPendingBursts). Queue is
-    // sorted by autoOpenAtMs ascending; the first `excess` matching items
-    // are the ones with the soonest auto-open times — they should have
-    // opened already. Prune them BEFORE reset so that reset only applies
+    // sorted by autoOpenAtMs ascending; among items whose auto-open moment has
+    // already passed, the soonest ones are the ones that should have opened
+    // already. Prune them BEFORE reset so that reset only applies
     // to remaining items, making the new head's autoOpenAtMs = anchorMs
     // (= burstMs + autoOpenSec). Without this ordering, reset would chain
     // the already-opened chest into the new chain, pushing the new head's
     // autoOpenAtMs to anchorMs + N*autoOpenSec (N = opened count) — wrong.
+    //
+    // Only items whose autoOpenAtMs has already elapsed are prunable. A chest
+    // whose timer is still running is definitely still held, so a queue that
+    // exceeds the save count inside that window means the save simply hasn't
+    // recorded a fresh live drop yet — NOT that a chest opened. Pruning the
+    // soonest item there removed the true head and promoted a later chest, so
+    // obtaining a new chest made the "opens in" countdown jump UP. (Manual
+    // early opens are handled by the unclassified-burst path in `processEvent`,
+    // not here.)
+    const nowMs = this.getEffectiveNow();
     let prunedTotal = 0;
-    const prunedByCategory: Record<ChestDropCategory, number> = { common: 0, rare: 0, act: 0 };
+    const prunedByCategory: Partial<Record<BoxCategory, number>> = {
+      common: 0,
+      rare: 0,
+      act: 0,
+    };
     for (const category of order) {
       const slotCount = slots[category];
       const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
       const queueCount = matching.length;
       if (queueCount <= slotCount) continue;
       const excess = queueCount - slotCount;
-      const toRemove = new Set(matching.slice(0, excess));
+      const prunable = matching.filter((q) => q.autoOpenAtMs <= nowMs);
+      const toRemove = new Set(prunable.slice(0, Math.min(excess, prunable.length)));
+      if (toRemove.size === 0) continue;
       this.queue = this.queue.filter((q) => !toRemove.has(q));
-      prunedTotal += excess;
-      prunedByCategory[category] += excess;
+      prunedTotal += toRemove.size;
+      prunedByCategory[category] = (prunedByCategory[category] ?? 0) + toRemove.size;
       log.info(
-        `reconcile: pruned ${excess} excess ${category} item(s) ` +
-          `(queue ${queueCount} > slots ${slotCount})`,
+        `reconcile: pruned ${toRemove.size} excess ${category} item(s) ` +
+          `(queue ${queueCount} > slots ${slotCount}; ${prunable.length} elapsed, ${queueCount - prunable.length} still counting down)`,
       );
     }
     if (prunedTotal > 0) {
@@ -623,27 +673,46 @@ export class AutoClassifyService {
         // cancel a drop in the same window are excluded (inherent save-data
         // ambiguity, but much rarer than a reader miss).
         if ((category === "rare" || category === "act") && prev != null) {
-          const increase = slots[category] - prev[category];
-          const missedLive = Math.max(0, Math.min(increase, deficit));
-          if (missedLive > 0) {
+          const increase = Math.max(0, slots[category] - prev[category]);
+          // Consume live credits for this increase: the portion of the increase
+          // the live reader ALREADY recorded is not "missed". Credits are
+          // time-bounded and survive intervening no-op reconciles (which fire
+          // ~25 Hz on v1.2.2), so the lagging save slot increase still finds
+          // them — a per-cycle delta would have been reset before it appeared
+          // (the root cause of the duplicate "spaced <1 min" rare drop entry).
+          const coveredLive = this.deps.chestDropTracker.claimLiveDropCredits(category, increase);
+          const missedLive = Math.max(0, increase - coveredLive);
+          const toRecover = Math.min(missedLive, deficit);
+          if (coveredLive > 0) {
+            log.info(
+              `reconcile: ${category} discount ${coveredLive} already-live drop(s) ` +
+                `(increase=${increase}) to avoid duplicate history`,
+            );
+          }
+          if (toRecover > 0) {
             // Suppress handleChestDrop during the record loop so recordLiveChestDrop's
             // onDrop → handleChestDrop doesn't enqueue the recovered chest a second
             // time (the backfill loop above already enqueued it).
             this.suppressingHandleChestDrop = true;
             try {
               const wallTimeSec = this.getEffectiveNow() / 1000;
-              for (let r = 0; r < missedLive; r++) {
-                this.deps.chestDropTracker.recordLiveChestDrop(category, wallTimeSec);
+              for (let r = 0; r < toRecover; r++) {
+                // source "reconcile" keeps live credits untouched (only live
+                // drops push them) and marks these as recovered, not live-seen.
+                this.deps.chestDropTracker.recordLiveChestDrop(category, wallTimeSec, "reconcile");
               }
             } finally {
               this.suppressingHandleChestDrop = false;
             }
-            if (category === "rare" && stageKey > 0) {
-              this.deps.onLiveStageBossDrop?.(stageKey);
-            }
+            // NOTE: the reconcile does NOT arm the BoxTimer cooldown. Only the
+            // live GetBox path (TrackingService.onLiveStageBossDrop) may start a
+            // countdown, so a single physical drop can never arm two boxes when
+            // the live and save stage snapshots straddle a level boundary.
+            // Recovered drops still land in the drop history (above).
             log.info(
-              `reconcile: recorded ${missedLive} missed ${category} drop(s) ` +
-                `from save slot increase (${prev[category]}→${slots[category]}, deficit ${deficit})`,
+              `reconcile: recorded ${toRecover} missed ${category} drop(s) ` +
+                `from save slot increase (${prev[category]}→${slots[category]}, ` +
+                `deficit ${deficit}, covered-live ${coveredLive})`,
             );
           }
         }
@@ -683,9 +752,23 @@ export class AutoClassifyService {
    * is the classification signal.
    */
   private classifyPendingBursts(
-    saveSlots: { common: number; rare: number; act: number },
-    prevSlots: { common: number; rare: number; act: number } | null,
-    prunedByCategory: Record<ChestDropCategory, number>,
+    saveSlots: {
+      common: number;
+      rare: number;
+      act: number;
+      plagueCommon: number;
+      plagueRare: number;
+      plagueAct: number;
+    },
+    prevSlots: {
+      common: number;
+      rare: number;
+      act: number;
+      plagueCommon: number;
+      plagueRare: number;
+      plagueAct: number;
+    } | null,
+    prunedByCategory: Partial<Record<BoxCategory, number>>,
   ): void {
     if (this.pendingBursts.length === 0 || this.liveSlots == null) return;
 
@@ -710,7 +793,7 @@ export class AutoClassifyService {
       // categories light up, the window is genuinely ambiguous: keep waiting
       // (TTL pruned later).
       const prunedCats = (["common", "rare", "act"] as const).filter(
-        (c) => prunedByCategory[c] > 0,
+        (c) => (prunedByCategory[c] ?? 0) > 0,
       );
       const saveDecreaseCats = prevSlots
         ? (["common", "rare", "act"] as const).filter((c) => prevSlots[c] > saveSlots[c])
@@ -777,7 +860,7 @@ export class AutoClassifyService {
    * `signal` is used only for the log line to record which classification
    * path fired.
    */
-  private classifyAllPendingBursts(cat: ChestDropCategory, signal: string): void {
+  private classifyAllPendingBursts(cat: BoxCategory, signal: string): void {
     const stageKey = this.deps.getCurrentStageKey() ?? 0;
     const toBoxKey = this.resolveDropBoxKey({ category: cat }, stageKey);
     let reclassified = 0;
@@ -834,7 +917,7 @@ export class AutoClassifyService {
    * values should be evaluated fresh by `tick`. WeakSet membership is
    * preserved across the old→new object transition to avoid double-decrement.
    */
-  private resetSlotTimersForCategory(cat: ChestDropCategory, anchorMs: number): void {
+  private resetSlotTimersForCategory(cat: BoxCategory, anchorMs: number): void {
     const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
     const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
     const ttlMs = computeTtlMs(seconds);
@@ -1147,7 +1230,10 @@ export class AutoClassifyService {
       if (
         isBelowThreshold(current.common, prev.common) &&
         isBelowThreshold(current.stageBoss, prev.stageBoss) &&
-        isBelowThreshold(current.actBoss, prev.actBoss)
+        isBelowThreshold(current.actBoss, prev.actBoss) &&
+        isBelowThreshold(current.plagueCommon, prev.plagueCommon) &&
+        isBelowThreshold(current.plagueRare, prev.plagueRare) &&
+        isBelowThreshold(current.plagueAct, prev.plagueAct)
       ) {
         return; // No significant drift.
       }
@@ -1174,6 +1260,9 @@ export class AutoClassifyService {
     common: number;
     stageBoss: number;
     actBoss: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
   }): void {
     if (this.queue.length === 0) return;
     // Sort by droppedAtMs ascending so we can chain tails in drop order.
@@ -1214,13 +1303,15 @@ export class AutoClassifyService {
   }
 
   private resolveDropBoxKey(
-    event: { category: ChestDropCategory; itemKey?: number },
+    event: { category: BoxCategory; itemKey?: number },
     stageKey: number,
   ): string | null {
-    // ChestDropCategory is "common" | "rare" | "act". COMMON and ACT chests
-    // have their own tracker routes (independent level numbering from RARE).
-    // RARE stage boss chests use the BoxTimer catalog's farmStageOptions via
-    // levelForStage. Falls back to category-only when no match.
+    // ChestDropCategory is "common" | "rare" | "act"; Plague categories
+    // (plagueCommon/plagueRare/plagueAct) have no tracker routes and fall
+    // back to a category-only boxKey. COMMON and ACT chests have their own
+    // tracker routes (independent level numbering from RARE). RARE stage boss
+    // chests use the BoxTimer catalog's farmStageOptions via levelForStage.
+    // Falls back to category-only when no match.
     const cat: BoxCategory = event.category;
     const routes =
       cat === "act"
@@ -1270,12 +1361,22 @@ export class AutoClassifyService {
 
   private autoOpenForBoxKey(
     boxKey: string,
-    autoOpen: { common: number; stageBoss: number; actBoss: number },
+    autoOpen: {
+      common: number;
+      stageBoss: number;
+      actBoss: number;
+      plagueCommon: number;
+      plagueRare: number;
+      plagueAct: number;
+    },
   ): number {
     const cat = categoryFromBoxKey(boxKey);
     if (cat === "common") return autoOpen.common;
     if (cat === "rare") return autoOpen.stageBoss;
     if (cat === "act") return autoOpen.actBoss;
+    if (cat === "plagueCommon") return autoOpen.plagueCommon;
+    if (cat === "plagueRare") return autoOpen.plagueRare;
+    if (cat === "plagueAct") return autoOpen.plagueAct;
     return FALLBACK_AUTO_OPEN.common;
   }
 }

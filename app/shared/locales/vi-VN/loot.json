@@ -3,7 +3,10 @@
     "common": "Rương Kho Báu Thường",
     "rare": "Rương Kho Báu Màn",
     "act": "Rương Kho Báu Trùm Hồi",
-    "unclassified": "Chưa phân loại"
+    "unclassified": "Chưa phân loại",
+    "plagueCommon": "Rương thường của bệnh dịch",
+    "plagueRare": "Rương trùm chặng của bệnh dịch",
+    "plagueAct": "Rương trùm hồi của bệnh dịch"
   },
   "levelSuffix": "{{base}} Cấp {{level}}"
 }

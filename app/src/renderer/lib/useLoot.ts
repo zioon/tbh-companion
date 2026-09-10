@@ -142,6 +142,9 @@ export function useLoot(): {
       common: null,
       rare: null,
       act: null,
+      plagueCommon: null,
+      plagueRare: null,
+      plagueAct: null,
       unclassified: null,
     };
     const history = stats?.chestDrops?.history ?? [];

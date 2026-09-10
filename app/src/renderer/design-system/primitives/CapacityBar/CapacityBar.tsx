@@ -5,6 +5,7 @@ const fillClasses = {
   gray: "bg-status-muted",
   blue: "bg-status-info",
   red: "bg-status-danger",
+  green: "bg-status-success",
 } as const;
 
 export function CapacityBar({

@@ -10,6 +10,7 @@ import {
   type StageBoxTrackerRoute,
 } from "../../core/stageBoxTracker";
 import { stageName } from "../../core/stages";
+import { categoryFromBoxItemName } from "../../core/liveMemory/chestSlots";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 import { compareBoxTimerRows, normalizeBoxTrackerSortOrder } from "../../core/boxTrackerSort";
 import type {
@@ -34,6 +35,23 @@ const log = createLogger("boxTimers");
 const MIN_COOLDOWN_SECONDS = 60;
 /** Max cooldown a user can set on a single box, in seconds (24 hours). */
 const MAX_COOLDOWN_SECONDS = 86_400;
+/**
+ * Window (ms) in which a stage-boss drop that resolves to a DIFFERENT box than
+ * the last one armed must belong to the SAME physical drop, i.e. the second
+ * detection path re-reporting it. A stage-boss chest comes from a stage clear
+ * and clears are minutes apart, so two different-level arms inside this window
+ * are never two real drops.
+ *
+ * Why this guard exists: the live path (`GetBox` battle log via TrackingService)
+ * and the save-reconcile path (slot delta via AutoClassifyService) each resolve
+ * the box from their OWN stage snapshot. When those snapshots straddle a level
+ * boundary (e.g. Torment 2-8 = Lv80 vs 2-9 = Lv90 — both feeds report one drop
+ * for the same boss kill) each path resolves a different box and starts two
+ * cooldowns from one drop. The save watcher polls every ~5s
+ * (`pollIntervalSeconds`), so the reconcile lags the live reader by at most a
+ * few seconds — 15s covers that skew with margin.
+ */
+const LIVE_STAGE_DROP_DEDUPE_MS = 15_000;
 /**
  * Default enabled box IDs when no preference is loaded from `box_timers.json`.
  * These are the four stage-boss chest levels the wiki recommends tracking first
@@ -72,6 +90,16 @@ export class BoxTimerService {
   private notifyWhenReadyByBoxId = new Map<number, boolean>();
   private sortOrder: BoxTrackerSortOrder = "cooldown-first";
   private wasOnCooldown = new Map<number, boolean>();
+  /**
+   * Last box armed by {@link tryMarkDroppedFromLiveStage} and its wall-clock
+   * time, backing the {@link LIVE_STAGE_DROP_DEDUPE_MS} guard that collapses the
+   * live + save-reconcile double-report of one physical drop into a single arm.
+   * `lastStageDropBoxId === 0` means nothing armed yet. Only the stage-drop
+   * entry point updates these — a manual {@link markDropped} (UI button / IPC)
+   * must never suppress a later real drop.
+   */
+  private lastStageDropArmAtMs = 0;
+  private lastStageDropBoxId = 0;
   private onChestReady: ((payload: ChestEventPayload) => void) | null = null;
   private onChestDropped: ((payload: ChestEventPayload) => void) | null = null;
   private tickTimer: NodeJS.Timeout | null = null;
@@ -183,10 +211,32 @@ export class BoxTimerService {
       return true;
     }
 
+    // Same-physical-drop guard: the live reader and the save reconcile can each
+    // report one stage-boss drop and resolve a DIFFERENT box from their own
+    // stage snapshot (their stages straddle a level boundary). Arming the second
+    // one would start two countdowns from a single drop, so treat any
+    // cross-box arm inside the dedupe window as that same drop and arm nothing.
+    // Same-box repeats are already handled by `isBoxOnCooldown` above.
+    const nowMs = Date.now();
+    if (
+      this.lastStageDropBoxId !== 0 &&
+      this.lastStageDropBoxId !== boxId &&
+      nowMs - this.lastStageDropArmAtMs < LIVE_STAGE_DROP_DEDUPE_MS
+    ) {
+      log.info(
+        `stage boss drop at stage ${stageKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"} (id=${boxId}) ` +
+          `armed within ${LIVE_STAGE_DROP_DEDUPE_MS}ms of Lv${this.boxById.get(this.lastStageDropBoxId)?.level ?? "?"} ` +
+          `(id=${this.lastStageDropBoxId}); same physical drop, skipping`,
+      );
+      return true;
+    }
+
     log.info(
       `Stage boss drop detected from live memory (stage ${stageKey} -> Lv${this.boxById.get(boxId)?.level ?? "?"})`,
     );
     this.markDropped(boxId);
+    this.lastStageDropArmAtMs = nowMs;
+    this.lastStageDropBoxId = boxId;
     return true;
   }
 
@@ -398,6 +448,10 @@ export class BoxTimerService {
         boxId,
         name: box?.name ?? `Box ${boxId}`,
         level: box?.level ?? null,
+        // Name-derived so the Chests tab can tell the standard stage-boss routes
+        // ("rare") from the Contaminated Stage Box lines ("plagueRare") and give
+        // plague its own per-level settings row.
+        category: categoryFromBoxItemName(box?.name),
         idealStageKey: farm.key,
         idealStageLabel: farm.label,
         defaultIdealStageKey: farm.defaultKey,

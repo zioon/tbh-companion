@@ -3,7 +3,10 @@
     "common": "Sıradan Sandık",
     "rare": "Aşama Sandığı",
     "act": "Perde Boss Sandığı",
-    "unclassified": "Sınıflandırılmamış"
+    "unclassified": "Sınıflandırılmamış",
+    "plagueCommon": "Veba Sıradan Sandığı",
+    "plagueRare": "Veba Aşama Patron Sandığı",
+    "plagueAct": "Veba Perde Patron Sandığı"
   },
   "levelSuffix": "{{base}} Sv.{{level}}"
 }

@@ -280,7 +280,14 @@ export interface AutoClassifyStatePayload {
    * reading of `PlayerSaveData.BoxData` is unavailable (e.g. v1.00.28).
    * `capacity` always comes from the save path (`ChestState`).
    */
-  liveSlots: { common: number; rare: number; act: number } | null;
+  liveSlots: {
+    common: number;
+    rare: number;
+    act: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
+  } | null;
   /**
    * Whether auto-open timers are currently paused because the player's
    * inventory (item bag) is full. The game pauses all chest auto-open
@@ -1199,10 +1206,17 @@ export interface ChestState {
   common: BoxSlotStatus;
   stageBoss: BoxSlotStatus;
   actBoss: BoxSlotStatus;
+  /** v1.02.00 Plague (Contaminated) chests — stored separately from normal ones. */
+  plagueCommon: BoxSlotStatus;
+  plagueRare: BoxSlotStatus;
+  plagueAct: BoxSlotStatus;
   capacity: {
     common: ChestCapacityBreakdown;
     stageBoss: ChestCapacityBreakdown;
     actBoss: ChestCapacityBreakdown;
+    plagueCommon: ChestCapacityBreakdown;
+    plagueRare: ChestCapacityBreakdown;
+    plagueAct: ChestCapacityBreakdown;
     totalRunePurchases: number;
   };
   /** Effective seconds to auto-open one chest of each type (base minus rune reduction). */
@@ -1210,6 +1224,9 @@ export interface ChestState {
     common: number;
     stageBoss: number;
     actBoss: number;
+    plagueCommon: number;
+    plagueRare: number;
+    plagueAct: number;
   };
   totalHeld: number;
   saveMtime: number;
@@ -1288,6 +1305,15 @@ export interface BoxTimerCatalogEntry {
   boxId: number;
   name: string;
   level: number | null;
+  /**
+   * Chest category of this tracker route, derived from the box name via
+   * `categoryFromBoxItemName`. Normally `"rare"` (stage boss), but the game's
+   * Contaminated Stage Box lines (925xxx) resolve to `"plagueRare"` — the
+   * Chests tab groups settings by (level, category) so plague boxes get their
+   * own row (they have a different auto-open time). null when the name doesn't
+   * match a known prefix.
+   */
+  category: BoxCategory | null;
   idealStageKey: number;
   idealStageLabel: string;
   defaultIdealStageKey: number;
@@ -1541,7 +1567,14 @@ export type LookupBoxDropVia = "monster_box" | "boss_box" | "act_boss";
  * This is the single source of truth. `catalog.ts` and `boxOpenLog.ts` both
  * re-export this alias for backward compatibility.
  */
-export type BoxCategory = "common" | "rare" | "act" | "unclassified";
+export type BoxCategory =
+  | "common"
+  | "rare"
+  | "act"
+  | "plagueCommon"
+  | "plagueRare"
+  | "plagueAct"
+  | "unclassified";
 
 /**
  * Lookup-display-side box category vocabulary. Distinct from {@link BoxCategory}
@@ -1568,6 +1601,10 @@ export function toLookupCategory(category: BoxCategory): LookupBoxCategory {
       return "stage_boss";
     case "act":
       return "act_boss";
+    case "plagueCommon":
+    case "plagueRare":
+    case "plagueAct":
+      return "unknown";
     case "unclassified":
       return "unknown";
   }
@@ -1664,6 +1701,10 @@ export interface LiveChestSlots {
   /** Stage boss chests (auto-classify "rare" category). */
   rare: number;
   act: number;
+  /** v1.02.00 Plague (Contaminated) chests — stored separately from normal ones. */
+  plagueCommon: number;
+  plagueRare: number;
+  plagueAct: number;
 }
 
 /** Pet unlock state read from save-layer heap (PetSaveData). */

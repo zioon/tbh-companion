@@ -27,6 +27,9 @@ function baseCategoryLabel(t: TFunction<"loot">, category: string): string | nul
   if (category === "common") return t("category.common");
   if (category === "rare") return t("category.rare");
   if (category === "act") return t("category.act");
+  if (category === "plagueCommon") return t("category.plagueCommon");
+  if (category === "plagueRare") return t("category.plagueRare");
+  if (category === "plagueAct") return t("category.plagueAct");
   if (category === "unclassified") return t("category.unclassified");
   return null;
 }

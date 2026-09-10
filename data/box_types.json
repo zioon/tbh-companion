@@ -17,6 +17,24 @@
       "label": "Act boss (red)",
       "category": "act",
       "color": "red"
+    },
+    {
+      "boxType": 3,
+      "label": "Plague common (green)",
+      "category": "plagueCommon",
+      "color": "green"
+    },
+    {
+      "boxType": 4,
+      "label": "Plague stage boss (green)",
+      "category": "plagueRare",
+      "color": "green"
+    },
+    {
+      "boxType": 5,
+      "label": "Plague act boss (green)",
+      "category": "plagueAct",
+      "color": "green"
     }
   ]
 }

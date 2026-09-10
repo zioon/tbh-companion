@@ -6,13 +6,17 @@
   "category": {
     "common": "一般",
     "stageBoss": "ステージボス",
-    "actBoss": "章ボス"
+    "actBoss": "章ボス",
+    "plagueCommon": "疫病・一般",
+    "plagueRare": "疫病・ステージボス",
+    "plagueAct": "疫病・章ボス"
   },
   "full": "満杯",
   "slotsAria": "{{used}} / {{capacity}} スロット使用中",
   "slotsRemaining": "残り {{count}} スロット",
   "slotsRemainingOne": "残り 1 スロット",
   "capacityDetails": "容量詳細",
+  "autoOpenTime": "自動開封 {{value}}",
   "capacityBase": "基本 {{count}}",
   "capacityRuneBonus": "{{nodes}} 個の {{runeLabel}} ノードから +{{bonus}}",
   "tracker": {

@@ -410,10 +410,6 @@ export function startTracking(): SessionUiSnapshot {
       return { used: inv.inventoryUsed, capacity: inv.inventoryCapacity };
     },
     broadcast,
-    // A stage-boss (rare) drop recovered from the save slot increase during
-    // reconcile (live-memory reader missed it) arms the same BoxTimer cooldown
-    // as a live-detected rare drop.
-    onLiveStageBossDrop: (stageKey) => boxTimers.tryMarkDroppedFromLiveStage(stageKey),
   });
   // On every save parse, ChestService reports the current per-category slot
   // counts; AutoClassifyService reconciles its queue against those counts —

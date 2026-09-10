@@ -16,6 +16,9 @@ export function boxCategoryFromType(boxType: number | undefined | null): BoxCate
   if (boxType === 0) return "common";
   if (boxType === 1) return "rare";
   if (boxType === 2) return "act";
+  if (boxType === 3) return "plagueCommon";
+  if (boxType === 4) return "plagueRare";
+  if (boxType === 5) return "plagueAct";
   return null;
 }
 
@@ -36,6 +39,9 @@ export function boxLabel(boxKey: string): string {
   if (boxKey === "common") return "Common chest";
   if (boxKey === "rare") return "Stage boss chest";
   if (boxKey === "act") return "Act boss chest";
+  if (boxKey === "plagueCommon") return "Plague common chest";
+  if (boxKey === "plagueRare") return "Plague stage boss chest";
+  if (boxKey === "plagueAct") return "Plague act boss chest";
   if (boxKey === "unclassified") return "Unclassified";
   const colonIdx = boxKey.indexOf(":");
   if (colonIdx > 0) {
@@ -54,7 +60,17 @@ export function boxLabel(boxKey: string): string {
 export function categoryFromBoxKey(boxKey: string): BoxCategory | null {
   const colonIdx = boxKey.indexOf(":");
   const cat = colonIdx > 0 ? boxKey.slice(0, colonIdx) : boxKey;
-  if (cat === "common" || cat === "rare" || cat === "act" || cat === "unclassified") return cat;
+  if (
+    cat === "common" ||
+    cat === "rare" ||
+    cat === "act" ||
+    cat === "plagueCommon" ||
+    cat === "plagueRare" ||
+    cat === "plagueAct" ||
+    cat === "unclassified"
+  ) {
+    return cat;
+  }
   return null;
 }
 

@@ -6,13 +6,17 @@
   "category": {
     "common": "Common",
     "stageBoss": "Stage boss",
-    "actBoss": "Act boss"
+    "actBoss": "Act boss",
+    "plagueCommon": "Plague common",
+    "plagueRare": "Plague stage boss",
+    "plagueAct": "Plague act boss"
   },
   "full": "Full",
   "slotsAria": "{{used}} of {{capacity}} slots used",
   "slotsRemaining": "{{count}} slot(s) left",
   "slotsRemainingOne": "1 slot left",
   "capacityDetails": "Capacity details",
+  "autoOpenTime": "Auto-open {{value}}",
   "capacityBase": "{{count}} base",
   "capacityRuneBonus": "+{{bonus}} from {{nodes}} {{runeLabel}} node(s)",
   "tracker": {

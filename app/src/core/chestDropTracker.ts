@@ -48,6 +48,19 @@ export interface ResolvedStageBoxDrop {
 const HISTORY_LIMIT = 500;
 const HISTORY_VISIBLE = 50;
 /**
+ * How long (seconds) a live-path drop "credit" stays claimable by the save
+ * reconcile. A save's slot increase can lag live detection by several reconcile
+ * cycles (and `reconcileWithChestSlots` fires at ~25 Hz on v1.2.2 because
+ * `setLiveSlots(null)` re-reconciles every live frame), so a per-cycle mark
+ * cannot be used — the evidence would be reset by intervening no-op reconciles.
+ * A time-bounded credit survives those and still expires so a stale credit
+ * can't suppress a genuinely missed drop forever. 180s comfortably exceeds the
+ * save cadence (seconds) and the observed duplicate gap (~4s).
+ */
+const LIVE_CREDIT_TTL_SEC = 180;
+/** Hard cap on retained credits per category (defensive against leaks). */
+const LIVE_CREDIT_MAX = 256;
+/**
  * Minimum time window (seconds) used when computing perHour rates. Right
  * after a session reset, `elapsedSeconds` can be a few seconds while drops
  * have already been recorded — dividing by such a tiny window produces
@@ -322,6 +335,25 @@ export class ChestDropTracker {
   private history: ChestDropHistoryEntry[] = [];
   private readonly callbacks?: ChestDropTrackerCallbacks;
 
+  /**
+   * Live-path drop "credits" per category: wall-clock seconds of each drop the
+   * live reader recorded directly (`source: "live"`). AutoClassifyService's save
+   * reconcile claims these (via {@link claimLiveDropCredits}) when it sees a
+   * save slot increase, so drops live ALREADY recorded are not counted a SECOND
+   * time by the backfill compensation — the duplicate "chest drop" history
+   * entry the user saw (~4s apart, stamped at reconcile time).
+   *
+   * A plain per-cycle delta cannot work here: `reconcileWithChestSlots` fires at
+   * ~25 Hz on v1.2.2 (`setLiveSlots(null)` re-reconciles every live frame), so
+   * any mark would be reset by intervening no-op reconciles before the lagging
+   * save slot increase appears. Time-bounded credits survive that.
+   */
+  private liveCreditsByCategory: Record<ChestDropCategory, number[]> = {
+    common: [],
+    rare: [],
+    act: [],
+  };
+
   // Incremental mirrors of getStats()'s hot-path scans, maintained on append.
   private lastRareWallTime: number | null = null;
   private rareInHistory = 0;
@@ -377,6 +409,9 @@ export class ChestDropTracker {
     this.breakdownCache = null;
     this.historyCache = null;
     this.sessionBaselineByKey.clear();
+    // Drop all outstanding live credits: a fresh session's reconcile should not
+    // discount a save increase against a drop recorded before the reset.
+    this.liveCreditsByCategory = { common: [], rare: [], act: [] };
     // Restart both the tracking clock and the rate anchor on reset so a fresh
     // session counts from the moment the user clears, not from the first drop.
     this.trackingStartedAt = nowSeconds();
@@ -438,8 +473,20 @@ export class ChestDropTracker {
    * Record a live chest drop with an explicit category read from the GetBox
    * battle log (`common` / `rare` = stage boss / `act` = act boss). Aggregated
    * per category since the drop's item key is not carried in the log.
+   *
+   * `source` distinguishes the two writers:
+   *   - `"live"` (default): the live-memory reader detected the drop directly.
+   *   - `"reconcile"`: AutoClassifyService's save-backfill compensation
+   *     recovered a drop the live reader missed.
+   * Only `"live"` records push a credit (see {@link claimLiveDropCredits}), so
+   * the reconcile compensation can discount drops it already recorded via live
+   * and avoid double-bookkeeping a single chest.
    */
-  recordLiveChestDrop(category: ChestDropCategory, wallTime = nowSeconds()): boolean {
+  recordLiveChestDrop(
+    category: ChestDropCategory,
+    wallTime = nowSeconds(),
+    source: "live" | "reconcile" = "live",
+  ): boolean {
     const itemKey = LIVE_CHEST_KEY[category];
     const key = String(itemKey);
     const name = LIVE_CHEST_NAME[category];
@@ -447,12 +494,43 @@ export class ChestDropTracker {
     this.countsByKey.set(key, (this.countsByKey.get(key) ?? 0) + 1);
     this.namesByKey.set(key, name);
     this.categoriesByKey.set(key, category);
+    if (source === "live") {
+      const credits = this.liveCreditsByCategory[category];
+      credits.push(wallTime);
+      const overflow = credits.length - LIVE_CREDIT_MAX;
+      if (overflow > 0) credits.splice(0, overflow);
+    }
 
     this.appendHistory({ wallTime, itemKey, name, category });
     this.breakdownCache = null;
     this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
     this.callbacks?.onDrop?.({ category, wallTime });
     return true;
+  }
+
+  /**
+   * Claim up to `requested` live-path drop credits for `category`, returning how
+   * many were covered (i.e., how many of the save's slot increase are drops the
+   * live reader ALREADY recorded and the reconcile must NOT compensate again).
+   * Claimed credits are removed; expired ones (older than
+   * {@link LIVE_CREDIT_TTL_SEC}) are dropped first so a stale credit can't
+   * suppress a genuine later miss.
+   *
+   * Called by AutoClassifyService once per reconcile, right before deciding the
+   * compensation count. `nowSec` is injectable for tests.
+   */
+  claimLiveDropCredits(
+    category: ChestDropCategory,
+    requested: number,
+    nowSec = nowSeconds(),
+  ): number {
+    if (requested <= 0) return 0;
+    const credits = this.liveCreditsByCategory[category];
+    const cutoff = nowSec - LIVE_CREDIT_TTL_SEC;
+    while (credits.length > 0 && credits[0]! < cutoff) credits.shift();
+    const covered = Math.min(requested, credits.length);
+    if (covered > 0) credits.splice(0, covered);
+    return covered;
   }
 
   recordLogDrop(itemKey: number, wallTime = nowSeconds()): boolean {
@@ -669,5 +747,8 @@ export class ChestDropTracker {
     // the full session history, not just post-restore drops.
     this.sessionDropStart = this.history.length > 0 ? this.history[0].wallTime : null;
     this.rebuildIncrementalCaches();
+    // Restored sessions carry no live credits; clear any so the first
+    // post-restore reconcile doesn't discount against pre-restore drops.
+    this.liveCreditsByCategory = { common: [], rare: [], act: [] };
   }
 }

@@ -6,13 +6,17 @@
   "category": {
     "common": "普通",
     "stageBoss": "关卡 Boss",
-    "actBoss": "章节 Boss"
+    "actBoss": "章节 Boss",
+    "plagueCommon": "瘟疫普通",
+    "plagueRare": "瘟疫关卡 Boss",
+    "plagueAct": "瘟疫章节 Boss"
   },
   "full": "已满",
   "slotsAria": "已使用 {{used}} / {{capacity}} 个格子",
   "slotsRemaining": "剩余 {{count}} 个格子",
   "slotsRemainingOne": "剩余 1 个格子",
   "capacityDetails": "容量详情",
+  "autoOpenTime": "自动开启用时 {{value}}",
   "capacityBase": "基础 {{count}}",
   "capacityRuneBonus": "来自 {{nodes}} 个 {{runeLabel}} 节点 +{{bonus}}",
   "tracker": {

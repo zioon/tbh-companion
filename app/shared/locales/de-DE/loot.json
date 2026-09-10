@@ -3,7 +3,10 @@
     "common": "Gewöhnliche Truhe",
     "rare": "Stufen-Truhe",
     "act": "Aktboss-Truhe",
-    "unclassified": "Nicht klassifiziert"
+    "unclassified": "Nicht klassifiziert",
+    "plagueCommon": "Pest-Gewöhnliche Schatztruhe",
+    "plagueRare": "Pest-Stufenschatztruhe",
+    "plagueAct": "Pest-Aktboss-Schatztruhe"
   },
   "levelSuffix": "{{base}} St.{{level}}"
 }

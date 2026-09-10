@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SiBuymeacoffee, SiDiscord, SiGithub } from "react-icons/si";
 import type { UpdateStatus } from "../../../shared/types";
 import { useUpdate } from "../lib/useUpdate";
 import { reportIpcError } from "../lib/reportError";
-import { Button, ButtonLink } from "../design-system/primitives/Button/Button";
+import { Button } from "../design-system/primitives/Button/Button";
 import { ExternalLink } from "../components/ui/ExternalLink";
 import { ProgressBar } from "../design-system/primitives/ProgressBar/ProgressBar";
 import { Section } from "../design-system/primitives/Section/Section";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
-import { BUYMEACOFFEE_URL, DISCORD_URL, GITHUB_REPO, githubReleaseUrl } from "../lib/externalLinks";
+import { githubReleaseUrl } from "../lib/externalLinks";
 
 function fmtBytes(bytes: number | undefined): string {
   if (!bytes || bytes <= 0) return "";
@@ -95,24 +94,6 @@ export function About() {
         <Section title={t("versionSection")}>
           <p className="m-0">
             <strong>v{status?.currentVersion ?? "…"}</strong>
-          </p>
-          <p className="m-0 flex flex-wrap items-center gap-2 text-xs">
-            <ButtonLink href={GITHUB_REPO} size="sm">
-              <SiGithub className="size-3.5" aria-hidden />
-              <span>GitHub</span>
-            </ButtonLink>
-            <ButtonLink href={DISCORD_URL} size="sm">
-              <SiDiscord className="size-3.5" aria-hidden />
-              <span>Discord</span>
-            </ButtonLink>
-            <ButtonLink
-              href={BUYMEACOFFEE_URL}
-              size="sm"
-              className="border-gold/60 text-gold hover:border-gold"
-            >
-              <SiBuymeacoffee className="size-3.5" aria-hidden />
-              <span>{t("supportButtonLabel")}</span>
-            </ButtonLink>
           </p>
           <p className="m-0 max-w-2xl text-xs text-muted">{t("notAffiliated")}</p>
         </Section>

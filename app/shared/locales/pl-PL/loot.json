@@ -3,7 +3,10 @@
     "common": "Zwykła skrzynia",
     "rare": "Skrzynia etapu",
     "act": "Skrzynia bossa aktu",
-    "unclassified": "Niesklasyfikowana"
+    "unclassified": "Niesklasyfikowana",
+    "plagueCommon": "Zwykła skrzynia zarazy",
+    "plagueRare": "Skrzynia bossa etapu zarazy",
+    "plagueAct": "Skrzynia bossa aktu zarazy"
   },
   "levelSuffix": "{{base}} Poz.{{level}}"
 }

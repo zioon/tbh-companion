@@ -3,7 +3,10 @@
     "common": "Peti Harta Karun Biasa",
     "rare": "Peti Harta Karun Tahap",
     "act": "Peti Harta Karun Bos Babak",
-    "unclassified": "Tidak Terklasifikasi"
+    "unclassified": "Tidak Terklasifikasi",
+    "plagueCommon": "Peti Biasa Wabah",
+    "plagueRare": "Peti Bos Tahap Wabah",
+    "plagueAct": "Peti Bos Babak Wabah"
   },
   "levelSuffix": "{{base}} Lv.{{level}}"
 }
