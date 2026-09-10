@@ -704,8 +704,7 @@ export class TrackingService {
             // Local polling prices are fetched directly in the target currency
             // (no FX rounding). Buy-order price matches the main path's
             // "instant sell" semantics; listing price is the next best proxy.
-            const local =
-              snap.buyOrderLocal?.[hash] ?? snap.pricesLocal?.[hash] ?? null;
+            const local = snap.buyOrderLocal?.[hash] ?? snap.pricesLocal?.[hash] ?? null;
             if (local != null) {
               return { buyOrderValue: local * count, coveredCount: count };
             }

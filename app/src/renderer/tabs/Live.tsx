@@ -433,7 +433,9 @@ export function Live() {
           <div className="flex items-center gap-3">
             <div className="text-right">
               <div className="text-[11px] uppercase tracking-wide text-muted">{t("elapsed")}</div>
-              <div className="text-base font-semibold tabular-nums">{fmtDuration(stats.elapsed)}</div>
+              <div className="text-base font-semibold tabular-nums">
+                {fmtDuration(stats.elapsed)}
+              </div>
             </div>
             <Button size="sm" title={t("resetTitle")} onClick={() => window.tbh.reset()}>
               {"\u21bb"} {t("reset")}

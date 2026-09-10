@@ -8,9 +8,13 @@ describe("ClassifyPromptDialog", () => {
     expect(screen.getByRole("button", { name: "Common" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stage boss" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Act boss" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Plague Common Treasure Chest" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Plague Common Treasure Chest" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Plague Stage Treasure Chest" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Plague Act Boss Treasure Chest" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Plague Act Boss Treasure Chest" }),
+    ).toBeInTheDocument();
   });
 
   it("calls onResolve with 'common' when Common clicked", () => {

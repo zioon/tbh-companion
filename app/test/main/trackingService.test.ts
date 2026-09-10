@@ -1789,7 +1789,9 @@ describe("TrackingService box-open fallback price (lookup snapshot currency)", (
   });
 
   function recordDropAndGetUnit(svc: TrackingService): number | null {
-    svc.getBoxOpenTracker().recordOpen("rare:1", MATERIAL.id, MATERIAL.name, MATERIAL.grade, 1, 1.0);
+    svc
+      .getBoxOpenTracker()
+      .recordOpen("rare:1", MATERIAL.id, MATERIAL.name, MATERIAL.grade, 1, 1.0);
     const box = svc.getStats().boxOpens.find((b) => b.boxKey === "rare:1");
     return box?.breakdown[0]?.buyOrderUnit ?? null;
   }
@@ -1819,9 +1821,7 @@ describe("TrackingService box-open fallback price (lookup snapshot currency)", (
     svc.start(baseConfig);
     svc.setCurrency("CNY");
     svc.setGameDataLookup(new Map([[MATERIAL.id, MATERIAL]]));
-    svc.setLookupPriceSnapshot(
-      SNAPSHOT({ buyOrderLocal: { [HASH]: 0.5 }, localCurrency: "CNY" }),
-    );
+    svc.setLookupPriceSnapshot(SNAPSHOT({ buyOrderLocal: { [HASH]: 0.5 }, localCurrency: "CNY" }));
     expect(recordDropAndGetUnit(svc)).toBeCloseTo(0.5, 5);
     svc.stop();
   });
