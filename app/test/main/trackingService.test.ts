@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { LiveMemorySnapshot, SaveSnapshot } from "../../shared/types";
+import type { LiveMemorySnapshot, LookupPriceSnapshot, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 import type { LocaleCatalog } from "../../src/core/localeCatalog";
 import type { GameItem } from "../../src/core/gamedata";
@@ -51,7 +51,7 @@ const baseConfig = {
   marketAutoScanEnabled: true,
   marketLowValueThresholdUsd: 0.05,
   lootAutoClassifyEnabled: false,
-  lootRingSeconds: { common: 300, stage: 420 },
+  lootRingSeconds: { common: 300, stage: 420, plagueCommon: 300, plagueRare: 420, plagueAct: 3600 },
   liveMemory: { enabled: false, consentAccepted: false },
   lookupPricePolling: { enabled: false, intervalMinutes: 10, thresholdUsd: 1.0, watchedHashes: [] },
   marketHistoryBatchSize: 10,
@@ -1763,6 +1763,66 @@ describe("TrackingService.ingestLiveFrame rune wave reduction", () => {
     // Next run's first wave spawns monsters → back at wave 1, not 29.
     svc.ingestLiveFrame({ ...frame(31, 3001), stageAlive: 3 });
     expect(svc.getStats().stageWave).toBe(1);
+    svc.stop();
+  });
+});
+
+describe("TrackingService box-open fallback price (lookup snapshot currency)", () => {
+  // A priceable MATERIAL: market hash = display name, no grade suffix.
+  const MATERIAL: GameItem = {
+    id: 1001,
+    name: "Test Material",
+    grade: "COMMON",
+    type: "MATERIAL",
+    gearType: null,
+    level: null,
+    marketTradable: true,
+  };
+  const HASH = "Test Material";
+  const SNAPSHOT = (over: Partial<LookupPriceSnapshot> = {}): LookupPriceSnapshot => ({
+    schemaVersion: 1,
+    generatedUtc: "2026-01-01T00:00:00.000Z",
+    baseCurrency: "USD",
+    prices: { [HASH]: 0.03 },
+    fx: { USD: 1, CNY: 7.1 },
+    ...over,
+  });
+
+  function recordDropAndGetUnit(svc: TrackingService): number | null {
+    svc.getBoxOpenTracker().recordOpen("rare:1", MATERIAL.id, MATERIAL.name, MATERIAL.grade, 1, 1.0);
+    const box = svc.getStats().boxOpens.find((b) => b.boxKey === "rare:1");
+    return box?.breakdown[0]?.buyOrderUnit ?? null;
+  }
+
+  it("uses the USD snapshot price as-is when the display currency is USD", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setGameDataLookup(new Map([[MATERIAL.id, MATERIAL]]));
+    svc.setLookupPriceSnapshot(SNAPSHOT());
+    expect(recordDropAndGetUnit(svc)).toBeCloseTo(0.03, 5);
+    svc.stop();
+  });
+
+  it("converts the USD snapshot price to the user currency via fx (CNY)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setCurrency("CNY");
+    svc.setGameDataLookup(new Map([[MATERIAL.id, MATERIAL]]));
+    svc.setLookupPriceSnapshot(SNAPSHOT());
+    // $0.03 × 7.1 ≈ ¥0.213 — not the raw 0.03 mislabeled as CNY.
+    expect(recordDropAndGetUnit(svc)).toBeCloseTo(0.213, 5);
+    svc.stop();
+  });
+
+  it("prefers the local-currency polling buy-order price over the USD fx conversion", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setCurrency("CNY");
+    svc.setGameDataLookup(new Map([[MATERIAL.id, MATERIAL]]));
+    svc.setLookupPriceSnapshot(
+      SNAPSHOT({ buyOrderLocal: { [HASH]: 0.5 }, localCurrency: "CNY" }),
+    );
+    expect(recordDropAndGetUnit(svc)).toBeCloseTo(0.5, 5);
     svc.stop();
   });
 });

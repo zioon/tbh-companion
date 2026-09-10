@@ -3,6 +3,8 @@ import {
   ChestDropTracker,
   LiveChestDropAggregator,
   resolveStageBoxDrop,
+  isPlagueStage,
+  resolveLiveDropCategory,
 } from "../../src/core/chestDropTracker";
 
 describe("resolveStageBoxDrop", () => {
@@ -229,6 +231,69 @@ describe("ChestDropTracker", () => {
     }
   });
 
+  it("snapshot round-trip preserves the sessionDropStart rate anchor", () => {
+    // The rate window anchor must survive restore: without it, a snapshot
+    // whose history is later truncated would re-anchor to a later moment and
+    // inflate perHour. Anchor = min(trackingStartedAt, firstDropWallTime).
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1000 * 1000); // tracking starts at t = 1000s
+      const tracker = new ChestDropTracker();
+      vi.setSystemTime(1200 * 1000); // first drop at t = 1200s
+      tracker.recordLogDrop(910151, 1200);
+      const snap = tracker.captureSnapshot();
+      expect(snap.sessionDropStart).toBe(1000); // min(1000, 1200) = 1000
+
+      const restored = new ChestDropTracker();
+      vi.setSystemTime(3000 * 1000); // reopen at t = 3000s
+      restored.applySnapshot(snap);
+      const stats = restored.getStats(0);
+      // Window = now(3000) - anchor(1000) = 2000s → 1 drop / (2000/3600)h = 1.8/hr.
+      // The history fallback (oldest kept entry = 1200) would give 1/(1800/3600)
+      // = 2/hr — small drift; the important part is the anchor round-trips.
+      expect(stats.commonPerHour).toBeCloseTo(1.8, 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not inflate perHour after restore when history exceeded HISTORY_LIMIT", () => {
+    // A long farming session records more drops than HISTORY_LIMIT (500) keeps
+    // in `history`, but `countsByKey` keeps every drop. Restoring must anchor
+    // the rate window to the true session start (persisted in the snapshot),
+    // not the oldest *kept* history entry — otherwise the denominator starts
+    // too late while the numerator spans the whole session, inflating perHour
+    // on the next app launch.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const tracker = new ChestDropTracker();
+      // 600 common drops over 6 hours (one every 36s), starting at t=0.
+      for (let i = 0; i < 600; i++) {
+        const at = i * 36;
+        vi.setSystemTime(at * 1000);
+        tracker.recordLiveChestDrop("common", at);
+      }
+      const snap = tracker.captureSnapshot();
+      expect(snap.history.length).toBe(500); // HISTORY_LIMIT truncation applied
+      expect(snap.history[0]!.wallTime).toBe(100 * 36); // oldest KEPT, not t=0
+      expect(snap.sessionDropStart).toBe(0); // true anchor preserved
+
+      // Reopen the app shortly after (t = 6h + 2min).
+      vi.setSystemTime((6 * 3600 + 120) * 1000);
+      const restored = new ChestDropTracker();
+      restored.applySnapshot(snap);
+      const stats = restored.getStats(3600);
+      expect(stats.commonSession).toBe(600);
+      // True average: 600 / (6h + 2min) ≈ 99.4/hr. The truncated-history
+      // fallback yields 600 / ((6h+2min) - 1h) ≈ 119.2/hr (~20% inflated).
+      const trueRate = 600 / ((6 * 3600 + 120) / 3600);
+      expect(stats.commonPerHour).toBeCloseTo(trueRate, 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("maintains rolling-window stats identically to a full history scan", () => {
     vi.useFakeTimers();
     try {
@@ -405,7 +470,10 @@ describe("ChestDropTracker.recordLiveChestDrop", () => {
     expect(stats.commonTotal).toBe(0);
     expect(stats.rareTotal).toBe(0);
     expect(stats.combinedTotal).toBe(1);
-    expect(stats.actPerHour).toBe(1);
+    // `dropElapsed` is now − oneHourAgo, which is 3600s plus a sub-millisecond
+    // skew between the two Date.now() reads, so the rate is 1 ± ε — use a
+    // close-to assertion instead of exact equality.
+    expect(stats.actPerHour).toBeCloseTo(1, 5);
     expect(stats.breakdown).toHaveLength(1);
     expect(stats.breakdown[0].category).toBe("act");
     expect(stats.breakdown[0].name).toBe("Act boss chest");
@@ -596,5 +664,67 @@ describe("ChestDropTracker onDrop callback", () => {
   it("does not fire onDrop when disabled (no callback provided)", () => {
     const tracker = new ChestDropTracker();
     expect(() => tracker.recordLiveChestDrop("common", 4000)).not.toThrow();
+  });
+});
+
+describe("plague (Contaminated) chest drop tracking", () => {
+  it("maps plague box itemKeys to plague categories, not common/rare/act", () => {
+    // 915xxx/925xxx/935xxx must NOT be misjudged as common/rare/act.
+    expect(resolveStageBoxDrop(915001)?.category).toBe("plagueCommon");
+    expect(resolveStageBoxDrop(915999)?.category).toBe("plagueCommon");
+    expect(resolveStageBoxDrop(925001)?.category).toBe("plagueRare");
+    expect(resolveStageBoxDrop(935001)?.category).toBe("plagueAct");
+  });
+
+  it("detects plague stages from the stage-box catalog", () => {
+    // 201201 is a plague map (idealStageKey of plague box 915001). A non-plague
+    // stageKey (1) is not a plague map.
+    expect(isPlagueStage(201201)).toBe(true);
+    expect(isPlagueStage(1)).toBe(false);
+  });
+
+  it("upgrades base live categories on plague maps and passes through elsewhere", () => {
+    expect(resolveLiveDropCategory(201201, "common")).toBe("plagueCommon");
+    expect(resolveLiveDropCategory(201201, "rare")).toBe("plagueRare");
+    expect(resolveLiveDropCategory(201201, "act")).toBe("plagueAct");
+    // Normal / unknown / null stageKey → passthrough.
+    expect(resolveLiveDropCategory(1, "common")).toBe("common");
+    expect(resolveLiveDropCategory(null, "rare")).toBe("rare");
+    expect(resolveLiveDropCategory(0, "act")).toBe("act");
+  });
+
+  it("aggregates plague totals, rates, session, and combined", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLiveChestDrop("plagueCommon");
+    tracker.recordLiveChestDrop("plagueRare");
+    tracker.recordLiveChestDrop("common");
+
+    const stats = tracker.getStats(3600);
+    expect(stats.plagueCommonTotal).toBe(1);
+    expect(stats.plagueRareTotal).toBe(1);
+    expect(stats.plagueActTotal).toBe(0);
+    expect(stats.commonTotal).toBe(1);
+    // combined includes plague.
+    expect(stats.combinedTotal).toBe(3);
+    expect(stats.plagueCommonSession).toBe(1);
+    expect(stats.plagueRareSession).toBe(1);
+    // perHour uses the min 60s window: 1 / (60/3600) = 60.
+    expect(stats.plagueCommonPerHour).toBe(60);
+    // breakdown contains all three categories.
+    expect(stats.breakdown.map((r) => r.category)).toEqual(
+      expect.arrayContaining(["plagueCommon", "plagueRare", "common"]),
+    );
+  });
+
+  it("round-trips plague categories through snapshot restore", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLiveChestDrop("plagueAct", 1000);
+    const snap = tracker.captureSnapshot();
+
+    const restored = new ChestDropTracker();
+    restored.applySnapshot(snap);
+    const stats = restored.getStats(3600);
+    expect(stats.plagueActTotal).toBe(1);
+    expect(stats.combinedTotal).toBe(1);
   });
 });

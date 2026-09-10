@@ -3384,6 +3384,133 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
   });
 
+  it("classifies a pending plague burst when save shows plagueCommon decreased", () => {
+    // Plague (Contaminated) chests get their own slot buckets, so a plague-box
+    // open must classify its pending burst via the plague category — NOT be
+    // silently ignored because only common/rare/act were examined.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Initialize liveSlots from save (all 0), then drop a plagueCommon chest
+    // → liveSlots.plagueCommon=1 (autoOpenAtMs = 1000 + 600*1000 = 601000).
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    chestDropTracker.recordLiveChestDrop("plagueCommon", 1.0);
+    expect(service.getQueueSnapshot().liveSlots).toEqual({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 1,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+
+    // Burst at wallTime=2.0s (burstMs=2000) → head delta=599000ms → no match
+    // within grace → pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Next save shows plagueCommon=0 (plague chest opened since last save).
+    // liveSlots was 1 (real-time), save says 0 → delta=1 → classify burst to
+    // plagueCommon.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+
+    // Burst classified → items moved out of "unclassified" into the plague
+    // boxKey (category-only when no plague route level matches the stage).
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey.startsWith("plagueCommon"))).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+    // Pending burst cleared.
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
+  it("keeps plague + normal bursts unclassified when both categories decreased (ambiguous)", () => {
+    // A window where BOTH a plague and a normal bucket decreased is ambiguous —
+    // neither burst can be assigned without guessing. Regression guard: plague
+    // categories are now included in the delta scan, so this must NOT be
+    // misread as a single decreased category (which would wrongly classify the
+    // plague burst to the normal bucket).
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    chestDropTracker.recordLiveChestDrop("common", 1.0); // liveSlots.common=1
+    chestDropTracker.recordLiveChestDrop("plagueRare", 2.0); // liveSlots.plagueRare=1
+    expect(service.getQueueSnapshot().liveSlots).toEqual({
+      common: 1,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 1,
+      plagueAct: 0,
+    });
+
+    // Two bursts (one per category) arrive without a queue match → pended.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 3.0);
+    boxOpenTracker.flushUnclassified();
+    boxOpenTracker.recordOpen("unclassified", 200, "Shield", "COMMON", 1, 3.5);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(2);
+
+    // Next save shows both common and plagueRare at 0 → two categories
+    // decreased → ambiguous → leave bursts unclassified, reset all timers.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+
+    const stats = boxOpenTracker.getStats(100, null);
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "common:5")).toBeFalsy();
+    expect(stats.find((s) => s.boxKey?.startsWith("plagueRare"))).toBeFalsy();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
   it("classifies ALL pending bursts to a single decreased category (manual open-all split across bursts)", () => {
     // A single manual "open all" can be surfaced by the box-open reader as
     // MULTIPLE bursts (one per live frame / flush batch), even for one

@@ -347,6 +347,12 @@ export function Live() {
     rarePerHour,
     commonRecentPerHour,
     rareRecentPerHour,
+    plagueCommonSession,
+    plagueRareSession,
+    plagueCommonPerHour,
+    plagueRarePerHour,
+    plagueCommonRecentPerHour,
+    plagueRareRecentPerHour,
     readerRequired,
   } = stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
@@ -424,42 +430,82 @@ export function Live() {
           </>
         }
         action={
-          <Button size="sm" title={t("resetTitle")} onClick={() => window.tbh.reset()}>
-            {"\u21bb"} {t("reset")}
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-[11px] uppercase tracking-wide text-muted">{t("elapsed")}</div>
+              <div className="text-base font-semibold tabular-nums">{fmtDuration(stats.elapsed)}</div>
+            </div>
+            <Button size="sm" title={t("resetTitle")} onClick={() => window.tbh.reset()}>
+              {"\u21bb"} {t("reset")}
+            </Button>
+          </div>
         }
       />
 
-      <section className="grid grid-cols-3 gap-2.5">
-        <StatCard label={t("sessionXp")} value={fmtCompact(stats.cumulativeGained)} />
-        <StatCard label={t("sessionGold")} value={fmtCompact(stats.goldGained)} />
-        <StatCard label={t("elapsed")} value={fmtDuration(stats.elapsed)} />
-        <StatCard label={t("sessionXpPerHour")} value={fmtCompact(stats.sessionRate)} />
-        <StatCard
-          label={t("commonChests")}
-          value={
-            <LiveChestStatValue
-              total={commonSession}
-              perHour={commonPerHour}
-              recentPerHour={commonRecentPerHour}
-              inactive={chestStatsInactive}
-            />
-          }
-          title={chestRateTip}
-        />
-        <StatCard
-          label={t("stageBossChests")}
-          value={
-            <LiveChestStatValue
-              total={rareSession}
-              perHour={rarePerHour}
-              recentPerHour={rareRecentPerHour}
-              countClassName="text-status-info"
-              inactive={chestStatsInactive}
-            />
-          }
-          title={chestRateTip}
-        />
+      <section className="flex flex-col gap-2.5">
+        <div className="grid grid-cols-4 gap-2.5">
+          <StatCard label={t("sessionXp")} value={fmtCompact(stats.cumulativeGained)} />
+          <StatCard label={t("sessionGold")} value={fmtCompact(stats.goldGained)} />
+          <StatCard label={t("sessionXpPerHour")} value={fmtCompact(stats.sessionRate)} />
+          <StatCard
+            label={t("sessionGoldPerHour")}
+            value={fmtCompact(stats.goldSessionRate)}
+            title={goldTip}
+          />
+        </div>
+        <div className="grid grid-cols-4 gap-2.5">
+          <StatCard
+            label={t("commonChests")}
+            value={
+              <LiveChestStatValue
+                total={commonSession}
+                perHour={commonPerHour}
+                recentPerHour={commonRecentPerHour}
+                inactive={chestStatsInactive}
+              />
+            }
+            title={chestRateTip}
+          />
+          <StatCard
+            label={t("stageBossChests")}
+            value={
+              <LiveChestStatValue
+                total={rareSession}
+                perHour={rarePerHour}
+                recentPerHour={rareRecentPerHour}
+                countClassName="text-status-info"
+                inactive={chestStatsInactive}
+              />
+            }
+            title={chestRateTip}
+          />
+          <StatCard
+            label={t("plagueCommonChests")}
+            value={
+              <LiveChestStatValue
+                total={plagueCommonSession}
+                perHour={plagueCommonPerHour}
+                recentPerHour={plagueCommonRecentPerHour}
+                countClassName="text-status-success"
+                inactive={chestStatsInactive}
+              />
+            }
+            title={chestRateTip}
+          />
+          <StatCard
+            label={t("plagueRareChests")}
+            value={
+              <LiveChestStatValue
+                total={plagueRareSession}
+                perHour={plagueRarePerHour}
+                recentPerHour={plagueRareRecentPerHour}
+                countClassName="text-status-info"
+                inactive={chestStatsInactive}
+              />
+            }
+            title={chestRateTip}
+          />
+        </div>
       </section>
 
       {liveActive ? (

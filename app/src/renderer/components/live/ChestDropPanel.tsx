@@ -1,18 +1,22 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import type { ChestDropStats } from "../../../../shared/types";
+import type { ChestDropCategory, ChestDropStats } from "../../../../shared/types";
 import { HintBanner } from "../../design-system/primitives/HintBanner/HintBanner";
 import { fmtClock } from "../../lib/format";
 import { cn } from "../../lib/cn";
 import { LiveHistoryPanel, LiveHistoryRow, TIME_COLUMN_WIDTH } from "./LiveHistoryPanel";
 
-type ChestCategory = "common" | "rare" | "act";
-
-const CHEST_NAME_KEY: Record<ChestCategory, string> = {
+const CHEST_NAME_KEY: Record<ChestDropCategory, string> = {
   common: "commonChests",
   rare: "stageBossChests",
   act: "actBossChests",
+  plagueCommon: "plagueCommonChests",
+  plagueRare: "plagueRareChests",
+  plagueAct: "plagueActChests",
 };
+
+/** Category rows that should render the highlight color in the drop log. */
+const HIGHLIGHTED: ReadonlySet<ChestDropCategory> = new Set(["rare", "plagueRare"]);
 
 /**
  * Chest drop history log. Per-category totals/rates already show as stat
@@ -62,7 +66,7 @@ export function ChestDropPanel({
                 content: t(CHEST_NAME_KEY[entry.category] ?? "colChest"),
                 className: cn(
                   "min-w-0 truncate",
-                  entry.category === "rare" ? "text-status-info" : "text-fg",
+                  HIGHLIGHTED.has(entry.category) ? "text-status-info" : "text-fg",
                 ),
               },
             ]}

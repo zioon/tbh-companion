@@ -1,5 +1,6 @@
 import type {
   ChestDropBreakdownRow,
+  ChestDropCategory,
   ChestDropHistoryEntry,
   ChestDropStats,
   ChestDropTrackerSnapshot,
@@ -10,7 +11,7 @@ import {
   type StageBoxCatalogItem,
 } from "./stageBoxTracker";
 
-export type ChestDropCategory = "common" | "rare" | "act";
+export type { ChestDropCategory } from "../../shared/types";
 
 /** Optional subscriber hook for chest-drop events. */
 export interface ChestDropTrackerCallbacks {
@@ -32,12 +33,26 @@ const LIVE_CHEST_KEY: Record<ChestDropCategory, number> = {
   common: 900910,
   rare: 900920,
   act: 900930,
+  plagueCommon: 900915,
+  plagueRare: 900925,
+  plagueAct: 900935,
 };
 const LIVE_CHEST_NAME: Record<ChestDropCategory, string> = {
   common: "Common chest",
   rare: "Stage boss chest",
   act: "Act boss chest",
+  plagueCommon: "Contaminated Normal Chest",
+  plagueRare: "Contaminated Stage Chest",
+  plagueAct: "Contaminated ActBoss Chest",
 };
+
+function emptyLiveCredits(): Record<ChestDropCategory, number[]> {
+  return { common: [], rare: [], act: [], plagueCommon: [], plagueRare: [], plagueAct: [] };
+}
+
+function emptyCounts(): Record<ChestDropCategory, number> {
+  return { common: 0, rare: 0, act: 0, plagueCommon: 0, plagueRare: 0, plagueAct: 0 };
+}
 
 export interface ResolvedStageBoxDrop {
   itemKey: number;
@@ -85,10 +100,25 @@ function nowSeconds(): number {
 }
 
 function categoryFromPrefix(itemKey: number): ChestDropCategory | null {
+  if (itemKey >= 915_000 && itemKey < 916_000) return "plagueCommon";
+  if (itemKey >= 925_000 && itemKey < 926_000) return "plagueRare";
+  if (itemKey >= 935_000 && itemKey < 936_000) return "plagueAct";
   if (itemKey >= 910_000 && itemKey < 920_000) return "common";
   if (itemKey >= 920_000 && itemKey < 930_000) return "rare";
   if (itemKey >= 930_000 && itemKey < 940_000) return "act";
   return null;
+}
+
+/** Convert a base (non-plague) category to its plague variant. */
+function toPlagueCategory(base: "common" | "rare" | "act"): ChestDropCategory {
+  switch (base) {
+    case "common":
+      return "plagueCommon";
+    case "rare":
+      return "plagueRare";
+    case "act":
+      return "plagueAct";
+  }
 }
 
 /**
@@ -150,8 +180,22 @@ function canonicalTrackerBoxIdFromIndex(
   return index.canonicalByLevel.get(item.level) ?? null;
 }
 
-/** Resolve a Player.log ItemKey to a tracked common, rare, or act stage box. */
+/** Resolve a Player.log ItemKey to a tracked stage box (common, rare, act, or plague). */
 export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | null {
+  // Plague buckets are disjoint itemKey ranges (915xxx/925xxx/935xxx), so the
+  // prefix is authoritative even when a catalog entry's grade would otherwise
+  // map to the base bucket (e.g. a RARE-grade plague box must NOT become "rare").
+  const plagueCat = categoryFromPrefix(itemKey);
+  if (plagueCat != null && plagueCat.startsWith("plague")) {
+    const lookupKey = itemKey;
+    const item = getStageBoxCatalogIndex().byId.get(lookupKey);
+    return {
+      itemKey: lookupKey,
+      name: item?.name ?? plagueFallbackName(plagueCat, lookupKey),
+      category: plagueCat,
+    };
+  }
+
   const index = getStageBoxCatalogIndex();
   const canonicalId = canonicalTrackerBoxIdFromIndex(itemKey, index);
   const lookupKey = canonicalId ?? itemKey;
@@ -168,17 +212,88 @@ export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | nul
 
   const category = categoryFromPrefix(lookupKey);
   if (!category) return null;
-  const fallbackName =
-    category === "common"
-      ? `Common chest #${lookupKey}`
-      : category === "rare"
-        ? `Stage boss chest #${lookupKey}`
-        : `Act boss chest #${lookupKey}`;
   return {
     itemKey: lookupKey,
-    name: fallbackName,
+    name: category.startsWith("plague")
+      ? plagueFallbackName(category, lookupKey)
+      : baseFallbackName(category, lookupKey),
     category,
   };
+}
+
+function baseFallbackName(category: ChestDropCategory, key: number): string {
+  switch (category) {
+    case "common":
+      return `Common chest #${key}`;
+    case "rare":
+      return `Stage boss chest #${key}`;
+    case "act":
+      return `Act boss chest #${key}`;
+    default:
+      return plagueFallbackName(category, key);
+  }
+}
+
+function plagueFallbackName(category: ChestDropCategory, key: number): string {
+  switch (category) {
+    case "plagueCommon":
+      return `Contaminated Normal Chest #${key}`;
+    case "plagueRare":
+      return `Contaminated Stage Chest #${key}`;
+    case "plagueAct":
+      return `Contaminated ActBoss Chest #${key}`;
+    default:
+      return `Chest #${key}`;
+  }
+}
+
+/**
+ * Lazily-built set of stageKeys that belong to the plague (Contaminated)
+ * region. Populated once from the stage-box catalog: every plague box
+ * (itemKey prefix 915xxx/925xxx/935xxx, obtainable) contributes its
+ * `tracker.dropStageKeys` and `tracker.idealStageKey`. Plague map stageKeys
+ * are disjoint from normal map stageKeys (see `data/stage_boxes.json`:
+ * plague boxes only drop on acts 21+ — Nightmare 21 / Hell 22 / Torment 23).
+ */
+let cachedPlagueStageSet: Set<number> | null = null;
+
+function getPlagueStageSet(): Set<number> {
+  if (cachedPlagueStageSet === null) {
+    const set = new Set<number>();
+    for (const item of getStageBoxCatalogIndex().catalog.items) {
+      const cat = categoryFromPrefix(item.id);
+      if (!cat?.startsWith("plague") || !item.obtainable) continue;
+      for (const sk of item.tracker?.dropStageKeys ?? []) set.add(sk);
+      if (item.tracker?.idealStageKey != null) set.add(item.tracker.idealStageKey);
+    }
+    cachedPlagueStageSet = set;
+  }
+  return cachedPlagueStageSet;
+}
+
+/**
+ * True when `stageKey` is a plague (Contaminated) map — i.e. any chest dropped
+ * there is a plague box. The live GetBox log only carries monsterType
+ * (common/rare/act) with no plague info, so the rendering layer upgrades the
+ * base category to its plague variant based on this. O(1) after first call.
+ */
+export function isPlagueStage(stageKey: number): boolean {
+  return getPlagueStageSet().has(stageKey);
+}
+
+/**
+ * Resolve a live GetBox drop category on the current map to the tracked
+ * category: on a plague map the base category (common/rare/act) becomes its
+ * plague variant, otherwise it passes through unchanged.
+ */
+export function resolveLiveDropCategory(
+  stageKey: number | undefined | null,
+  base: "common" | "rare" | "act",
+): ChestDropCategory {
+  if (stageKey != null && stageKey > 0 && isPlagueStage(stageKey)) {
+    return toPlagueCategory(base);
+  }
+  return base;
 }
 
 /**
@@ -348,17 +463,13 @@ export class ChestDropTracker {
    * any mark would be reset by intervening no-op reconciles before the lagging
    * save slot increase appears. Time-bounded credits survive that.
    */
-  private liveCreditsByCategory: Record<ChestDropCategory, number[]> = {
-    common: [],
-    rare: [],
-    act: [],
-  };
+  private liveCreditsByCategory: Record<ChestDropCategory, number[]> = emptyLiveCredits();
 
   // Incremental mirrors of getStats()'s hot-path scans, maintained on append.
   private lastRareWallTime: number | null = null;
   private rareInHistory = 0;
   private recentEntries: Array<{ wallTime: number; category: ChestDropCategory }> = [];
-  private recentCounts: Record<ChestDropCategory, number> = { common: 0, rare: 0, act: 0 };
+  private recentCounts: Record<ChestDropCategory, number> = emptyCounts();
 
   // Cached arrays — only rebuilt when drops are recorded. getStats() is called
   // at 5 Hz but the breakdown/history content changes rarely, so caching avoids
@@ -411,7 +522,7 @@ export class ChestDropTracker {
     this.sessionBaselineByKey.clear();
     // Drop all outstanding live credits: a fresh session's reconcile should not
     // discount a save increase against a drop recorded before the reset.
-    this.liveCreditsByCategory = { common: [], rare: [], act: [] };
+    this.liveCreditsByCategory = emptyLiveCredits();
     // Restart both the tracking clock and the rate anchor on reset so a fresh
     // session counts from the moment the user clears, not from the first drop.
     this.trackingStartedAt = nowSeconds();
@@ -458,7 +569,7 @@ export class ChestDropTracker {
     this.lastRareWallTime = null;
     this.rareInHistory = 0;
     this.recentEntries = [];
-    this.recentCounts = { common: 0, rare: 0, act: 0 };
+    this.recentCounts = emptyCounts();
     for (const entry of this.history) {
       if (entry.category === "rare") {
         this.rareInHistory++;
@@ -563,6 +674,9 @@ export class ChestDropTracker {
     let commonTotal = 0;
     let rareTotal = 0;
     let actTotal = 0;
+    let plagueCommonTotal = 0;
+    let plagueRareTotal = 0;
+    let plagueActTotal = 0;
 
     // Reuse cached breakdown array when no new drops were recorded since the
     // last call — avoids rebuilding the array at 5 Hz when content is unchanged.
@@ -574,9 +688,26 @@ export class ChestDropTracker {
         const name = this.namesByKey.get(key);
         if (!category || !name) continue;
 
-        if (category === "common") commonTotal += count;
-        else if (category === "rare") rareTotal += count;
-        else actTotal += count;
+        switch (category) {
+          case "common":
+            commonTotal += count;
+            break;
+          case "rare":
+            rareTotal += count;
+            break;
+          case "act":
+            actTotal += count;
+            break;
+          case "plagueCommon":
+            plagueCommonTotal += count;
+            break;
+          case "plagueRare":
+            plagueRareTotal += count;
+            break;
+          case "plagueAct":
+            plagueActTotal += count;
+            break;
+        }
 
         breakdown.push({
           itemKey: Number.parseInt(key, 10),
@@ -590,9 +721,26 @@ export class ChestDropTracker {
     } else {
       // Recompute totals from the cached breakdown (cheap, no allocation).
       for (const row of this.breakdownCache) {
-        if (row.category === "common") commonTotal += row.count;
-        else if (row.category === "rare") rareTotal += row.count;
-        else actTotal += row.count;
+        switch (row.category) {
+          case "common":
+            commonTotal += row.count;
+            break;
+          case "rare":
+            rareTotal += row.count;
+            break;
+          case "act":
+            actTotal += row.count;
+            break;
+          case "plagueCommon":
+            plagueCommonTotal += row.count;
+            break;
+          case "plagueRare":
+            plagueRareTotal += row.count;
+            break;
+          case "plagueAct":
+            plagueActTotal += row.count;
+            break;
+        }
       }
     }
 
@@ -604,7 +752,8 @@ export class ChestDropTracker {
     }
     const history = this.historyCache;
 
-    const combinedTotal = commonTotal + rareTotal + actTotal;
+    const combinedTotal =
+      commonTotal + rareTotal + actTotal + plagueCommonTotal + plagueRareTotal + plagueActTotal;
     // Use sessionDropStart as the perHour time anchor instead of
     // tracker.elapsed. After an app restart, tracker.elapsed may span hours
     // of idle time (from the restored sessionStart), making perHour =
@@ -628,28 +777,59 @@ export class ChestDropTracker {
     let sessionCommon = 0;
     let sessionRare = 0;
     let sessionAct = 0;
+    let sessionPlagueCommon = 0;
+    let sessionPlagueRare = 0;
+    let sessionPlagueAct = 0;
+    // Closure mutating the session accumulators by category.
+    const addSession = (category: ChestDropCategory | undefined, n: number): void => {
+      switch (category) {
+        case "common":
+          sessionCommon += n;
+          break;
+        case "rare":
+          sessionRare += n;
+          break;
+        case "act":
+          sessionAct += n;
+          break;
+        case "plagueCommon":
+          sessionPlagueCommon += n;
+          break;
+        case "plagueRare":
+          sessionPlagueRare += n;
+          break;
+        case "plagueAct":
+          sessionPlagueAct += n;
+          break;
+        default:
+          break;
+      }
+    };
     for (const [key, baselineCount] of this.sessionBaselineByKey) {
       const currentCount = this.countsByKey.get(key) ?? 0;
       const delta = currentCount - baselineCount;
       if (delta <= 0) continue;
-      const category = this.categoriesByKey.get(key);
-      if (category === "common") sessionCommon += delta;
-      else if (category === "rare") sessionRare += delta;
-      else if (category === "act") sessionAct += delta;
+      addSession(this.categoriesByKey.get(key), delta);
     }
     // Keys absent from the baseline (new drops since reset) also count.
     for (const [key, count] of this.countsByKey) {
       if (this.sessionBaselineByKey.has(key)) continue;
       if (count <= 0) continue;
-      const category = this.categoriesByKey.get(key);
-      if (category === "common") sessionCommon += count;
-      else if (category === "rare") sessionRare += count;
-      else if (category === "act") sessionAct += count;
+      addSession(this.categoriesByKey.get(key), count);
     }
     const commonPerHour = sessionCommon / hours;
     const rarePerHour = sessionRare / hours;
     const actPerHour = sessionAct / hours;
-    const combinedSession = sessionCommon + sessionRare + sessionAct;
+    const plagueCommonPerHour = sessionPlagueCommon / hours;
+    const plagueRarePerHour = sessionPlagueRare / hours;
+    const plagueActPerHour = sessionPlagueAct / hours;
+    const combinedSession =
+      sessionCommon +
+      sessionRare +
+      sessionAct +
+      sessionPlagueCommon +
+      sessionPlagueRare +
+      sessionPlagueAct;
 
     // Mini overlay's boss-chest ring + "Box" countdown only track stage boss
     // (rare) drops — common chests drop too frequently to make a 7-min lap
@@ -670,6 +850,9 @@ export class ChestDropTracker {
     const commonRecent = this.recentCounts.common;
     const rareRecent = this.recentCounts.rare;
     const actRecent = this.recentCounts.act;
+    const plagueCommonRecent = this.recentCounts.plagueCommon;
+    const plagueRareRecent = this.recentCounts.plagueRare;
+    const plagueActRecent = this.recentCounts.plagueAct;
     let earliestRecentWallTime: number | null = null;
     for (const entry of this.recentEntries) {
       if (earliestRecentWallTime === null || entry.wallTime < earliestRecentWallTime) {
@@ -684,21 +867,36 @@ export class ChestDropTracker {
     const commonRecentPerHour = commonRecent / recentHours;
     const rareRecentPerHour = rareRecent / recentHours;
     const actRecentPerHour = actRecent / recentHours;
+    const plagueCommonRecentPerHour = plagueCommonRecent / recentHours;
+    const plagueRareRecentPerHour = plagueRareRecent / recentHours;
+    const plagueActRecentPerHour = plagueActRecent / recentHours;
 
     return {
       commonTotal,
       rareTotal,
       actTotal,
+      plagueCommonTotal,
+      plagueRareTotal,
+      plagueActTotal,
       combinedTotal,
       commonPerHour,
       rarePerHour,
       actPerHour,
+      plagueCommonPerHour,
+      plagueRarePerHour,
+      plagueActPerHour,
       commonRecentPerHour,
       rareRecentPerHour,
       actRecentPerHour,
+      plagueCommonRecentPerHour,
+      plagueRareRecentPerHour,
+      plagueActRecentPerHour,
       commonSession: sessionCommon,
       rareSession: sessionRare,
       actSession: sessionAct,
+      plagueCommonSession: sessionPlagueCommon,
+      plagueRareSession: sessionPlagueRare,
+      plagueActSession: sessionPlagueAct,
       combinedSession,
       breakdown,
       history,
@@ -713,12 +911,18 @@ export class ChestDropTracker {
       namesByKey: Object.fromEntries(this.namesByKey),
       categoriesByKey: Object.fromEntries(this.categoriesByKey),
       history: [...this.history],
+      sessionDropStart: this.sessionDropStart,
     };
   }
 
   applySnapshot(data: ChestDropTrackerSnapshot): void {
     const isTracked = (category: string): category is ChestDropCategory =>
-      category === "common" || category === "rare" || category === "act";
+      category === "common" ||
+      category === "rare" ||
+      category === "act" ||
+      category === "plagueCommon" ||
+      category === "plagueRare" ||
+      category === "plagueAct";
 
     const categoriesByKey = new Map(
       Object.entries(data.categoriesByKey).filter(([, category]) => isTracked(category)),
@@ -744,11 +948,26 @@ export class ChestDropTracker {
     // counts and anchored perHour to only the post-restore drops).
     this.sessionBaselineByKey = new Map();
     // Anchor perHour to the earliest restored drop so the rate window spans
-    // the full session history, not just post-restore drops.
-    this.sessionDropStart = this.history.length > 0 ? this.history[0].wallTime : null;
+    // the full session history, not just post-restore drops. Prefer the
+    // snapshot's own anchor (`sessionDropStart`, persisted in
+    // `captureSnapshot`): it survives HISTORY_LIMIT truncation of `history`,
+    // so the window still starts at the true `min(trackingStartedAt,
+    // firstDropWallTime)`. Using only the oldest *kept* history entry (the
+    // legacy fallback below) starts the window too late once a session
+    // recorded more than HISTORY_LIMIT drops — `countsByKey` is not truncated,
+    // so the numerator would span the whole session while the denominator
+    // starts later, inflating perHour after a restart.
+    const savedAnchor = data.sessionDropStart;
+    const oldestHistory = this.history.length > 0 ? this.history[0].wallTime : null;
+    this.sessionDropStart =
+      savedAnchor != null
+        ? oldestHistory != null
+          ? Math.min(savedAnchor, oldestHistory)
+          : savedAnchor
+        : oldestHistory;
     this.rebuildIncrementalCaches();
     // Restored sessions carry no live credits; clear any so the first
     // post-restore reconcile doesn't discount against pre-restore drops.
-    this.liveCreditsByCategory = { common: [], rare: [], act: [] };
+    this.liveCreditsByCategory = emptyLiveCredits();
   }
 }

@@ -55,10 +55,15 @@ const DEFAULT_LOOKUP_PRICE_POLLING: LookupPricePollingPrefs = {
 };
 
 // Lap duration defaults: Common chest = 5 min, Stage-boss chest = 7 min
-// (matches the mini overlay's boss-chest ring lap duration).
+// (matches the mini overlay's boss-chest ring lap duration). Plague
+// (Contaminated) chests get their own laps — common/rare mirror the normal
+// rates, act-boss is rarer so its lap defaults to 1 hour.
 const DEFAULT_LOOT_RING_SECONDS: LootRingSeconds = {
   common: 5 * 60,
   stage: 7 * 60,
+  plagueCommon: 5 * 60,
+  plagueRare: 7 * 60,
+  plagueAct: 60 * 60,
 };
 
 // Per-window "keep on top" defaults. The main window and both overlay-style
@@ -216,6 +221,9 @@ function sanitizeLootRingSeconds(raw: Partial<LootRingSeconds> | undefined): Loo
   return {
     common: clamp(raw?.common, DEFAULT_LOOT_RING_SECONDS.common),
     stage: clamp(raw?.stage, DEFAULT_LOOT_RING_SECONDS.stage),
+    plagueCommon: clamp(raw?.plagueCommon, DEFAULT_LOOT_RING_SECONDS.plagueCommon),
+    plagueRare: clamp(raw?.plagueRare, DEFAULT_LOOT_RING_SECONDS.plagueRare),
+    plagueAct: clamp(raw?.plagueAct, DEFAULT_LOOT_RING_SECONDS.plagueAct),
   };
 }
 

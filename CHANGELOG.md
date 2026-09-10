@@ -6,6 +6,17 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 _Nothing yet._
 
+## [1.22.1] - 2026-09-11
+
+### 瘟疫宝箱
+
+- **Live** 与 **Loot** 页新增瘟疫宝箱掉率统计：会话 / 每小时 / 近期掉率的瘟疫普通、瘟疫关卡首领细分。
+- 瘟疫宝箱掉落在**Loot 队列**与掉落分类提示中正确展示对应类别。
+
+### 修复
+
+- 修复 **Rune of Brevity（缩写符文）** 造成的波次计数偏高问题：追踪器现在会根据缩减后的波次数正确计算波次。
+
 ## [1.22.0] - 2026-09-10
 
 ### 瘟疫宝箱

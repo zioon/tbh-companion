@@ -672,7 +672,14 @@ export class AutoClassifyService {
         // beyond what the save slot delta accounts for — opened chests that
         // cancel a drop in the same window are excluded (inherent save-data
         // ambiguity, but much rarer than a reader miss).
-        if ((category === "rare" || category === "act") && prev != null) {
+        if (
+          prev != null &&
+          (category === "rare" ||
+            category === "act" ||
+            category === "plagueCommon" ||
+            category === "plagueRare" ||
+            category === "plagueAct")
+        ) {
           const increase = Math.max(0, slots[category] - prev[category]);
           // Consume live credits for this increase: the portion of the increase
           // the live reader ALREADY recorded is not "missed". Credits are
@@ -772,10 +779,22 @@ export class AutoClassifyService {
   ): void {
     if (this.pendingBursts.length === 0 || this.liveSlots == null) return;
 
+    // All tracked slot categories — plague (Contaminated) chests get their own
+    // buckets (plagueCommon/plagueRare/plagueAct), so a plague-box open shows
+    // up here exactly like a normal one and can classify its pending burst.
+    const categories = [
+      "common",
+      "rare",
+      "act",
+      "plagueCommon",
+      "plagueRare",
+      "plagueAct",
+    ] as const;
+
     // Compute per-category deltas: positive = chests opened since last save
     // (real-time count was higher than what the save reports).
     const decreased: ChestDropCategory[] = [];
-    for (const cat of ["common", "rare", "act"] as const) {
+    for (const cat of categories) {
       if (this.liveSlots[cat] > saveSlots[cat]) {
         decreased.push(cat);
       }
@@ -792,11 +811,9 @@ export class AutoClassifyService {
       // Both must agree on a SINGLE category — if they disagree or multiple
       // categories light up, the window is genuinely ambiguous: keep waiting
       // (TTL pruned later).
-      const prunedCats = (["common", "rare", "act"] as const).filter(
-        (c) => (prunedByCategory[c] ?? 0) > 0,
-      );
+      const prunedCats = categories.filter((c) => (prunedByCategory[c] ?? 0) > 0);
       const saveDecreaseCats = prevSlots
-        ? (["common", "rare", "act"] as const).filter((c) => prevSlots[c] > saveSlots[c])
+        ? categories.filter((c) => prevSlots[c] > saveSlots[c])
         : [];
       const signalCats = new Set<ChestDropCategory>([...prunedCats, ...saveDecreaseCats]);
       if (signalCats.size === 1) {
@@ -837,7 +854,7 @@ export class AutoClassifyService {
       this.pendingBursts[0]!.burstMs,
     );
     const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
-    for (const cat of ["common", "rare", "act"] as const) {
+    for (const cat of categories) {
       const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
       this.resetSlotTimersForCategory(cat, earliestBurstMs + seconds * 1000);
     }

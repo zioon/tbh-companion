@@ -16,7 +16,7 @@ import { Card } from "../../design-system/primitives/Card/Card";
  * has no chest slot / drop rate) — only the three real chest categories are
  * rendered.
  */
-type QueueCategory = "common" | "rare" | "act";
+type QueueCategory = "common" | "rare" | "act" | "plagueCommon" | "plagueRare" | "plagueAct";
 
 /**
  * Per-category slot view for the auto-classify queue. Replaces the older
@@ -63,17 +63,35 @@ interface SlotRow {
   /** Queue category (matches `AutoClassifyStatePayload.byCategory[].category`). */
   queueCategory: QueueCategory;
   /** ChestState slot key for this category. */
-  slotKey: "common" | "stageBoss" | "actBoss";
+  slotKey: "common" | "stageBoss" | "actBoss" | "plagueCommon" | "plagueRare" | "plagueAct";
   /** i18n key under `loot:category` for this category's label. */
-  labelKey: "common" | "rare" | "act";
+  labelKey: QueueCategory;
   /** CapacityBar fill color. */
-  fillVariant: "gray" | "blue" | "red";
+  fillVariant: "gray" | "blue" | "red" | "green";
 }
 
 const SLOT_ROWS: readonly SlotRow[] = [
   { queueCategory: "common", slotKey: "common", labelKey: "common", fillVariant: "gray" },
   { queueCategory: "rare", slotKey: "stageBoss", labelKey: "rare", fillVariant: "blue" },
   { queueCategory: "act", slotKey: "actBoss", labelKey: "act", fillVariant: "red" },
+  {
+    queueCategory: "plagueCommon",
+    slotKey: "plagueCommon",
+    labelKey: "plagueCommon",
+    fillVariant: "green",
+  },
+  {
+    queueCategory: "plagueRare",
+    slotKey: "plagueRare",
+    labelKey: "plagueRare",
+    fillVariant: "green",
+  },
+  {
+    queueCategory: "plagueAct",
+    slotKey: "plagueAct",
+    labelKey: "plagueAct",
+    fillVariant: "green",
+  },
 ];
 
 interface LootQueueSlotsProps {

@@ -42,6 +42,15 @@ export function ClassifyPromptDialog({
           <Button variant="ghost" onClick={() => onResolve("act")}>
             {t("classifyPrompt.actBoss")}
           </Button>
+          <Button variant="ghost" onClick={() => onResolve("plagueCommon")}>
+            {t("category.plagueCommon")}
+          </Button>
+          <Button variant="ghost" onClick={() => onResolve("plagueRare")}>
+            {t("category.plagueRare")}
+          </Button>
+          <Button variant="ghost" onClick={() => onResolve("plagueAct")}>
+            {t("category.plagueAct")}
+          </Button>
         </div>
         <div className="mt-1 flex justify-end">
           <Button variant="ghost" size="sm" onClick={onClose}>

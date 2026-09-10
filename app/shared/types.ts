@@ -56,10 +56,20 @@ export interface HeroRate {
   timeToLevelSec: number | null;
 }
 
+/** Box drop categories tracked by {@link ChestDropTracker}. Includes the
+ * v1.02.00 plague (Contaminated) buckets, which only drop on plague maps. */
+export type ChestDropCategory =
+  | "common"
+  | "rare"
+  | "act"
+  | "plagueCommon"
+  | "plagueRare"
+  | "plagueAct";
+
 export interface ChestDropBreakdownRow {
   itemKey: number;
   name: string;
-  category: "common" | "rare" | "act";
+  category: ChestDropCategory;
   count: number;
 }
 
@@ -67,17 +77,23 @@ export interface ChestDropHistoryEntry {
   wallTime: number;
   itemKey: number;
   name: string;
-  category: "common" | "rare" | "act";
+  category: ChestDropCategory;
 }
 
 export interface ChestDropStats {
   commonTotal: number;
   rareTotal: number;
   actTotal: number;
+  plagueCommonTotal: number;
+  plagueRareTotal: number;
+  plagueActTotal: number;
   combinedTotal: number;
   commonPerHour: number;
   rarePerHour: number;
   actPerHour: number;
+  plagueCommonPerHour: number;
+  plagueRarePerHour: number;
+  plagueActPerHour: number;
   /**
    * Rolling 1-hour drop rates: drops in the last `ROLLING_HOUR_SEC` seconds
    * (or since the first recent drop when the window is shorter), divided by
@@ -88,6 +104,9 @@ export interface ChestDropStats {
   commonRecentPerHour: number;
   rareRecentPerHour: number;
   actRecentPerHour: number;
+  plagueCommonRecentPerHour: number;
+  plagueRareRecentPerHour: number;
+  plagueActRecentPerHour: number;
   /**
    * Session-scoped drop counts. After `reset` these start at 0; after
    * `applySnapshot` (app restart) these include the restored history so
@@ -99,6 +118,9 @@ export interface ChestDropStats {
   commonSession: number;
   rareSession: number;
   actSession: number;
+  plagueCommonSession: number;
+  plagueRareSession: number;
+  plagueActSession: number;
   combinedSession: number;
   breakdown: ChestDropBreakdownRow[];
   history: ChestDropHistoryEntry[];
@@ -120,8 +142,18 @@ export interface ChestDropStats {
 export interface ChestDropTrackerSnapshot {
   countsByKey: Record<string, number>;
   namesByKey: Record<string, string>;
-  categoriesByKey: Record<string, "common" | "rare" | "act">;
+  categoriesByKey: Record<string, ChestDropCategory>;
   history: ChestDropHistoryEntry[];
+  /**
+   * Epoch seconds anchoring the perHour rate window
+   * (`min(trackingStartedAt, firstDropWallTime)` at the time the snapshot was
+   * taken). Persisted so a restore keeps the true window start even when
+   * `history` has been truncated at HISTORY_LIMIT — without it the restore
+   * anchors to the oldest *kept* entry and inflates perHour (counts are not
+   * truncated, so numerator/denominator time windows mismatch). Absent in
+   * legacy snapshots; restore falls back to the oldest kept history entry.
+   */
+  sessionDropStart?: number | null;
 }
 
 // --- Box open loot tracking ---
@@ -352,6 +384,7 @@ export interface Stats {
   status: string;
   rollingRate: number; // XP/hour
   sessionRate: number; // XP/hour
+  goldSessionRate: number; // gold/hour (session average)
   goldRate: number; // gold/hour (earned)
   cumulativeGained: number; // XP gained this session
   goldGained: number; // gold earned this session
@@ -742,6 +775,10 @@ export interface ChestAutoOpenPrefs {
 export interface LootRingSeconds {
   common: number;
   stage: number;
+  /** v1.02.00 Plague (Contaminated) chests — independent ring laps. */
+  plagueCommon: number;
+  plagueRare: number;
+  plagueAct: number;
 }
 
 /** Opt-in live game-memory reader preferences (off by default). */

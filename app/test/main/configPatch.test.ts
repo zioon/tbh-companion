@@ -22,7 +22,7 @@ function baseConfig(): AppConfig {
     marketAutoScanEnabled: true,
     marketLowValueThresholdUsd: 0.05,
     lootAutoClassifyEnabled: false,
-    lootRingSeconds: { common: 300, stage: 420 },
+    lootRingSeconds: { common: 300, stage: 420, plagueCommon: 300, plagueRare: 420, plagueAct: 3600 },
     liveMemory: { enabled: false, consentAccepted: false },
     lookupPricePolling: {
       enabled: false,

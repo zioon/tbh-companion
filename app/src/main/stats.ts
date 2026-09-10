@@ -145,6 +145,8 @@ export function buildStats(
 
     sessionRate: tracker.sessionRate,
 
+    goldSessionRate: tracker.goldSessionRate,
+
     goldRate: tracker.goldRollingRate,
 
     cumulativeGained: tracker.cumulativeGained,

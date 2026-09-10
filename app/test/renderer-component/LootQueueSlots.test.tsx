@@ -13,6 +13,9 @@ const EMPTY_QUEUE: AutoClassifyStatePayload = {
     { category: "common", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
     { category: "rare", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
     { category: "act", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+    { category: "plagueCommon", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+    { category: "plagueRare", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
+    { category: "plagueAct", count: 0, nextAutoOpenInMs: null, lastAutoOpenInMs: null },
   ],
   items: [],
   liveSlots: null,
@@ -49,16 +52,35 @@ function makeChests(
     isFull: o?.isFull ?? false,
     slotsRemaining: o?.slotsRemaining ?? 0,
   });
+  const emptyBreakdown = () => ({ base: 0, runeBonus: 0, purchasedCapRuneNodes: 0, runeLabel: "" });
   return {
     rows: [],
     common: slot(overrides.common),
     stageBoss: slot(overrides.stageBoss),
     actBoss: slot(overrides.actBoss),
+    plagueCommon: slot(),
+    plagueRare: slot(),
+    plagueAct: slot(),
     capacity: {
-      common: { base: 0, runeBonus: 0, purchasedCapRuneNodes: 0, runeLabel: "" },
-      stageBoss: { base: 0, runeBonus: 0, purchasedCapRuneNodes: 0, runeLabel: "" },
-      actBoss: { base: 0, runeBonus: 0, purchasedCapRuneNodes: 0, runeLabel: "" },
+      common: emptyBreakdown(),
+      stageBoss: emptyBreakdown(),
+      actBoss: emptyBreakdown(),
+      plagueCommon: emptyBreakdown(),
+      plagueRare: emptyBreakdown(),
+      plagueAct: emptyBreakdown(),
+      totalRunePurchases: 0,
     },
+    autoOpen: {
+      common: 0,
+      stageBoss: 0,
+      actBoss: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    },
+    totalHeld: 0,
+    saveMtime: 0,
+    runeBonusSlots: 0,
   };
 }
 
@@ -99,14 +121,14 @@ describe("LootQueueSlots live/save merge", () => {
     });
     const queue: AutoClassifyStatePayload = {
       ...EMPTY_QUEUE,
-      liveSlots: { common: 7, rare: 2, act: 0 },
+      liveSlots: { common: 7, rare: 2, act: 0, plagueCommon: 0, plagueRare: 0, plagueAct: 0 },
     };
 
     render(
       <LootQueueSlots
         queue={queue}
         chests={chests}
-        dropsPerHour={{ common: 10, rare: 2, act: null }}
+        dropsPerHour={{ common: 10, rare: 2, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={null}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -130,7 +152,7 @@ describe("LootQueueSlots live/save merge", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={chests}
-        dropsPerHour={{ common: 10, rare: 2, act: null }}
+        dropsPerHour={{ common: 10, rare: 2, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={null}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -147,14 +169,14 @@ describe("LootQueueSlots live/save merge", () => {
     // Live says 5/5 — should trigger Full badge even though save says 1/5.
     const queue: AutoClassifyStatePayload = {
       ...EMPTY_QUEUE,
-      liveSlots: { common: 5, rare: 0, act: 0 },
+      liveSlots: { common: 5, rare: 0, act: 0, plagueCommon: 0, plagueRare: 0, plagueAct: 0 },
     };
 
     render(
       <LootQueueSlots
         queue={queue}
         chests={chests}
-        dropsPerHour={{ common: 10, rare: 2, act: null }}
+        dropsPerHour={{ common: 10, rare: 2, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={null}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -171,7 +193,7 @@ describe("LootQueueSlots live/save merge", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: null, rare: null, act: null }}
+        dropsPerHour={{ common: null, rare: null, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={null}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -190,7 +212,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: null, rare: null, act: null }}
+        dropsPerHour={{ common: null, rare: null, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={null}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -205,7 +227,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: null, rare: null, act: null }}
+        dropsPerHour={{ common: null, rare: null, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={{ inventoryCapacity: 0, inventoryUsed: 0 }}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -220,7 +242,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: null, rare: null, act: null }}
+        dropsPerHour={{ common: null, rare: null, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={{ inventoryCapacity: 50, inventoryUsed: 12 }}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -235,7 +257,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: null, rare: null, act: null }}
+        dropsPerHour={{ common: null, rare: null, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={{ inventoryCapacity: 50, inventoryUsed: 12 }}
         autoOpenEnabled={NO_AUTO_OPEN}
         fillPrediction={null}
@@ -259,7 +281,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: 10, rare: 2, act: null }}
+        dropsPerHour={{ common: 10, rare: 2, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={{ inventoryCapacity: 50, inventoryUsed: 12 }}
         autoOpenEnabled={{ common: true, stageBoss: false }}
         fillPrediction={prediction}
@@ -282,7 +304,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: 10, rare: 2, act: null }}
+        dropsPerHour={{ common: 10, rare: 2, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={{ inventoryCapacity: 50, inventoryUsed: 50 }}
         autoOpenEnabled={{ common: true, stageBoss: false }}
         fillPrediction={prediction}
@@ -310,7 +332,7 @@ describe("LootQueueSlots inventory row", () => {
       <LootQueueSlots
         queue={EMPTY_QUEUE}
         chests={null}
-        dropsPerHour={{ common: 10, rare: 2, act: null }}
+        dropsPerHour={{ common: 10, rare: 2, act: null, plagueCommon: null, plagueRare: null, plagueAct: null }}
         inventory={{ inventoryCapacity: 50, inventoryUsed: 12 }}
         autoOpenEnabled={{ common: true, stageBoss: false }}
         fillPrediction={prediction}

@@ -43,6 +43,9 @@ function fmtPct(pct: number): string {
 function ringKeyForCategory(category: string): keyof LootRingSeconds | null {
   if (category === "common") return "common";
   if (category === "rare") return "stage";
+  if (category === "plagueCommon") return "plagueCommon";
+  if (category === "plagueRare") return "plagueRare";
+  if (category === "plagueAct") return "plagueAct";
   return null;
 }
 
@@ -69,6 +72,9 @@ function reclassifyCategoryOptions(t: TFunction<"loot">): SelectOption[] {
     { value: "common", label: t("boxSection.categoryOptionCommon") },
     { value: "rare", label: t("boxSection.categoryOptionStageBoss") },
     { value: "act", label: t("boxSection.categoryOptionActBoss") },
+    { value: "plagueCommon", label: t("boxSection.categoryOptionPlagueCommon") },
+    { value: "plagueRare", label: t("boxSection.categoryOptionPlagueRare") },
+    { value: "plagueAct", label: t("boxSection.categoryOptionPlagueAct") },
   ];
 }
 

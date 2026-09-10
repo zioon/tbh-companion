@@ -426,6 +426,7 @@ export class XpTracker {
   }
 
   private applyLiveGold(gold: number, wallTimeSec: number): void {
+    if (!Number.isFinite(gold)) return;
     this.currentGold = gold;
     const takingOver = !this.goldLiveOwning;
     this.goldLiveOwning = true;
@@ -644,6 +645,7 @@ export class XpTracker {
   }
 
   private updateGold(gold: number, mtime: number): void {
+    if (!Number.isFinite(gold)) return;
     // Gold is spent as well as earned; count only positive changes (earned).
     const gain = this.prevGold !== null ? gold - this.prevGold : 0;
     this.prevGold = gold;
@@ -729,10 +731,12 @@ export class XpTracker {
 
   get goldSessionRate(): number {
     // 同 sessionRate：基于会话总时长实时计算，避免挂机后速率卡住不衰减。
+    // 防御性兜底：回退值不得为非有限数，避免上游瞬时坏值导致 UI 显示 NaN。
+    const safeFallback = Number.isFinite(this.goldSessionRateValue) ? this.goldSessionRateValue : 0;
     const elapsed = this.elapsed;
-    if (elapsed <= 0) return this.goldSessionRateValue;
+    if (!Number.isFinite(elapsed) || elapsed <= 0) return safeFallback;
     const rate = (this.goldGained / elapsed) * 3600;
-    return isPlausibleXpRate(rate) ? rate : this.goldSessionRateValue;
+    return isPlausibleXpRate(rate) ? rate : safeFallback;
   }
 
   /** Seconds since the save file mtime when XP last changed (not every read). */

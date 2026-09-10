@@ -21,12 +21,18 @@ import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 import { useTbhContext } from "../context/tbhContext";
 import { reportIpcError } from "../lib/reportError";
 
-const DEFAULT_RING_SECONDS: LootRingSeconds = { common: 5 * 60, stage: 7 * 60 };
+const DEFAULT_RING_SECONDS: LootRingSeconds = {
+  common: 5 * 60,
+  stage: 7 * 60,
+  plagueCommon: 5 * 60,
+  plagueRare: 7 * 60,
+  plagueAct: 60 * 60,
+};
 
 /** Same [1, 3600] clamp as LootBoxSection.commitRingDraft — config.json may be hand-edited. */
 function clampRingSeconds(raw: LootRingSeconds): LootRingSeconds {
   const out: LootRingSeconds = { ...DEFAULT_RING_SECONDS };
-  for (const key of ["common", "stage"] as const) {
+  for (const key of ["common", "stage", "plagueCommon", "plagueRare", "plagueAct"] as const) {
     const v = raw[key];
     if (typeof v === "number" && Number.isFinite(v) && v > 0) {
       out[key] = Math.min(3600, Math.max(1, Math.round(v)));
@@ -76,8 +82,16 @@ export function Loot() {
       common: stats?.chestDrops?.commonPerHour ?? null,
       rare: stats?.chestDrops?.rarePerHour ?? null,
       act: null,
+      plagueCommon: stats?.chestDrops?.plagueCommonPerHour ?? null,
+      plagueRare: stats?.chestDrops?.plagueRarePerHour ?? null,
+      plagueAct: null,
     }),
-    [stats?.chestDrops?.commonPerHour, stats?.chestDrops?.rarePerHour],
+    [
+      stats?.chestDrops?.commonPerHour,
+      stats?.chestDrops?.rarePerHour,
+      stats?.chestDrops?.plagueCommonPerHour,
+      stats?.chestDrops?.plagueRarePerHour,
+    ],
   );
 
   // Auto-open prefs are owned by the Live tab (`config.chestAutoOpenEnabled`).

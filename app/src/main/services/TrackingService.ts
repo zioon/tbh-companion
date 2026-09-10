@@ -4,7 +4,12 @@ import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
 import { XpTracker } from "../../core/tracker";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
-import { ChestDropTracker, LiveChestDropAggregator } from "../../core/chestDropTracker";
+import {
+  ChestDropTracker,
+  LiveChestDropAggregator,
+  resolveLiveDropCategory,
+  type ChestDropCategory,
+} from "../../core/chestDropTracker";
 import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, gameItemName, type GameItem } from "../../core/gamedata";
@@ -139,6 +144,12 @@ export class TrackingService {
   private inventoryByItemKey: Map<number, ResolvedInventoryRow> | null = null;
   /** Latest lookup-price snapshot for fallback price resolution. */
   private lookupPriceSnapshot: LookupPriceSnapshot | null = null;
+  /**
+   * User's display currency (ISO, uppercase). The CI lookup-price snapshot is
+   * priced in USD; fallback box-open prices must be converted via the
+   * snapshot's fx table. Defaults to USD until {@link setCurrency} is called.
+   */
+  private currency = "USD";
   /**
    * AutoClassifyService instance wired via `setAutoClassifyService`. The
    * tracker callbacks (chest-drop onDrop, box-open onUnclassified) reference
@@ -500,6 +511,17 @@ export class TrackingService {
   }
 
   /**
+   * Set the user's display currency (ISO code, e.g. "USD" / "CNY"). The
+   * lookup-price CI snapshot is priced in USD; the fallback resolver converts
+   * it via the snapshot's fx table so the Loot page buyout column shows the
+   * correct local amount instead of a raw USD value mislabeled as the local
+   * currency (e.g. $0.03 shown as ¥0.03 when CNY floor is ¥0.10).
+   */
+  setCurrency(iso: string): void {
+    this.currency = iso.toUpperCase();
+  }
+
+  /**
    * Inject the AutoClassifyService. The chest-drop and box-open trackers were
    * constructed in `start()` with callbacks that delegate to
    * `this.autoClassify?.handle*`, so setting this field is enough to enable
@@ -668,16 +690,30 @@ export class TrackingService {
           }
         }
       }
-      // 2. Lookup-price snapshot (lowest ask as proxy, unit * count).
+      // 2. Lookup-price snapshot fallback. `prices` is USD (CI snapshot);
+      //    prefer the local-currency polling fields when present, otherwise
+      //    convert USD via the snapshot fx so the shown amount is the user's
+      //    currency — not a raw USD value mislabeled as local (¥0.03 vs $0.03).
       if (this.lookupPriceSnapshot && this.gameDataLookup) {
         const catalogId = catalogItemKeyFromSave(itemKey);
         const item = this.gameDataLookup.get(catalogId);
         if (item) {
           const hash = marketHashName(item);
           if (hash) {
-            const usd = this.lookupPriceSnapshot.prices[hash] ?? null;
+            const snap = this.lookupPriceSnapshot;
+            // Local polling prices are fetched directly in the target currency
+            // (no FX rounding). Buy-order price matches the main path's
+            // "instant sell" semantics; listing price is the next best proxy.
+            const local =
+              snap.buyOrderLocal?.[hash] ?? snap.pricesLocal?.[hash] ?? null;
+            if (local != null) {
+              return { buyOrderValue: local * count, coveredCount: count };
+            }
+            const usd = snap.prices[hash] ?? null;
             if (usd != null) {
-              return { buyOrderValue: usd * count, coveredCount: count };
+              const fx = this.currency !== "USD" ? (snap.fx[this.currency] ?? null) : 1;
+              const unit = fx != null ? usd * fx : usd;
+              return { buyOrderValue: unit * count, coveredCount: count };
             }
           }
         }
@@ -888,9 +924,17 @@ export class TrackingService {
       );
     }
     const chestCategories = this.chestAggregator.feed(snap.chestDrops ?? [], chestAt);
-    for (const category of chestCategories) {
+    for (const baseCategory of chestCategories) {
+      // The GetBox log only carries monsterType (common/rare/act); on a plague
+      // (Contaminated) map that drop is a plague box. Upgrade the category by
+      // the current map so the tracker buckets plague drops separately.
+      const currentStageKey = snap.stageKey ?? this.lastLiveStage?.stageKey;
+      const category: ChestDropCategory =
+        baseCategory === "common" || baseCategory === "rare" || baseCategory === "act"
+          ? resolveLiveDropCategory(currentStageKey, baseCategory)
+          : baseCategory;
       if (this.chestDropTracker.recordLiveChestDrop(category, chestAt)) {
-        if (category === "rare") {
+        if (baseCategory === "rare") {
           // A delayed flush may land on a tick whose snap has no stageKey
           // (e.g. reader between battles); fall back to the last live stage.
           const stageKey = snap.stageKey ?? this.lastLiveStage?.stageKey;

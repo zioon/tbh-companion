@@ -384,6 +384,9 @@ export function startTracking(): SessionUiSnapshot {
   inventory.setOnInventoryUpdated((snap) => tracking.setInventorySnapshot(snap));
   tracking.setLookupPriceSnapshot(lookupPrices.getSnapshot());
   inventory.setLookupPriceSnapshot(lookupPrices.getSnapshot());
+  // Fallback box-open prices are converted from the USD CI snapshot to the
+  // user's display currency.
+  tracking.setCurrency(config.currency);
   // Single subscriber — fan out to both tracking (resolved item prices) and
   // inventory (low-value pre-filter on auto-refresh).
   lookupPrices.setOnSnapshotUpdated((snap) => {
@@ -592,6 +595,7 @@ export function getAppServices() {
         broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
         broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
       }
+      tracking.setCurrency(iso);
       return inventory.setCurrency(iso);
     },
     setMarketAutoScanEnabled: (enabled: boolean) => {
