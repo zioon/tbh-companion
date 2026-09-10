@@ -39,7 +39,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "lucasfevi",
+      "owner": "zioon",
       "repo": "tbh-companion"
     },
     "files": [

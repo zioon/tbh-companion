@@ -4,6 +4,10 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.21.0] - 2026-09-10
+
 ### Internationalization
 
 - The companion UI is now translated into **English, Simplified Chinese (简体中文), Japanese (日本語), and Korean (한국어)**. Pick a language explicitly in **Settings**, or use **Auto** (follows your operating system locale).
