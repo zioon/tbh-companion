@@ -3,6 +3,9 @@ import {
   boxCategoryLabel,
   boxDropViaLabel,
   boxDropViaSummaries,
+  boxExpectedValue,
+  boxPlagueRule,
+  boxPlagueTier,
   boxStageListLabel,
   FIRST_DROP_ONLY_LABEL,
   splitDropStageRangeLines,
@@ -125,5 +128,91 @@ describe("lookup box sources", () => {
     expect(first.firstDropStages).toEqual([{ stageKey: 1101, stageName: "Pasture" }]);
     expect(first.stages).toHaveLength(0);
     expect(splitDropStageRangeLines(first.dropStageRangeLabel)).toEqual(["Normal 1-1"]);
+  });
+});
+
+describe("boxPlagueTier", () => {
+  it("recognizes plague chests by 9xxx id prefix", () => {
+    expect(boxPlagueTier(915001)).toBe("plagueCommon");
+    expect(boxPlagueTier(925101)).toBe("plagueRare");
+    expect(boxPlagueTier(935201)).toBe("plagueAct");
+  });
+
+  it("returns null for non-plague chests", () => {
+    expect(boxPlagueTier(910051)).toBeNull();
+    expect(boxPlagueTier(920901)).toBeNull();
+    expect(boxPlagueTier(930101)).toBeNull();
+  });
+});
+
+describe("boxExpectedValue", () => {
+  const drops = [
+    { itemKey: 1001, name: "A", grade: "RARE", dropPct: 40 },
+    { itemKey: 1002, name: "B", grade: "COMMON", dropPct: 60 },
+  ];
+
+  it("computes probability-weighted sum of priced drops", () => {
+    const prices: Record<number, number> = { 1001: 5, 1002: 1 };
+    const result = boxExpectedValue(drops, (k) => prices[k] ?? null);
+    // (40 × 5 + 60 × 1) / 100 = 2.6
+    expect(result).toEqual({
+      value: 2.6,
+      pricedCount: 2,
+      totalCount: 2,
+      pricedDropPctSum: 100,
+    });
+  });
+
+  it("returns null when no drop is priced", () => {
+    const result = boxExpectedValue(drops, () => null);
+    expect(result.value).toBeNull();
+    expect(result.pricedCount).toBe(0);
+    expect(result.totalCount).toBe(2);
+    expect(result.pricedDropPctSum).toBe(0);
+  });
+
+  it("skips unpriced drops and discounts the cover percentage", () => {
+    const prices: Record<number, number> = { 1002: 1 };
+    const result = boxExpectedValue(drops, (k) => prices[k] ?? null);
+    // (60 × 1) / 100 = 0.6
+    expect(result.value).toBe(0.6);
+    expect(result.pricedCount).toBe(1);
+    expect(result.pricedDropPctSum).toBe(60);
+  });
+});
+
+describe("boxPlagueRule", () => {
+  it("derives shared-group rule for common plague chests (multiple monster-drop maps)", () => {
+    const stages = Array.from({ length: 5 }, (_, i) => ({
+      stageKey: 201201 + i,
+      stageName: `NM 21-${i + 1}`,
+      via: "monster_box" as const,
+      spawnPct: 0.08,
+    }));
+    expect(boxPlagueRule(915001, stages)).toEqual({
+      kind: "shared-group",
+      stageCount: 5,
+    });
+  });
+
+  it("derives unique-stage rule for stage-boss plague chests", () => {
+    expect(
+      boxPlagueRule(925002, [
+        { stageKey: 201202, stageName: "NM 21-2", via: "boss_box", spawnPct: 4 },
+      ]),
+    ).toEqual({ kind: "unique-stage", stageCount: 1 });
+  });
+
+  it("derives unique-act rule for act-boss plague chests", () => {
+    expect(
+      boxPlagueRule(935001, [
+        { stageKey: 201021, stageName: "NM 1-10", via: "act_boss", spawnPct: 100 },
+      ]),
+    ).toEqual({ kind: "unique-act", stageCount: 1 });
+  });
+
+  it("returns null for non-plague chests", () => {
+    expect(boxPlagueRule(920901, [])).toBeNull();
+    expect(boxPlagueRule(930101, [])).toBeNull();
   });
 });

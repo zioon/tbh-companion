@@ -98,6 +98,35 @@ const CHEST_BURST_GAP_MS = 2;
 const CHEST_BURST_WAIT = new Int32Array(new SharedArrayBuffer(4));
 
 /**
+ * Transitional catch-up burst for the BoxOpenLog tail. Opening several boxes in
+ * quick succession appends one BoxOpenLog entry per item; each entry's fields
+ * (itemKey/boxType/level) commit across a mid-write window that can straddle a
+ * single 25Hz tick. `readRuntimeBoxOpenLog` parks mid-write entries in
+ * `boxOpenPin.retryFrom` and returns only the already-committed ones — without a
+ * burst loop those would have to wait ~40 ms for the next tick, long enough for
+ * the log to be cleared/evicted (shrink), permanently dropping them (user-visible:
+ * "opened 3 boxes, only 1 item recorded"). Re-poll the tail on ticks that show
+ * box-open activity, mirroring CHEST_BURST_* so a burst's tail entries are caught
+ * in the same window instead of being lost. Quiet ticks skip it entirely.
+ */
+const BOX_BURST_ROUNDS = 4;
+const BOX_BURST_GAP_MS = 2;
+
+/**
+ * Transitional catch-up burst for the StageClearLog tail. Clearing stages back
+ * to back (auto-retry / fast farm) appends one StageClearLog entry per clear; an
+ * entry's fields commit across a mid-write window that can straddle a single
+ * 25Hz tick. `readRuntimeStageClears` only re-samples within the same tick and
+ * skips entries it can't decode yet (no cross-tick park, unlike chest/box-open),
+ * so a tail that lands mid-write is dropped permanently if the log shrinks or
+ * the next tick comes too late — user-visible as missing/blank stage-clear
+ * records. Re-poll the tail on activity ticks, mirroring CHEST/BX burst, until
+ * no new committed clear arrivals. Quiet ticks skip it entirely.
+ */
+const STAGE_CLEAR_BURST_ROUNDS = 4;
+const STAGE_CLEAR_BURST_GAP_MS = 2;
+
+/**
  * Throttle window for the per-status failure diagnostic log. When chest drops
  * / box opens / chest slots return a non-empty status, the worker emits a
  * log line at most once per window so silent degradation is visible in
@@ -1238,6 +1267,59 @@ export class LiveMemoryReader {
       }
     }
     const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
+    // Box-open burst catch-up: a quick succession of box opens commits their
+    // BoxOpenLog entry fields across a mid-write window that can straddle this
+    // tick, leaving mid-write entries parked in `boxOpenPin.retryFrom`. Without
+    // re-polling now, those tails would wait ~40 ms for the next 25 Hz tick — long
+    // enough for the log to shrink and permanently drop them (user-visible: opened
+    // 3 boxes at once, only 1 item recorded). Re-poll the tail on activity ticks,
+    // mirroring the chest-drop burst above, until no new entry resolves and no
+    // mid-write is still pending. The burst also engages when the first entry
+    // itself is mid-write (`opens` empty but `retryFrom` parked), so a tail that
+    // starts committing slightly late still gets caught in-window.
+    const boxBurstActive =
+      !boxOpenResult.status &&
+      boxOpenResult.opens != null &&
+      (boxOpenResult.opens.length > 0 || this.boxOpenPin.retryFrom != null);
+    if (boxBurstActive) {
+      const opens = boxOpenResult.opens!;
+      for (let burst = 0; burst < BOX_BURST_ROUNDS; burst++) {
+        Atomics.wait(CHEST_BURST_WAIT, 0, 0, BOX_BURST_GAP_MS);
+        const extra = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
+        if (extra.opens && extra.opens.length > 0) {
+          opens.push(...extra.opens);
+          continue; // keep bursting while new entries keep arriving
+        }
+        // No new committed entry this pass. Stop here and leave any parked
+        // `retryFrom` entry to the next tick instead of re-polling it inside the
+        // same window — repeated rapid re-reads would burn the entry's
+        // `retryConsecutive` budget toward MAX_BOX_OPEN_LOG_RETRIES and trigger a
+        // false force-skip of an entry that just needs a few more ms to commit.
+        break;
+      }
+    }
+    // Stage-clear burst catch-up: fast consecutive clears (auto-retry / farm)
+    // append StageClearLog entries whose fields commit across a mid-write
+    // window. `readRuntimeStageClears` re-samples in-tick but skips undecoded
+    // entries (no park), so without re-polling a tail entry mid-write can be
+    // dropped before the next tick — blank/missing 通关记录. Re-poll on activity
+    // ticks, mirroring the chest/box-open bursts above.
+    const stageClearsResult = readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin);
+    let stageClears = stageClearsResult;
+    if (stageClearsResult) {
+      const acc = [...stageClearsResult];
+      for (let burst = 0; burst < STAGE_CLEAR_BURST_ROUNDS; burst++) {
+        Atomics.wait(CHEST_BURST_WAIT, 0, 0, STAGE_CLEAR_BURST_GAP_MS);
+        const extra = readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin);
+        if (extra && extra.length > 0) {
+          acc.push(...extra);
+          continue;
+        }
+        // No new committed clear arrival; stop and leave the tail for the next tick.
+        break;
+      }
+      stageClears = acc;
+    }
     // Box-open diagnostic: emit only on change so the 25 Hz tick doesn't flood
     // the log. When `opens` is a real delta but `parsed` stays 0 while
     // `scanned` grows, the itemStringKey offset/decoder is wrong; when `scanned`
@@ -1398,7 +1480,7 @@ export class LiveMemoryReader {
       chestSlotsStatus: chestSlotsResult.status || undefined,
       boxOpens: boxOpenResult.opens,
       boxOpensStatus: boxOpenResult.status || undefined,
-      stageClears: readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin),
+      stageClears: stageClears,
       // Low-frequency fields (inventory/pets) are re-read only every
       // `LOW_FREQ_EVERY_N_TICKS` (~2s); present them ONLY on the refresh frame.
       // On interleaving frames they're `null` (= "unchanged"), which the main

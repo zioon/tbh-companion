@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/cn";
 import { gradeColor } from "../../lib/gradeColor";
 import { iconSrc } from "../../lib/iconSrc";
+import { fmtCompactLocale } from "../../lib/format";
+import { synthesisPointsForItemKeyByGear } from "../../../core/synthesisPoints";
+import { useMaterialSynthesisPoints } from "../../lib/useMaterialSynthesisPoints";
 import {
   gearGroupLabel,
   gradeLabel,
@@ -11,6 +14,7 @@ import {
   formatMaterialOutcome,
 } from "../../lib/itemLabels";
 import { visibleOutcomes } from "../../lib/lookupDisplay";
+import { classForGearType } from "../../../core/lookup/classRestriction";
 import { ItemIcon } from "../../design-system/primitives/ItemIcon/ItemIcon";
 import { TierTag } from "./TierTag";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
@@ -111,10 +115,27 @@ export function ItemCardHeader({
    */
   gradeOverride?: string | null;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const materialPoints = useMaterialSynthesisPoints();
   const metaLine = itemMetaLine(item, t);
   const isDetail = iconSize === "lg";
   const effectiveGrade = gradeOverride ?? item.grade;
+  const synthPoints = synthesisPointsForItemKeyByGear({
+    itemKey: item.id,
+    grade: effectiveGrade,
+    gearGroup: item.gearGroup,
+    overrideMap: materialPoints,
+  });
+  const synthText =
+    synthPoints != null
+      ? `${t("common:labels.synthesisPoints")}: ${fmtCompactLocale(
+          synthPoints,
+          i18n.resolvedLanguage ?? i18n.language,
+        )}`
+      : null;
+  // Only when an item has both a level and a class restriction does the
+  // synthesis-points line wrap to its own row; otherwise it stays inline.
+  const splitSynth = item.level != null && classForGearType(item.gearType) != null;
 
   return (
     <>
@@ -131,10 +152,27 @@ export function ItemCardHeader({
         >
           {gradeLabel(effectiveGrade, t)} · {itemDescriptor(item, t)}
         </p>
-        {metaLine ? (
-          <p className={cn("m-0 truncate text-muted", isDetail ? "text-xs" : "text-[11px]")}>
-            {metaLine}
-          </p>
+        {metaLine || synthText ? (
+          splitSynth ? (
+            <>
+              {metaLine ? (
+                <p className={cn("m-0 truncate text-muted", isDetail ? "text-xs" : "text-[11px]")}>
+                  {metaLine}
+                </p>
+              ) : null}
+              {synthText ? (
+                <p className={cn("m-0 text-muted", isDetail ? "text-xs" : "text-[11px]")}>
+                  {synthText}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className={cn("m-0 truncate text-muted", isDetail ? "text-xs" : "text-[11px]")}>
+              {metaLine}
+              {metaLine && synthText ? " · " : null}
+              {synthText}
+            </p>
+          )
         ) : null}
       </div>
       {trailing ? <div className="ml-auto shrink-0 self-start">{trailing}</div> : null}

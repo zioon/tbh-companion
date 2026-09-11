@@ -7,8 +7,9 @@ import {
 } from "../../../core/inventory/columnPrefs";
 import { formatMoney, formatRawMoney } from "../../../core/steamPrice";
 import { unassignedCount } from "../../../core/inventory/location";
+import { rowSynthesisPoints } from "../../lib/inventoryFilters";
+import { fmtCompactLocale } from "../../lib/format";
 import { gradeColor } from "../../lib/gradeColor";
-import { useLookupCatalog } from "../../lib/useLookupCatalog";
 import { useEntityPanel } from "../../context/entityPanelContext";
 import { ItemLink } from "../ItemLink";
 import { MarketListingLink } from "./MarketListingLink";
@@ -59,6 +60,9 @@ export interface InventoryTableProps {
   columnPrefs: InventoryTablePrefs;
   sortKey: SortKey;
   sortDir: "asc" | "desc";
+  itemIndex: Map<number, LookupItem>;
+  catalogReady: boolean;
+  materialPointsOverride?: Record<number, number> | null;
   onSort: (key: SortKey) => void;
   onClearFilters: () => void;
   emptyMessage?: string;
@@ -89,6 +93,8 @@ function buildColumnDefs(
   itemIndex: Map<number, LookupItem>,
   onNavigate: (itemKey: number) => void,
   catalogReady: boolean,
+  materialPointsOverride?: Record<number, number> | null,
+  locale?: string,
 ): ColumnDef[] {
   return [
     {
@@ -163,6 +169,20 @@ function buildColumnDefs(
       render: (row) => (
         <span style={{ color: gradeColor(row.grade) }}>{gradeLabel(row.grade, t)}</span>
       ),
+    },
+    {
+      id: "synthesisPoints",
+      label: t("common:labels.synthesisPoints"),
+      sortKey: "synthesisPoints",
+      align: "right",
+      render: (row) => {
+        const pts = rowSynthesisPoints(row, itemIndex, materialPointsOverride);
+        return pts != null ? (
+          <span title={pts.toLocaleString()}>{fmtCompactLocale(pts, locale)}</span>
+        ) : (
+          <span className="text-muted">-</span>
+        );
+      },
     },
     {
       id: "level",
@@ -430,20 +450,27 @@ export function InventoryTable({
   columnPrefs,
   sortKey,
   sortDir,
+  itemIndex,
+  catalogReady,
+  materialPointsOverride,
   onSort,
   onClearFilters,
   emptyMessage,
 }: InventoryTableProps) {
-  const { t } = useTranslation("inventory");
-  const catalog = useLookupCatalog();
+  const { t, i18n } = useTranslation("inventory");
   const { open } = useEntityPanel();
-  const itemIndex = useMemo(
-    () => new Map((catalog ?? []).map((item) => [item.id, item])),
-    [catalog],
-  );
+  const locale = i18n.resolvedLanguage ?? i18n.language;
   const columnDefs = useMemo(
-    () => buildColumnDefs(t, itemIndex, (id) => open({ type: "item", id }), catalog !== null),
-    [t, itemIndex, open, catalog],
+    () =>
+      buildColumnDefs(
+        t,
+        itemIndex,
+        (id) => open({ type: "item", id }),
+        catalogReady,
+        materialPointsOverride,
+        locale,
+      ),
+    [t, itemIndex, open, catalogReady, materialPointsOverride, locale],
   );
   const columns = useMemo(() => visibleColumns(columnDefs, columnPrefs), [columnDefs, columnPrefs]);
   const effectiveEmptyMessage = emptyMessage ?? t("emptyMessage");

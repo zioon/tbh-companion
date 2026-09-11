@@ -9,11 +9,13 @@ import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog
 import { gameItemName, type GameItem } from "../../core/gamedata";
 import { bundledDataCandidates } from "../../core/bundledData";
 import type {
+  LookupBoxSources,
   LookupItem,
   LookupSources,
   OfferingsModel,
   SynthesisModel,
 } from "../../../shared/types";
+import { loadStageBoxCatalogFile } from "../../core/stageBoxTracker";
 
 export class LookupService {
   private readonly sourceItems: LookupItem[] = loadLookupItems();
@@ -30,6 +32,20 @@ export class LookupService {
   private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
   /** Cached localized items; invalidated on {@link setLocaleCatalog}. */
   private localizedItemsCache: LookupItem[] | null = null;
+  /**
+   * Box id → chest level, from `stage_boxes.json`. Used to enrich
+   * `LookupBoxSources.level` (see {@link getSources}); the bundled
+   * `lookup_sources.json` doesn't carry levels.
+   */
+  private readonly boxLevelById: ReadonlyMap<number, number | null>;
+  /** Enriched sources cache: `this.sources` with `boxes[].level` filled in. */
+  private enrichedSourcesCache: LookupSources | null = null;
+
+  constructor() {
+    const levelById = new Map<number, number | null>();
+    for (const item of loadStageBoxCatalogFile().items) levelById.set(item.id, item.level ?? null);
+    this.boxLevelById = levelById;
+  }
 
   getCatalog(): LookupItem[] {
     if (this.localizedItemsCache == null) {
@@ -50,7 +66,51 @@ export class LookupService {
   }
 
   getSources(): LookupSources {
-    return this.sources;
+    if (this.enrichedSourcesCache != null) return this.enrichedSourcesCache;
+    const boxes: Record<string, LookupBoxSources> = {};
+    for (const [key, box] of Object.entries(this.sources.boxes)) {
+      const id = Number(key);
+      let next: LookupBoxSources = this.boxLevelById.has(id)
+        ? { ...box, level: this.boxLevelById.get(id)! }
+        : box;
+      // Localize the drop-stage map names (the lookup source bakes English
+      // names like "Desert Underground Cave"). The level of currency locale is
+      // whatever is currently injected via setLocaleCatalog.
+      next = {
+        ...next,
+        stages: next.stages.map((s) => {
+          const localized = this.localizedMapName(s.stageKey);
+          return localized != null ? { ...s, stageName: localized } : s;
+        }),
+        firstDropStages: next.firstDropStages.map((s) => {
+          const localized = this.localizedMapName(s.stageKey);
+          return localized != null ? { ...s, stageName: localized } : s;
+        }),
+      };
+      boxes[key] = next;
+    }
+    this.enrichedSourcesCache = { ...this.sources, boxes };
+    return this.enrichedSourcesCache;
+  }
+
+  /**
+   * Localized map name for a stage, or null when the current LocaleCatalog has
+   * no entry for that stage (in which case the caller keeps the English name).
+   * Mirrors `stageName`'s catalog key lookup in `core/stages.ts`: normal stages
+   * use the 4-digit "1<act><stage>" key; plague (Contaminated) stages use their
+   * full 6-digit key.
+   */
+  private localizedMapName(stageKey: number): string | null {
+    const k = Math.trunc(stageKey);
+    if (!Number.isFinite(k) || k <= 0) return null;
+    const stages = this.localeCatalog.stages;
+    if (stages == null) return null;
+    const key =
+      k >= 100_000 // plague 6-digit key
+        ? String(k)
+        : `1${Math.floor(k / 100) % 10}${String(k % 100).padStart(2, "0")}`;
+    const name = stages[key];
+    return typeof name === "string" && name.length > 0 ? name : null;
   }
 
   /**
@@ -136,5 +196,8 @@ export class LookupService {
   setLocaleCatalog(catalog: LocaleCatalog): void {
     this.localeCatalog = catalog;
     this.localizedItemsCache = null;
+    // Drop the enriched-sources cache so the next getSources() re-localizes the
+    // box stage/map names under the newly selected language.
+    this.enrichedSourcesCache = null;
   }
 }

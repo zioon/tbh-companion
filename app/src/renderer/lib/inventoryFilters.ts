@@ -1,6 +1,12 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
 import { rowMatchesLocation } from "../../core/inventory/location";
-import type { ItemLocation, ResolvedInventory, ResolvedInventoryRow } from "../../../shared/types";
+import { synthesisPointsForItemKeyByGear } from "../../core/synthesisPoints";
+import type {
+  ItemLocation,
+  LookupItem,
+  ResolvedInventory,
+  ResolvedInventoryRow,
+} from "../../../shared/types";
 
 export type SortKey =
   | "name"
@@ -13,7 +19,8 @@ export type SortKey =
   | "value"
   | "buyOrder"
   | "buyOrderValue"
-  | "buyOrderAverage";
+  | "buyOrderAverage"
+  | "synthesisPoints";
 /** A single storage location; the location filter holds a set of these ([] = all). */
 export type LocationFilter = ItemLocation;
 
@@ -54,6 +61,20 @@ export function buyOrderAverage(row: ResolvedInventoryRow): number | null {
   return row.buyOrderValue / row.buyOrderCoveredCount;
 }
 
+/** 单行物品的合成点数（需图鉴索引反查 gearGroup 判饰品）；无匹配返回 null。 */
+export function rowSynthesisPoints(
+  row: ResolvedInventoryRow,
+  catalogIndex?: Map<number, LookupItem>,
+  overrideMap?: Record<number, number> | null,
+): number | null {
+  return synthesisPointsForItemKeyByGear({
+    itemKey: row.itemKey,
+    grade: row.grade,
+    gearGroup: catalogIndex?.get(row.itemKey)?.gearGroup,
+    overrideMap,
+  });
+}
+
 export function gradeOptionsFromInventory(inv: ResolvedInventory): string[] {
   const present = new Set(inv.rows.map((r) => r.grade));
   const ordered = GRADE_ORDER.filter((g) => present.has(g));
@@ -68,6 +89,8 @@ export function typeOptionsFromInventory(inv: ResolvedInventory): string[] {
 export function filterAndSortRows(
   inv: ResolvedInventory,
   state: InventoryFilterState,
+  catalogIndex?: Map<number, LookupItem>,
+  overrideMap?: Record<number, number> | null,
 ): ResolvedInventoryRow[] {
   const q = state.query.trim().toLowerCase();
   let rows = inv.rows.filter((row) => {
@@ -103,6 +126,10 @@ export function filterAndSortRows(
       cmp = (a.buyOrderValue ?? -1) - (b.buyOrderValue ?? -1);
     else if (state.sortKey === "buyOrderAverage")
       cmp = (buyOrderAverage(a) ?? -1) - (buyOrderAverage(b) ?? -1);
+    else if (state.sortKey === "synthesisPoints")
+      cmp =
+        (rowSynthesisPoints(a, catalogIndex, overrideMap) ?? -1) -
+        (rowSynthesisPoints(b, catalogIndex, overrideMap) ?? -1);
     else cmp = (GRADE_RANK[a.grade] ?? -1) - (GRADE_RANK[b.grade] ?? -1);
     if (cmp === 0) cmp = b.count - a.count;
     return cmp * dir;

@@ -964,6 +964,7 @@ flowchart TD
      - `resolveClearedStageKey`（`core/stages.ts`）识别 `fallbackStageKey` 为瘟疫关时，用日志 `act`（21/22/23，跨区推进时更正所属区）+ 日志 `stage` 重建 6 位 key（`plagueBaseFromAct`→2012/2013/2014 × 100 + stage），解决清除后 stageKey 已前进的 off-by-one；`act` 非瘟疫值时回落当前 live 区的 base。
      - `stageName` 对 6 位瘟疫 key 先按完整 key 查 `catalog.stages`（瘟疫关名如 `201201`→"Nightmare Plaguelands" 以此 key 存储），miss 则回退 `<难度> <act>-<stage>`（act 21/22/23 映射 Nightmare/Hell/Torment）。
 9. **box opens**：对每个 `snap.boxOpens` 调用 `resolveBoxOpenEntry(entry)` 解析 boxKey/itemKey/name/grade → `boxOpenTracker.recordOpen(...)`。
+   - **BoxOpenLog burst 抢读（2026-09-11）**：`snap.boxOpens` 来自 `readRuntimeBoxOpenLog` 对 `BoxOpenLog` 的 tail 读取。玩家短时间内连开多箱会一次性在末尾追加多条 `BoxOpenLog` 条目（每箱一条，itemKey/boxType/level 视为包裹写入）；每条字段在 mid-write 窗口内才提交完整，单次 tail 扫描会把尚未提交的末尾条目 park 到 `boxOpenPin.retryFrom`，只返回已提交的条目。若不补读，park 条目要等下一 25Hz tick（~40ms）才重读，期间日志若被清理（shrink）即永久丢失——表现为"连开 3 箱只记 1 item"。修复（`liveReader.ts read()`）：当此 tick 检出 box-open 活动（`opens.length>0` 或 `retryFrom` 挂起）时，在同一突发窗口内按 `BOX_BURST_ROUNDS`（4 次）× `BOX_BURST_GAP_MS`（2ms）连续重读 `readRuntimeBoxOpenLog`，把各次增量累积进 `opens`；一旦无新提交条目即停，仍挂起的 mid-write 条目留给下一 tick——避免在同一窗口内重读耗尽该条目的 `retryConsecutive` 预算而误触发 force-skip 漏记。
 10. **节流 broadcast**：若 `Date.now() - lastLiveBroadcastMs >= 200` → `pushStats()`。
 
 ### 5.8 offset healing 机制
@@ -1461,6 +1462,45 @@ flowchart LR
 - `sanitizePollingConfig(cfg)`：去重、去空、trim。
 - `setConfig(cfg)`：仅 `enabled` toggle 或 `intervalMinutes` 变化时重启定时器；`thresholdUsd` / `watchedHashes` 变化不重启。
 - 轮询：`selectPollingTargets` 只把 `watchedHashes` 作为 targets（图鉴仅更新星标物品），去重去空、保序，无论是否拥有、是否有价格，优先抓取。
+
+### 7.7 宝箱获取规律与内容物期望价值（含瘟疫宝箱）
+
+Lookup 宝箱详情的「获取规律 + 价值」展示，纯 renderer + core，无新 IPC 通道。
+
+- **获取规律五维**（`BoxCardParts.tsx BoxCardHeader`/`BoxCardDropSummary` 与 `BoxDetailCard.tsx`）：
+  1. 掉落关卡范围 `dropStageRangeLabel`（`splitDropStageRangeLines` 拆行）；
+  2. 击杀类型 `via`：`monster_box` / `boss_box` / `act_boss`（`boxDropViaSummaries` 汇总各 via 的 spawnPct 最小–最大区间）；
+  3. 掉落率 `spawnPct%`（每行 `fmtDropPct`）；
+  4. 首掉标记 `firstDropOnly` + `firstDropStages`（"仅首次通关"）；
+  5. 难度/关卡名经 `stageName`（瘟疫 6 位 key 见 5.7）。
+- **瘟疫类别识别**：tbh-data 把瘟疫宝箱（`915xxx`/`925xxx`/`935xxx`）分类标签归为普通 `common`/`stage_boss`/`act_boss`，无法据此识别瘟疫。新增纯函数 `boxPlagueTier(boxItemKey)`（`core/lookup/boxDisplay.ts`）：按 9xxx id 前缀判定 `plagueCommon`/`plagueRare`/`plagueAct`，UI 由此显示瘟疫类别徽标（`translateBoxPlagueTier` + `box.plague*` i18n key）。
+- **获取分组规律**：瘟疫宝箱的「每图/共享/按章」对应关系由掉落来源数据推断而非硬编码。纯函数 `boxPlagueRule(boxItemKey, stages)` 依 `via` + 地图数判定 `shared-group`（`monster_box`、多个相邻地图共享一箱，如普通箱每 5 关共用一个）/ `unique-stage`（`boss_box`、每图独有）/ `unique-act`（`act_boss`、每章独有），返回 `{ kind, stageCount }`。`BoxDetailCard` 在标题下以「获取规律」StatGroup 展示（`translateBoxPlagueRule` + `box.rule*` i18n key），非瘟疫宝箱不显示。
+- **内容物期望价值**：宝箱本身 `marketTradable=false` 无市场价，价值来自内容物。新增纯函数 `boxExpectedValue(drops, unitPrice)`（`core/lookup/boxDisplay.ts`），`value = Σ(dropPct × unitPrice(itemKey)) / 100`。`unitPrice` 由 renderer 注入 `useLookupPrices().resolve(item).amount`（当前货币买单价）。降级规则：无任何 content 定价（`pricedCount===0`）→ `value=null`，UI 显示「暂无内容物市场价数据」仅列内容物+掉率；有定价时显示期望值 + 「已按市场价覆盖 priced/total 项」。
+- 展示位点：`BoxLoot.tsx` 顶部 StatGroup（期望价值）+ 每行内容物右端价格；`BoxCardParts.tsx` header 瘟疫类别徽标。
+
+### 7.8 合成点数（宝箱价值评价体系）
+
+需求：为宝箱**掉落物品**按品质给一个「合成点数」作为价值度量，评分即可合成该品质所付出的"普通点"总成本。纯函数在 `app/src/core/synthesisPoints.ts`，数据展示挂靠在 `BoxOpenTracker.getStats` 的 breakdown 行与箱级合计上（Loot 页）。
+
+- **品质基础点数**（非饰品）：以 COMMON=1、UNCOMMON=9 为锚点，按 `data/synthesis_model.json` 每级合成升到下一级的上浮概率 `P_up(g) = (weights[+1]+weights[+2])/total(g)` 递归：`V[g] = V[g-1] × 9 ÷ P_up(g-1)`（9 = 合成单次消耗材料数 `materialAmount`）。COMMON..IMMORTAL 的 `P_up` 恒为 1（低品质几乎必然升级），故点数恰为 9 的幂（1/9/81/729/6561）；IMMORTAL 起 `P_up` 逐级下降，点数按成功率膨胀：ARCANA≈11.8 万(50.12%)、BEYOND≈317 万(33.44%)、CELESTIAL≈1.23 亿(23.14%)、DIVINE≈66.5 亿(16.68%)、COSMIC≈6.59 万亿(9.09%)。常量 `SYNTHESIS_POINTS`（`synthesisPointsForGrade` 读取），数值与产品确认一致。
+- **饰品类倍率**：`gearGroup === "ACCESSORY"`（`isAccessoryItem`）→ `synthesisPointsForItem(grade, isAccessory)` 返回基础点数 ×3（`ACCESSORY_POINT_MULTIPLIER`）。未知/不受支持品质返回 `null`。
+- **挂接路径**：`BoxOpenTracker.getStats(priceResolver, isAccessory?)`（2026-09-11 起签名改为仅 `priceResolver` + 可选 `isAccessory`，移除 `sessionSeconds`/`nowSecondsOverride`）。对每个 breakdown 行算 `synthesisPointsUnit = synthesisPointsForItem(grade, isAccessory(itemKey))`、`synthesisPointsTotal = unit × count`；箱级 `totalSynthesisPoints = Σ`。字段见 `shared/types.ts` 的 `BoxOpenBreakdownRow.synthesisPointsUnit/ Total` 与 `BoxOpenStats.totalSynthesisPoints`（均为 `number | null`）。
+- **饰品判定来源**：`TrackingService.buildBoxOpenAccessoryResolver()` 用 `this.lookupItems`（lookup_items.json 的 `LookupItem.gearGroup`）判定；目录未加载时返回 `null`，tracker 按一般点数（不 ×3）计分。resolver 经 `buildStats(... boxOpenIsAccessory ...)` 透传。
+- **特殊材料按「对应 ACT 章节宝箱 / offer 开出概率」估值（运行时数据驱动，不手写数值）**：不走自身品质。
+  - 灵魂石（Soulstone）：对应以难度映射到的 **ACT 宝箱**（规则表 `SOULSTONE_ACT_BOX`：普通→930301、噩梦→930501、地狱→930851、折磨→930901，被污染→935001/103/202），覆盖值 = 该箱的期望合成点 `Σ(dropPct/100×单点)`（与宝箱「期望合成点数」同一公式）。
+  - 纪念硬币（offering coin 160001~160010）：覆盖值 = 其 `data/offerings.json` 开出清单 `Σ(poolPct/100×单点)`。
+  - 统一由纯函数 `buildMaterialSynthesisPoints(data)` 现算生成 `Record<itemKey,点数>`；`synthesisPointsForItemKey(itemKey, grade, isAccessory, overrideMap?)` 命中覆盖表则用之，否则品质×饰品。**main**（`TrackingService.getMaterialPointsOverride()`，用 lookup_sources+offerings+lookup_items，懒构建缓存）与 **renderer**（`useMaterialSynthesisPoints()`，用 window.tbh.getLookupCatalog/getLookupSources/getOfferings）各自喂数据现算同一张表；`BoxLoot` 与 `BoxOpenTracker.getStats(priceResolver, isAccessory?, pointsOverride?)` 均查该表。数据更新自动跟随。
+  - 普通硬币/硬币堆（150001~150007）无 offer 清单也无宝箱关联，不做覆盖（按品质估值）。
+- **展示**：`LootBoxSection.tsx` 已分类宝箱表格末尾新增「合成点数」列（`fmtPoints` 用 Intl compact 按当前语言进 万/亿/K/M/B），每箱头显示合成点合计徽标（`boxSection.pointsTotalLabel`）。未分类（unclassified）行不显示该列。宝箱图鉴/详情侧 `BoxLoot.tsx`（宝箱内容物列表，渲染于 `BoxDetailCard`/`BoxPeekCard`）：每条内容物右端显示该物品单件合成点数（`box.synthesisPointsShort`），宝箱「价值」区新增「期望合成点数」（`box.expectedSynthesisPoints`）＝ `Σ(dropPct/100 × 单件点数)`，作宝箱级标记。
+- **三单件物品页展示**（物品页/图鉴页/交易页每件物品也显示单件合成点，数值一致）：
+  - 统一入口：`synthesisPointsForItemKeyByGear({ itemKey, grade, gearGroup })`（`core/synthesisPoints.ts`），内部复用 `isAccessoryItem({gearGroup})` 判饰品再走 `synthesisPointsForItemKey`，避免各页重复判断。
+  - 物品页（Inventory）：表格新增**独立可排序/可切换「合成点」列**（`InventoryColumnId="synthesisPoints"`，默认可见）。排序在 `renderer/lib/inventoryFilters.ts` 的 `filterAndSortRows(..., catalogIndex?)`（`SortKey="synthesisPoints"`，`null→-1`）；显示与排序均由 `rowSynthesisPoints(row, itemIndex)` 计算，`gearGroup` 来自 `useLookupCatalog` 构建的 `Map<id, LookupItem>`（渲染层用 `LookupItem.gearGroup`，core `GameItem` 无此字段）。
+  - 图鉴页（Lookup）：`lookup/itemCardParts.tsx` 的 `ItemCardHeader` 第三行（`metaLine`）后追加 `合成点: <fmtCompact>`，用 `effectiveGrade`/`item.id`/`item.gearGroup`。
+  - 三处页面（物品卡 `itemCardParts.tsx`、Inventory 表 `InventoryTable.tsx`+`inventoryFilters.ts`、交易卡 `ItemVolumeCard.tsx`）及宝箱详情 `BoxLoot.tsx` 均通过 `useMaterialSynthesisPoints()`（模块级共享缓存，一次拉取）取同一张覆盖表并传入 `overrideMap`，与 tracker/宝箱详情数值一致。
+  - `MarketVolumeItem` 新增可选 `itemKey?`/`gearGroup?`（`shared/types.ts` 与 `core/marketVolume.ts`），由 `aggregateItemVolume`/`aggregateLiveItems`/`aggregateLiveActivityItems` 三处聚合与 `MarketVolumeService.buildItemForHash`/`buildPendingItems` 两处回退对象从 `LookupItem` 透传。
+  - 标签文案统一 `common:labels.synthesisPoints`（四语种 `common.json`）。
+- **宝箱「每次掉落」价值**（2026-09-11，替代原每小时价值）：Loot 页价值速率改为**时间无关的每次掉落价值**，而非每小时——宝箱价值展示不再受挂机时长影响。`BoxOpenTracker.getStats` 的 `perDropValue` 字段：行级 = `buyOrderValue / count`，箱级 = `totalBuyOrderValue / totalItems`（各行按 count 加权的平均），均为 `number | null`。`LootBoxSection.tsx` 箱头徽标（`fmtMoneyPerDrop`，后缀 `/次`）展示箱级每次掉落价值，合成点徽标（`pointsTotalLabel`）同理**只**展示每次均值（`totalSynthesisPoints / totalItems`，无"均值"字样、不显示总值，口径与钱一致）；**表格不再显示每行「每次」列**（与「买断价」列重复，已移除），原「追踪于」开始时间展示亦已移除。原 `hourlyValue` 及 `getStats` 的 `sessionSeconds`/`nowSecondsOverride` 参数已移除。`trackingSinceWallTime` 仍保留在数据模型与快照中（持久化），但不再用于价值计算与 UI 展示。
+- **测试**：`test/core/synthesisPoints.test.ts`（锚点/幂次/成功率/饰品倍率/null + `synthesisPointsForItemKeyByGear`）+ `test/core/boxOpenTracker.test.ts` 新增「scores synthesis points by grade, tripling accessories」+ `test/core/marketVolume.test.ts` 聚合 `itemKey/gearGroup` 透传 + `test/renderer/inventoryFilters.test.ts` 合成点排序（含饰品倍率）。
 
 ---
 

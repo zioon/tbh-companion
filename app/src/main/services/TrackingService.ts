@@ -10,12 +10,18 @@ import {
   resolveLiveDropCategory,
   type ChestDropCategory,
 } from "../../core/chestDropTracker";
-import { BoxOpenTracker, type BoxOpenPriceResolver } from "../../core/boxOpenTracker";
+import {
+  BoxOpenTracker,
+  type BoxOpenPriceResolver,
+  type BoxOpenAccessoryResolver,
+} from "../../core/boxOpenTracker";
 import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, gameItemName, type GameItem } from "../../core/gamedata";
 import { GRADE_ORDER } from "../../core/grades";
 import { instantSellValue } from "../../core/inventory/buyOrder";
 import { marketHashName } from "../../core/marketName";
+import { buildMaterialSynthesisPoints } from "../../core/synthesisPoints";
+import { loadLookupSources, loadOfferings } from "../../core/lookup/catalog";
 import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import { StageRunFailDetector } from "../../core/stageRunFailDetector";
@@ -295,6 +301,8 @@ export class TrackingService {
       this.sessionState?.getStatusOverride() ?? null,
       this.lastLiveFrame,
       this.buildBoxOpenPriceResolver(),
+      this.buildBoxOpenAccessoryResolver(),
+      this.getMaterialPointsOverride(),
       null,
       this.localeCatalog,
     );
@@ -417,6 +425,7 @@ export class TrackingService {
     }
     this.lookupItems = byId;
     this.lookupVariantIndex = byNameGrade;
+    this.materialPointsOverride = null;
     // If a restore happened before the lookup catalog loaded, re-resolve so
     // the (baseId, grade) → variantId remap now uses lookup-sourced ids.
     this.runReResolveNames();
@@ -719,6 +728,48 @@ export class TrackingService {
       }
       return null;
     };
+  }
+
+  /**
+   * Accessory resolver for synthesis points. The box-open breakdown's itemKey is
+   * a lookup-catalog variant id (see reResolveNames), so gearGroup can be read
+   * straight off `lookupItems`. Null when the lookup catalog isn't loaded yet —
+   * the tracker then scores every item at its general (non-accessory) points.
+   */
+  private buildBoxOpenAccessoryResolver(): BoxOpenAccessoryResolver {
+    const items = this.lookupItems;
+    if (!items) return null;
+    return (itemKey: number) => items.get(itemKey)?.gearGroup === "ACCESSORY";
+  }
+
+  /** 由数据现算的特殊材料覆盖点（灵魂石/纪念硬币）；懒构建、缓存，目录刷新时失效。 */
+  private materialPointsOverride: Record<number, number> | null = null;
+
+  /**
+   * 由 lookup_sources / offerings / lookup_items 现算灵魂石与纪念硬币的合成点覆盖表
+   * （运行时数据驱动，不手写数值）。lookup 目录未加载或计算失败时返回 null（消费方
+   * 回退到按品质估值）。
+   */
+  private getMaterialPointsOverride(): Record<number, number> | null {
+    if (this.materialPointsOverride) return this.materialPointsOverride;
+    const items = this.lookupItems;
+    if (!items) return null;
+    try {
+      const sources = loadLookupSources();
+      const offerings = loadOfferings();
+      const boxes = sources.boxes as Record<
+        number,
+        { drops?: Array<{ itemKey: number; grade?: string | null; dropPct: number }> }
+      >;
+      this.materialPointsOverride = buildMaterialSynthesisPoints({
+        itemByKey: (itemKey) => items.get(itemKey),
+        boxDrops: (boxKey) => boxes[boxKey]?.drops,
+        offerings,
+      });
+    } catch {
+      this.materialPointsOverride = {};
+    }
+    return this.materialPointsOverride;
   }
 
   restartWatcher(): void {

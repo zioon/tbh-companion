@@ -10,6 +10,18 @@ export function fmtCompact(n: number): string {
   return `${sign}${Math.round(abs).toLocaleString()}`;
 }
 
+/**
+ * 语言感知的 compact 数字：按当前语言用 `Intl.NumberFormat(locale, { compact })`
+ * 格式化（中文自动进 万/亿，英文用 K/M/B）。用于合成点等大数的显示，
+ * 与掉落页/宝箱详情的点数口径一致。
+ */
+export function fmtCompactLocale(value: number, locale?: string): string {
+  return new Intl.NumberFormat(locale ?? undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 export function fmtDuration(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   const h = Math.floor(total / 3600);

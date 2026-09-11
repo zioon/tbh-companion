@@ -88,3 +88,41 @@ describe("LookupService.setGameData", () => {
     expect(localized?.sourceName).toBe("Coin");
   });
 });
+
+describe("LookupService level enrichment", () => {
+  it("fills box level from stage_boxes.json by item-key", () => {
+    const service = new LookupService();
+    const boxes = service.getSources().boxes;
+    // Normal Monster Box 1
+    expect(boxes["910011"]).toBeDefined();
+    expect(boxes["910011"]!.level).toBe(1);
+    // Stage Boss Box Lv90
+    expect(boxes["920901"]!.level).toBe(90);
+    // Plague Contaminated Normal Box (Nightmare) 1~5 → level 40
+    expect(boxes["915001"]!.level).toBe(40);
+  });
+
+  it("keeps English stage names with an empty LocaleCatalog", () => {
+    const service = new LookupService();
+    const box = service.getSources().boxes["920151"]!;
+    const english = box.stages[0]?.stageName;
+    expect(typeof english).toBe("string");
+    expect(english!.length).toBeGreaterThan(0);
+  });
+
+  it("localizes drop-stage map names after setLocaleCatalog", () => {
+    const service = new LookupService();
+    const stageKey = 1203; // Normal 2-3
+    service.setLocaleCatalog({
+      items: {},
+      stages: { "1203": "测试地图" },
+      heroes: {},
+      difficulties: {},
+    });
+    const boxes = service.getSources().boxes;
+    const entry = Object.values(boxes).find((b) => b.stages.some((s) => s.stageKey === stageKey));
+    expect(entry).toBeTruthy();
+    const ref = entry!.stages.find((s) => s.stageKey === stageKey)!;
+    expect(ref.stageName).toBe("测试地图");
+  });
+});

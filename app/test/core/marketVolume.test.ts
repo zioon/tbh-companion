@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateHistoryToHourly,
   aggregateHourly,
+  aggregateItemVolume,
+  aggregateLiveActivityItems,
+  aggregateLiveItems,
   aggregateVolume,
   orderRefreshTargets,
   parseMarketVolumeHistory,
@@ -12,8 +15,23 @@ import {
 } from "../../src/core/marketVolume";
 import type { LookupItem } from "../../shared/types";
 
+type CardItem = Pick<
+  LookupItem,
+  "id" | "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+>;
+
 type CatItem = Pick<LookupItem, "type" | "gearGroup" | "materialType">;
 
+const fullAccessory: CardItem = {
+  id: 601011,
+  name: "Accessory",
+  type: "GEAR",
+  gearGroup: "ACCESSORY",
+  materialType: null,
+  grade: "RARE",
+  level: 30,
+  gearType: "AMULET",
+};
 const gear: CatItem = { type: "GEAR", gearGroup: "WEAPON", materialType: null };
 const armor: CatItem = { type: "GEAR", gearGroup: "ARMOR", materialType: null };
 const accessory: CatItem = { type: "GEAR", gearGroup: "ACCESSORY", materialType: null };
@@ -365,5 +383,47 @@ describe("orderRefreshTargets", () => {
     const cold = orderRefreshTargets(["p", "q"], volumes([]), new Set(), 0.9);
     expect(cold.primary).toBe(2);
     expect(cold.ordered).toEqual(["p", "q"]);
+  });
+});
+
+describe("aggregate card builders passthrough itemKey/gearGroup", () => {
+  it("aggregateItemVolume exposes itemKey + gearGroup for matched hashes", () => {
+    const itemsByHash = new Map<string, CardItem>([["acc (Rare) x1", fullAccessory]]);
+    const historyByHash = new Map<string, PriceHistoryPoint[]>([
+      ["acc (Rare) x1", [{ timestamp: 1000, price: 2, volume: 5 }]],
+    ]);
+    const out = aggregateItemVolume(historyByHash, itemsByHash);
+    expect(out).toHaveLength(1);
+    expect(out[0].itemKey).toBe(601011);
+    expect(out[0].gearGroup).toBe("ACCESSORY");
+  });
+  it("aggregateLiveItems exposes itemKey + gearGroup for matched hashes", () => {
+    const itemsByHash = new Map<string, CardItem>([["acc (Rare) x1", fullAccessory]]);
+    const volumeByHash = new Map<string, { volume: number; median: number }>([
+      ["acc (Rare) x1", { volume: 10, median: 2 }],
+    ]);
+    const out = aggregateLiveItems(itemsByHash, volumeByHash);
+    expect(out).toHaveLength(1);
+    expect(out[0].itemKey).toBe(601011);
+    expect(out[0].gearGroup).toBe("ACCESSORY");
+  });
+  it("aggregateLiveActivityItems exposes itemKey + gearGroup for matched hashes", () => {
+    const itemsByHash = new Map<string, CardItem>([["acc (Rare) x1", fullAccessory]]);
+    const livePointsByHash = new Map<string, Array<{ ts: number; volume: number; median: number }>>(
+      [["acc (Rare) x1", [{ ts: 1000, volume: 10, median: 2 }]]],
+    );
+    const out = aggregateLiveActivityItems(itemsByHash, livePointsByHash);
+    expect(out).toHaveLength(1);
+    expect(out[0].itemKey).toBe(601011);
+    expect(out[0].gearGroup).toBe("ACCESSORY");
+  });
+  it("leaves itemKey/gearGroup undefined for unmatched hashes", () => {
+    const out = aggregateItemVolume(
+      new Map([["mystery", [{ timestamp: 1000, price: 2, volume: 5 }]]]),
+      new Map(),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].itemKey).toBeUndefined();
+    expect(out[0].gearGroup).toBeUndefined();
   });
 });

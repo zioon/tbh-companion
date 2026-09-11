@@ -259,7 +259,7 @@ describe("AutoClassifyService", () => {
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 601.0);
     boxOpenTracker.flushUnclassified();
     // The item should have been reclassified to "rare:5"
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "rare:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
   });
@@ -288,7 +288,7 @@ describe("AutoClassifyService", () => {
     // (drop@1s + 300s = 301s) — should match the common (head), not rare.
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
     boxOpenTracker.flushUnclassified();
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     // The rare chest should still be queued (only the common was consumed).
@@ -318,7 +318,7 @@ describe("AutoClassifyService", () => {
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
     boxOpenTracker.flushUnclassified();
     // The item should have been reclassified to "act:1"
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "act:1")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     // No prompt should have been broadcast (FIFO matched)
@@ -344,7 +344,7 @@ describe("AutoClassifyService", () => {
     // MARKER_TEST4_RETRY: Open at the auto-open moment (drop@1s + 60s = 61s).
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
     boxOpenTracker.flushUnclassified();
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "act:20")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "act:1")).toBeFalsy();
   });
@@ -408,7 +408,7 @@ describe("AutoClassifyService", () => {
     // Open at the auto-open moment (drop@1s + 60s = 61s).
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
     boxOpenTracker.flushUnclassified();
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     // No routes → level is null → boxKey is just "act" (no level suffix).
     expect(stats.find((s) => s.boxKey === "act")).toBeTruthy();
   });
@@ -480,7 +480,7 @@ describe("AutoClassifyService", () => {
     // Open at the auto-open moment (drop@1s + 300s = 301s).
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
     boxOpenTracker.flushUnclassified();
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "common")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "common:1")).toBeFalsy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
@@ -547,7 +547,7 @@ describe("AutoClassifyService", () => {
     // Open at the auto-open moment (drop@1s + 300s = 301s).
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 301.0);
     boxOpenTracker.flushUnclassified();
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     // No routes → level is null → boxKey is just "common" (no level suffix).
     expect(stats.find((s) => s.boxKey === "common")).toBeTruthy();
   });
@@ -596,7 +596,7 @@ describe("AutoClassifyService", () => {
       category: "common",
       itemKeys: payload.itemKeys,
     });
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     // Items should have moved from unclassified to common (level 5 from stage)
     const commonStats = stats.find((s) => s.boxKey === "common:5");
     expect(commonStats).toBeTruthy();
@@ -3318,7 +3318,7 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(snap.pendingBurstsCount).toBe(1);
     expect(snap.totalQueued).toBe(1); // head NOT consumed
     // Items stay in "unclassified" until save reconcile classifies them.
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "common:5")).toBeFalsy();
   });
@@ -3377,7 +3377,7 @@ describe("AutoClassifyService pending burst classification", () => {
     });
 
     // Burst classified → items moved from "unclassified" to "common:5".
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     // Pending burst cleared.
@@ -3441,7 +3441,7 @@ describe("AutoClassifyService pending burst classification", () => {
 
     // Burst classified → items moved out of "unclassified" into the plague
     // boxKey (category-only when no plague route level matches the stage).
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey.startsWith("plagueCommon"))).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     // Pending burst cleared.
@@ -3504,7 +3504,7 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueAct: 0,
     });
 
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "common:5")).toBeFalsy();
     expect(stats.find((s) => s.boxKey?.startsWith("plagueRare"))).toBeFalsy();
@@ -3572,7 +3572,7 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueAct: 0,
     });
 
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
@@ -3651,7 +3651,7 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueAct: 0,
     });
 
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
@@ -3728,7 +3728,7 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueAct: 0,
     });
 
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "common:5")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
@@ -3789,7 +3789,7 @@ describe("AutoClassifyService pending burst classification", () => {
     });
 
     // Ambiguous → items stay unclassified (NOT reclassified to common/rare).
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "common:5")).toBeFalsy();
     expect(stats.find((s) => s.boxKey === "rare:5")).toBeFalsy();
@@ -3849,7 +3849,7 @@ describe("AutoClassifyService pending burst classification", () => {
     });
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
     // Items still unclassified.
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
   });
 
@@ -3989,7 +3989,7 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(snap.items[0]!.boxKey).toBe("common:5");
     expect(snap.items[0]!.autoOpenInMs).toBe(292_000); // 302000 - 10000
     // Items left unclassified (no reclassify).
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
   });
 
@@ -4029,7 +4029,7 @@ describe("AutoClassifyService pending burst classification", () => {
     service.tick();
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
     // Items stay unclassified for manual handling.
-    const stats = boxOpenTracker.getStats(100, null);
+    const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeTruthy();
   });
 

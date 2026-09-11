@@ -49,22 +49,23 @@ function ringKeyForCategory(category: string): keyof LootRingSeconds | null {
   return null;
 }
 
-function fmtTrackingSince(epochSeconds: number | null): string {
-  if (epochSeconds == null) return "—";
-  return new Date(epochSeconds * 1000).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function fmtMoney(value: number | null, currency: string): string {
   if (value == null) return "—";
   return formatMoney(value, currency);
 }
 
-function fmtMoneyPerHour(value: number | null, currency: string): string {
+function fmtMoneyPerDrop(value: number | null, currency: string): string {
   if (value == null) return "—";
-  return `${formatMoney(value, currency)}/h`;
+  return `${formatMoney(value, currency)}/次`;
+}
+
+/** Compact合成点数（按当前语言，高位自动进 万/亿/K/M/B）。null → "—"。 */
+function fmtPoints(value: number | null, language: string | undefined): string {
+  if (value == null) return "—";
+  return new Intl.NumberFormat(language, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 function reclassifyCategoryOptions(t: TFunction<"loot">): SelectOption[] {
@@ -149,7 +150,7 @@ export const LootBoxSection = memo(function LootBoxSection({
   ringSeconds,
   onUpdateRingSeconds,
   className,
-  language: _language,
+  language,
 }: {
   stats: BoxOpenStats;
   currentStageKey: number | null;
@@ -254,10 +255,10 @@ export const LootBoxSection = memo(function LootBoxSection({
           ]
         : [
             { label: t("boxSection.columnItem"), width: "38%" },
-            { label: t("boxSection.columnCount"), align: "right" as const, width: "14%" },
-            { label: t("boxSection.columnDropPct"), align: "right" as const, width: "14%" },
-            { label: t("boxSection.columnBuyout"), align: "right" as const, width: "17%" },
-            { label: t("boxSection.columnHourly"), align: "right" as const, width: "17%" },
+            { label: t("boxSection.columnCount"), align: "right" as const, width: "12%" },
+            { label: t("boxSection.columnDropPct"), align: "right" as const, width: "12%" },
+            { label: t("boxSection.columnBuyout"), align: "right" as const, width: "16%" },
+            { label: t("boxSection.columnSynthesisPoints"), align: "right" as const, width: "16%" },
           ],
     [isUnclassified, t],
   );
@@ -342,14 +343,22 @@ export const LootBoxSection = memo(function LootBoxSection({
         <div className="flex items-center gap-2">
           <h2 className="m-0 text-sm font-semibold">{localizedLabel}</h2>
           <Badge variant="muted">{t("boxSection.opensBadge", { count: stats.totalItems })}</Badge>
-          {stats.hourlyValue != null && (
-            <Badge variant="info">{fmtMoneyPerHour(stats.hourlyValue, currency)}</Badge>
+          {stats.perDropValue != null && (
+            <Badge variant="info">{fmtMoneyPerDrop(stats.perDropValue, currency)}</Badge>
+          )}
+          {stats.totalSynthesisPoints != null && (
+            <Badge variant="info">
+              {t("boxSection.pointsTotalLabel", {
+                // 只展示每次均值（合成点合计 ÷ 掉落次数），与钱的 per-drop 徽标口径一致。
+                mean: fmtPoints(
+                  stats.totalSynthesisPoints / Math.max(stats.totalItems, 1),
+                  language,
+                ),
+              })}
+            </Badge>
           )}
         </div>
         <div className="flex items-center gap-1">
-          <span className="text-xs text-muted" title={t("boxSection.sinceTitle")}>
-            {t("boxSection.sinceLabel", { time: fmtTrackingSince(stats.trackingSinceWallTime) })}
-          </span>
           {ringLapSeconds != null && (
             <Button
               variant="ghost"
@@ -476,7 +485,7 @@ export const LootBoxSection = memo(function LootBoxSection({
                     { content: String(row.count), align: "right" },
                     { content: fmtPct(row.dropPct), align: "right" },
                     { content: fmtMoney(row.buyOrderUnit, currency), align: "right" },
-                    { content: fmtMoneyPerHour(row.hourlyValue, currency), align: "right" },
+                    { content: fmtPoints(row.synthesisPointsUnit, language), align: "right" },
                   ]
             }
           />

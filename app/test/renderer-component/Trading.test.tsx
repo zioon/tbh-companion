@@ -88,6 +88,13 @@ vi.mock("../../src/renderer/lib/useMarketVolume", () => ({
   useMarketVolume: () => VOLUME,
 }));
 
+// ItemVolumeCard renders synthesis points via useMaterialSynthesisPoints, which
+// would otherwise hit window.tbh.getLookupCatalog/... — stub it so the Trading
+// layout/filter assertions don't depend on IPC plumbing.
+vi.mock("../../src/renderer/lib/useMaterialSynthesisPoints", () => ({
+  useMaterialSynthesisPoints: () => ({}),
+}));
+
 function renderTrading() {
   return render(
     <TbhContext.Provider value={TBH_VALUE}>

@@ -3,7 +3,11 @@
 import type { LiveMemorySnapshot, Stats, SaveSnapshot } from "../../shared/types";
 
 import type { LocaleCatalog } from "../core/localeCatalog";
-import type { BoxOpenTracker, BoxOpenPriceResolver } from "../core/boxOpenTracker";
+import type {
+  BoxOpenTracker,
+  BoxOpenPriceResolver,
+  BoxOpenAccessoryResolver,
+} from "../core/boxOpenTracker";
 import type { ChestDropTracker } from "../core/chestDropTracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
@@ -50,6 +54,8 @@ export function buildStats(
   statusOverride: string | null = null,
   liveFrame: LiveMemorySnapshot | null = null,
   boxOpenPriceResolver: BoxOpenPriceResolver = null,
+  boxOpenIsAccessory: BoxOpenAccessoryResolver = null,
+  boxOpenPointsOverride: Readonly<Record<number, number>> | null = null,
   lootStatus: string | null = null,
   catalog: LocaleCatalog | null = null,
 ): Stats {
@@ -174,7 +180,11 @@ export function buildStats(
       stageName: stageName(entry.stageKey, catalog),
     })),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
-    boxOpens: boxOpenTracker.getStats(tracker.elapsed, boxOpenPriceResolver),
+    boxOpens: boxOpenTracker.getStats(
+      boxOpenPriceResolver,
+      boxOpenIsAccessory,
+      boxOpenPointsOverride,
+    ),
     lootStatus: lootStatus ?? undefined,
 
     // DPS / Damage / Mobs / HP

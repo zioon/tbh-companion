@@ -151,6 +151,7 @@
       "Slayer": "슬레이어"
     },
     "levelShort": "레벨 {{level}}",
-    "classOnly": "{{class}} 전용"
+    "classOnly": "{{class}} 전용",
+    "synthesisPoints": "합성 포인트"
   }
 }

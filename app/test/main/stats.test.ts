@@ -299,6 +299,8 @@ describe("buildStats", () => {
       null,
       null,
       null,
+      null,
+      null,
       zhCatalog,
     );
     expect(stats.history.length).toBeGreaterThan(0);

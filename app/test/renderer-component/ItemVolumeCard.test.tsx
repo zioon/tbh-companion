@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { MarketVolumeItem } from "../../shared/types";
+// ItemVolumeCard now reads synthesis points via useMaterialSynthesisPoints
+// (which would touch window.tbh.getLookupCatalog/...). Stub the hook to keep
+// the layout assertions focused and independent of IPC plumbing.
+vi.mock("../../src/renderer/lib/useMaterialSynthesisPoints", () => ({
+  useMaterialSynthesisPoints: () => ({}),
+}));
 import { ItemVolumeCard } from "../../src/renderer/components/market/ItemVolumeCard";
 
 /** 生成 count 个小时点（升序），最后一个点用独特的 volume 标记钳制目标。 */

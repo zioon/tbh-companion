@@ -197,6 +197,10 @@ export interface MarketVolumeItem {
   category: string;
   /** 物品品质等级（COMMON..COSMIC）。未匹配到图鉴时为 undefined。 */
   grade?: string;
+  /** 图鉴 itemKey（catalog id）。未匹配到图鉴时为 undefined。用于计算合成点数。 */
+  itemKey?: number;
+  /** 装备部位组（WEAPON/ARMOR/ACCESSORY…）。未匹配到图鉴时为 undefined。用于判饰品合成倍数。 */
+  gearGroup?: string | null;
   /** 物品等级（1..LEVEL_MAX）。材料/未匹配到图鉴时为 null。用于等级筛选。 */
   level: number | null;
   /** 装备部位（仅 GEAR 物品有值，如 MAIN_WEAPON/HELMET…）。材料或未匹配时为 null。 */
@@ -227,7 +231,7 @@ export function aggregateItemVolume(
     string,
     Pick<
       LookupItem,
-      "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+      "id" | "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
     >
   >,
 ): MarketVolumeItem[] {
@@ -263,6 +267,8 @@ export function aggregateItemVolume(
       name: item?.name ?? hash,
       category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
       grade: item?.grade,
+      itemKey: item?.id,
+      gearGroup: item?.gearGroup,
       level: item?.level ?? null,
       gearType: item?.gearType ?? null,
       materialType: item?.materialType ?? null,
@@ -283,7 +289,7 @@ export function aggregateLiveItems(
     string,
     Pick<
       LookupItem,
-      "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+      "id" | "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
     >
   >,
   volumeByHash: ReadonlyMap<string, VolumeHashSample>,
@@ -298,6 +304,8 @@ export function aggregateLiveItems(
       name: item?.name ?? hash,
       category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
       grade: item?.grade,
+      itemKey: item?.id,
+      gearGroup: item?.gearGroup,
       level: item?.level ?? null,
       gearType: item?.gearType ?? null,
       materialType: item?.materialType ?? null,
@@ -323,7 +331,7 @@ export function aggregateLiveActivityItems(
     string,
     Pick<
       LookupItem,
-      "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
+      "id" | "type" | "gearGroup" | "materialType" | "name" | "grade" | "level" | "gearType"
     >
   >,
   livePointsByHash: ReadonlyMap<string, readonly LiveVolumePoint[]>,
@@ -354,6 +362,8 @@ export function aggregateLiveActivityItems(
       name: item?.name ?? hash,
       category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
       grade: item?.grade,
+      itemKey: item?.id,
+      gearGroup: item?.gearGroup,
       level: item?.level ?? null,
       gearType: item?.gearType ?? null,
       materialType: item?.materialType ?? null,

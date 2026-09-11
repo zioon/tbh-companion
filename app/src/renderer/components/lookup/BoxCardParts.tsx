@@ -1,12 +1,22 @@
 import { useTranslation } from "react-i18next";
+import type { ReactNode } from "react";
 import { gradeLabel } from "../../lib/itemLabels";
-import { boxDropViaSummaries, splitDropStageRangeLines } from "../../../core/lookup/boxDisplay";
+import {
+  boxDropViaSummaries,
+  boxPlagueTier,
+  splitDropStageRangeLines,
+} from "../../../core/lookup/boxDisplay";
 import { boxIconPath } from "../../lib/boxIconPath";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { gradeColor } from "../../lib/gradeColor";
 import { iconSrc } from "../../lib/iconSrc";
 import { cn } from "../../lib/cn";
-import { translateBoxCategoryLabel, translateBoxDropViaLabel } from "../../lib/boxDisplay";
+import {
+  translateBoxCategoryLabel,
+  translateBoxDropViaLabel,
+  translateBoxPlagueTier,
+  localizeDifficultyWords,
+} from "../../lib/boxDisplay";
 import { ItemIcon } from "../../design-system/primitives/ItemIcon/ItemIcon";
 import { StatGroup } from "./itemCardParts";
 import type { LookupBoxDropVia, LookupBoxSources } from "../../../../shared/types";
@@ -32,14 +42,22 @@ export function BoxCardHeader({
   box,
   boxItemKey,
   iconSize,
+  nameOverride,
+  pointsLine,
 }: {
   box: LookupBoxSources;
   boxItemKey: number;
   iconSize: "md" | "lg";
+  /** Optional localized name; defaults to `box.name` (English source). */
+  nameOverride?: string;
+  /** Extra line rendered right below the category row (e.g. expected synthesis points). */
+  pointsLine?: ReactNode;
 }) {
   const { t } = useTranslation("lookup");
   const color = box.grade ? gradeColor(box.grade) : undefined;
   const isDetail = iconSize === "lg";
+  const plagueTier = boxPlagueTier(boxItemKey);
+  const displayName = nameOverride ?? box.name;
 
   return (
     <div className="flex items-start gap-2">
@@ -50,17 +68,32 @@ export function BoxCardHeader({
       />
       <div className="min-w-0 flex-1">
         {isDetail ? (
-          <h2 className="m-0 truncate text-base font-semibold text-fg">{box.name}</h2>
+          <h2 className="m-0 truncate text-base font-semibold text-fg">{displayName}</h2>
         ) : (
-          <p className="m-0 truncate text-[13px] font-medium text-fg">{box.name}</p>
+          <p className="m-0 truncate text-[13px] font-medium text-fg">{displayName}</p>
         )}
         <p
           className={cn("m-0 truncate", isDetail ? "text-xs" : "text-[11px]")}
           style={color ? { color } : undefined}
         >
           {box.grade ? `${gradeLabel(box.grade, t)} · ` : ""}
-          {translateBoxCategoryLabel(t, box.category)}
+          {plagueTier ? (
+            <span
+              className="rounded-sm px-1 py-px text-gold"
+              style={{ backgroundColor: "rgba(212,175,55,0.14)" }}
+              title={t("box.plagueBadgeTitle")}
+            >
+              {translateBoxPlagueTier(t, plagueTier)}
+            </span>
+          ) : (
+            translateBoxCategoryLabel(t, box.category)
+          )}
         </p>
+        {pointsLine != null ? (
+          <p className={cn("m-0 truncate text-muted", isDetail ? "text-xs" : "text-[11px]")}>
+            {pointsLine}
+          </p>
+        ) : null}
         {box.firstDropOnly ? (
           <p className={cn("m-0 truncate text-gold", isDetail ? "text-xs" : "text-[11px]")}>
             {t("box.firstDropOnly")}
@@ -77,7 +110,7 @@ export function BoxCardDropSummary({ box }: { box: LookupBoxSources }) {
   const rangeLines = splitDropStageRangeLines(box.dropStageRangeLabel);
   const viaSummaries = box.firstDropOnly ? [] : boxDropViaSummaries(box.stages);
 
-  const rangeRows = rangeLines.map((line) => ({ display: line }));
+  const rangeRows = rangeLines.map((line) => ({ display: localizeDifficultyWords(t, line) }));
   const viaRows = viaSummaries.map((row) => ({
     display: `${translateBoxDropViaLabel(t, row.via)} · ${formatSpawnPctRange(row.minPct, row.maxPct)}`,
     via: row.via,

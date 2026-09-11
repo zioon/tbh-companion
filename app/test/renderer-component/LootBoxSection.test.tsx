@@ -22,7 +22,7 @@ function makeBreakdownRow(i: number): BoxOpenBreakdownRow {
     dropPct: (i + 1) / 100,
     buyOrderUnit: 10,
     buyOrderValue: 10 * (i + 1),
-    hourlyValue: 0.1 * (i + 1),
+    perDropValue: 0.1 * (i + 1),
   };
 }
 
@@ -34,7 +34,7 @@ function makeStats(breakdownCount: number, category = "common"): BoxOpenStats {
     level: null,
     totalItems: 100,
     totalBuyOrderValue: 1234,
-    hourlyValue: 56,
+    perDropValue: 56,
     breakdown: Array.from({ length: breakdownCount }, (_, i) => makeBreakdownRow(i)),
     history: [],
     lastOpenWallTime: null,

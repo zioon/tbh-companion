@@ -188,12 +188,21 @@ export interface BoxOpenBreakdownRow {
   /** Units actually covered by buyOrderValue, capped at count (may be less when the order book runs dry). */
   coveredCount: number | null;
   /**
-   * buyOrderValue / hours, where `hours` is per-box (anchored to the
-   * parent boxKey's {@link BoxOpenStats.trackingSinceWallTime}, NOT the
-   * session elapsed). Matches the per-box divisor used for
-   * {@link BoxOpenStats.hourlyValue}.
+   * buyOrderValue / count — the value contribution of each dropped unit of
+   * this item (per-drop value). Differs from `buyOrderUnit` only when the
+   * order book runs dry (coveredCount < count), in which case `buyOrderUnit`
+   * is the realized instant-sell unit while this reflects the per-drop
+   * metric. Box-level equivalent: {@link BoxOpenStats.perDropValue}.
    */
-  hourlyValue: number | null;
+  perDropValue: number | null;
+  /**
+   * 合成点数（单件物品）：按品质给点（普通 1、罕见 9…，更高品质按合成成功率
+   * 递归），饰品类 ×3。null = 品质未知，无法给点。
+   * 见 `app/src/core/synthesisPoints.ts`。
+   */
+  synthesisPointsUnit: number | null;
+  /** count * synthesisPointsUnit。null = 品质未知。 */
+  synthesisPointsTotal: number | null;
 }
 
 /** Per-boxKey aggregation. */
@@ -209,14 +218,17 @@ export interface BoxOpenStats {
   /** Sum of buyOrderValue across items; null when no items are priced. */
   totalBuyOrderValue: number | null;
   /**
-   * totalBuyOrderValue / hours, where `hours` is per-box: derived from
-   * {@link trackingSinceWallTime} (`(now - trackingSinceWallTime) / 3600`),
-   * NOT the session-wide elapsed. Falls back to session hours only when
-   * `trackingSinceWallTime` is null (corrupt snapshot with counts but no
-   * history and no reset anchor).
+   * totalBuyOrderValue / totalItems — the average realized value of opening
+   * this chest once (value per drop). Time-independent: a per-drop metric
+   * that reflects the chest's loot value rather than farming rate.
    */
-  hourlyValue: number | null;
+  perDropValue: number | null;
   breakdown: BoxOpenBreakdownRow[];
+  /**
+   * Σ synthesisPointsTotal across items；null = 无任何物品有点数。
+   * 宝箱内容物的合成点数总计（价值评价的一种度量）。
+   */
+  totalSynthesisPoints: number | null;
   /** Most recent N (visible window). */
   history: BoxOpenHistoryEntry[];
   /** Epoch seconds of the most recent open; null = no opens yet. */
@@ -224,12 +236,10 @@ export interface BoxOpenStats {
   /**
    * Epoch seconds marking the start of the current accumulation window for
    * this boxKey — i.e. when the player last reset this chest's stats, or
-   * (if never reset) the wall time of the first recorded drop. Used as the
-   * per-box anchor for the {@link hourlyValue} divisor so each chest type's
-   * hourly reflects wall time since the player started (or last reset)
-   * farming it, rather than since the companion session started. Null only
-   * when the boxKey has counts but no surviving history and no recorded
-   * reset anchor (corrupt snapshot).
+   * (if never reset) the wall time of the first recorded drop. Surfaced to
+   * the Loot UI as the "tracking since" timestamp. Null only when the
+   * boxKey has counts but no surviving history and no recorded reset anchor
+   * (corrupt snapshot).
    */
   trackingSinceWallTime: number | null;
 }
@@ -754,7 +764,8 @@ export type InventoryColumnId =
   | "listValue"
   | "instantSell"
   | "instantTotal"
-  | "instantSellAverage";
+  | "instantSellAverage"
+  | "synthesisPoints";
 
 export interface InventoryTablePrefs {
   visibleColumns: InventoryColumnId[];
@@ -865,6 +876,10 @@ export interface MarketVolumeItem {
    * 未匹配到图鉴时为 undefined。
    */
   grade?: string;
+  /** 图鉴 itemKey（catalog id）。未匹配到图鉴时为 undefined。用于计算合成点数。 */
+  itemKey?: number;
+  /** 装备部位组（WEAPON/ARMOR/ACCESSORY…）。未匹配到图鉴时为 undefined。用于判饰品合成倍数。 */
+  gearGroup?: string | null;
   /** 物品等级（1..LEVEL_MAX）。材料/未匹配到图鉴时为 null。用于等级筛选。 */
   level: number | null;
   /** 装备部位（仅 GEAR 物品有值，如 MAIN_WEAPON/HELMET…）。材料或未匹配时为 null。 */
@@ -1669,6 +1684,14 @@ export interface LookupBoxSources {
   dropStageRangeLabel: string;
   firstDropOnly: boolean;
   firstDropStages: LookupBoxFirstDropStageRef[];
+  /**
+   * Chest level, merged in by main's `LookupService` from `stage_boxes.json`
+   * (matched by box item-key). The bundled `lookup_sources.json` doesn't carry
+   * it, and the box `name` alone is unreliable for plague variants (whose name
+   * encodes a stage range rather than the level), so it's enriched at the
+   * service boundary. `null`/absent when the id has no stage_boxes entry.
+   */
+  level?: number | null;
 }
 
 export interface LookupStageBoxRef {

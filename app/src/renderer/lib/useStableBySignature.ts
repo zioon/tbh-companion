@@ -7,12 +7,12 @@ import { useState } from "react";
  *
  * Purpose: derive data that changes *reference* on every parent render but is
  * *display-equivalent* between renders (e.g. the `boxOpens` array rebuilt by
- * the 5 Hz stats broadcast, whose wall-clock `hourlyValue` drifts fractions of
- * a unit per tick). Keeping the reference identical while the rendered content
+ * the 5 Hz stats broadcast, whose `perDropValue` drifts fractions of a unit
+ * per tick). Keeping the reference identical while the rendered content
  * is unchanged lets downstream `React.memo` components skip re-rendering.
  *
  * `buildSig` should map the value to a string over exactly the fields the UI
- * renders (rounded to display precision, e.g. integer hourly value, 1-decimal
+ * renders (rounded to display precision, e.g. integer per-drop value, 1-decimal
  * drop pct), so a sub-threshold drift is treated as "no change".
  *
  * Implemented with `useState` + the documented "adjusting state when props

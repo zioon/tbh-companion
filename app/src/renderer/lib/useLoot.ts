@@ -47,7 +47,7 @@ const EMPTY_STATE: AutoClassifyStatePayload = {
 /**
  * Display signature for one `BoxOpenBreakdownRow`, rounded to display precision.
  * The 5 Hz stats broadcast rebuilds these objects each tick with a drifty
- * wall-clock `hourlyValue`; rounding to the precision the Loot UI renders keeps
+ * `perDropValue`; rounding to the precision the Loot UI renders keeps
  * the string stable between ticks so the box table can be memoized.
  */
 function breakdownRowSig(row: BoxOpenBreakdownRow): string {
@@ -58,7 +58,7 @@ function breakdownRowSig(row: BoxOpenBreakdownRow): string {
     row.count,
     pctSig(row.dropPct),
     moneySig(row.buyOrderUnit),
-    moneySig(row.hourlyValue),
+    moneySig(row.perDropValue),
   ].join("|");
 }
 
@@ -70,7 +70,7 @@ function boxOpenStatsSig(s: BoxOpenStats): string {
     s.level ?? -1,
     s.totalItems,
     Math.round(s.trackingSinceWallTime ?? -1),
-    moneySig(s.hourlyValue),
+    moneySig(s.perDropValue),
     s.breakdown.map(breakdownRowSig).join("."),
   ].join("|");
 }

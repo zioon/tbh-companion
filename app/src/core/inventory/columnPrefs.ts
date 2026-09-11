@@ -2,6 +2,7 @@ import type { InventoryColumnId, InventoryTablePrefs } from "../../../shared/typ
 
 export const INVENTORY_COLUMN_IDS: InventoryColumnId[] = [
   "grade",
+  "synthesisPoints",
   "level",
   "type",
   "location",
@@ -15,6 +16,7 @@ export const INVENTORY_COLUMN_IDS: InventoryColumnId[] = [
 
 export const DEFAULT_VISIBLE_INVENTORY_COLUMNS: InventoryColumnId[] = [
   "grade",
+  "synthesisPoints",
   "level",
   "type",
   "location",

@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { boxStageListLabel } from "../../../core/lookup/boxDisplay";
+import { boxPlagueRule, boxStageListLabel } from "../../../core/lookup/boxDisplay";
 import { fmtDropPct } from "../../lib/lookupDisplay";
 import { filterAndSortBoxStages, filterFirstDropStages } from "../../lib/boxLootFilters";
+import {
+  translateBoxPlagueRule,
+  localizedBoxName,
+  localizeDifficultyWords,
+} from "../../lib/boxDisplay";
 import { reportIpcError } from "../../lib/reportError";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { DataList, DataListRow } from "../../design-system/primitives/DataList/DataList";
 import { Input } from "../../design-system/primitives/Input/Input";
-import { SectionHeadingRow } from "./itemCardParts";
+import { SectionHeadingRow, StatGroup } from "./itemCardParts";
 import { BoxCardDropSummary, BoxCardHeader } from "./BoxCardParts";
 import { ItemLink } from "../ItemLink";
 import { BoxLoot } from "./BoxLoot";
@@ -67,9 +72,25 @@ export function BoxDetailCard({
   const showFarm = !box.firstDropOnly && box.stages.length > 0;
   const showLocationEmpty = !showFirstClear && !showFarm;
 
+  const plagueRule = useMemo(() => boxPlagueRule(boxItemKey, box.stages), [boxItemKey, box.stages]);
+
   return (
     <Card className="flex flex-col gap-3">
-      <BoxCardHeader box={box} boxItemKey={boxItemKey} iconSize="lg" />
+      <BoxCardHeader
+        box={box}
+        boxItemKey={boxItemKey}
+        iconSize="lg"
+        nameOverride={localizedBoxName(t, box, boxItemKey)}
+      />
+
+      {plagueRule ? (
+        <StatGroup
+          title={t("box.acqRule")}
+          tone="unique"
+          rows={[{ display: translateBoxPlagueRule(t, plagueRule) }]}
+        />
+      ) : null}
+
       <BoxCardDropSummary box={box} />
 
       {showFirstClear ? (
@@ -103,7 +124,10 @@ export function BoxDetailCard({
                   <DataListRow key={stage.stageKey} index={i}>
                     <ItemLink
                       node={{ type: "stage", id: stage.stageKey }}
-                      name={boxStageListLabel(stage.stageKey, stage.stageName)}
+                      name={localizeDifficultyWords(
+                        t,
+                        boxStageListLabel(stage.stageKey, stage.stageName),
+                      )}
                       onNavigate={onNavigate}
                     />
                   </DataListRow>
@@ -145,7 +169,10 @@ export function BoxDetailCard({
                   <DataListRow key={stage.stageKey} index={i}>
                     <ItemLink
                       node={{ type: "stage", id: stage.stageKey }}
-                      name={boxStageListLabel(stage.stageKey, stage.stageName)}
+                      name={localizeDifficultyWords(
+                        t,
+                        boxStageListLabel(stage.stageKey, stage.stageName),
+                      )}
                       suffix={`· ${fmtDropPct(stage.spawnPct)}%`}
                       onNavigate={onNavigate}
                     />

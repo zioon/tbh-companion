@@ -4,7 +4,7 @@ import {
   filterAndSortRows,
   type InventoryFilterState,
 } from "../../src/renderer/lib/inventoryFilters";
-import type { ResolvedInventory } from "../../shared/types";
+import type { LookupItem, ResolvedInventory } from "../../shared/types";
 
 const baseState: InventoryFilterState = {
   query: "",
@@ -198,6 +198,26 @@ describe("inventoryFilters", () => {
       sortDir: "desc",
     });
     expect(rows[0].name).toBe("Void Staff");
+  });
+
+  it("sorts by synthesis points, applying the accessory multiplier via catalog gearGroup", () => {
+    const catalogIndex = new Map<number, LookupItem>([
+      [1, { gearGroup: null } as LookupItem], // Iron Ingot: UNCOMMON → 9
+      [2, { gearGroup: "WEAPON" } as LookupItem], // Void Staff: RARE → 81
+      [3, { gearGroup: "ACCESSORY" } as LookupItem], // Iron Helm: UNCOMMON ×3 → 27
+    ]);
+    const desc = filterAndSortRows(
+      inv,
+      { ...baseState, sortKey: "synthesisPoints", sortDir: "desc" },
+      catalogIndex,
+    );
+    expect(desc.map((r) => r.name)).toEqual(["Void Staff", "Iron Helm", "Iron Ingot"]);
+    const asc = filterAndSortRows(
+      inv,
+      { ...baseState, sortKey: "synthesisPoints", sortDir: "asc" },
+      catalogIndex,
+    );
+    expect(asc.map((r) => r.name)).toEqual(["Iron Ingot", "Iron Helm", "Void Staff"]);
   });
 });
 

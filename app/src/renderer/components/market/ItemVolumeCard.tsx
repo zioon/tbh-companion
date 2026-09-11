@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { LuRefreshCw } from "react-icons/lu";
 import type { MarketVolumeItem } from "../../../../shared/types";
 import { formatMoney } from "../../../core/steamPrice";
-import { fmtCompact } from "../../lib/format";
+import { fmtCompact, fmtCompactLocale } from "../../lib/format";
+import { synthesisPointsForItemKeyByGear } from "../../../core/synthesisPoints";
+import { useMaterialSynthesisPoints } from "../../lib/useMaterialSynthesisPoints";
 import { cn } from "../../design-system/lib/variants";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { gradeColor } from "../../lib/gradeColor";
@@ -54,11 +56,28 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
   /** 传入时整张卡片可点击，触发打开图鉴同款物品详情。 */
   onOpenDetail?: (hash: string) => void;
 }) {
-  const { t } = useTranslation("market");
+  const { t, i18n } = useTranslation("market");
   const color = gradeColor(item.grade ?? "");
+  const materialPoints = useMaterialSynthesisPoints();
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   // 单卡片手动刷新期间的本卡加载态（不进入整批刷新的 running 进度流）。
   const [refreshingCard, setRefreshingCard] = useState(false);
+  const synthPoints =
+    item.itemKey != null
+      ? synthesisPointsForItemKeyByGear({
+          itemKey: item.itemKey,
+          grade: item.grade,
+          gearGroup: item.gearGroup,
+          overrideMap: materialPoints,
+        })
+      : null;
+  const synthText =
+    synthPoints != null
+      ? ` · ${t("common:labels.synthesisPoints")} ${fmtCompactLocale(
+          synthPoints,
+          i18n.resolvedLanguage ?? i18n.language,
+        )}`
+      : "";
 
   const handleRefresh = async (e: { stopPropagation: () => void }) => {
     // 阻止冒泡，避免点击刷新按钮同时触发卡片打开详情。
@@ -226,6 +245,7 @@ export const ItemVolumeCard = memo(function ItemVolumeCard({
             <p className="m-0 text-[11px] text-muted">
               {categoryLabel(item.category, t)}
               {item.grade ? ` · ${gradeLabel(item.grade, t)}` : ""}
+              {synthText}
               {item.kind === "live"
                 ? ` · ${t("trading.activity")}`
                 : item.points.length > 0

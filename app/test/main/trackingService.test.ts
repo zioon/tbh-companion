@@ -221,7 +221,7 @@ describe("TrackingService.resolveBoxOpenEntry grade", () => {
     svc.ingestLiveFrame(frame);
 
     // Verify the tracker recorded both opens with distinct grades.
-    const trackerStats = svc.getBoxOpenTracker().getStats(3600, () => null);
+    const trackerStats = svc.getBoxOpenTracker().getStats(() => null);
     expect(trackerStats).toHaveLength(1);
     const breakdown = trackerStats[0].breakdown;
     expect(breakdown).toHaveLength(2);
@@ -257,7 +257,7 @@ describe("TrackingService.resolveBoxOpenEntry grade", () => {
     };
     svc.ingestLiveFrame(frame);
 
-    const trackerStats = svc.getBoxOpenTracker().getStats(3600, () => null);
+    const trackerStats = svc.getBoxOpenTracker().getStats(() => null);
     expect(trackerStats).toHaveLength(1);
     expect(trackerStats[0].breakdown).toHaveLength(1);
     expect(trackerStats[0].breakdown[0].grade).toBeNull();

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeInventoryTablePrefs } from "../../core/inventory/columnPrefs";
 import { useInventory } from "../lib/useInventory";
+import { useLookupCatalog } from "../lib/useLookupCatalog";
+import { useMaterialSynthesisPoints } from "../lib/useMaterialSynthesisPoints";
 import { SteamPriceProgress } from "../components/market/SteamPriceProgress";
 import {
   filterAndSortRows,
@@ -93,19 +95,30 @@ export function Inventory() {
 
   const gradeOptions = useMemo(() => (inv ? gradeOptionsFromInventory(inv) : []), [inv]);
   const typeOptions = useMemo(() => (inv ? typeOptionsFromInventory(inv) : []), [inv]);
+  const catalog = useLookupCatalog();
+  const materialPoints = useMaterialSynthesisPoints();
+  const itemIndex = useMemo(
+    () => new Map((catalog ?? []).map((item) => [item.id, item])),
+    [catalog],
+  );
 
   const rows = useMemo(() => {
     if (!inv) return [];
-    return filterAndSortRows(inv, {
-      query,
-      tradableOnly,
-      unequippedOnly,
-      gradeFilter,
-      typeFilter,
-      locationFilter,
-      sortKey,
-      sortDir,
-    });
+    return filterAndSortRows(
+      inv,
+      {
+        query,
+        tradableOnly,
+        unequippedOnly,
+        gradeFilter,
+        typeFilter,
+        locationFilter,
+        sortKey,
+        sortDir,
+      },
+      itemIndex,
+      materialPoints,
+    );
   }, [
     inv,
     query,
@@ -116,6 +129,8 @@ export function Inventory() {
     locationFilter,
     sortKey,
     sortDir,
+    itemIndex,
+    materialPoints,
   ]);
 
   const composition = useMemo(
@@ -184,6 +199,9 @@ export function Inventory() {
         columnPrefs={columnPrefs}
         sortKey={sortKey}
         sortDir={sortDir}
+        itemIndex={itemIndex}
+        materialPointsOverride={materialPoints}
+        catalogReady={catalog !== null}
         emptyMessage={emptyInventoryFilterMessage(locationFilter)}
         onSort={toggleSort}
         onClearFilters={clearFilters}

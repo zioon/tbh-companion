@@ -8,6 +8,7 @@ import type {
   BoxOpenTrackerSnapshot,
 } from "../../shared/types";
 import { boxLabel, categoryFromBoxKey, levelFromBoxKey, UNCLASSIFIED_BOX_KEY } from "./boxOpenLog";
+import { synthesisPointsForItemKey } from "./synthesisPoints";
 
 /** Optional subscriber hook for unclassified box-open bursts. */
 export interface BoxOpenTrackerCallbacks {
@@ -70,6 +71,14 @@ export type BoxOpenPriceResolver =
   | null;
 
 /**
+ * Accessory resolver: returns whether the item at `itemKey` is an accessory
+ * (gearGroup "ACCESSORY"), which triples its synthesis points. Resolved in the
+ * main process via the lookup catalog; the tracker only consumes the boolean.
+ * Null (or a resolver that returns false) → general points (no ×3).
+ */
+export type BoxOpenAccessoryResolver = ((itemKey: number) => boolean) | null;
+
+/**
  * Per-boxKey base aggregate cached for `getStats`. Contains everything that
  * depends only on tracker state (not on the external price resolver or the
  * session-seconds argument), so it can be reused across the 5 Hz `getStats`
@@ -90,9 +99,9 @@ interface BoxOpenBaseAggregate {
   /**
    * Start of the current accumulation window for this boxKey — the most
    * recent reset time, or (when never reset) the wall time of the first
-   * recorded drop. Used as the per-box anchor for the `hourlyValue`
-   * divisor. Null only when the boxKey has counts but no surviving history
-   * and no recorded reset anchor (corrupt snapshot).
+   * recorded drop. Surfaced to the UI as "tracking since". Null only when
+   * the boxKey has counts but no surviving history and no recorded reset
+   * anchor (corrupt snapshot).
    */
   trackingSinceWallTime: number | null;
 }
@@ -108,8 +117,8 @@ export class BoxOpenTracker {
   /**
    * boxKey -> epoch seconds of the current accumulation window's start.
    * Initialized lazily in `recordOpen` to the first drop's wall time, and
-   * overwritten in `resetBox` to the reset moment. Drives the per-box
-   * `hourlyValue` divisor and is surfaced to the UI as "tracking since".
+   * overwritten in `resetBox` to the reset moment. Surfaced to the UI as
+   * "tracking since".
    */
   private trackingSinceByKey = new Map<string, number>();
   private readonly callbacks?: BoxOpenTrackerCallbacks;
@@ -205,24 +214,18 @@ export class BoxOpenTracker {
   /**
    * Compute aggregated stats for all boxKeys, resolving prices via `priceResolver`.
    *
-   * The `hourlyValue` divisor is **per-box**: each boxKey uses
-   * `(now - trackingSinceWallTime) / 3600`, where `trackingSinceWallTime` is
-   * the wall time the player last reset this chest's stats (or, if never
-   * reset, the wall time of the first recorded drop). So a chest type you
-   * started farming 10 minutes ago reports its hourly over those 10
-   * minutes, and pressing "Reset" restarts the clock immediately.
-   * `sessionSeconds` is kept only as a fallback for the rare case where a
-   * boxKey has counts but no surviving history and no recorded anchor
-   * (corrupt snapshot). `nowSecondsOverride` is purely a test seam —
-   * production callers leave it undefined to use `Date.now()/1000`.
+   * The `perDropValue` is the average realized value of a single drop: a
+   * row is `buyOrderValue / count`, and the box-level value is
+   * `totalBuyOrderValue / totalItems` (the count-weighted average of its
+   * rows). Time-independent — it reflects the chest's loot value, not the
+   * farming rate, so the boxKey accumulation window (`trackingSinceWallTime`)
+   * no longer affects the value columns.
    */
   getStats(
-    sessionSeconds: number,
     priceResolver: BoxOpenPriceResolver,
-    nowSecondsOverride?: number,
+    isAccessory?: BoxOpenAccessoryResolver,
+    pointsOverride?: Readonly<Record<number, number>> | null,
   ): BoxOpenStats[] {
-    const nowSec = nowSecondsOverride ?? nowSeconds();
-    const fallbackHours = sessionSeconds > 0 ? sessionSeconds / 3600 : 0;
     const base = this.getBaseAggregates();
     const stats: BoxOpenStats[] = [];
 
@@ -231,15 +234,8 @@ export class BoxOpenTracker {
       if (category == null) continue;
 
       const level = levelFromBoxKey(boxKey);
-      // Per-box hourly divisor: wall time since this chest was last reset
-      // (or first dropped, when never reset), clamped to >= 0 (clock skew can
-      // otherwise produce a negative elapsed on the very first stats tick
-      // after a reset/drop).
-      const hours =
-        agg.trackingSinceWallTime != null
-          ? Math.max(0, (nowSec - agg.trackingSinceWallTime) / 3600)
-          : fallbackHours;
       let totalBuyOrderValue: number | null = null;
+      let totalSynthesisPoints: number | null = null;
       const breakdown: BoxOpenBreakdownRow[] = [];
 
       for (const baseRow of agg.breakdownBase) {
@@ -254,10 +250,28 @@ export class BoxOpenTracker {
           buyOrderValue != null && coveredCount != null && coveredCount > 0
             ? buyOrderValue / coveredCount
             : null;
-        const hourlyValue = buyOrderValue != null && hours > 0 ? buyOrderValue / hours : null;
+        // Value contribution per dropped unit (per-drop metric).
+        const perDropValue =
+          buyOrderValue != null && baseRow.count > 0 ? buyOrderValue / baseRow.count : null;
 
         if (buyOrderValue != null) {
           totalBuyOrderValue = (totalBuyOrderValue ?? 0) + buyOrderValue;
+        }
+
+        // 合成点数：单件按品质给点（普通 1、罕见 9…），饰品类 ×3；灵魂石/硬币等
+        // 特殊材料按注入的 pointsOverride（由 buildMaterialSynthesisPoints 现算）取值。
+        const synthesisPointsUnit = synthesisPointsForItemKey(
+          baseRow.itemKey,
+          baseRow.grade,
+          isAccessory ? isAccessory(baseRow.itemKey) : false,
+          pointsOverride,
+        );
+        const synthesisPointsTotal =
+          synthesisPointsUnit != null && baseRow.count > 0
+            ? synthesisPointsUnit * baseRow.count
+            : null;
+        if (synthesisPointsTotal != null) {
+          totalSynthesisPoints = (totalSynthesisPoints ?? 0) + synthesisPointsTotal;
         }
 
         breakdown.push({
@@ -269,12 +283,16 @@ export class BoxOpenTracker {
           dropPct: agg.totalItems > 0 ? baseRow.count / agg.totalItems : 0,
           buyOrderUnit,
           buyOrderValue,
-          hourlyValue,
+          perDropValue,
+          synthesisPointsUnit,
+          synthesisPointsTotal,
         });
       }
 
-      const hourlyValue =
-        totalBuyOrderValue != null && hours > 0 ? totalBuyOrderValue / hours : null;
+      const perDropValue =
+        totalBuyOrderValue != null && agg.totalItems > 0
+          ? totalBuyOrderValue / agg.totalItems
+          : null;
 
       stats.push({
         boxKey,
@@ -283,7 +301,8 @@ export class BoxOpenTracker {
         level,
         totalItems: agg.totalItems,
         totalBuyOrderValue,
-        hourlyValue,
+        perDropValue,
+        totalSynthesisPoints,
         breakdown,
         history: agg.history,
         lastOpenWallTime: agg.lastOpenWallTime,
@@ -373,10 +392,9 @@ export class BoxOpenTracker {
 
   /**
    * Reset a single boxKey: clears its counts and history entries, and stamps
-   * the per-box accumulation window anchor to "now" so the hourly divisor
-   * immediately starts counting from the reset moment on the next drop.
-   * (The next `recordOpen` will not overwrite the anchor since it's already
-   * set here.)
+   * the per-box accumulation window anchor to "now" so the next "tracking
+   * since" timestamp reflects the reset moment. (The next `recordOpen` will
+   * not overwrite the anchor since it's already set here.)
    */
   resetBox(boxKey: string): void {
     this.countsByKey.delete(boxKey);

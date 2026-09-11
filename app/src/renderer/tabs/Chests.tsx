@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useChests } from "../lib/useChests";
+import { useLookupSources } from "../lib/useLookupSources";
 import { fmtShortDuration } from "../lib/format";
 import type { BoxSlotStatus, ChestCapacityBreakdown } from "../../../shared/types";
 import { Badge } from "../design-system/primitives/Badge/Badge";
@@ -7,7 +9,8 @@ import { CapacityBar } from "../design-system/primitives/CapacityBar/CapacityBar
 import { Card } from "../design-system/primitives/Card/Card";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
-import { ChestsTrackerPanel } from "../components/ChestsTrackerPanel";
+import { HeldChestsSection } from "../components/chests/HeldChestsSection";
+import { ChestCatalogSection } from "../components/chests/ChestCatalogSection";
 
 function capacityParts(
   t: ReturnType<typeof useTranslation<"chests">>["t"],
@@ -85,6 +88,14 @@ function ChestCategoryCard({
 export function Chests() {
   const { t } = useTranslation("chests");
   const chests = useChests();
+  const sources = useLookupSources();
+
+  // Box itemKey → held quantity, to badge owned chests in the catalog section.
+  const heldQuantities = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const row of chests?.rows ?? []) m.set(row.boxType, row.quantity);
+    return m;
+  }, [chests]);
 
   if (!chests) {
     return (
@@ -151,7 +162,8 @@ export function Chests() {
         </div>
       </section>
 
-      <ChestsTrackerPanel />
+      <HeldChestsSection chests={chests} sources={sources} />
+      <ChestCatalogSection sources={sources} heldQuantities={heldQuantities} />
     </TabPage>
   );
 }
