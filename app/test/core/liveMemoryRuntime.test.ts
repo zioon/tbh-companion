@@ -894,6 +894,22 @@ describe("readRuntimeStageClears", () => {
     expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
     expect(pin.lastCount).toBe(1);
   });
+
+  it("accepts plague (Contaminated) stage clears (act 21-23)", () => {
+    const pin = makeStageClearPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    const m = seedStageClearChain(new FakeMemory(), [
+      [21, 1, 85], // Nightmare 21-1
+      [22, 7, 63], // Hell 22-7
+      [23, 20, 41], // Torment 23-20
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 21, stage: 1, clearTimeSec: 85, valid: true },
+      { act: 22, stage: 7, clearTimeSec: 63, valid: true },
+      { act: 23, stage: 20, clearTimeSec: 41, valid: true },
+    ]);
+  });
 });
 
 // ── readRuntimeBoxOpenLog ────────────────────────────────────────────────────

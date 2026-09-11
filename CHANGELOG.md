@@ -6,6 +6,12 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 _Nothing yet._
 
+## [1.22.2] - 2026-09-11
+
+### 瘟疫关卡
+
+- 新增 **瘟疫（Contaminated）地图关卡**解析：正确识别 Nightmare 21 / Hell 22 / Torment 23 等瘟疫关卡及其在地图进度中的展示。
+
 ## [1.22.1] - 2026-09-11
 
 ### 瘟疫宝箱

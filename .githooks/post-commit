@@ -1,0 +1,8 @@
+#!/bin/sh
+# Keep the CodeGraph index in sync after every commit.
+# Incremental sync; -q keeps commits quiet. Silent no-op if codegraph is absent.
+if ! command -v codegraph >/dev/null 2>&1; then
+  exit 0
+fi
+codegraph sync -q
+exit 0

@@ -1112,6 +1112,15 @@ const MAX_CLEAR_TIME_SEC = 36_000;
  *  is lost permanently. */
 const STAGE_CLEAR_LOG_SAMPLES = 3;
 
+/**
+ * Plausible cleared-stage `act`: 1-digits (1-9) for normal stages, or the
+ * plague (Contaminated) region acts 21/22/23. Anything else is a corrupted /
+ * mid-write read.
+ */
+function isPlausibleClearAct(act: number | null): boolean {
+  return act != null && act >= 1 && (act <= 9 || (act >= 21 && act <= 23));
+}
+
 /** Resolve the StageClear `List<StageClearLog>` backing array + length from a LogManager instance. */
 function stageClearLogList(
   reader: MemoryReader,
@@ -1206,10 +1215,11 @@ export function readRuntimeStageClears(
       }
       act = readI32(reader, entryPtr + actOff);
       stage = readI32(reader, entryPtr + stageOff);
-      // act is 1-digit (1-9), stage is 1-99. 0 or out-of-range ⇒ corrupted /
+      // act is 1-digit (1-9) for normal stages, 2-digit (21-23) for plague
+      // (Contaminated) stages; stage is 1-99. 0 or out-of-range ⇒ corrupted /
       // mid-write read. Retry once more in case the writer hadn't committed
       // these fields yet.
-      const actValid = act != null && act >= 1 && act <= 9;
+      const actValid = isPlausibleClearAct(act);
       const stageValid = stage != null && stage >= 1 && stage <= 99;
       if (actValid && stageValid) {
         clears.push({ act: act!, stage: stage!, clearTimeSec, valid: true });
@@ -1231,7 +1241,7 @@ export function readRuntimeStageClears(
       clearTimeSec > 0 &&
       clearTimeSec < MAX_CLEAR_TIME_SEC
     ) {
-      const actValid = act != null && act >= 1 && act <= 9;
+      const actValid = isPlausibleClearAct(act);
       const stageValid = stage != null && stage >= 1 && stage <= 99;
       clears.push({
         act: actValid ? act! : 0,

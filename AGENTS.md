@@ -61,6 +61,8 @@ pnpm dist                # 压缩数据 + 构建 + Windows NSIS 安装包
   1. **动手前**：先查阅 [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 对应章节，理解现有数据流、服务边界与不变量，避免重复设计或破坏既有契约。
   2. **落地后**：在同一个 PR 内**同步更新** [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 对应章节（含数据流图、错误处理路径、关键文件路径速查表）。若新增了业务流程，追加新章节并按现有编号顺序递增。
   3. **审查时**：PR 审查者需确认 BUSINESS-FLOWS.md 已同步，未同步的 PR 不予合并。
+- **代码导航优先用 codegraph：** 涉及代码理解、定位、修改或调试的任务，第一步先通过 MCP 工具 `codegraph_explore` 查询相关符号/文件（`projectPath` 传仓库根 `d:\Project\TBH\tbh-companion`），其返回的源码视为已读；仅当 codegraph 未命中或需要文件级细节时，再回退 Read/Grep。
+- **codegraph 索引自动同步：** 仓库根 `.githooks/post-commit` 会在每次 commit 后自动执行 `codegraph sync -q` 增量更新索引（`core.hooksPath` 已指向 `.githooks`），无需手动维护。
 - `app/` 内全部使用 TypeScript。保持 `core/` 不引入 Electron/React 依赖，以维持其可单元测试性。
 - **开始 `app/` 工作前：** 先阅读 [`docs/agent/SKILLS.md`](docs/agent/SKILLS.md)（路由）与 [`docs/agent/CODING-GUIDELINES.md`](docs/agent/CODING-GUIDELINES.md)。
 - **完成的定义：** 通过 [`docs/agent/QA.md`](docs/agent/QA.md) —— 而不仅是测试全绿。

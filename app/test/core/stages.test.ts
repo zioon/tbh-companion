@@ -19,6 +19,30 @@ describe("stageName", () => {
     expect(stageName(-5)).toBe("?");
     expect(stageName(9101)).toBe("D9 1-1");
   });
+
+  it("decodes plague (Contaminated) 6-digit stage keys", () => {
+    expect(stageName(201201)).toBe("Nightmare 21-1");
+    expect(stageName(201220)).toBe("Nightmare 21-20");
+    expect(stageName(201301)).toBe("Hell 22-1");
+    expect(stageName(201401)).toBe("Torment 23-1");
+  });
+
+  it("uses the full 6-digit catalog entry for plague stages", () => {
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      stages: { "201201": "Nightmare Plaguelands", "201301": "Hell Plaguelands" },
+    };
+    expect(stageName(201201, catalog)).toBe("Nightmare Plaguelands");
+    expect(stageName(201301, catalog)).toBe("Hell Plaguelands");
+  });
+
+  it("localizes the plague difficulty name in fallback", () => {
+    const catalog: LocaleCatalog = {
+      ...emptyLocaleCatalog(),
+      difficulties: { NIGHTMARE: "噩梦" },
+    };
+    expect(stageName(201201, catalog)).toBe("噩梦 21-1");
+  });
 });
 
 describe("stageName with catalog", () => {
@@ -96,5 +120,23 @@ describe("resolveClearedStageKey", () => {
 
   it("truncates fractional inputs", () => {
     expect(resolveClearedStageKey(3.9, 1.9, 3302)).toBe(3301);
+  });
+
+  it("reconstructs plague (Contaminated) clears from the region act + stage", () => {
+    // Nightmare 21-3 clear arrives with the live stageKey already advanced → 201203.
+    expect(resolveClearedStageKey(21, 3, 201205)).toBe(201203);
+    expect(resolveClearedStageKey(21, 1, 201202)).toBe(201201);
+    expect(resolveClearedStageKey(22, 5, 201301)).toBe(201305);
+    expect(resolveClearedStageKey(23, 20, 201402)).toBe(201420);
+  });
+
+  it("attributes a plague clear to the region it was cleared in when the live stage advances to a new region", () => {
+    // Cleared Nightmare 21-20, but the fallback already moved to Hell 22-1 → still 201220.
+    expect(resolveClearedStageKey(21, 20, 201301)).toBe(201220);
+  });
+
+  it("falls back to the live plague stage when the stage is out of range", () => {
+    expect(resolveClearedStageKey(21, 200, 201205)).toBe(201205);
+    expect(resolveClearedStageKey(21, 0, 201205)).toBe(201205);
   });
 });
