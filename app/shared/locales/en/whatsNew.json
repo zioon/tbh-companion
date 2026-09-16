@@ -3,6 +3,15 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.23.0": {
+      "title": "What's new in v1.23.0",
+      "bullets": [
+        "New Record panel at the bottom of Live — a faithful mirror of the in-game acquisition log, archived across sessions with paging.",
+        "Missed box-open results are backfilled so Loot counts match what you actually opened; fixed the first box going unrecorded when opening several at once.",
+        "Normal and Plague map chest rates now use their own map time, so mixing maps no longer dilutes either rate.",
+        "New In-hand column in Inventory — instant-sell totals deduct Steam and publisher fees per order-book level."
+      ]
+    },
     "1.17.0": {
       "title": "What's new in v1.17.0",
       "bullets": [
