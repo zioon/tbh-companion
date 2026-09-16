@@ -1,6 +1,6 @@
 // Builds the Stats payload pushed to the renderer from tracker + last snapshot.
 
-import type { LiveMemorySnapshot, Stats, SaveSnapshot } from "../../shared/types";
+import type { LiveMemorySnapshot, Stats, SaveSnapshot, RecordLogStats } from "../../shared/types";
 
 import type { LocaleCatalog } from "../core/localeCatalog";
 import type {
@@ -11,6 +11,8 @@ import type {
 import type { ChestDropTracker } from "../core/chestDropTracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
+import type { RecordLogTracker } from "../core/recordLogTracker";
+import { fitAcquireSources, FIT_WINDOW_SEC, type ClearFitEvent } from "../core/recordLogFit";
 
 import { heroName } from "../core/heroes";
 import { stageName } from "../core/stages";
@@ -19,6 +21,15 @@ import { xpForNextLevel } from "../core/levelCurve";
 const IDLE_THRESHOLD_SECONDS = 120;
 
 const HISTORY_VISIBLE = 50;
+
+/** Fallback for callers/tests that don't supply a record-log tracker. */
+const EMPTY_RECORD_LOG: RecordLogStats = {
+  entries: [],
+  total: 0,
+  byKind: { drop: 0, open: 0, clear: 0, acquire: 0 },
+  nextSeq: 0,
+  sources: {},
+};
 
 function nowSeconds(): number {
   return Date.now() / 1000;
@@ -58,6 +69,8 @@ export function buildStats(
   boxOpenPointsOverride: Readonly<Record<number, number>> | null = null,
   lootStatus: string | null = null,
   catalog: LocaleCatalog | null = null,
+  recordLogTracker: RecordLogTracker | null = null,
+  stageClearHistory: readonly ClearFitEvent[] | null = null,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
@@ -142,6 +155,25 @@ export function buildStats(
   const reportedWave =
     stageWaveTotal > 0 && stageWave > stageWaveTotal ? stageWaveTotal : stageWave;
 
+  // Record-page source fit: attribute each visible acquire line to the game
+  // activity that produced it (chest drop / box open / stage clear) by fitting
+  // it against the three event buckets the trackers already keep. Runs over
+  // the newest window only — that is all the renderer displays. Cheap: the fit
+  // binary-searches sorted bucket copies per line (O(log n) each).
+  const recordLogStats = recordLogTracker ? recordLogTracker.getStats() : EMPTY_RECORD_LOG;
+  const recordLog: RecordLogStats = recordLogTracker
+    ? {
+        ...recordLogStats,
+        sources: fitAcquireSources(
+          recordLogStats.entries.filter((e) => e.kind === "acquire"),
+          chestDropTracker.fitHistory(),
+          boxOpenTracker.fitHistory(),
+          stageClearHistory ?? [],
+          FIT_WINDOW_SEC,
+        ),
+      }
+    : EMPTY_RECORD_LOG;
+
   return {
     connected: lastError === null,
 
@@ -196,5 +228,6 @@ export function buildStats(
     aliveMonsters: dpsTracker.alive,
     hpSum: dpsTracker.hpSum,
     hpMaxSum: dpsTracker.hpMaxSum,
+    recordLog,
   };
 }

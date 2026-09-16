@@ -30,6 +30,7 @@ export function InventoryColumnPicker({ prefs, onChange }: InventoryColumnPicker
         location: t("columns.location"),
         inUse: t("columns.inUse"),
         marketPrice: t("columns.marketPrice"),
+        inHand: t("columns.inHand"),
         listValue: t("columns.listValue"),
         instantSell: t("columns.instantSell"),
         instantTotal: t("columns.instantTotal"),

@@ -12,6 +12,7 @@ import loot from "./loot.json";
 import market from "./market.json";
 import notifications from "./notifications.json";
 import pets from "./pets.json";
+import recordlog from "./recordlog.json";
 import settings from "./settings.json";
 import tabs from "./tabs.json";
 import tray from "./tray.json";
@@ -30,6 +31,7 @@ export default {
   market,
   notifications,
   pets,
+  recordlog,
   settings,
   tabs,
   tray,

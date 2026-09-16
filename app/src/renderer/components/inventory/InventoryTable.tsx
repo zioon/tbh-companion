@@ -6,6 +6,11 @@ import {
   normalizeInventoryTablePrefs,
 } from "../../../core/inventory/columnPrefs";
 import { formatMoney, formatRawMoney } from "../../../core/steamPrice";
+import {
+  feeRatesForCurrency,
+  sellerProceedsFromBuyerPrice,
+  TBH_MARKET_FEE_RATES,
+} from "../../../core/steamMarketFee";
 import { unassignedCount } from "../../../core/inventory/location";
 import { rowSynthesisPoints } from "../../lib/inventoryFilters";
 import { fmtCompactLocale } from "../../lib/format";
@@ -315,6 +320,23 @@ function buildColumnDefs(
           );
         }
         return <MarketPriceCell row={row} hash={row.marketHashName} currency={currency} />;
+      },
+    },
+    {
+      id: "inHand",
+      label: t("columns.inHand"),
+      align: "right",
+      render: (row, currency) => {
+        if (!row.marketHashName || row.unitPrice == null) return "-";
+        const inHand = sellerProceedsFromBuyerPrice(
+          row.unitPrice,
+          feeRatesForCurrency(TBH_MARKET_FEE_RATES, currency),
+        );
+        return (
+          <MarketListingLink hash={row.marketHashName} title={t("marketPrice.inHandTip")}>
+            {formatMoney(inHand, currency)}
+          </MarketListingLink>
+        );
       },
     },
     {

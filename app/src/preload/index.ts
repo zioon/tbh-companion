@@ -34,6 +34,7 @@ import type {
   PriceProgress,
   PriceRefreshResult,
   PriceStatus,
+  RecordLogPage,
   RendererLogPayload,
   ResolvedInventory,
   StageRunStats,
@@ -287,6 +288,9 @@ const api: TbhApi = {
   },
   getStageRuns(): Promise<StageRunStats> {
     return ipcRenderer.invoke(IPC.GET_STAGE_RUNS);
+  },
+  getRecordLogPage(page: number, pageSize?: number): Promise<RecordLogPage> {
+    return ipcRenderer.invoke(IPC.GET_RECORD_LOG_PAGE, page, pageSize);
   },
   onStageRuns(cb: (stats: StageRunStats) => void): () => void {
     const listener = (_e: unknown, stats: StageRunStats): void => cb(stats);

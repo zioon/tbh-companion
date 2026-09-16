@@ -34,7 +34,10 @@ import {
   resolveLiveMemoryUserDataDir,
 } from "./liveMemoryCacheDir";
 import {
+  ACQUIRE_RING_CAPACITY,
+  dumpRuntimeAcquireRing,
   isLiveLogManager,
+  makeAcquireRingPinState,
   makeBoxOpenPinState,
   makeChestLogPinState,
   makeCombatGoldPinState,
@@ -44,6 +47,13 @@ import {
   makeStageClearPinState,
   peekBoxOpenLogCount,
   peekGetBoxLogCount,
+  enumerateLogBucketCounts,
+  inspectLogManagerLists,
+  dumpLogManagerSlot,
+  peekLogBuffer,
+  peekLogRingEntries,
+  peekEntryNestedFields,
+  readDotNetString,
   readRuntimeBoxOpenLog,
   readRuntimeChestLog,
   readRuntimeCombatGold,
@@ -54,16 +64,22 @@ import {
   readRuntimePets,
   readRuntimeStage,
   readRuntimeStageClears,
+  readRuntimeAllLogs,
+  readRuntimeAcquireLogs,
   resolveStageManager,
   type BoxOpenPinState,
-  type ChestLogPinState,
+  type ChestDropPinState,
   type CombatGoldPinState,
   type GoldPinState,
   type MonsterSpawnPinState,
+  type ReadBoxOpenLogResult,
+  type ReadChestLogResult,
   type SmPinState,
   type StageClearPinState,
   type ReadInventoryResult,
   type ReadPetsResult,
+  type AcquireHoldReason,
+  type AcquireRingPinState,
 } from "../../core/liveMemory/runtime";
 import { makeHeroStableState, stabilizeHeroes } from "../../core/liveMemory/heroStable";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
@@ -77,6 +93,7 @@ import type {
   BoxOpenEntry,
   LiveMemorySnapshot,
   LiveMemoryStatus,
+  AcquireLogEntry,
 } from "../../../shared/types";
 import type { LiveChestCategory } from "../../core/liveMemory/runtime";
 
@@ -133,6 +150,13 @@ const STAGE_CLEAR_BURST_GAP_MS = 2;
  * main.log without spamming the 25 Hz tick loop.
  */
 const STATUS_FAIL_LOG_THROTTLE_MS = 30_000;
+
+/**
+ * Throttle window for the "acquire hold" diagnostic. The acquire ring is polled
+ * every 10 ms, so an un-throttled hold log would flood the file; a slot change
+ * always logs immediately (see `logAcquireHold`).
+ */
+const ACQUIRE_HOLD_LOG_THROTTLE_MS = 5_000;
 
 /**
  * How long `readRuntimeBoxOpenLog` must continuously return "list not
@@ -244,7 +268,7 @@ export class LiveMemoryReader {
   private goldPin: GoldPinState = makeGoldPinState();
   private combatGoldPin: CombatGoldPinState = makeCombatGoldPinState();
   private smPin: SmPinState = makeSmPinState();
-  private chestPin: ChestLogPinState = makeChestLogPinState();
+  private chestPin: ChestDropPinState = makeChestLogPinState();
   /**
    * Drops caught by the high-frequency chest tail monitor
    * ({@link pollChestTailFast}) between 25Hz snapshot frames. Folded into the
@@ -256,6 +280,40 @@ export class LiveMemoryReader {
   private pendingChestDrops: LiveChestCategory[] = [];
   private stageClearPin: StageClearPinState = makeStageClearPinState();
   private boxOpenPin: BoxOpenPinState = makeBoxOpenPinState();
+  private acquirePin: AcquireRingPinState = makeAcquireRingPinState();
+  /**
+   * Whether the acquire ring has been fully delivered for this attach. On the
+   * first successful poll the whole session backlog is delivered as one batch
+   * (`initial: true`) and recorded as acquire lines only (never replayed as
+   * drop/open/clear events); subsequent polls deliver just the tail.
+   *
+   * Both this flag and {@link acquirePin} are intentionally NOT reset on
+   * detach: a detach/re-attach to the SAME game session must continue tailing
+   * incrementally, otherwise the whole ring backlog would be re-delivered as
+   * fresh records (old lines jump back to the top of the log). A true new
+   * game session is detected by the ring counter restarting (`total` drops
+   * below the delivered watermark) and resets both here.
+   */
+  private acquireInitialDone = false;
+  /**
+   * Last ring `total` seen, kept across detach. A re-attach whose `total` is
+   * BELOW this value means the game restarted and the ring was cleared — the
+   * next successful poll is a fresh initial full sync.
+   */
+  private lastAcquireTotal = 0;
+  /**
+   * Set when the ring counter restarted (new game session). Carried into the
+   * next `initial` batch so the main process knows its lines are genuinely new
+   * and must not be deduped against the previous session's archive.
+   */
+  private acquireRingRestartPending = false;
+  /** Throttle for the "acquire hold" diagnostic (10 ms poll cadence would flood). */
+  private lastAcquireHoldLogAt = 0;
+  private lastAcquireHoldSlot: number | null = null;
+  /** Last measured ring capacity (see the capacity probe in runtime.ts). */
+  private lastAcquireCapacity: number | null = null;
+  /** One-shot guard for the `ring+0x18` capacity self-check log. */
+  private acquireCapacityMismatchLogged = false;
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
   /** Throttle for the "read: stage null" diagnostic log (avoid spamming every tick). */
   private lastSmFailLogAt: number | null = null;
@@ -1064,6 +1122,10 @@ export class LiveMemoryReader {
     this.chestPin = makeChestLogPinState();
     this.stageClearPin = makeStageClearPinState();
     this.boxOpenPin = makeBoxOpenPinState();
+    // acquirePin / acquireInitialDone / lastAcquireTotal are deliberately kept
+    // across detach: a re-attach to the same game session continues tailing
+    // incrementally instead of re-delivering the whole ring backlog. Only a
+    // ring-counter restart (new session) rewinds them (see pollAcquireTailFast).
     this.monsterPin = makeMonsterSpawnPinState();
     this.lowFreqTick = 0;
     this.lowFreqLoaded = false;
@@ -1143,6 +1205,190 @@ export class LiveMemoryReader {
     const merged = [...this.pendingChestDrops, ...(roundDrops ?? [])];
     this.pendingChestDrops = [];
     return merged.length > 0 ? merged : null;
+  }
+
+  /**
+   * Independent high-frequency poll for the "获得记录" ring, driven by the worker's
+   * `ensureFastPoll` → `fastAcquirePollTimer` (~10 ms). Runs completely outside
+   * the 25 Hz `read()` frame — the worker posts the returned lines straight to
+   * the main process, so acquire delivery is never gated on `read()` succeeding
+   * (null-stage / name-scan early returns can't stall or drop the ring tail).
+   *
+   * Delivery model: initial full sync + periodic incremental sync.
+   *  - First successful poll after attach: delivers the whole session backlog as
+   *    one `initial: true` batch (the ring is session-scoped; the backlog is
+   *    shown as acquire lines only, never replayed as drop/open/clear events).
+   *  - Subsequent polls: tail-only, `[acquirePin.total, total)` — index-tailing
+   *    on the monotonic counter guarantees no duplicates and no gaps.
+   */
+  pollAcquireTailFast(): {
+    entries: AcquireLogEntry[];
+    initial: boolean;
+    ringRestarted: boolean;
+    /** The reader's own ring position after this read — persisted as the resume watermark. */
+    watermark: number;
+    /**
+     * The calibrated session base at read time — persisted alongside the
+     * watermark. On resume it restores the slot mapping directly: a saturated
+     * ring (fill pinned at capacity) carries no base signal, and without the
+     * persisted base the resumed read would mis-map every slot.
+     */
+    sessionBase: number | null;
+  } | null {
+    if (!this.attached || !this.supported) return null;
+    const p = this.proc;
+    const o = this.offsets;
+    const ga = this.ga;
+    if (!p || !o || !ga || !p.isAlive()) return null;
+    try {
+      const res = readRuntimeAcquireLogs(p, ga.base, ga.size, o, this.acquirePin);
+      if (!res) return null;
+      // Watermark resume: a companion restart continues from the previous run's
+      // read position, so this batch is a plain increment — no initial full
+      // sync, no archive dedupe.
+      if (res.resumed) this.acquireInitialDone = true;
+      // Ring restart (new game session): the persisted watermark sat above the
+      // (restarted) counter, or the counter dropped below the delivered
+      // watermark — the next successful read is a fresh initial full sync and
+      // its lines are genuinely new (the main process must NOT dedupe them).
+      if (res.restartDetected || res.total < this.lastAcquireTotal) {
+        this.acquireInitialDone = false;
+        this.acquireRingRestartPending = true;
+      }
+      this.lastAcquireTotal = res.total;
+      // The read stopped at a slot the game has not rewritten yet (the ring
+      // counter over-leads the slot writes), or the last-resort release valve
+      // fired. The pin deliberately stays on the held index — see
+      // AcquireHoldReason — so this line is the visible proof the guard is
+      // working instead of the log silently lagging one full ring behind.
+      if (res.heldReason != null) this.logAcquireHold(res.heldAt, res.heldReason);
+      // The session base was set for the first time: either the game wiped the
+      // record ring mid-process (small fill — the wipe restarted the fill count
+      // while the counter kept running) or a full ring was calibrated on the
+      // first attach (fill = capacity; base = counter - capacity). Both are
+      // diagnostics only — the backlog delivers as a plain increment — but they
+      // explain a gap between the last pre-event line and the first post-event
+      // one.
+      if (res.reanchoredBase != null) {
+        this.log(
+          `acquire ring re-anchored: session base=${res.reanchoredBase} ` +
+            `(fill=${res.fillCount ?? "full"} counter=${res.total})`,
+        );
+      }
+      // Capacity self-check. `ring+0x18` declares the modulus (live-verified
+      // 2000, backing array 2048). A future game build changing it would
+      // silently mis-align every slot lookup, so report it loudly instead.
+      if (
+        res.declaredCapacity != null &&
+        res.declaredCapacity !== ACQUIRE_RING_CAPACITY &&
+        !this.acquireCapacityMismatchLogged
+      ) {
+        this.acquireCapacityMismatchLogged = true;
+        this.log(
+          `acquire capacity MISMATCH: ring declares ${res.declaredCapacity} but the reader ` +
+            `assumes ${ACQUIRE_RING_CAPACITY} — slot lookups (k % capacity) will drift; ` +
+            `update ACQUIRE_RING_CAPACITY for this game build`,
+        );
+      }
+      // Ring capacity is now MEASURED (stride between two rewrites of one slot)
+      // instead of assumed — a wrong modulus silently mis-aligns every slot
+      // lookup, so surface the number once per change.
+      if (res.capacityEstimate != null && res.capacityEstimate !== this.lastAcquireCapacity) {
+        this.lastAcquireCapacity = res.capacityEstimate;
+        this.log(
+          `acquire ring capacity MEASURED: ${res.capacityEstimate} entries per slot cycle ` +
+            `(assumed ${ACQUIRE_RING_CAPACITY}${res.capacityEstimate === ACQUIRE_RING_CAPACITY ? " — matches" : " — MISMATCH!"})`,
+        );
+      }
+      if (res.entries.length === 0) return null;
+      if (process.env.TBH_ACQUIRE_DEBUG === "1") {
+        for (const e of res.entries) {
+          this.log(`acquire dbg: [${e.category ?? "-"}] ${e.message} @${e.time}`);
+        }
+      }
+      const initial = !this.acquireInitialDone;
+      this.acquireInitialDone = true;
+      const ringRestarted = this.acquireRingRestartPending;
+      this.acquireRingRestartPending = false;
+      const first = res.entries[0];
+      const last = res.entries[res.entries.length - 1];
+      this.log(
+        `acquire poll: +${res.entries.length} seq[${first.seq}..${last.seq}] ` +
+          `initial=${initial} ringRestarted=${ringRestarted} resumed=${res.resumed} ` +
+          `first="${first.message.slice(0, 40)}" @${first.time} ` +
+          `last="${last.message.slice(0, 40)}" @${last.time}`,
+      );
+      return {
+        entries: res.entries,
+        initial,
+        ringRestarted,
+        watermark: this.acquirePin.total,
+        sessionBase: this.acquirePin.sessionBase,
+      };
+    } catch {
+      // suppress transient read failures; the next poll retries
+      return null;
+    }
+  }
+
+  /**
+   * Resume position for the acquire ring, persisted by the main process and
+   * pushed right after spawn. A companion restart then reads only what was
+   * appended since the last shutdown instead of replaying the ring window.
+   *
+   * `sessionBase` is the previously calibrated session start, persisted with
+   * the watermark and restored here BEFORE the first read: a saturated ring
+   * (fill pinned at capacity) cannot recalibrate from fill, and a ring whose
+   * wipe happened while no reader was attached never sees fill < capacity at
+   * all. Same game session ⇒ the base is unchanged, so the persisted value is
+   * authoritative (the fill-based calibration below then simply confirms it).
+   */
+  setAcquireResume(total: number | null, sessionBase?: number | null): void {
+    this.acquirePin.resumeTotal = total;
+    if (sessionBase != null) {
+      this.acquirePin.sessionBase = sessionBase;
+      this.acquirePin.sessionBasePending = null;
+    }
+  }
+
+  /**
+   * Throttled diagnostic for a read that stopped at a ring slot the game has not
+   * rewritten yet, or for the last-resort release valve (`reason="released"` —
+   * the freshness assumption was judged wrong and the entry was delivered
+   * anyway). Logged on a slot change and at most once per throttle window.
+   */
+  private logAcquireHold(seq: number | null, reason: AcquireHoldReason): void {
+    if (reason == null) return;
+    const now = Date.now();
+    const slotChanged = this.acquirePin.holdSlot !== this.lastAcquireHoldSlot;
+    if (!slotChanged && now - this.lastAcquireHoldLogAt < ACQUIRE_HOLD_LOG_THROTTLE_MS) return;
+    this.lastAcquireHoldLogAt = now;
+    this.lastAcquireHoldSlot = this.acquirePin.holdSlot;
+    this.log(
+      reason === "released"
+        ? `acquire hold (RELEASED): seq=${seq ?? "-"} total=${this.lastAcquireTotal} ` +
+            `pin=${this.acquirePin.total} — freshness guard gave up and delivered the entry; ` +
+            `report if this repeats while the game is appending lines`
+        : `acquire hold: seq=${seq ?? "-"} reason=${reason} total=${this.lastAcquireTotal} ` +
+            `pin=${this.acquirePin.total} — ring slot not rewritten in this pass yet; pin held ` +
+            `(retried every poll, resolves on the next game append)`,
+    );
+  }
+
+  /**
+   * Raw "获得记录" ring dump for `TBH_ACQUIRE_DUMP=1` (see worker.ts). Returns
+   * null when the process/offsets/ring aren't resolvable. Never throws.
+   */
+  dumpAcquireRing(windowSize = 24): string | null {
+    const p = this.proc;
+    const o = this.offsets;
+    const ga = this.ga;
+    if (!p || !o || !ga || !p.isAlive()) return null;
+    try {
+      return dumpRuntimeAcquireRing(p, ga.base, ga.size, o, this.acquirePin, windowSize);
+    } catch {
+      return null;
+    }
   }
 
   read(): LiveMemorySnapshot | null {
@@ -1237,7 +1483,18 @@ export class LiveMemoryReader {
         ? this.smPin.lastStatus
         : heroesResult.status || undefined;
 
-    const chestResult = readRuntimeChestLog(p, ga.base, ga.size, o, this.chestPin);
+    const allLogs = readRuntimeAllLogs(p, ga.base, ga.size, o, {
+      chest: this.chestPin,
+      boxOpen: this.boxOpenPin,
+      stageClear: this.stageClearPin,
+    });
+    // Split the unified read into the per-kind results the burst catch-up and
+    // snapshot assembly below expect (same shapes as the individual readers).
+    const chestResult: ReadChestLogResult = {
+      drops: allLogs.chestDrops,
+      status: allLogs.statusByKind.chest ?? "",
+      debug: allLogs.debugByKind?.chest as ReadChestLogResult["debug"],
+    };
     // Transitional catch-up burst: re-poll the tail a few times (a couple ms
     // apart) when this tick shows any sign of a GetBox transition — new drops,
     // a pending cross-tick settle, or a shrink — to grab a transient rare/act
@@ -1248,6 +1505,7 @@ export class LiveMemoryReader {
     if (
       chestResult.drops != null &&
       (chestResult.drops.length > 0 ||
+        this.chestPin.retryFrom != null ||
         this.chestPin.pendingIdx != null ||
         (chestResult.debug != null && chestResult.debug.count < chestResult.debug.lastCountBefore))
     ) {
@@ -1262,11 +1520,19 @@ export class LiveMemoryReader {
           }
           continue; // keep bursting while new entries keep arriving
         }
-        // No new entry this pass; stop unless a settle is still pending.
-        if (this.chestPin.pendingIdx == null) break;
+        // No new entry this pass; stop unless a settle or a parked mid-write
+        // retry is still pending. A live `retryFrom` means the FIRST entry of a
+        // multi-open batch was mid-write and hasn't resolved yet — keep poking
+        // so it commits within this burst window instead of being lost when the
+        // log shrinks on the next tick ("opened several, first not recorded").
+        if (this.chestPin.pendingIdx == null && this.chestPin.retryFrom == null) break;
       }
     }
-    const boxOpenResult = readRuntimeBoxOpenLog(p, ga.base, ga.size, o, this.boxOpenPin);
+    const boxOpenResult: ReadBoxOpenLogResult = {
+      opens: allLogs.boxOpens,
+      status: allLogs.statusByKind.boxOpen ?? "",
+      debug: allLogs.debugByKind?.boxOpen as ReadBoxOpenLogResult["debug"],
+    };
     // Box-open burst catch-up: a quick succession of box opens commits their
     // BoxOpenLog entry fields across a mid-write window that can straddle this
     // tick, leaving mid-write entries parked in `boxOpenPin.retryFrom`. Without
@@ -1290,12 +1556,13 @@ export class LiveMemoryReader {
           opens.push(...extra.opens);
           continue; // keep bursting while new entries keep arriving
         }
-        // No new committed entry this pass. Stop here and leave any parked
-        // `retryFrom` entry to the next tick instead of re-polling it inside the
-        // same window — repeated rapid re-reads would burn the entry's
-        // `retryConsecutive` budget toward MAX_BOX_OPEN_LOG_RETRIES and trigger a
-        // false force-skip of an entry that just needs a few more ms to commit.
-        break;
+        // No new committed entry this pass. Keep poking only while a mid-write entry
+        // is still parked in `retryFrom` — e.g. the FIRST of a multi-open batch
+        // that hasn't committed yet, so it resolves within this burst window
+        // instead of being lost when the log shrinks on the next tick ("opened
+        // several, first item not recorded"). Entries commit within a couple ms,
+        // so this rarely burns their retry budget; otherwise stop.
+        if (this.boxOpenPin.retryFrom == null) break;
       }
     }
     // Stage-clear burst catch-up: fast consecutive clears (auto-retry / farm)
@@ -1304,7 +1571,7 @@ export class LiveMemoryReader {
     // entries (no park), so without re-polling a tail entry mid-write can be
     // dropped before the next tick — blank/missing 通关记录. Re-poll on activity
     // ticks, mirroring the chest/box-open bursts above.
-    const stageClearsResult = readRuntimeStageClears(p, ga.base, ga.size, o, this.stageClearPin);
+    const stageClearsResult = allLogs.stageClears;
     let stageClears = stageClearsResult;
     if (stageClearsResult) {
       const acc = [...stageClearsResult];
@@ -1320,13 +1587,105 @@ export class LiveMemoryReader {
       }
       stageClears = acc;
     }
+    // "获得记录" ring lines are NOT read here: the worker's independent
+    // `pollAcquireTailFast` (~10 ms) posts them straight to the main process, so
+    // acquire delivery is never gated on this `read()` frame succeeding.
     // Box-open diagnostic: emit only on change so the 25 Hz tick doesn't flood
     // the log. When `opens` is a real delta but `parsed` stays 0 while
     // `scanned` grows, the itemStringKey offset/decoder is wrong; when `scanned`
     // is 0 too, the list walk itself yields nothing.
     {
       const bo = boxOpenResult;
-      const sig = `opens=${bo.opens?.length ?? "null"} status="${bo.status}" pinLast=${this.boxOpenPin.lastCount} primed=${this.boxOpenPin.primed}${bo.debug ? ` [scanned=${bo.debug.scanned} parsed=${bo.debug.parsed} nullPtr=${bo.debug.nullEntry} badKey=${bo.debug.badItemKey}${bo.debug.retryFrom != null ? ` retry=${bo.debug.retryFrom}x${bo.debug.retryConsecutive ?? 0}` : ""}]` : ""}`;
+      // One-shot-ish diagnostic: dump every LogManager log-bucket (key → count)
+      // so we can identify which bucket backs the in-game "获得记录" timeline
+      // (reported to hold every box-open, complete & unoverwritten). Included in
+      // the sig so it re-logs whenever any bucket grows.
+      const buckets = enumerateLogBucketCounts(p, ga.base, ga.size, o, this.boxOpenPin);
+      const dictStr =
+        buckets && buckets.length > 0
+          ? buckets
+              .slice()
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 10)
+              .map((b) => `${b.key}:${b.count}`)
+              .join("/")
+          : "n/a";
+      // Probe LogManager's own object for candidate List fields. These are the
+      // likely home of the game's holistic, unoverwritten "获得记录" buffer.
+      const lmLists = inspectLogManagerLists(p, ga.base, ga.size, o, this.boxOpenPin);
+      const lmStr =
+        lmLists && lmLists.length > 0
+          ? lmLists.map((c) => `@${c.offset}=${c.count}`).join("/")
+          : "none";
+      // Dump the object behind the single large candidate slot so we can learn
+      // its items-buffer / size / capacity layout (the "获得记录" ring).
+      const slot32 = dumpLogManagerSlot(p, ga.base, ga.size, o, this.boxOpenPin, 0x20, 24);
+      const lm32Str = slot32
+        ? `0x${slot32.objPtr.toString(16)}:[${slot32.words.map((w) => (w >>> 0).toString(16)).join(",")}]`
+        : "none";
+      // Probe the ring's item buffers (object @0x10 and @0x28) to learn element
+      // layout (inline itemId/time vs pointer) for the "获得记录" entries.
+      const bufs = peekLogBuffer(p, ga.base, ga.size, o, this.boxOpenPin, 0x20, [0x10, 0x28]);
+      const lmbufStr = bufs
+        ? bufs
+            .map(
+              (b) =>
+                `0x${b.base.toString(16)}:h=[${b.head.map((w) => (w >>> 0).toString(16)).join(",")}]`,
+            )
+            .join(" ")
+        : "none";
+      // Second indirection: buffer holds pointer→entry; deref and dump entries.
+      const entries = bufs ? peekLogRingEntries(p, bufs[0].base) : null;
+      const entStr = entries
+        ? entries
+            .map(
+              (e) =>
+                `0x${e.entryPtr.toString(16)}:{${e.words.map((w) => (w >>> 0).toString(16)).join(",")}}`,
+            )
+            .join(" ")
+        : "none";
+      // Third-level deref: target the item/amount objects to reveal itemKey + time.
+      const nested = entries
+        ? peekEntryNestedFields(
+            p,
+            entries.slice(0, 3).map((e) => e.entryPtr),
+            [0x18, 0x20, 0x28],
+            8,
+          )
+        : null;
+      const nestStr = nested
+        ? nested
+            .map(
+              (n) =>
+                `0x${n.entryPtr.toString(16)}(+0x${n.field.toString(16)})->0x${n.target.toString(16)}:{${n.words
+                  .map((w) => (w >>> 0).toString(16))
+                  .join(",")}}`,
+            )
+            .join(" ")
+        : "none";
+      // Read the message (@0x20) and time (@0x28) strings of the newest few
+      // entries as readable text — the literal "获得记录" lines the game UI shows.
+      const preview = nested
+        ? (() => {
+            const byField = new Map<number, string>();
+            for (const n of nested)
+              if (n.field === 0x20 || n.field === 0x28) {
+                const s = readDotNetString(p, n.target);
+                if (s && !byField.has(n.field)) byField.set(n.field, s);
+              }
+            const msg = byField.get(0x20);
+            const time = byField.get(0x28);
+            return `time="${time ?? "?"}" msg="${msg ?? "?"}"`;
+          })()
+        : "none";
+      const sig = `opens=${bo.opens?.length ?? "null"} status="${bo.status}" pinLast=${this.boxOpenPin.lastCount} primed=${this.boxOpenPin.primed}${bo.debug ? ` [scanned=${bo.debug.scanned} parsed=${bo.debug.parsed} nullPtr=${bo.debug.nullEntry} badKey=${bo.debug.badItemKey} dedup=${bo.debug.dedupSkipped ?? 0}${bo.debug.retryFrom != null ? ` retry=${bo.debug.retryFrom}x${bo.debug.retryConsecutive ?? 0}` : ""}${(bo.debug.forcedIndexes?.length ?? 0) > 0 ? ` forced=[${bo.debug.forcedIndexes!.join(",")}]` : ""} range=[${bo.debug.start},${bo.debug.count})]` : ""} items=[${(
+        bo.opens ?? []
+      )
+        .slice(0, 64)
+        .map((o) => o.itemKey)
+        .join(
+          ",",
+        )}] dict=[${dictStr}] lm=[${lmStr}] lm32=[${lm32Str}] lmbuf=[${lmbufStr}] ent=[${entStr}] nest=[${nestStr}] preview=[${preview}]`;
       if (sig !== this.boxOpenLogSig) {
         this.boxOpenLogSig = sig;
         this.log(`DBG box-opens: ${sig}`);

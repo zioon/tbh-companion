@@ -25,7 +25,16 @@ import { loadLookupSources, loadOfferings } from "../../core/lookup/catalog";
 import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import { StageRunFailDetector } from "../../core/stageRunFailDetector";
+import { RecordLogTracker } from "../../core/recordLogTracker";
+import { fitAcquireSources, FIT_WINDOW_SEC, type ClearFitEvent } from "../../core/recordLogFit";
+import {
+  backfillOpensFromLog,
+  toBackfillTrackerEntry,
+  BACKFILL_WINDOW_SEC,
+} from "../../core/boxOpenBackfill";
+import { parseAcquireMessage, stripRichText, gradeFromAcquireColor } from "../../core/acquireLog";
 import type {
+  AcquireLogEntry,
   AppConfig,
   BoxOpenEntry,
   InventorySnapshot,
@@ -33,6 +42,7 @@ import type {
   LiveMemorySnapshot,
   LookupItem,
   LookupPriceSnapshot,
+  RecordLogPage,
   ResolvedInventory,
   ResolvedInventoryRow,
   SaveSnapshot,
@@ -43,11 +53,22 @@ import { detectHeroLevelUps, type HeroLevelUpEvent } from "../../core/heroes/det
 import { createLogger } from "../log";
 import type { SessionStateService } from "./SessionStateService";
 import type { AutoClassifyService } from "./AutoClassifyService";
+import { RecordLogService } from "./RecordLogService";
 
 const log = createLogger("tracking");
 
 /** Live-memory frames arrive at ~25 Hz; the UI doesn't need a broadcast that often. */
 const LIVE_BROADCAST_INTERVAL_MS = 200;
+
+/**
+ * Bounded history of live stage-clear events for the record page's source fit
+ * (see `core/recordLogFit.ts`). The record log itself only archives the game's
+ * own acquire ring, but the fit needs the clear moments to attribute reward
+ * lines; 200 events comfortably exceeds any window of acquire lines the fit
+ * ever sees (the visible record-log slice is 200 lines, and one clear explains
+ * several lines at most).
+ */
+const STAGE_CLEAR_FIT_LIMIT = 200;
 /**
  * Freshness window for `lastLiveFrame`. The worker produces a frame every ~40 ms
  * while attached; if no frame has arrived for this long, treat the cached frame
@@ -58,12 +79,38 @@ const LIVE_BROADCAST_INTERVAL_MS = 200;
  */
 const LIVE_FRAME_FRESH_MS = 5000;
 
+/**
+ * How long a "获得了…" log line must sit before the backfill is allowed to
+ * record it. The box-open reader is deliberately patient — it parks slots that
+ * look mid-write and retries them (`MAX_BOX_OPEN_LOG_RETRIES`), so it can
+ * legitimately commit an open a few hundred milliseconds after the ring line
+ * was already visible. Without this delay every chest would be counted twice:
+ * once when the reader catches up and once by the backfill. 20 s is two orders
+ * of magnitude more slack than the reader ever needs, and the backfill only
+ * repairs statistics — it is not a realtime path — so waiting costs nothing.
+ */
+const BACKFILL_GRACE_SEC = 20;
+/**
+ * Minimum gap between two backfill passes. The 1 Hz tick asks on every pass;
+ * the grace period means anything under ~20 s of work is wasted, so 10 s keeps
+ * recovery snappy (a lost open shows up at most ~30 s later) without running
+ * the reconciliation more than ~6×/min.
+ */
+const BACKFILL_INTERVAL_MS = 10_000;
+
 export class TrackingService {
   private tracker!: XpTracker;
   private chestDropTracker!: ChestDropTracker;
   private chestAggregator!: LiveChestDropAggregator;
   private boxOpenTracker!: BoxOpenTracker;
   private dpsTracker!: DpsTracker;
+  /**
+   * Unified record log, now fed ONLY from the game's own "获得记录" ring (the
+   * complete session timeline), persisted independently of the session so it
+   * survives session resets and the in-memory LogManager wipeout.
+   */
+  private recordLog = new RecordLogTracker();
+  private recordLogService: RecordLogService | null = null;
   private watcher: SaveWatcher | null = null;
   private tickTimer: NodeJS.Timeout | null = null;
   private lastSnap: SaveSnapshot | null = null;
@@ -95,8 +142,17 @@ export class TrackingService {
    * growing at the cap — phantom XP).
    */
   private stageEventBaseline: { xp: number; gold: number } | null = null;
+  /**
+   * Recent live stage clears (wallTime + cleared stageKey) for the record
+   * page's source fit. In-memory only — the fit explains visible acquire
+   * lines, which never predate a companion restart by more than the ring
+   * window, so persistence would add nothing. Cleared on session resets.
+   */
+  private stageClearHistory: ClearFitEvent[] = [];
   /** Last stage seen in a live frame — used to detect stage/wave changes for per-map DPS. */
   private lastLiveStage: { stageKey: number; stageWave: number } | null = null;
+  /** Wall-clock (ms) of the last map-time diagnostic log; throttles output. */
+  private lastMapTimeDiagAt = 0;
   /**
    * Whether the wave counter has been seeded from the save's static wave on
    * the first live frame of this tracking session. Seeding happens exactly
@@ -140,6 +196,8 @@ export class TrackingService {
    * (baseId, grade) pair to the correct catalog variant id.
    */
   private lookupVariantIndex: Map<string, Map<string, number>> | null = null;
+  /** Wall-clock (ms) of the last box-open backfill pass; throttles it. */
+  private lastBackfillMs = 0;
   /**
    * Index over the latest resolved inventory's `rows`, keyed by `itemKey`.
    * Rebuilt on every `setInventorySnapshot` so `buildBoxOpenPriceResolver`
@@ -238,6 +296,11 @@ export class TrackingService {
       onUnclassified: (entries) => this.autoClassify?.handleUnclassifiedBatch(entries),
     });
     this.dpsTracker = new DpsTracker();
+    // Load the persisted record log exactly once (re-create the debounced writer
+    // each start so a previously-flushed writer doesn't linger after stop()).
+    if (!this.recordLogService) {
+      this.recordLogService = new RecordLogService(this.recordLog);
+    }
     this.stageEventBaseline = null;
     this.lastLiveStage = null;
     this.waveSeeded = false;
@@ -263,6 +326,10 @@ export class TrackingService {
         this.lastLiveFrame = null;
         this.lastLiveStage = null;
       }
+      // Statistics-side repair for box opens the `GetItemWithBoxOpen` reader
+      // dropped (see `runBoxOpenBackfill`). Runs off the 1 Hz tick rather than
+      // the live frame so it also fires when read() is stalled; self-throttled.
+      this.runBoxOpenBackfill();
       // Skip the redundant push if a live-memory frame already broadcast recently —
       // avoids the 1 Hz safety-net tick doubling up with the ~5 Hz live broadcast.
       if (Date.now() - this.lastLiveBroadcastMs < LIVE_BROADCAST_INTERVAL_MS) return;
@@ -278,11 +345,51 @@ export class TrackingService {
   }
 
   stop(): void {
+    // Force any pending record-log change to disk before tearing down timers.
+    this.recordLogService?.flush();
     this.sessionState?.stopAutosave();
     if (this.tickTimer) clearInterval(this.tickTimer);
     this.tickTimer = null;
     this.watcher?.stop();
     this.watcher = null;
+  }
+
+  /** Clear the in-memory record log after `record_log.json` was deleted from Settings. */
+  resetRecordLog(): void {
+    this.recordLogService?.resetStorage();
+  }
+
+  /**
+   * One archived record-log page for the embedded record panel's pagination
+   * (renderer → main IPC; page 0 is the newest window). Sliced straight off
+   * the tracker archive, then source-fitted against the same three event
+   * buckets the stats push uses — so badges/filters look identical whether a
+   * page arrives live or fetched. Older pages can only lose their fit when
+   * the in-memory bucket histories have wrapped (fit stays absent = no badge).
+   */
+  getRecordLogPage(page: number, pageSize: number): RecordLogPage {
+    const { entries, total } = this.recordLog.getPage(page, pageSize);
+    return {
+      entries,
+      total,
+      sources: fitAcquireSources(
+        entries.filter((e) => e.kind === "acquire"),
+        this.chestDropTracker.fitHistory(),
+        this.boxOpenTracker.fitHistory(),
+        this.stageClearHistory,
+        FIT_WINDOW_SEC,
+      ),
+    };
+  }
+
+  /** The persisted acquire-ring read position (resume watermark), or null. */
+  getAcquireWatermark(): number | null {
+    return this.recordLogService?.getAcquireWatermark() ?? null;
+  }
+
+  /** The persisted acquire-ring session base (null = not calibrated yet). */
+  getAcquireSessionBase(): number | null {
+    return this.recordLogService?.getAcquireSessionBase() ?? null;
   }
 
   pushStats(): void {
@@ -305,6 +412,8 @@ export class TrackingService {
       this.getMaterialPointsOverride(),
       null,
       this.localeCatalog,
+      this.recordLog,
+      this.stageClearHistory,
     );
   }
 
@@ -322,6 +431,7 @@ export class TrackingService {
     this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
+    this.stageClearHistory = [];
     // Prime the tracker with the last save snapshot so the first live frame
     // after reset can be ingested immediately (takeover on the same tick).
     // Without this, updateLive() early-returns on `!initialized` for the
@@ -354,6 +464,7 @@ export class TrackingService {
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
+    this.stageClearHistory = [];
     // Same baseline prime as reset() so XP/gold appear promptly when the
     // caller follows up with a non-null lastSnap. When lastSnap is null
     // (true cold-start) the tracker stays uninitialized and the next save
@@ -396,6 +507,7 @@ export class TrackingService {
   /** Provide the GameData index for box-open item name/grade resolution. */
   setGameDataLookup(lookup: Map<number, GameItem>): void {
     this.gameDataLookup = lookup;
+    this.rebuildVariantIndex();
     // If a restore already happened before the catalog was loaded (rare race
     // during startup), the entries recorded then didn't get variant remap or
     // garbage-drop. Run a pass now so they look right.
@@ -413,22 +525,61 @@ export class TrackingService {
    */
   setLookupCatalog(items: LookupItem[]): void {
     const byId = new Map<number, LookupItem>();
-    const byNameGrade = new Map<string, Map<string, number>>();
     for (const item of items) {
       byId.set(item.id, item);
-      let byGrade = byNameGrade.get(item.name);
-      if (!byGrade) {
-        byGrade = new Map();
-        byNameGrade.set(item.name, byGrade);
-      }
-      byGrade.set(item.grade, item.id);
     }
     this.lookupItems = byId;
-    this.lookupVariantIndex = byNameGrade;
     this.materialPointsOverride = null;
+    this.rebuildVariantIndex();
     // If a restore happened before the lookup catalog loaded, re-resolve so
     // the (baseId, grade) → variantId remap now uses lookup-sourced ids.
     this.runReResolveNames();
+  }
+
+  /**
+   * Rebuild {@link lookupVariantIndex} from whatever catalogs are loaded.
+   *
+   * Called from {@link setLookupCatalog}, {@link setGameDataLookup} and
+   * {@link setLocaleCatalog} — the index keys off names, and a name only
+   * resolves once the catalog AND the locale agree, so a late-arriving or
+   * swapped locale must rebuild it.
+   *
+   * Three name spellings are indexed per item, because the strings being
+   * matched come from three different places:
+   *  - `item.name` — the localized display name (matches the game UI when the
+   *    app language tracks the game language);
+   *  - `item.sourceName` — the English source name (stable across languages);
+   *  - the locale catalog's own entry for the id — the game-language name,
+   *    which is what a "获得了…" ring line actually contains even when the
+   *    app is running in a different UI language.
+   *
+   * First spelling wins for a given (name, grade) so the result never depends
+   * on which catalog happened to be loaded last.
+   */
+  private rebuildVariantIndex(): void {
+    const byNameGrade = new Map<string, Map<string, number>>();
+    const add = (key: string | null | undefined, grade: string, id: number): void => {
+      if (!key) return;
+      let byGrade = byNameGrade.get(key);
+      if (!byGrade) {
+        byGrade = new Map();
+        byNameGrade.set(key, byGrade);
+      }
+      if (!byGrade.has(grade)) byGrade.set(grade, id);
+    };
+    for (const item of this.lookupItems?.values() ?? []) {
+      add(item.name, item.grade, item.id);
+      add(item.sourceName, item.grade, item.id);
+      add(this.localeCatalog.items[String(item.id)], item.grade, item.id);
+    }
+    // gamedata.json carries base rows lookup_items.json lacks; only used for
+    // ids lookup has no row for (lookup stays the preferred source).
+    for (const [id, item] of this.gameDataLookup ?? []) {
+      if (this.lookupItems?.has(id)) continue;
+      add(item.name, item.grade, id);
+      add(gameItemName(item, this.localeCatalog), item.grade, id);
+    }
+    this.lookupVariantIndex = byNameGrade;
   }
 
   /**
@@ -551,6 +702,7 @@ export class TrackingService {
    */
   setLocaleCatalog(catalog: LocaleCatalog): void {
     this.localeCatalog = catalog;
+    this.rebuildVariantIndex();
     this.runReResolveNames();
   }
 
@@ -639,11 +791,100 @@ export class TrackingService {
   }
 
   /**
-   * Resolve a raw BoxOpenEntry into a tracker record: derive boxKey from
-   * boxType/level, look up item name/grade from gamedata. When boxType is
-   * unknown (offsets not derived), records under "unclassified" so the user
-   * can manually reclassify later.
+   * Independent "获得记录" ingestion, driven by the worker's acquire-ring monitor
+   * (initial full sync + periodic incremental sync) and delivered OUTSIDE the
+   * live snapshot frame — never gated on `read()` succeeding (stage-null /
+   * name-scan frames can't stall or drop these lines).
+   *
+   * This is the ONLY feeder of the record log: the RecordLog tab is a faithful
+   * mirror of the game's own "获得记录" UI, so every line is recorded as an
+   * `acquire` entry (raw text + parsed name / count / rarity color / in-game
+   * time). Bucket-derived drop/open/clear events are NOT mixed in.
+   *
+   * `initial` (first batch after attach = the whole session backlog) is deduped
+   * against the already-archived log by (acquireTime, acquireRaw) signature:
+   * when the companion restarts in the same game session, the re-attach full
+   * sync must not re-append lines already persisted. Duplicates WITHIN one
+   * initial batch (e.g. two identical boxes opened in the same minute) are kept.
    */
+  ingestAcquireBatch(
+    entries: AcquireLogEntry[],
+    initial = false,
+    ringRestarted = false,
+    watermark?: number,
+    sessionBase?: number | null,
+  ): void {
+    if (!this.recordLogService) return;
+    if (entries.length === 0) return;
+    const ts = Date.now() / 1000;
+    let dirty = false;
+    // Re-attach initial-batch dedupe by RING INDEX (`AcquireLogEntry.seq`).
+    //  - `(acquireTime, acquireRaw)` is unusable: the game reuses and rewrites
+    //    the ring's time-string object, so an already-archived line comes back
+    //    with a different stamp (measured 2026-09-15) and was re-appended as new
+    //    — companion restarts pushed 100-2000 old rows to the top of the list.
+    //  - Delivery-order overlap and per-text budgets are unusable too: the texts
+    //    repeat verbatim and sporadic delivery gaps break exact alignment, which
+    //    re-appended the whole 2000-line window (16:40:53, deduped=0).
+    // The ring index is exact and stable within a game session: skip lines whose
+    // index is already archived; an index NOT in the archive is a line the
+    // previous session missed → delivered now (recovered). A ring RESTART (new
+    // game session) reuses indices from 1, so it bypasses the dedupe entirely.
+    const dedupe = initial && !ringRestarted;
+    let skipped = 0;
+    // Feed in ring order (ascending `seq`) so the record log's archive order is
+    // always chronological even if a batch ever arrives out of order.
+    const ordered = [...entries].sort((a, b) => a.seq - b.seq);
+    for (const a of ordered) {
+      if (dedupe && this.recordLog.hasRingSeq(a.seq)) {
+        skipped += 1;
+        continue;
+      }
+      const raw = stripRichText(a.message);
+      const parsed = parseAcquireMessage(a.message);
+      if (!parsed.name) continue;
+      this.recordLog.feed("acquire", ts, {
+        ringSeq: a.seq,
+        acquireRaw: raw,
+        acquireName: parsed.name,
+        acquireCount: parsed.count,
+        acquireColor: parsed.color,
+        acquireTime: a.time,
+        // Initial-attach rows replay the whole session backlog at one ingest
+        // moment — their wallTime is NOT the event moment, so the record
+        // page's source fit must skip them (the `bulk` flag travels with the
+        // persisted entry).
+        bulk: initial,
+      });
+      dirty = true;
+    }
+    // Persist the reader's ring position so the next companion start resumes
+    // incrementally instead of replaying the whole window. Advanced even when
+    // every line of the batch was deduped — the position moved regardless.
+    // The batch's calibrated session base is persisted with it: a saturated
+    // ring has no base signal, so a resumed reader must restore the pair.
+    if (watermark != null) this.recordLogService.setAcquireWatermark(watermark, sessionBase);
+    if (dirty) {
+      log.info(
+        `acquire ingest: ${entries.length} lines initial=${initial} ringRestarted=${ringRestarted} ` +
+          `deduped=${skipped} first="${stripRichText(entries[0].message).slice(0, 40)}" @${entries[0].time} ` +
+          `last="${stripRichText(entries[entries.length - 1].message).slice(0, 40)}" @${entries[entries.length - 1].time} ` +
+          `-> recordLog total=${this.recordLog.getStats().total}`,
+      );
+      this.recordLogService.schedulePersist();
+      // Push to the renderer right away. The acquire channel is independent of
+      // the snapshot / read() frame, so when read() stalls (main menu / town,
+      // stage null) the live-frame broadcast below never fires — without this
+      // the UI would stay stale even though new "获得记录" lines arrived.
+      // Throttled to LIVE_BROADCAST_INTERVAL_MS, shared with the live frame.
+      const now = Date.now();
+      if (now - this.lastLiveBroadcastMs >= LIVE_BROADCAST_INTERVAL_MS) {
+        this.lastLiveBroadcastMs = now;
+        this.pushStats();
+      }
+    }
+  }
+
   private resolveBoxOpenEntry(entry: BoxOpenEntry): {
     boxKey: string;
     itemKey: number;
@@ -676,6 +917,146 @@ export class TrackingService {
     const item = variantItem ?? baseItem;
     const name = item ? gameItemName(item, this.localeCatalog) : `#${entry.itemKey}`;
     return { boxKey, itemKey: variantId, name, grade };
+  }
+
+  /**
+   * Resolve a backfill candidate's display name to a catalog id + grade.
+   *
+   * Multi-variant gear (one id per grade) is disambiguated by the log line's
+   * own `<color=#RRGGBB>` tint; when the tint is one this build has never
+   * measured, the base (COMMON) variant is used rather than inventing a grade
+   * — a wrong variant id would mis-file the item in a per-box breakdown.
+   *
+   * Returns `null` when the name is not in the catalog at all. That is the
+   * filter that keeps heroes ("牧师"), stages and chest notices out of the
+   * loot stats: they simply have no catalog row. Confirmed against a real
+   * archive on 2026-09-16 — all 91 grant lines resolved, 0 dropped.
+   */
+  private resolveBackfillItem(
+    name: string,
+    color: string | null,
+  ): { itemKey: number; grade: string | null } | null {
+    const byGrade = this.lookupVariantIndex?.get(name);
+    if (!byGrade || byGrade.size === 0) return null;
+    if (byGrade.size === 1) {
+      const [grade, id] = byGrade.entries().next().value!;
+      return { itemKey: id, grade };
+    }
+    const grade = gradeFromAcquireColor(color);
+    const id = grade != null ? byGrade.get(grade) : undefined;
+    if (id != null) return { itemKey: id, grade };
+    const fallback = byGrade.has("COMMON") ? "COMMON" : byGrade.keys().next().value!;
+    return { itemKey: byGrade.get(fallback)!, grade: fallback };
+  }
+
+  /**
+   * Repair under-counted box-open statistics from the "获得记录" ring.
+   *
+   * The box-open reader tails `GetItemWithBoxOpen`, a bucket the game writes
+   * incrementally (list length first, each slot's `itemKey` last). Slots read
+   * mid-write get parked and eventually force-skipped, so a large "open all"
+   * burst, an offset drift or a worker restart can drop real opens — the Loot
+   * tab then shows fewer items than the player actually received.
+   *
+   * The ring is an INDEPENDENT channel for the same events (one "获得了…" line
+   * per granted item, read on its own ~10 ms path), so lines with no tracker
+   * counterpart are exactly the opens that were lost. Those are recorded here.
+   * See `core/boxOpenBackfill.ts` for the matching discipline.
+   *
+   * Deliberately does NOT touch `this.recordLog`: the record page stays a
+   * faithful mirror of the game's own UI, so this is a statistics-side repair
+   * only. It is also idempotent — once a candidate is recorded, the next pass
+   * finds it via the normal name+time match and reports it as already tracked,
+   * so no explicit "already backfilled" bookkeeping is needed.
+   *
+   * Public only so tests can drive it deterministically (real runs come from
+   * the 1 Hz tick). `force` bypasses the throttle and is NOT part of the
+   * production path.
+   */
+  runBoxOpenBackfill(force = false): void {
+    const now = Date.now();
+    if (!force && now - this.lastBackfillMs < BACKFILL_INTERVAL_MS) return;
+    this.lastBackfillMs = now;
+
+    const trackerEntries = this.boxOpenTracker.fitHistory().map(toBackfillTrackerEntry);
+    // Nothing recorded at all → there is no evidence to attribute against
+    // (live memory is off, or no chest has been opened yet). Bailing out keeps
+    // this pass from turning every stray stage reward into `unclassified`.
+    if (trackerEntries.length === 0) return;
+
+    // Judge only the span both channels can still speak about: old enough that
+    // the box-open reader has certainly had its chance, and new enough that
+    // the tracker's bounded history still holds the surrounding opens. Lines
+    // outside it are unjudgeable, not missing — skipping them is what stops a
+    // trimmed history from being misread as a run of lost opens.
+    let oldestOpen = Number.POSITIVE_INFINITY;
+    for (const e of trackerEntries) if (e.wallTime < oldestOpen) oldestOpen = e.wallTime;
+    const newestAt = now / 1000 - BACKFILL_GRACE_SEC;
+    const oldestAt = oldestOpen - BACKFILL_WINDOW_SEC;
+    if (newestAt < oldestAt) return;
+
+    const logLines = this.recordLog
+      .getStats()
+      .entries.filter(
+        (e) => e.kind === "acquire" && e.wallTime <= newestAt && e.wallTime >= oldestAt,
+      );
+    if (logLines.length === 0) return;
+
+    const chestEvents = this.chestDropTracker
+      .fitHistory()
+      .map((e) => ({ wallTime: e.wallTime, category: e.category }));
+
+    const { candidates, scanned, alreadyTracked, excluded, unattributed } = backfillOpensFromLog(
+      logLines,
+      trackerEntries,
+      chestEvents,
+    );
+
+    let recorded = 0;
+    let unresolved = 0;
+    for (const c of candidates) {
+      const resolved = this.resolveBackfillItem(c.itemName, c.color);
+      if (!resolved) {
+        unresolved += 1;
+        continue;
+      }
+      // Record under the log's own name (not the catalog's) so the next pass's
+      // name+time match is an exact string comparison and idempotency holds.
+      this.boxOpenTracker.recordOpen(
+        c.boxKey,
+        resolved.itemKey,
+        c.itemName,
+        resolved.grade,
+        c.count,
+        c.wallTime,
+      );
+      recorded += 1;
+    }
+
+    if (recorded > 0) {
+      log.info(
+        `box-open backfill: recorded ${recorded} missing opens ` +
+          `(scanned=${scanned} tracked=${alreadyTracked} excluded=${excluded} ` +
+          `unattributed=${unattributed} unresolved=${unresolved})`,
+      );
+      this.sessionState?.flush(
+        this.tracker,
+        this.chestDropTracker,
+        this.boxOpenTracker,
+        this.lastSnap,
+        this.config,
+      );
+      this.pushStats();
+    } else if (unattributed > 0 || unresolved > 0) {
+      // Nothing recovered but lines were left over — worth a line in the log
+      // because a sudden jump in `unattributed` is the signal that the two
+      // channels have drifted apart (clock skew, stalled reader), which is
+      // exactly what this feature exists to make visible.
+      log.info(
+        `box-open backfill: nothing to record (scanned=${scanned} tracked=${alreadyTracked} ` +
+          `excluded=${excluded} unattributed=${unattributed} unresolved=${unresolved})`,
+      );
+    }
   }
 
   /**
@@ -951,6 +1332,29 @@ export class TrackingService {
     // "rare" fires onLiveStageBossDrop, which is idempotent across ticks
     // (BoxTimerService skips when the box is already on cooldown).
     const chestAt = snap.at / 1000;
+    // Feed map-farming time so chest per-hour rates use a map-type-aware
+    // denominator (normal chests / normal-map time, plague chests / plague-map
+    // time) instead of total wall-clock time — a session that mixes normal +
+    // plague maps would otherwise dilute each chest type's rate with time the
+    // other map type was being farmed. Use the same stageKey fallback as the
+    // chest-drop category resolution below so a live frame whose stageKey is
+    // momentarily null (between runs / reader) still accumulates under the last
+    // known stage — otherwise the map-time bucket silently stalls.
+    this.chestDropTracker.noteMapTime(snap.stageKey ?? this.lastLiveStage?.stageKey, chestAt);
+    // Map-time diagnostic (throttled to 5s) — pin down why the chest-card map
+    // annotation may stall: is noteMapTime seeing a null stageKey (no bucket),
+    // and is the accumulated map-seconds actually growing? `getStats` reuses
+    // cached breakdowns so 0.2 Hz is negligible.
+    const nowDiag = Date.now();
+    if (nowDiag - this.lastMapTimeDiagAt >= 5000) {
+      this.lastMapTimeDiagAt = nowDiag;
+      const d = this.chestDropTracker.getStats(this.tracker.elapsed);
+      log.info(
+        `map-time diag: rawStageKey=${snap.stageKey} feedStage=${snap.stageKey ?? this.lastLiveStage?.stageKey} ` +
+          `normal=${Math.round(d.normalMapSeconds)}s plague=${Math.round(d.plagueMapSeconds)}s ` +
+          `(reader ${d.readerRequired ? "live" : "save"})`,
+      );
+    }
     // Warn when the GetBox log shrank since the last tick — the tail restarts
     // from 0 and re-reads old entries as new, which can duplicate recordings.
     // This is the signature the aggregator cannot fully defend against.
@@ -1006,7 +1410,15 @@ export class TrackingService {
       // player stays on the same stageKey (e.g. replaying the same map).
       this.dpsTracker.beginMap();
 
-      const fallbackStageKey = snap.stageKey ?? this.lastSnap?.stageKey ?? 0;
+      const fallbackStageKey =
+        snap.stageKey ?? this.lastLiveStage?.stageKey ?? this.lastSnap?.stageKey ?? 0;
+      if (fallbackStageKey <= 0) {
+        log.warn(
+          `clear skipped: ${snap.stageClears.length} entry(ies) but no fallback stageKey ` +
+            `(snap=${snap.stageKey} lastLive=${this.lastLiveStage?.stageKey ?? "-"} ` +
+            `lastSnap=${this.lastSnap?.stageKey ?? "-"})`,
+        );
+      }
       if (fallbackStageKey > 0) {
         // Use cumulativeGained (cap-filtered) instead of currentTotalXp (raw
         // hero exp sum). At max level, perHeroGain returns 0 so cumulativeGained
@@ -1018,10 +1430,19 @@ export class TrackingService {
         // re-introduce the off-by-one bug: by the time we poll the next tick,
         // stageKey has already advanced past the cleared stage.
         const clears = snap.stageClears.filter((c) => c.valid);
+        if (clears.length < snap.stageClears.length) {
+          log.info(
+            `clear invalid: dropped ${snap.stageClears.length - clears.length} of ` +
+              `${snap.stageClears.length} stageClear entry(ies) (mid-write read)`,
+          );
+        }
         if (this.stageEventBaseline) {
           const totalXpGained = xp - this.stageEventBaseline.xp;
           const totalGoldGained = gold - this.stageEventBaseline.gold;
           const n = clears.length;
+          // All clears observed in this frame share one wall-clock stamp —
+          // they were read from the same memory tick.
+          const clearWallTime = Date.now() / 1000;
           let xpAssigned = 0;
           let goldAssigned = 0;
           for (let i = 0; i < n; i++) {
@@ -1043,6 +1464,11 @@ export class TrackingService {
               fallbackStageKey,
             );
             this.onLiveStageClear?.(clearedStageKey, clears[i].clearTimeSec, xpGained, goldGained);
+            // Feed the record page's source fit (bounded ring; cleared on reset).
+            this.stageClearHistory.push({ wallTime: clearWallTime, stageKey: clearedStageKey });
+          }
+          if (this.stageClearHistory.length > STAGE_CLEAR_FIT_LIMIT) {
+            this.stageClearHistory.splice(0, this.stageClearHistory.length - STAGE_CLEAR_FIT_LIMIT);
           }
         }
         this.stageEventBaseline = { xp, gold };
@@ -1119,6 +1545,10 @@ export class TrackingService {
         );
       }
     }
+
+    // The record log is fed ONLY by the independent acquire-ring channel
+    // (`ingestAcquireBatch`), mirroring the game's own "获得记录" UI — no
+    // bucket-derived drop/open/clear events are mixed in here.
 
     // Tracker ingestion above stays at full ~25 Hz for accurate rate sampling;
     // only the renderer broadcast is throttled to cut re-render/IPC pressure.

@@ -272,23 +272,37 @@ function parseChests(
     }
     return chests;
   }
-  // v1.2.2+：BoxData 被移除，未开箱子以普通物品形式存在于 itemSaveDatas，
-  // 其 UniqueId 列在 BoxBucketGetBoxList。UniqueId 超 Number.MAX_SAFE_INTEGER，
-  // 必须走原始文本（playerStr）按字符串比较，与 parseItemsFromPlayerString 同理。
+  // v1.2.2+：BoxData 被移除，未开箱子以普通物品形式存在于 itemSaveDatas。
+  // UniqueId 超 Number.MAX_SAFE_INTEGER，必须走原始文本（playerStr）按字符串
+  // 比较，与 parseItemsFromPlayerString 同理。
   if (!playerStr) return chests;
-  const bucketMatch = /"BoxBucketGetBoxList"\s*:\s*\[([^\]]*)\]/.exec(playerStr);
-  if (!bucketMatch) return chests;
-  const unopenedIds = new Set(bucketMatch[1]!.match(/\d+/g) ?? []);
-  if (unopenedIds.size === 0) return chests;
+  // 已开桶（UseBoxList）中的箱子不计持有（已经打开/用完）；未开桶（GetBoxList）
+  // 用于兜底识别 gamedata 未知 id 的箱子（保留 unclassified 展示）。
+  const usedMatch = /"BoxBucketUseBoxList"\s*:\s*\[([^\]]*)\]/.exec(playerStr);
+  const usedIds = new Set(usedMatch ? (usedMatch[1]!.match(/\d+/g) ?? []) : []);
+  const getMatch = /"BoxBucketGetBoxList"\s*:\s*\[([^\]]*)\]/.exec(playerStr);
+  const unopenedIds = new Set(getMatch ? (getMatch[1]!.match(/\d+/g) ?? []) : []);
   const arr = sliceJsonArray(playerStr, '"itemSaveDatas":');
   for (const objText of splitTopLevelObjects(arr)) {
-    const uniqueId = extractRawNumberText(objText, "UniqueId");
-    if (uniqueId == null || !unopenedIds.has(uniqueId)) continue;
     const itemKeyText = extractRawNumberText(objText, "ItemKey");
     if (itemKeyText === null) continue;
     const itemKey = Math.trunc(Number(itemKeyText));
+    const uniqueId = extractRawNumberText(objText, "UniqueId");
+    // 已开桶中的箱子不在持有（已经打开/用完）。
+    if (uniqueId != null && usedIds.has(uniqueId)) continue;
     const meta = classifyBoxItemKey?.(itemKey) ?? null;
-    chests.push({ type: itemKey, quantity: 1, category: meta?.category, label: meta?.label });
+    if (meta == null) {
+      // gamedata 未知 id：仅当出现在未开桶中才作为（unclassified）箱子计入，
+      // 避免误收装备/材料等非箱子物品。
+      if (uniqueId == null || !unopenedIds.has(uniqueId)) continue;
+      chests.push({ type: itemKey, quantity: 1 });
+      continue;
+    }
+    // 已知 STAGEBOX 箱子：只要不在已开桶即视为持有。
+    // 章节 Boss 箱的 UniqueId 可能既不在 Get 也不在 Use 桶（v1.2.2 实测，
+    // 910901/920901 在 Get 而 930901 两桶皆不在），若严格限定"未开桶"会把
+    // 章节 Boss 箱误判为已开而丢弃 —— 即"掉落章节宝箱后队列被误归零"。
+    chests.push({ type: itemKey, quantity: 1, category: meta.category, label: meta.label });
   }
   return chests;
 }

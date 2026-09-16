@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { LiveMemorySnapshot, LookupPriceSnapshot, SaveSnapshot } from "../../shared/types";
+import type {
+  LiveMemorySnapshot,
+  LookupItem,
+  LookupPriceSnapshot,
+  SaveSnapshot,
+} from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 import type { LocaleCatalog } from "../../src/core/localeCatalog";
 import type { GameItem } from "../../src/core/gamedata";
@@ -33,6 +38,7 @@ vi.mock("../../src/main/historyLog", () => ({
 
 import { TrackingService } from "../../src/main/services/TrackingService";
 import { broadcast } from "../../src/main/services/broadcast";
+import { IPC } from "../../shared/ipc";
 
 const baseConfig = {
   savePath: "C:/game/save.es3",
@@ -1824,5 +1830,415 @@ describe("TrackingService box-open fallback price (lookup snapshot currency)", (
     svc.setLookupPriceSnapshot(SNAPSHOT({ buyOrderLocal: { [HASH]: 0.5 }, localCurrency: "CNY" }));
     expect(recordDropAndGetUnit(svc)).toBeCloseTo(0.5, 5);
     svc.stop();
+  });
+});
+
+describe("TrackingService acquire record-log ingestion", () => {
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+  });
+
+  function frame(at: number): LiveMemorySnapshot {
+    return {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      stageAlive: null,
+      boxOpens: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at,
+    };
+  }
+
+  it("feeds each new acquire line as a structured record-log entry", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // High unique ring indices — the persisted archive's dedupe set must not
+    // learn test indices that could collide with a real game session.
+    svc.ingestAcquireBatch([
+      { seq: 900001, time: "17:45", message: "获得了<color=#D7D7D7>永恒之弓</color>。" },
+      { seq: 900002, time: "17:46", message: "获得金币 x2" },
+    ]);
+
+    const entries = svc.getStats().recordLog.entries;
+    const acquire = entries.filter((e) => e.kind === "acquire");
+    // `start()` restores the persisted record_log.json, so assert presence of the
+    // two newly-fed lines rather than an exact total count.
+    const item = acquire.find((e) => e.acquireName === "永恒之弓");
+    expect(item).toBeDefined();
+    expect(item).toMatchObject({
+      acquireTime: "17:45",
+      acquireColor: "#D7D7D7",
+      acquireCount: 1,
+      // 原始消息文本随记录持久化，供日志页完整展示
+      acquireRaw: "获得了永恒之弓。",
+    });
+
+    const gold = acquire.find((e) => e.acquireName?.includes("金币"));
+    expect(gold).toBeDefined();
+    expect(gold?.acquireCount).toBe(2);
+
+    svc.stop();
+  });
+
+  it("ingests only acquire lines — bucket-derived events never enter the record log", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // `start()` restores persisted record_log.json, so compare relative counts.
+    const before = svc.getStats().recordLog.entries;
+    const openBefore = before.filter((e) => e.kind === "open").length;
+    const clearBefore = before.filter((e) => e.kind === "clear").length;
+    const dropBefore = before.filter((e) => e.kind === "drop").length;
+    // The acquire assertion counts THIS line by its unique tag rather than the
+    // total: `getStats()` only exposes the newest 200 entries, so once the
+    // shared archive exceeds that window a total count stops growing and the
+    // assertion would fail for reasons unrelated to what is being tested.
+    const name = `骰子${Date.now()}-buckets`;
+    const acquireBefore = before.some((e) => e.kind === "acquire" && e.acquireName === name);
+
+    // A frame carries bucket events (box-open + stage-clear) AND the acquire
+    // channel carries the same timeline line. The record log must only ever
+    // receive the acquire reading — no drop/open/clear are synthesized from the
+    // event buckets, faithfully mirroring the game's own "获得记录" UI.
+    expect(acquireBefore).toBe(false);
+    svc.ingestLiveFrame({
+      ...frame(3000),
+      boxOpens: [{ boxType: 910901, level: 90, itemKey: 1001 }],
+      stageClears: [{ act: 3, stage: 10, clearTimeSec: 4, valid: true }],
+    });
+    svc.ingestAcquireBatch([
+      { seq: 900003, time: "15:06", message: `获得了<color=#E8695A>${name}</color>。` },
+    ]);
+
+    const after = svc.getStats().recordLog.entries;
+    expect(after.filter((e) => e.kind === "open").length).toBe(openBefore);
+    expect(after.filter((e) => e.kind === "clear").length).toBe(clearBefore);
+    expect(after.filter((e) => e.kind === "drop").length).toBe(dropBefore);
+    expect(after.some((e) => e.kind === "acquire" && e.acquireName === name)).toBe(true);
+    // The line is recorded with the raw text for faithful display.
+    const dice = after.find((e) => e.kind === "acquire" && e.acquireName === name);
+    expect(dice).toBeDefined();
+    expect(dice?.acquireRaw).toBe(`获得了${name}。`);
+
+    svc.stop();
+  });
+
+  it("skips re-appending the session backlog on a re-attach initial sync", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // Unique signature + unique ring indices so the shared record_log.json
+    // never collides across runs.
+    const tag = `${Date.now()}`;
+    // Wide unique space: these tests persist into the SHARED record_log.json
+    // (cwd fallback), so a small `Date.now() % 1000` space collided with
+    // leftovers from earlier runs (measured 2026-09-16: 900394 was hit) and
+    // the initial-batch dedupe skipped the line before it was ever counted.
+    const base = 900100000 + (Date.now() % 1000000);
+    const backlog = [
+      { seq: base, time: "19:58", message: `获得了<color=#D7D7D7>星光碎片${tag}</color>。` },
+      { seq: base + 1, time: "19:59", message: `获得金币 ${tag}` },
+    ];
+    // Count by unique tag (both backlog lines carry it in their raw text), not
+    // by total: `getStats()` only exposes the newest 200 entries, so a total
+    // count stops growing once the shared archive exceeds that window
+    // (measured 2026-09-16: 213 entries) and would fail here for reasons
+    // unrelated to the dedupe being tested.
+    const acquireCount = () =>
+      svc
+        .getStats()
+        .recordLog.entries.filter((e) => e.kind === "acquire" && (e.acquireRaw ?? "").includes(tag))
+        .length;
+    const before = acquireCount();
+    svc.ingestAcquireBatch(backlog, true);
+    const afterFirst = acquireCount();
+    expect(afterFirst).toBe(before + 2);
+
+    // Companion restart in the same game session → re-attach initial sync with
+    // the identical backlog must NOT append duplicates (signature dedup).
+    svc.ingestAcquireBatch(backlog, true);
+    expect(acquireCount()).toBe(afterFirst);
+
+    svc.stop();
+  });
+
+  it("keeps genuine duplicates within one initial batch (same minute, same item)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // Two identical boxes opened in the same game minute are legal duplicates
+    // inside the initial backlog — the re-attach dedup must not merge them
+    // (distinct ring indices are the identity, so both survive).
+    const tag = `${Date.now()}`;
+    const base = 900200000 + (Date.now() % 1000000);
+    const dup = { seq: base, time: "20:00", message: `获得了<color=#E8695A>骰子${tag}</color>。` };
+    const name = `骰子${tag}`;
+    const before = svc
+      .getStats()
+      .recordLog.entries.filter((e) => e.kind === "acquire" && e.acquireName === name).length;
+    svc.ingestAcquireBatch([dup, { ...dup, seq: base + 1 }], true);
+    const after = svc
+      .getStats()
+      .recordLog.entries.filter((e) => e.kind === "acquire" && e.acquireName === name).length;
+    expect(after).toBe(before + 2);
+
+    svc.stop();
+  });
+
+  it("skips a re-attach backlog line whose ring stamp CHANGED (the game rewrites time strings)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // The ring's `[HH:MM]` field points to a string object the game reuses and
+    // rewrites (measured 2026-09-15), so the SAME untouched ring entry reports a
+    // different stamp on the next attach. The dedupe keys on the ring index, so
+    // the stamp change is irrelevant — the line is not re-appended.
+    const tag = `${Date.now()}-stamp`;
+    const raw = `通关了关卡 3-10。(4秒)${tag}`;
+    // Same wide unique space as above — see the note in the backlog test.
+    const seq = 900300000 + (Date.now() % 1000000);
+    const count = () =>
+      svc.getStats().recordLog.entries.filter((e) => e.kind === "acquire" && e.acquireRaw === raw)
+        .length;
+
+    svc.ingestAcquireBatch([{ seq, time: "14:07", message: raw }], true);
+    expect(count()).toBe(1);
+
+    svc.ingestAcquireBatch([{ seq, time: "14:40", message: raw }], true);
+    expect(count()).toBe(1); // same ring index → already archived, NOT re-appended
+
+    svc.stop();
+  });
+
+  it("keeps a new game session's lines even when their text repeats (ringRestarted)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // A ring restart means the ring was cleared: its indices restart from 1 and
+    // its lines are new records even though the text repeats from the previous
+    // session — `ringRestarted` bypasses the index dedupe entirely.
+    const tag = `${Date.now()}-restart`;
+    const raw = `获得了<color=#519FFF>银锭${tag}</color>。`;
+    const seq = 900400000 + (Date.now() % 1000000);
+    const count = () =>
+      svc
+        .getStats()
+        .recordLog.entries.filter(
+          (e) => e.kind === "acquire" && e.acquireRaw === `获得了银锭${tag}。`,
+        ).length;
+
+    svc.ingestAcquireBatch([{ seq, time: "00:05", message: raw }], true, true);
+    expect(count()).toBe(1);
+
+    svc.ingestAcquireBatch([{ seq, time: "00:05", message: raw }], true, true);
+    expect(count()).toBe(2); // not deduped: a restarted ring's lines are genuinely new
+
+    svc.stop();
+  });
+
+  it("pushes stats right after ingesting acquire lines (independent of the live frame)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+    vi.mocked(broadcast).mockClear();
+
+    // No live frame involved — the acquire channel alone must refresh the UI,
+    // otherwise records stay stale while read() stalls (main menu / town).
+    svc.ingestAcquireBatch(
+      [{ seq: 900004, time: "17:45", message: "获得了<color=#D7D7D7>永恒之弓</color>。" }],
+      false,
+    );
+
+    expect(broadcast).toHaveBeenCalledWith(
+      IPC.STATS,
+      expect.objectContaining({ recordLog: expect.anything() }),
+    );
+
+    svc.stop();
+  });
+});
+
+describe("TrackingService box-open backfill", () => {
+  // Far-future base so nothing in the persisted `record_log.json` (a real
+  // 2026 archive) falls inside the judged window and skews these assertions.
+  const T0 = Date.UTC(2030, 0, 1, 12, 0, 0);
+
+  /** Single-variant material: one catalog row, so its grade is unambiguous. */
+  function material(id: number, name: string, sourceName: string, grade: string): LookupItem {
+    return {
+      id,
+      name,
+      sourceName,
+      grade,
+      type: "MATERIAL",
+      gearType: null,
+      gearGroup: null,
+      materialType: "MATERIAL",
+      level: null,
+      iconPath: "",
+      marketTradable: true,
+    };
+  }
+  const DICE = material(124003, "骰子", "Dice", "IMMORTAL");
+  const AMETHYST = material(112005, "紫水晶", "Amethyst", "RARE");
+
+  function openFrame(at: number, itemKey: number): LiveMemorySnapshot {
+    return {
+      connected: true,
+      stageKey: 3205,
+      stageWave: 1,
+      gold: null,
+      heroes: null,
+      chestDrops: null,
+      chestSlots: null,
+      inventoryItems: null,
+      stageClears: null,
+      stageWaveTotal: null,
+      stageAlive: null,
+      boxOpens: [{ boxType: 910901, level: 90, itemKey }],
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "memory test",
+      readMs: 1,
+      at,
+    };
+  }
+
+  beforeEach(() => {
+    onSnapshot = undefined;
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * One chest granted two items; the box-open reader only committed the first.
+   * The ring has both lines. Feeding that and letting the pass run should
+   * recover the lost one — attributed to the surviving sibling's box.
+   */
+  it("records a log line the box-open reader never committed", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestLiveFrame(openFrame(T0, DICE.id));
+    svc.ingestAcquireBatch([
+      { seq: 910001, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910002, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+
+    // Nothing until the grace period lapses (see the test below).
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+
+    const history = svc.getBoxOpenTracker().fitHistory();
+    const recovered = history.filter((e) => e.itemName === "紫水晶");
+    expect(recovered).toHaveLength(1);
+    // Resolved through the catalog: id + grade, not a placeholder.
+    expect(recovered[0]).toMatchObject({ itemKey: AMETHYST.id, grade: "RARE", count: 1 });
+    // Attributed to the surviving sibling's box rather than dropped or guessed.
+    const survivor = history.find((e) => e.itemName === "骰子");
+    expect(survivor).toBeDefined();
+    expect(recovered[0]?.boxKey).toBe(survivor?.boxKey);
+
+    // Deliberately NOT calling `svc.stop()`: stop() flushes the record log to
+    // the shared `record_log.json`, and these runs use a far-future system
+    // clock — persisting them would leave 2030-dated lines in the archive that
+    // other tests (and a dev build) then read. Every timer here was created
+    // under fake timers, so `useRealTimers()` in afterEach discards them.
+  });
+
+  it("is idempotent — a second pass does not re-record the recovered entry", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestLiveFrame(openFrame(T0, DICE.id));
+    svc.ingestAcquireBatch([
+      { seq: 910011, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910012, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+    const afterFirst = svc.getBoxOpenTracker().fitHistory().length;
+
+    // The recovered line now has a tracker counterpart, so the normal
+    // name+time match claims it and there is nothing left to backfill.
+    svc.runBoxOpenBackfill(true);
+    expect(svc.getBoxOpenTracker().fitHistory()).toHaveLength(afterFirst);
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  it("waits out the grace period so a slow box-open reader is never double-counted", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestLiveFrame(openFrame(T0, DICE.id));
+    svc.ingestAcquireBatch([
+      { seq: 910021, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910022, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+
+    // Same instant: the reader parks mid-write slots and retries, so it may
+    // still be about to commit the second open. Backfilling now would double
+    // it. The pass must decline until the line is old enough.
+    svc.runBoxOpenBackfill(true);
+    expect(
+      svc
+        .getBoxOpenTracker()
+        .fitHistory()
+        .filter((e) => e.itemName === "紫水晶"),
+    ).toHaveLength(0);
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  it("stays silent when no open has ever been recorded (no evidence to attribute against)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // Live memory off / no chest opened yet: every stray grant would otherwise
+    // become `unclassified` noise.
+    svc.ingestAcquireBatch([
+      { seq: 910031, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+
+    expect(svc.getBoxOpenTracker().fitHistory()).toHaveLength(0);
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
   });
 });

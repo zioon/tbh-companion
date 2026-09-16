@@ -2,10 +2,11 @@
 // The heavy read loop runs in the worker process, so this service stays cheap on
 // the main thread. Lifecycle is tied to the enable toggle (not tracking start).
 
-import { utilityProcess, type UtilityProcess } from "electron";
+import { app, utilityProcess, type UtilityProcess } from "electron";
 import { join } from "node:path";
 import { IPC } from "../../../shared/ipc";
 import type {
+  AcquireLogEntry,
   LiveInventoryItem,
   LiveMemorySnapshot,
   LiveMemoryStatus,
@@ -25,14 +26,47 @@ const SNAPSHOT_BROADCAST_INTERVAL_MS = 200;
 
 type WorkerMessage =
   | { type: "snapshot"; snapshot: LiveMemorySnapshot }
+  | {
+      type: "acquire";
+      entries: AcquireLogEntry[];
+      initial: boolean;
+      ringRestarted: boolean;
+      watermark: number;
+      sessionBase: number | null;
+    }
   | { type: "status"; status: LiveMemoryStatus }
   | { type: "log"; message: string };
+
+/** One batch of "获得记录" lines delivered by the worker's acquire-ring monitor. */
+export interface AcquireBatch {
+  entries: AcquireLogEntry[];
+  /** True for the first batch after attach: the whole session backlog. */
+  initial: boolean;
+  /**
+   * The ring counter restarted right before this batch (new game session), so
+   * its lines are genuinely new even where the text repeats — the archive dedupe
+   * must keep them (see `TrackingService.ingestAcquireBatch`).
+   */
+  ringRestarted: boolean;
+  /**
+   * The reader's ring position after this batch — persisted by the record log
+   * service so the next companion start resumes from here.
+   */
+  watermark: number;
+  /**
+   * The calibrated session base at read time — persisted alongside the
+   * watermark so a resumed reader can restore the slot mapping (a saturated
+   * ring carries no base signal of its own).
+   */
+  sessionBase: number | null;
+}
 
 export class LiveMemoryService {
   private child: UtilityProcess | null = null;
   private lastSnapshot: LiveMemorySnapshot | null = null;
   private lastStatus: LiveMemoryStatus | null = null;
   private snapshotCb: ((snap: LiveMemorySnapshot) => void) | null = null;
+  private acquireCb: ((batch: AcquireBatch) => void) | null = null;
   private lastBroadcastMs = 0;
   private onGameVersionChanged?: () => void;
   /**
@@ -53,10 +87,46 @@ export class LiveMemoryService {
    * localization — hero keys fall back to the English `HERO_NAMES` map).
    */
   private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
+  /**
+   * Persisted acquire-ring read position, pushed to the worker right after
+   * spawn (see `setAcquireResume`) so a companion restart resumes incrementally
+   * instead of replaying the whole ring window.
+   */
+  private acquireResumeTotal: number | null = null;
+  /** Session base persisted with the resume watermark (see `setAcquireResume`). */
+  private acquireResumeBase: number | null = null;
 
   /** Register a callback invoked on every snapshot frame from the reader worker. */
   setOnSnapshot(cb: (snap: LiveMemorySnapshot) => void): void {
     this.snapshotCb = cb;
+  }
+
+  /**
+   * Register a callback invoked on every "获得记录" batch from the worker's
+   * independent acquire-ring monitor (initial full sync + periodic increments),
+   * delivered outside the snapshot frame so it's never gated on `read()`.
+   */
+  setOnAcquire(cb: (batch: AcquireBatch) => void): void {
+    this.acquireCb = cb;
+  }
+
+  /**
+   * Set the acquire-ring read position to resume from. Sourced from the record
+   * log's persisted watermark — appState calls this right after `tracking.start()`,
+   * i.e. AFTER `start()` forked the worker, so the value is pushed to the live
+   * worker immediately (it must arrive before the worker's first ring read,
+   * otherwise the whole window is replayed once).
+   */
+  setAcquireResume(total: number | null, sessionBase?: number | null): void {
+    this.acquireResumeTotal = total;
+    if (sessionBase !== undefined) this.acquireResumeBase = sessionBase;
+    if (this.child) {
+      this.child.postMessage({
+        type: "acquireResume",
+        total,
+        sessionBase: this.acquireResumeBase,
+      });
+    }
   }
 
   /** Register a callback invoked once when the worker reports a new gameVersion
@@ -106,6 +176,39 @@ export class LiveMemoryService {
       return;
     }
 
+    // Ring-dump diagnostic policy. Gating on an env var inside the worker proved
+    // unreliable (a dev restart exporting TBH_ACQUIRE_DUMP=1 produced no dump at
+    // all), so the decision is made here and pushed explicitly: an unpackaged
+    // (dev) build gets a bounded budget automatically, `TBH_ACQUIRE_DUMP=1`
+    // enables the full-window dump anywhere, `=0` disables it.
+    const dumpEnv = process.env.TBH_ACQUIRE_DUMP;
+    // `app` can be absent in unit-test stubs — treat that as packaged (dump off).
+    const packaged = typeof app?.isPackaged === "boolean" ? app.isPackaged : true;
+    const dumpEnabled = dumpEnv === "1" || (dumpEnv !== "0" && !packaged);
+    const dumpPolicy = {
+      type: "acquireDump" as const,
+      enabled: dumpEnabled,
+      // -1 = unlimited (explicit env), otherwise a bounded auto budget.
+      maxDumps: dumpEnv === "1" ? -1 : dumpEnabled ? 200 : 0,
+      windowSize: dumpEnv === "1" ? 24 : 8,
+    };
+    log.info(
+      `acquire dump policy: enabled=${dumpPolicy.enabled} maxDumps=${dumpPolicy.maxDumps} ` +
+        `window=${dumpPolicy.windowSize} (TBH_ACQUIRE_DUMP=${dumpEnv ?? "unset"}, ` +
+        `packaged=${packaged})`,
+    );
+    this.child.postMessage(dumpPolicy);
+    // Acquire-ring resume watermark (persisted by the record log service).
+    // Normally `setAcquireResume` fires right after this and pushes the real
+    // value; this spawn-time post only matters when a watermark is already
+    // known before appState wiring runs.
+    if (this.acquireResumeTotal != null) {
+      this.child.postMessage({
+        type: "acquireResume",
+        total: this.acquireResumeTotal,
+      });
+    }
+
     this.child.on("message", (msg: WorkerMessage) => {
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "snapshot") {
@@ -142,6 +245,20 @@ export class LiveMemoryService {
         const newVersion = msg.status.gameVersion ?? null;
         if (prevVersion !== null && newVersion !== null && prevVersion !== newVersion) {
           this.onGameVersionChanged?.();
+        }
+      } else if (msg.type === "acquire") {
+        if (this.acquireCb) {
+          try {
+            this.acquireCb({
+              entries: msg.entries,
+              initial: msg.initial,
+              ringRestarted: msg.ringRestarted,
+              watermark: msg.watermark,
+              sessionBase: msg.sessionBase,
+            });
+          } catch (err) {
+            log.warn(`Acquire batch callback failed: ${String(err)}`);
+          }
         }
       } else if (msg.type === "log") {
         log.info(`[worker] ${msg.message}`);

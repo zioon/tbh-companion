@@ -889,6 +889,39 @@ export class AutoClassifyService {
         }
       }
     }
+    // 打开反推获得（治 auto-open 下 live miss + save 未补债的"获得"漏记）：
+    // 到达这里的 pendingBursts 是"被打开但未匹配到活获得记录"的宝箱（正常有获得的
+    // 打开已在 processEvent 里匹配 queued 消费掉）。宝箱能打开必先被获得过，故用
+    // 守恒补记：若该类别近期获得记录不足这批打开数，差额即被 live miss 且 save(net0)
+    // 未能补债的"获得"，补记之。source 用 "reconcile"（非 live，避免污染 live 学分致
+    // 后续 save 对账少补）。OPEN_BACKFILL_WINDOW_SEC 去重窗口取能覆盖 auto-open 间隔的
+    // 量级，防止把窗口内的正常获得重复补记。
+    const OPEN_BACKFILL_WINDOW_SEC = 120;
+    const openedCount = this.pendingBursts.reduce((n, b) => n + b.itemKeys.length, 0);
+    const knownRecent = this.deps.chestDropTracker.dropCountWithin(
+      cat as ChestDropCategory,
+      OPEN_BACKFILL_WINDOW_SEC,
+    );
+    const toBackfill = openedCount - knownRecent;
+    if (toBackfill > 0) {
+      this.suppressingHandleChestDrop = true;
+      try {
+        const wallTimeSec = this.getEffectiveNow() / 1000;
+        for (let i = 0; i < toBackfill; i++) {
+          this.deps.chestDropTracker.recordLiveChestDrop(
+            cat as ChestDropCategory,
+            wallTimeSec,
+            "reconcile",
+          );
+        }
+      } finally {
+        this.suppressingHandleChestDrop = false;
+      }
+      log.info(
+        `open-backfill: recorded ${toBackfill} ${cat} drop(s) from ${openedCount} opened chest(s) ` +
+          `(known ${knownRecent} within ${OPEN_BACKFILL_WINDOW_SEC}s)`,
+      );
+    }
     const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
     const seconds = this.autoOpenForBoxKey(`${cat}:0`, autoOpen);
     const latestBurstMs = this.pendingBursts.reduce(

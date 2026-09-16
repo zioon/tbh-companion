@@ -35,6 +35,8 @@ vi.mock("../../src/renderer/lib/useStats", () => ({
       actSession: 0,
       combinedSession: 0,
       readerRequired: true,
+      normalMapSeconds: 0,
+      plagueMapSeconds: 0,
       breakdown: [],
       history: [],
     },

@@ -462,6 +462,15 @@ export class BoxOpenTracker {
     this.baseAggregateCache = null;
   }
 
+  /**
+   * Full open history for the record page's source fit (read-only copy).
+   * Mirrors `ChestDropTracker.fitHistory` — the whole bounded window, not the
+   * per-box 50-entry visible slice.
+   */
+  fitHistory(): BoxOpenHistoryEntry[] {
+    return [...this.history];
+  }
+
   /** Serialize for session_state.json. */
   captureSnapshot(): BoxOpenTrackerSnapshot {
     const countsByKey: Record<string, Record<string, number>> = {};

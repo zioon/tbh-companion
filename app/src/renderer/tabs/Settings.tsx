@@ -30,6 +30,7 @@ const CLEAR_ACTION_TARGETS: AppDataClearTarget[] = [
   "prices",
   "lookup-prices",
   "box-timers",
+  "record-log",
   "session",
   "all-except-config",
 ];

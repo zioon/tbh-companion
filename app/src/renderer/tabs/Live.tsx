@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { useStats } from "../lib/useStats";
 import { useInventory } from "../lib/useInventory";
 import { useChests } from "../lib/useChests";
-import { useStageRuns } from "../lib/useStageRuns";
 import { useLiveMemoryScalars } from "../lib/useLiveMemory";
 import {
   fmtCompact,
@@ -26,8 +25,6 @@ import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
 import { Tooltip } from "../design-system/primitives/Tooltip/Tooltip";
 import { ProgressBar } from "../design-system/primitives/ProgressBar/ProgressBar";
-import { ChestDropPanel } from "../components/live/ChestDropPanel";
-import { StageRunPanel } from "../components/live/StageRunPanel";
 import {
   LiveHistoryPanel,
   LiveHistoryRow,
@@ -37,6 +34,7 @@ import { LiveMatchedPair } from "../components/live/LiveMatchedPair";
 import { LivePanelList } from "../components/live/LivePanelList";
 import { LiveChestStatValue } from "../lib/liveChestStat";
 import { cn } from "../lib/cn";
+import { RecordLog } from "./RecordLog";
 import type { ChestAutoOpenPrefs } from "../../../shared/types";
 
 const IDLE_THRESHOLD = 120;
@@ -47,7 +45,6 @@ export function Live() {
   const stats = useStats();
   const inventory = useInventory();
   const chests = useChests();
-  const stageRuns = useStageRuns();
   const liveScalars = useLiveMemoryScalars();
   const { t } = useTranslation("live");
   const [autoOpenEnabled, setAutoOpenEnabled] = useState<ChestAutoOpenPrefs>(DEFAULT_AUTO_OPEN);
@@ -353,6 +350,8 @@ export function Live() {
     plagueRarePerHour,
     plagueCommonRecentPerHour,
     plagueRareRecentPerHour,
+    normalMapSeconds,
+    plagueMapSeconds,
     readerRequired,
   } = stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
@@ -364,11 +363,6 @@ export function Live() {
     : chestDetectionPending
       ? t("chestTipPending")
       : t("chestTipLive");
-  const chestInactiveMessage = chestReaderOff
-    ? t("chestTipNeedReader")
-    : chestDetectionPending
-      ? t("chestTipPending")
-      : null;
 
   return (
     <TabPage>
@@ -466,6 +460,7 @@ export function Live() {
                 inactive={chestStatsInactive}
               />
             }
+            detail={t("normalMapTime", { time: fmtShortDuration(normalMapSeconds) })}
             title={chestRateTip}
           />
           <StatCard
@@ -492,6 +487,7 @@ export function Live() {
                 inactive={chestStatsInactive}
               />
             }
+            detail={t("plagueMapTime", { time: fmtShortDuration(plagueMapSeconds) })}
             title={chestRateTip}
           />
           <StatCard
@@ -555,64 +551,54 @@ export function Live() {
         </section>
       ) : null}
 
-      <LiveMatchedPair
-        left={inventoryFillPrediction}
-        right={
-          <ChestDropPanel chestDrops={stats.chestDrops} inactiveMessage={chestInactiveMessage} />
-        }
-      />
+      {/* 英雄等级与物品栏填充预估同一行（原右侧宝箱/通关历史面板已移除）。 */}
+      <LiveMatchedPair left={heroesPanel} right={inventoryFillPrediction} />
 
-      <LiveMatchedPair
-        left={heroesPanel}
-        right={
-          liveActive ? (
-            <StageRunPanel stageRuns={stageRuns ?? { history: [], readerRequired: true }} />
-          ) : (
-            <LiveHistoryPanel
-              title={
-                <>
-                  {t("historyTitle")}{" "}
-                  <span className="normal-case tracking-normal text-muted">
-                    {t("historySubtitle")}
-                  </span>
-                </>
-              }
-              columns={xpHistoryColumns}
-              empty={
-                stats.history.length === 0 ? <p className="m-0">{t("historyEmpty")}</p> : undefined
-              }
-            >
-              {stats.history.map((e, i) => (
-                <LiveHistoryRow
-                  key={`${e.wallTime}-${i}`}
-                  index={i}
-                  cells={[
-                    {
-                      content: fmtClock(e.wallTime),
-                      className: "tabular-nums text-muted whitespace-nowrap",
-                    },
-                    {
-                      content: `+${fmtCompact(e.delta)}`,
-                      align: "right",
-                      className: "tabular-nums text-accent",
-                    },
-                    {
-                      content: t("ratePerHour", { value: fmtCompact(e.rate) }),
-                      align: "right",
-                      className: "tabular-nums",
-                    },
-                    {
-                      content: e.stageName ?? String(e.stageKey),
-                      align: "right",
-                      className: "min-w-0 truncate text-muted",
-                    },
-                  ]}
-                />
-              ))}
-            </LiveHistoryPanel>
-          )
-        }
-      />
+      {!liveActive && (
+        <LiveHistoryPanel
+          title={
+            <>
+              {t("historyTitle")}{" "}
+              <span className="normal-case tracking-normal text-muted">{t("historySubtitle")}</span>
+            </>
+          }
+          columns={xpHistoryColumns}
+          empty={
+            stats.history.length === 0 ? <p className="m-0">{t("historyEmpty")}</p> : undefined
+          }
+        >
+          {stats.history.map((e, i) => (
+            <LiveHistoryRow
+              key={`${e.wallTime}-${i}`}
+              index={i}
+              cells={[
+                {
+                  content: fmtClock(e.wallTime),
+                  className: "tabular-nums text-muted whitespace-nowrap",
+                },
+                {
+                  content: `+${fmtCompact(e.delta)}`,
+                  align: "right",
+                  className: "tabular-nums text-accent",
+                },
+                {
+                  content: t("ratePerHour", { value: fmtCompact(e.rate) }),
+                  align: "right",
+                  className: "tabular-nums",
+                },
+                {
+                  content: e.stageName ?? String(e.stageKey),
+                  align: "right",
+                  className: "min-w-0 truncate text-muted",
+                },
+              ]}
+            />
+          ))}
+        </LiveHistoryPanel>
+      )}
+
+      {/* 记录面板（原独立 "记录" 页）嵌入实时页底部；分页可回看 200 条之前的归档。 */}
+      <RecordLog />
 
       {showStatus && (
         <footer

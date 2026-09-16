@@ -2,6 +2,7 @@ import { GameDataProvider } from "../gameDataProvider";
 import { SteamMarketProvider } from "../steamMarketProvider";
 import { ownedPriceTargets, ownedPriceTargetForItem, parseInventory } from "../../core/inventory";
 import { flattenOwnedHashes } from "../../core/inventory/ownedPriceTargets";
+import { feeRatesForCurrency, type SteamMarketFeeRates } from "../../core/steamMarketFee";
 import { getTbhMarketFeeRates } from "../../core/steamMarketFeeBundled";
 import { isPlaceholderItemName } from "../../core/marketName";
 import { categoryFromBoxItemName } from "../../core/liveMemory/chestSlots";
@@ -112,6 +113,13 @@ export class InventoryService {
    */
   private readonly worker = new InventoryWorker(getTbhMarketFeeRates());
 
+  private currency = "USD";
+
+  /** 手续费费率按当前货币调整最低额（CNY→¥0.07，其余 $0.01 等值）。 */
+  private currentFeeRates(): SteamMarketFeeRates {
+    return feeRatesForCurrency(getTbhMarketFeeRates(), this.currency);
+  }
+
   /**
    * @param initialCatalog LocaleCatalog for item display name localization.
    *   Defaults to {@link emptyLocaleCatalog} (no localization — `ItemName_<id>`
@@ -123,6 +131,7 @@ export class InventoryService {
   }
 
   initMarket(currency: string): void {
+    this.currency = currency;
     this.market = new SteamMarketProvider(currency);
   }
 
@@ -139,7 +148,7 @@ export class InventoryService {
     // below will run on the sync fallback path because `init` hasn't
     // resolved yet — that's intentional, it keeps startup latency low for
     // small inventories and lets the worker take over once ready.
-    void this.worker.init(this.buildMergedGameDataLookup(), getTbhMarketFeeRates()).catch((err) => {
+    void this.worker.init(this.buildMergedGameDataLookup(), this.currentFeeRates()).catch((err) => {
       log.warn(`Inventory worker init failed: ${String(err)}`);
     });
     this.resolveAndPushInventory();
@@ -154,7 +163,7 @@ export class InventoryService {
   private refreshWorkerState(): void {
     if (this.gameData.isLoaded()) {
       void this.worker
-        .init(this.buildMergedGameDataLookup(), getTbhMarketFeeRates())
+        .init(this.buildMergedGameDataLookup(), this.currentFeeRates())
         .catch((err) => log.warn(`Inventory worker re-init failed: ${String(err)}`));
     }
   }
@@ -453,7 +462,9 @@ export class InventoryService {
       log.warn("setCurrency called before initMarket");
       return this.emptyPriceStatus(iso);
     }
+    this.currency = iso;
     this.market.setCurrency(iso);
+    this.refreshWorkerState();
     this.resolveAndPushInventory();
     void this.ensureOwnedPrices(true);
     return this.pricesStatus();

@@ -137,6 +137,11 @@
       "detail": "box_timers.json",
       "confirm": "스테이지 보스 보물 상자 추적기 타이머와 활성화된 루트를 기본값으로 초기화하시겠습니까? 진행 중인 재사용 대기시간이 지워집니다."
     },
+    "record-log": {
+      "label": "기록 로그 지우기",
+      "detail": "record_log.json",
+      "confirm": "기록 로그를 지우시겠습니까? 기록 로그 패널의 모든 획득 기록이 삭제되고, 게임의 현재 기록 창부터 다시 수집을 시작합니다."
+    },
     "session": {
       "label": "세션 스냅샷 지우기",
       "detail": "session_state.json",

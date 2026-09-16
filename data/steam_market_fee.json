@@ -1,6 +1,7 @@
 {
   "steamFeePercent": 0.05,
-  "publisherFeePercent": 0,
+  "publisherFeePercent": 0.1,
   "minFeeMajor": 0.01,
-  "note": "TBH sample (2026-06): sell_price_text R$ 1,01 vs sale_price_text R$ 0,96 ≈ 5% total. Confirm on Steam listing UI."
+  "minPayoutMajor": 0.01,
+  "note": "手续费按售价直接计算：Steam 5%（最少 0.01），厂商 10%（最少 0.01），收款保底 0.01。数值仅供参考，以 Steam 上架 UI 为准。"
 }

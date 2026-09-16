@@ -48,7 +48,14 @@ export function LiveMemoryDiagnostics() {
   const { snapshot, status } = useLiveMemory();
   const stats = useStats();
   const state = liveReaderState(status, Boolean(status?.running));
-  const lastReadAt = snapshot ? new Date(snapshot.at).toLocaleTimeString() : "—";
+  const lastReadAt = snapshot
+    ? new Date(snapshot.at).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      })
+    : "—";
   const dash = "—";
 
   return (

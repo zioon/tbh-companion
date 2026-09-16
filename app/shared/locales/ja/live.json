@@ -50,6 +50,8 @@
   "sessionXpPerHour": "セッション XP/時間",
   "sessionGoldPerHour": "セッション ゴールド/時",
   "commonChests": "一般宝箱",
+  "normalMapTime": "通常マップ {{time}}",
+  "plagueMapTime": "感染マップ {{time}}",
   "stageBossChests": "ステージボス宝箱",
   "actBossChests": "アクトボス宝箱",
   "plagueCommonChests": "疫病普通宝箱",

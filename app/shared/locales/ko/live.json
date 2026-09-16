@@ -50,6 +50,8 @@
   "sessionXpPerHour": "세션 XP/시간",
   "sessionGoldPerHour": "세션 골드/시간",
   "commonChests": "일반 보물 상자",
+  "normalMapTime": "일반 맵 {{time}}",
+  "plagueMapTime": "역병 맵 {{time}}",
   "stageBossChests": "스테이지 보스 보물 상자",
   "actBossChests": "액트 보스 보물 상자",
   "plagueCommonChests": "역병 일반 보물 상자",

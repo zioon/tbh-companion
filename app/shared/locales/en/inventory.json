@@ -30,6 +30,7 @@
     "location": "Location",
     "inUse": "Equipped",
     "marketPrice": "Market price",
+    "inHand": "In hand",
     "listValue": "Market total",
     "instantSell": "Instant sell",
     "instantTotal": "Instant total",
@@ -43,12 +44,12 @@
   "summary": {
     "marketValue": "Market value",
     "instantTotal": "Instant total",
-    "afterFees": "after Steam fees",
-    "feesLabel": "Steam fees",
+    "afterFees": "after trading costs",
+    "feesLabel": "trading costs",
     "estimate": "estimate",
     "listValueTip": "Total list value at Steam market prices (what buyers pay)",
     "estimateTip": "Estimated wallet proceeds if you listed everything at market prices. Steam listing UI is authoritative.",
-    "instantSellTip": "Sum of instant sell per row: selling into the order book level-by-level, best price first, until your stack is covered or the book runs dry. No listing fees.",
+    "instantSellTip": "Sum of instant sell per row: selling into the order book level-by-level, best price first, until your stack is covered or the book runs dry. Trading costs already deducted.",
     "unknownCount": "{{count}} item(s) aren't in this app's item list (shown as Unknown #…). Update the app, or check our Discord for work in progress on those IDs.",
     "discord": "Discord"
   },
@@ -72,7 +73,8 @@
     "notLoadedTitle": "Steam price not loaded yet",
     "notPricedTitle": "Not priced (non-tradable or below Legendary gear)",
     "openOnSteam": "Open on Steam Market",
-    "totalIfListed": "total if listed at market price"
+    "totalIfListed": "total if listed at market price",
+    "inHandTip": "Per-unit proceeds after Steam & publisher trading costs when sold at market price"
   },
   "locationCell": {
     "inv": "Inv {{count}}",
@@ -87,8 +89,8 @@
     "allEquipped": "All owned copies are currently equipped"
   },
   "instantTotal": {
-    "cappedTitle": "Selling into the order book level-by-level — covers {{covered}} of {{count}} owned; no buy orders deep enough for the rest. No listing fees.",
-    "defaultTitle": "Selling into the order book level-by-level, best price first. No listing fees."
+    "cappedTitle": "Selling into the order book level-by-level — covers {{covered}} of {{count}} owned; no buy orders deep enough for the rest. Trading costs already deducted.",
+    "defaultTitle": "Selling into the order book level-by-level, best price first. Trading costs already deducted."
   },
   "chaotic": "Chaotic",
   "emptyMessage": "No items match these filters.",

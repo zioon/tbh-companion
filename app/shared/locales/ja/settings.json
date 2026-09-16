@@ -137,6 +137,11 @@
       "detail": "box_timers.json",
       "confirm": "ステージボス宝箱トラッカーのタイマーと有効なルートをデフォルトに戻しますか？アクティブなクールダウンはクリアされます。"
     },
+    "record-log": {
+      "label": "記録ログをクリア",
+      "detail": "record_log.json",
+      "confirm": "記録ログをクリアしますか？「記録ログ」パネルのすべての獲得記録が削除され、ゲームの現在の記録ウィンドウから収集を再開します。"
+    },
     "session": {
       "label": "セッションスナップショットをクリア",
       "detail": "session_state.json",

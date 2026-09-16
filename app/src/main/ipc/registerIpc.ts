@@ -13,6 +13,7 @@ import { registerUpdateHandlers } from "./handlers/update";
 import { registerLookupHandlers } from "./handlers/lookup";
 import { registerLiveMemoryHandlers } from "./handlers/liveMemory";
 import { registerStageRunHandlers } from "./handlers/stageRuns";
+import { registerRecordLogHandlers } from "./handlers/recordLog";
 import { registerLootHandlers } from "./handlers/loot";
 import { registerCatalogHandlers } from "./handlers/catalog";
 
@@ -31,6 +32,7 @@ export function registerIpc(services: AppServices): void {
   registerLookupHandlers(ipcMain, services);
   registerLiveMemoryHandlers(ipcMain, services);
   registerStageRunHandlers(ipcMain, services);
+  registerRecordLogHandlers(ipcMain, services);
   registerLootHandlers(ipcMain, services);
   registerCatalogHandlers(ipcMain, services);
 }

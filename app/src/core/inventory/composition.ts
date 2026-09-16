@@ -3,7 +3,7 @@
 // Contract: never clears pricing fields on input rows — re-aggregation must not wipe
 // previously resolved prices for rows excluded from the subset (e.g. no market hash).
 
-import { instantSellValue } from "./buyOrder";
+import { instantSellNetValue, instantSellValue } from "./buyOrder";
 import { aggregateSellerProceeds, type SteamMarketFeeRates } from "../steamMarketFee";
 import type { InventoryComposition, ResolvedInventoryRow } from "../../../shared/types";
 
@@ -30,6 +30,7 @@ function emptyComposition(): InventoryComposition {
 function accumulateCompositionRow(
   composition: InventoryComposition,
   row: ResolvedInventoryRow,
+  feeRates: SteamMarketFeeRates,
 ): void {
   composition.inUseCount += row.inUseCount;
   composition.total += row.count;
@@ -51,12 +52,15 @@ function accumulateCompositionRow(
   }
 
   if (row.buyOrderLevels?.length) {
-    const result = instantSellValue(row.count, row.buyOrderLevels);
-    row.buyOrderValue = result.value;
-    row.buyOrderCoveredCount = result.coveredCount;
-    if (row.buyOrderValue != null) {
-      composition.buyOrderValuedTotal += row.buyOrderValue;
+    const gross = instantSellValue(row.count, row.buyOrderLevels);
+    row.buyOrderValue = gross.value;
+    row.buyOrderCoveredCount = gross.coveredCount;
+    if (gross.value != null) {
+      composition.buyOrderValuedTotal += gross.value;
       composition.buyOrderPricedRows += 1;
+      // Net after Steam/publisher fees, computed per level price (not a flat ratio).
+      const net = instantSellNetValue(row.count, row.buyOrderLevels, feeRates);
+      if (net.value != null) composition.buyOrderNetTotal += net.value;
     }
   }
 }
@@ -67,7 +71,7 @@ export function computeInventoryComposition(
   feeRates: SteamMarketFeeRates,
 ): InventoryComposition {
   const composition = emptyComposition();
-  rows.forEach((row) => accumulateCompositionRow(composition, row));
+  rows.forEach((row) => accumulateCompositionRow(composition, row, feeRates));
 
   const feeLines = rows
     .filter((row) => row.unitPrice != null && row.count > 0)
@@ -76,14 +80,6 @@ export function computeInventoryComposition(
   const proceeds = aggregateSellerProceeds(feeLines, feeRates);
   composition.feeTotal = proceeds.feeTotal;
   composition.netAfterFeesTotal = proceeds.netTotal;
-
-  // Net instant-sell: apply the same fee ratio as on median value.
-  if (composition.valuedTotal > 0 && composition.netAfterFeesTotal > 0) {
-    const feeRatio = composition.netAfterFeesTotal / composition.valuedTotal;
-    composition.buyOrderNetTotal = Math.round(composition.buyOrderValuedTotal * feeRatio);
-  } else {
-    composition.buyOrderNetTotal = composition.buyOrderValuedTotal;
-  }
 
   return composition;
 }

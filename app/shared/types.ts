@@ -136,6 +136,14 @@ export interface ChestDropStats {
    * Renderer shows inactive/unavailable when the reader is off or detection is not wired yet.
    */
   readerRequired: boolean;
+  /**
+   * Session seconds spent farming normal (non-plague) vs plague maps, fed by
+   * `ChestDropTracker.noteMapTime`. Surfaced so the Live tab annotates the
+   * normal/plague chest cards with the time actually spent on each map type.
+   * 0 when live map time hasn't been accumulated (non-attached session).
+   */
+  normalMapSeconds: number;
+  plagueMapSeconds: number;
 }
 
 /** Serialized chest drop tracker for session_state.json restore. */
@@ -154,6 +162,16 @@ export interface ChestDropTrackerSnapshot {
    * legacy snapshots; restore falls back to the oldest kept history entry.
    */
   sessionDropStart?: number | null;
+  /**
+   * Map-type-aware farming time (seconds) accumulated via
+   * `ChestDropTracker.noteMapTime` on live frames — normal (non-plague) vs
+   * plague maps respectively. persisted so per-hour chest rates stay
+   * map-aware after a restart (normal chests divided by normal-map time,
+   * plague chests by plague-map time). Absent in legacy snapshots → restore
+   * uses 0 and rates fall back to the wall-clock window.
+   */
+  normalMapSec?: number;
+  plagueMapSec?: number;
 }
 
 // --- Box open loot tracking ---
@@ -388,6 +406,149 @@ export interface BoxOpenEntry {
   level?: number;
 }
 
+/**
+ * One line from the game's own "获得记录" ring (LogManager@0x20, cap ~2000,
+ * monotonic total counter). This is the SAME data the in-game "获得记录" UI
+ * renders — unlike BoxOpenLog it is complete & unoverwritten for the session.
+ */
+export interface AcquireLogEntry {
+  /** Monotonic sequence (1-based over the session). */
+  seq: number;
+  /** e.g. "17:45" (brackets stripped). */
+  time: string;
+  /** The rich-text message, e.g. "获得了<color=#D7D7D7>永恒之弓</color>。" */
+  message: string;
+  /** Category label string, if present. */
+  category?: string;
+}
+
+/** Unified record-log event kind: chest drop, box open, stage clear, or an arbitrary "获得记录" line. */
+export type RecordLogKind = "drop" | "open" | "clear" | "acquire";
+
+/**
+ * One entry in the unified record log (what the game itself logs via its in-memory
+ * `LogManager`): chest drops (GetBox), box opens (GetItemWithBoxOpen), stage clears
+ * (StageClear). Persisted long-term to `record_log.json` so it survives session
+ * resets and the in-memory 5000-entry bucket wipeout.
+ */
+export interface RecordLogEntry {
+  /** Globally increasing id within the archive. Drives dedupe + React key. */
+  seq: number;
+  /** Epoch seconds — the live tick timestamp (`snap.at / 1000`) that observed it. */
+  wallTime: number;
+  kind: RecordLogKind;
+  /**
+   * The line's index in the game's "获得记录" ring (`AcquireLogEntry.seq`, 1-based
+   * per game session). Stable identity for re-attach dedupe: the ring's
+   * `[HH:MM]` stamp is rewritten by the game and the text repeats verbatim, but
+   * the ring index is exact. Only present on entries fed from the acquire
+   * channel; absent on legacy rows.
+   */
+  ringSeq?: number;
+  // drop
+  dropCategory?: string; // "common" | "rare" | "act" (plague-upgraded), from GetBox
+  // open
+  boxKey?: string; // e.g. "common" | "rare:3" | UNCLASSIFIED
+  itemKey?: number;
+  name?: string;
+  grade?: string | null;
+  // clear
+  stageKey?: number;
+  clearTimeSec?: number;
+  xp?: number;
+  gold?: number;
+  // acquire (parsed "获得记录" line)
+  /** Raw message text (rich-text tags stripped) — the authoritative, complete display text. */
+  acquireRaw?: string;
+  /** Structured item name parsed from the rich-text message. */
+  acquireName?: string;
+  /** Occurrences (e.g. "×3"); 1 when the message carries no count. */
+  acquireCount?: number;
+  /** Qualified item-quality color "#XXXXXX", when stat-encoded. */
+  acquireColor?: string;
+  /** In-game timestamp string (e.g. "17:45"). */
+  acquireTime?: string;
+  /**
+   * True on initial-attach replay rows (the whole-session backlog delivered on
+   * the first batch): their wallTime is the ingest moment, not the event
+   * moment, so the record page's source fit must never match them against the
+   * event buckets. Persisted with the entry.
+   */
+  bulk?: boolean;
+}
+
+/**
+ * Source-fit result for one acquire line: which game activity the record-page
+ * fit attributed it to (see `core/recordLogFit.ts`). Only fitted lines appear
+ * in `RecordLogStats.sources`; unfitted lines are absent.
+ */
+export interface RecordLogSourceFit {
+  source: "chest" | "open" | "clear";
+  /** Chest drop category when `source === "chest"`. */
+  chestCategory?: ChestDropCategory;
+  /** Box key of the matched open when `source === "open"` (e.g. "rare:3"). */
+  boxKey?: string;
+  /** Runtime grade of the opened item when `source === "open"`. */
+  grade?: string | null;
+  /** Cleared stage key when `source === "clear"` (time-fit path). */
+  stageKey?: number;
+  /** Stage label parsed from the line text when `source === "clear"` (e.g. "3-10"). */
+  stageLabel?: string;
+}
+
+/** Renderer-facing window over the record log, pushed via the existing onStats stream. */
+export interface RecordLogStats {
+  /** Newest-first slice (capped to a recent window). */
+  entries: RecordLogEntry[];
+  total: number;
+  byKind: Record<RecordLogKind, number>;
+  nextSeq: number;
+  /**
+   * Source-fit results keyed by `String(seq)` of the entries above — which
+   * game activity (chest drop / box open / stage clear) produced each line,
+   * computed by `core/recordLogFit.ts` at stats-build time. Absent keys =
+   * unfitted (no plausible bucket event in the window).
+   */
+  sources: Record<string, RecordLogSourceFit>;
+}
+
+/**
+ * One archived page of the record log, fetched on demand by the embedded
+ * record panel's pagination (`getRecordLogPage` IPC). Page 0 is never
+ * fetched — the live stats push already covers it — so pages arriving here
+ * are static snapshots older than the recent window.
+ */
+export interface RecordLogPage {
+  /** Newest-first page slice (ALL kinds; the renderer filters per kind). */
+  entries: RecordLogEntry[];
+  /** Live archive total (all kinds) for sizing the page bar. */
+  total: number;
+  /** Source-fit results keyed by `String(seq)`, same shape as RecordLogStats.sources. */
+  sources: Record<string, RecordLogSourceFit>;
+}
+
+/** Durable shape written to `record_log.json` (crash-recovery dedupe via seq). */
+export interface RecordLogTrackerSnapshot {
+  nextSeq: number;
+  entries: RecordLogEntry[];
+  /**
+   * The acquire ring's last-delivered index (the reader's read position).
+   * Persisted so a companion restart resumes the ring incrementally instead of
+   * replaying the whole window. Absent on files written before this existed.
+   */
+  acquireWatermark?: number | null;
+  /**
+   * The calibrated session base (`counter - fill`, see the runtime's ring pin)
+   * captured together with `acquireWatermark`. Restored on resume BEFORE the
+   * first read: a saturated ring (fill pinned at capacity) has no calibration
+   * signal, so the persisted base is the only way to keep the slot mapping
+   * `(k - base) % capacity` aligned across a companion restart. Same game
+   * session ⇒ the base is unchanged; a new game session is detected by the
+   * runtime (counter rewind / live recalibration) and overrides it.
+   */
+  acquireSessionBase?: number | null;
+}
+
 // Live payload pushed from main to the renderer.
 export interface Stats {
   connected: boolean;
@@ -434,6 +595,11 @@ export interface Stats {
   hpSum: number;
   /** Sum of max HP of all alive monsters (from the last tick). */
   hpMaxSum: number;
+  /**
+   * Unified record log: chest drops / box opens / stage clears merged onto one
+   * newest-first list, persisted long-term. Always present (empty when unused).
+   */
+  recordLog: RecordLogStats;
 }
 
 /** Serialized XP tracker internals for session_state.json restore. */
@@ -761,6 +927,7 @@ export type InventoryColumnId =
   | "location"
   | "inUse"
   | "marketPrice"
+  | "inHand"
   | "listValue"
   | "instantSell"
   | "instantTotal"
@@ -1122,6 +1289,7 @@ export type AppDataClearTarget =
   | "lookup-prices"
   | "box-timers"
   | "stage-runs"
+  | "record-log"
   | "session"
   | "all-except-config";
 
@@ -1887,7 +2055,9 @@ export interface LiveMemorySnapshot {
   boxOpens: BoxOpenEntry[] | null;
   /** Diagnostics: why `boxOpens` is null this tick. Dev-only. */
   boxOpensStatus?: string;
-  /** Live pet unlock state from save-layer heap (null ⇒ unavailable). */
+  /**
+   * Live pet unlock state from save-layer heap (null ⇒ unavailable).
+   */
   petData: LivePetData[] | null;
   /** Diagnostics: why `petData` is null this tick. Dev-only. */
   petDataStatus?: string;
@@ -2023,6 +2193,12 @@ export interface TbhApi {
   onLiveMemoryStatus(cb: (status: LiveMemoryStatus) => void): () => void;
   getStageRuns(): Promise<StageRunStats>;
   onStageRuns(cb: (stats: StageRunStats) => void): () => void;
+  /**
+   * One archived record-log page (newest-first) for the embedded record
+   * panel's pagination. Page 0 = the newest `pageSize` entries (equivalent to
+   * the stats push window, but static); page N walks further back in time.
+   */
+  getRecordLogPage(page: number, pageSize?: number): Promise<RecordLogPage>;
   resetLootBox(boxKey: string): Promise<void>;
   resetLootAll(): Promise<void>;
   reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void>;

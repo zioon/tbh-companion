@@ -507,9 +507,92 @@ export class ChestDropTracker {
    */
   private sessionDropStart: number | null = null;
 
+  /**
+   * Map-type-aware time, fed by {@link noteMapTime} on each live frame.
+   *
+   * Normal (non-plague) and plague maps are disjoint (see
+   * {@link isPlagueStage}), so a chest can only ever drop from the map type
+   * being farmed: common/rare/act on normal maps, plagueCommon/plagueRare/
+   * plagueAct on plague maps. Using a single total-time denominator would
+   * dilute the rate — a session that mixes normal + plague maps would credit
+   * each chest type with time the OTHER map type was being farmed. These
+   * buckets let each perHour rate divide by the time actually spent on its own
+   * map type. Session state is persisted so restores stay map-aware.
+   */
+  private normalMapSec = 0;
+  private plagueMapSec = 0;
+
+  /** Map type of the most recent {@link noteMapTime} sample ("none" = unknown). */
+  private lastMapType: "normal" | "plague" | "none" = "none";
+  /** Wall seconds of the most recent {@link noteMapTime} sample. */
+  private lastMapSampleAt: number | null = null;
+
+  /**
+   * Rolling (1-hour) map time, for `*RecentPerHour`. Kept as a deque of
+   * completed map-time segments with incremental rolling sums so `getStats`
+   * (called at 5 Hz) doesn't have to rescan a long/slow series. A segment is
+   * the interval between two {@link noteMapTime} samples, attributed to the
+   * map type that was active *during* that interval. `pruneMapSegments` evicts
+   * segments older than {@link ROLLING_HOUR_SEC} and subtracts their duration
+   * from the rolling sums.
+   */
+  private mapSegments: Array<{ start: number; end: number; plague: boolean }> = [];
+  private rollingNormalSec = 0;
+  private rollingPlagueSec = 0;
+
   constructor(callbacks?: ChestDropTrackerCallbacks) {
     this.callbacks = callbacks;
     this.trackingStartedAt = nowSeconds();
+  }
+
+  /**
+   * Accumulate map-farming wall-clock time on each live frame so per-hour
+   * rates can divide by the time actually spent on the drop's map type
+   * (normal vs plague) instead of total wall-clock time. `stageKey` null /
+   * undefined frames (menus, transitions) aren't attributed to either bucket.
+   * Call once per live frame with the frame's wall-clock `at` (seconds);
+   * monotonic samples produce the per-bucket deltas.
+   */
+  noteMapTime(stageKey: number | null | undefined, at: number): void {
+    const type: "normal" | "plague" | "none" =
+      stageKey != null && stageKey > 0 ? (isPlagueStage(stageKey) ? "plague" : "normal") : "none";
+
+    // Attribute the interval [lastMapSampleAt, at) to the map type that was
+    // active during it (the previous sample's type), then record the new type
+    // for the next interval.
+    if (this.lastMapSampleAt != null && at >= this.lastMapSampleAt) {
+      const dt = at - this.lastMapSampleAt;
+      if (dt > 0 && this.lastMapType !== "none") {
+        if (this.lastMapType === "plague") {
+          this.plagueMapSec += dt;
+          this.rollingPlagueSec += dt;
+        } else {
+          this.normalMapSec += dt;
+          this.rollingNormalSec += dt;
+        }
+        this.mapSegments.push({
+          start: this.lastMapSampleAt,
+          end: at,
+          plague: this.lastMapType === "plague",
+        });
+        this.pruneMapSegments(nowSeconds());
+      }
+    }
+    this.lastMapSampleAt = at;
+    this.lastMapType = type;
+  }
+
+  /** Prune completed map-time segments older than the 1h rolling window. */
+  private pruneMapSegments(nowSec: number): void {
+    const cutoff = nowSec - ROLLING_HOUR_SEC;
+    while (this.mapSegments.length > 0) {
+      const seg = this.mapSegments[0]!;
+      if (seg.end > cutoff) break;
+      const removed = seg.end - seg.start;
+      if (seg.plague) this.rollingPlagueSec -= removed;
+      else this.rollingNormalSec -= removed;
+      this.mapSegments.shift();
+    }
   }
 
   reset(): void {
@@ -527,6 +610,13 @@ export class ChestDropTracker {
     // session counts from the moment the user clears, not from the first drop.
     this.trackingStartedAt = nowSeconds();
     this.sessionDropStart = null;
+    this.normalMapSec = 0;
+    this.plagueMapSec = 0;
+    this.lastMapType = "none";
+    this.lastMapSampleAt = null;
+    this.mapSegments = [];
+    this.rollingNormalSec = 0;
+    this.rollingPlagueSec = 0;
     this.rebuildIncrementalCaches();
   }
 
@@ -617,6 +707,22 @@ export class ChestDropTracker {
     this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
     this.callbacks?.onDrop?.({ category, wallTime });
     return true;
+  }
+
+  /**
+   * 最近 `windowSec` 秒内某个类别的获得/掉落记录条数（含 live 与 reconcile 补记）。
+   * 供"打开反推获得"去重：宝箱能被打开必先被获得过，若近期已对该类别记过获得，
+   * 说明这次打开对应着已保质化的获得，不必重复补记。O(history)，仅在打开分类事件
+   * （低频）调用。基于 history 而非 recentEntries，因为 recentEntries 是 1 小时滚动率
+   * 的滑动窗口、不含 reconcile 补记语义。wallTime 可能乱序，故只做日期比较计数。
+   */
+  dropCountWithin(category: ChestDropCategory, windowSec: number): number {
+    const cutoff = nowSeconds() - windowSec;
+    let n = 0;
+    for (const h of this.history) {
+      if (h.category === category && h.wallTime >= cutoff) n++;
+    }
+    return n;
   }
 
   /**
@@ -771,6 +877,17 @@ export class ChestDropTracker {
         : MIN_RATE_WINDOW_SEC;
     const hours = dropElapsed / 3600;
 
+    // Map-type-aware denominators for perHour rates. Normal chests (common/
+    // rare/act) are farmed on normal maps, plague chests on plague maps, so
+    // each rate divides by the time actually spent on its own map type. When a
+    // bucket has no accumulated map time (non-attached session / restore with
+    // no live data), fall back to the total wall-clock window so the rate
+    // behaves exactly as before instead of spiking on a tiny/zero denominator.
+    const normalHoursForRate =
+      this.normalMapSec > 0 ? Math.max(MIN_RATE_WINDOW_SEC, this.normalMapSec) / 3600 : hours;
+    const plagueHoursForRate =
+      this.plagueMapSec > 0 ? Math.max(MIN_RATE_WINDOW_SEC, this.plagueMapSec) / 3600 : hours;
+
     // perHour rates use the session delta (current - baseline) so that a
     // session reset zeroes rates without wiping cumulative totals. Totals
     // (commonTotal/rareTotal/actTotal) remain cumulative for the breakdown.
@@ -817,12 +934,12 @@ export class ChestDropTracker {
       if (count <= 0) continue;
       addSession(this.categoriesByKey.get(key), count);
     }
-    const commonPerHour = sessionCommon / hours;
-    const rarePerHour = sessionRare / hours;
-    const actPerHour = sessionAct / hours;
-    const plagueCommonPerHour = sessionPlagueCommon / hours;
-    const plagueRarePerHour = sessionPlagueRare / hours;
-    const plagueActPerHour = sessionPlagueAct / hours;
+    const commonPerHour = sessionCommon / normalHoursForRate;
+    const rarePerHour = sessionRare / normalHoursForRate;
+    const actPerHour = sessionAct / normalHoursForRate;
+    const plagueCommonPerHour = sessionPlagueCommon / plagueHoursForRate;
+    const plagueRarePerHour = sessionPlagueRare / plagueHoursForRate;
+    const plagueActPerHour = sessionPlagueAct / plagueHoursForRate;
     const combinedSession =
       sessionCommon +
       sessionRare +
@@ -864,12 +981,24 @@ export class ChestDropTracker {
         ? Math.max(MIN_RATE_WINDOW_SEC, Math.min(ROLLING_HOUR_SEC, nowSec - earliestRecentWallTime))
         : ROLLING_HOUR_SEC;
     const recentHours = recentWindowSec / 3600;
-    const commonRecentPerHour = commonRecent / recentHours;
-    const rareRecentPerHour = rareRecent / recentHours;
-    const actRecentPerHour = actRecent / recentHours;
-    const plagueCommonRecentPerHour = plagueCommonRecent / recentHours;
-    const plagueRareRecentPerHour = plagueRareRecent / recentHours;
-    const plagueActRecentPerHour = plagueActRecent / recentHours;
+    // Map-type-aware denominators for the rolling 1-hour rates, mirroring the
+    // session-rate logic: each recent rate divides by the map time actually
+    // farmed (within the rolling window) for its own map type. Fall back to
+    // the total recent window when a bucket has no accumulated map time.
+    const normalRecentHours =
+      this.rollingNormalSec > 0
+        ? Math.max(MIN_RATE_WINDOW_SEC, this.rollingNormalSec) / 3600
+        : recentHours;
+    const plagueRecentHours =
+      this.rollingPlagueSec > 0
+        ? Math.max(MIN_RATE_WINDOW_SEC, this.rollingPlagueSec) / 3600
+        : recentHours;
+    const commonRecentPerHour = commonRecent / normalRecentHours;
+    const rareRecentPerHour = rareRecent / normalRecentHours;
+    const actRecentPerHour = actRecent / normalRecentHours;
+    const plagueCommonRecentPerHour = plagueCommonRecent / plagueRecentHours;
+    const plagueRareRecentPerHour = plagueRareRecent / plagueRecentHours;
+    const plagueActRecentPerHour = plagueActRecent / plagueRecentHours;
 
     return {
       commonTotal,
@@ -902,7 +1031,21 @@ export class ChestDropTracker {
       history,
       lastRareDropWallTime,
       readerRequired: true,
+      // Session map-farming seconds, surfaced so the Live tab can annotate the
+      // normal/plague chest cards with the time actually spent on each map type.
+      normalMapSeconds: this.normalMapSec,
+      plagueMapSeconds: this.plagueMapSec,
     };
+  }
+
+  /**
+   * Full drop history for the record page's source fit (read-only copy).
+   * Unlike `getStats().history` (50-entry visible slice) the fit needs the
+   * whole bounded window — a fit against only the newest 50 would leave older
+   * visible record lines unexplained.
+   */
+  fitHistory(): ChestDropHistoryEntry[] {
+    return [...this.history];
   }
 
   captureSnapshot(): ChestDropTrackerSnapshot {
@@ -912,6 +1055,8 @@ export class ChestDropTracker {
       categoriesByKey: Object.fromEntries(this.categoriesByKey),
       history: [...this.history],
       sessionDropStart: this.sessionDropStart,
+      normalMapSec: this.normalMapSec,
+      plagueMapSec: this.plagueMapSec,
     };
   }
 
@@ -969,5 +1114,18 @@ export class ChestDropTracker {
     // Restored sessions carry no live credits; clear any so the first
     // post-restore reconcile doesn't discount against pre-restore drops.
     this.liveCreditsByCategory = emptyLiveCredits();
+    // Restore map-type-aware time so rates stay map-aware after a restart.
+    // Legacy snapshots without these fields → 0 → rates fall back to the
+    // wall-clock window (old behavior). Rolling time is a short-term measure,
+    // so rebuild it from the new session's live frames instead of persisting
+    // the (potentially large) segment deque. Drop the previous sample anchor
+    // so the first post-restore frame can't attribute an offline gap.
+    this.normalMapSec = data.normalMapSec ?? 0;
+    this.plagueMapSec = data.plagueMapSec ?? 0;
+    this.lastMapType = "none";
+    this.lastMapSampleAt = null;
+    this.mapSegments = [];
+    this.rollingNormalSec = 0;
+    this.rollingPlagueSec = 0;
   }
 }

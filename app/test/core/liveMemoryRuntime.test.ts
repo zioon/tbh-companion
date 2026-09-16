@@ -6,6 +6,7 @@ import {
   readRuntimeChestLog,
   readRuntimeStageClears,
   readRuntimeBoxOpenLog,
+  readRuntimeAllLogs,
   peekBoxOpenLogCount,
   peekGetBoxLogCount,
   readRuntimeInventory,
@@ -18,6 +19,9 @@ import {
   makeStageClearPinState,
   makeBoxOpenPinState,
   makeMonsterSpawnPinState,
+  makeAcquireRingPinState,
+  readRuntimeAcquireLogs,
+  ACQUIRE_HOLD_RELEASE_MS,
   type GoldPinState,
 } from "../../src/core/liveMemory/runtime";
 import { offsetsForVersion } from "../../src/core/liveMemory/offsets";
@@ -764,6 +768,37 @@ describe("readRuntimeChestLog", () => {
     expect(result.drops).toEqual([]);
     expect(pin.ptr).toBe(LM_INSTANCE);
   });
+
+  it("recovers a chest drop that was force-skipped once its monsterType commits (overscan)", () => {
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Ticks 1..4: the single slot fails to decode (monsterType uncommitted) →
+    // retried, then force-skipped after MAX_CHEST_LOG_RETRIES (3). It is NOT
+    // marked delivered, so a later overscan re-read can recover it.
+    for (let t = 0; t < 4; t++) {
+      const m = seedLogChain(new FakeMemory(), [99]);
+      const r = readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin);
+      expect(r.drops).toEqual([]);
+    }
+    expect(pin.lastCount).toBe(1);
+    // Tick 5: monsterType now committed → overscan re-read recovers it as rare.
+    const m2 = seedLogChain(new FakeMemory(), [1]);
+    const r2 = readRuntimeChestLog(m2, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2.drops).toEqual(["rare"]);
+  });
+
+  it("records repeated same-kind drops from separate chests (index-level dedup, not category)", () => {
+    const pin = makeChestLogPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Two chests dropping the same kind must NOT collapse to one — each is a
+    // distinct slot. The newest is withheld one tick for settle, so the two
+    // drops surface across the settle ticks (one per tick), not as one.
+    const m = seedLogChain(new FakeMemory(), [0, 0]);
+    expect(readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin).drops).toEqual(["common"]);
+    expect(readRuntimeChestLog(m, GA_BASE, GA_SIZE, LOG_O, pin).drops).toEqual(["common"]);
+  });
 });
 
 // ── readRuntimeStageClears ─────────────────────────────────────────────────────
@@ -909,6 +944,81 @@ describe("readRuntimeStageClears", () => {
       { act: 22, stage: 7, clearTimeSec: 63, valid: true },
       { act: 23, stage: 20, clearTimeSec: 41, valid: true },
     ]);
+  });
+
+  it("recovers a stage clear whose act/stage committed a tick after its first read (overscan re-read)", () => {
+    const pin = makeStageClearPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Tick 1: the entry is present but half-written (act/stage unreadable) →
+    // surfaced as valid=false (new-region probe) and dropped by the caller.
+    const m = seedStageClearChain(new FakeMemory(), [[0, 0, 42]]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 0, stage: 0, clearTimeSec: 42, valid: false },
+    ]);
+    expect(pin.lastCount).toBe(1);
+    // Tick 2: the same slot has now fully committed → recovered via overscan.
+    seedStageClearChain(m, [[3, 1, 42]]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 3, stage: 1, clearTimeSec: 42, valid: true },
+    ]);
+  });
+
+  it("does not re-deliver an entry on a later overscan re-read (fingerprint dedup)", () => {
+    const pin = makeStageClearPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    const m = seedStageClearChain(new FakeMemory(), [
+      [3, 1, 85],
+      [3, 2, 63],
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 3, stage: 1, clearTimeSec: 85, valid: true },
+      { act: 3, stage: 2, clearTimeSec: 63, valid: true },
+    ]);
+    expect(pin.lastCount).toBe(2);
+    // No new entries — both now sit in the overscan window but were already
+    // delivered, so the fingerprint suppresses them.
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
+  });
+
+  it("never re-delivers the attach backlog after priming", () => {
+    const pin = makeStageClearPinState();
+    const m = seedStageClearChain(new FakeMemory(), [
+      [3, 1, 85],
+      [3, 2, 63],
+      [3, 3, 41],
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]); // prime
+    expect(pin.lastCount).toBe(3);
+    expect(pin.tailBase).toBe(3);
+    // Same state on the next tick: overscan must not reach below the prime
+    // point, so the backlog is not re-reported.
+    seedStageClearChain(m, [
+      [3, 1, 85],
+      [3, 2, 63],
+      [3, 3, 41],
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
+  });
+
+  it("only surfaces a newly-seen invalid entry once (no overscan spam)", () => {
+    const pin = makeStageClearPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Slot 0 is permanently corrupt (act/stage unreadable); slot 1 is valid.
+    const m = seedStageClearChain(new FakeMemory(), [
+      [0, 0, 42],
+      [3, 1, 85],
+    ]);
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([
+      { act: 0, stage: 0, clearTimeSec: 42, valid: false },
+      { act: 3, stage: 1, clearTimeSec: 85, valid: true },
+    ]);
+    expect(pin.lastCount).toBe(2);
+    // Same state again: slot 0 is in the overscan window but still invalid → not
+    // re-emitted (avoids per-tick spam); slot 1 is deduped.
+    expect(readRuntimeStageClears(m, GA_BASE, GA_SIZE, LOG_O, pin)).toEqual([]);
   });
 });
 
@@ -1150,17 +1260,14 @@ describe("readRuntimeBoxOpenLog", () => {
     m.writePtr(first + 8n, 0n); // permanently unreadable slot
     m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 2);
 
-    // Tick #1: park (consecutive=1).
-    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
-    expect(pin.retryFrom).toBe(1);
-    expect(pin.retryConsecutive).toBe(1);
-    // Tick #2: park again (consecutive=2).
-    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
-    expect(pin.retryConsecutive).toBe(2);
-    // Tick #3: park again (consecutive=3).
-    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
-    expect(pin.retryConsecutive).toBe(3);
-    // Tick #4: consecutive exceeds MAX (3) → force-skip, tail advances.
+    // Ticks #1..6: park (consecutive 1..6) — still within MAX(6).
+    for (let t = 1; t <= 6; t++) {
+      const r = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+      expect(r.opens).toEqual([]);
+      expect(pin.retryFrom).toBe(1);
+      expect(pin.retryConsecutive).toBe(t);
+    }
+    // Tick #7: consecutive (7) exceeds MAX (6) → force-skip, tail advances.
     const r = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
     expect(r.opens).toEqual([]);
     expect(pin.lastCount).toBe(2);
@@ -1379,6 +1486,194 @@ describe("readRuntimeBoxOpenLog", () => {
     const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
     expect(result.opens).toHaveLength(1);
     expect(result.opens![0].itemKey).toBe(530017);
+  });
+
+  it("records identical item drops from separate boxes (index-level dedup, not value)", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Two boxes in a burst can drop the same item — value-based dedup would
+    // wrongly collapse them; index-level dedup keeps both.
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017 }, { itemKey: 530017 }]);
+    const result = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(result.opens).toHaveLength(2);
+    expect(result.opens!.every((o) => o.itemKey === 530017)).toBe(true);
+    expect(pin.lastCount).toBe(2);
+  });
+
+  it("does not re-deliver an already-delivered slot on overscan (index dedup)", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017 }, { itemKey: 601171 }]);
+    expect(readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin).opens).toHaveLength(2);
+    // Same state again: both slots sit in the overscan window but were already
+    // delivered → suppressed (no duplicates).
+    expect(readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin).opens).toEqual([]);
+  });
+
+  it("recovers a box-open slot that was force-skipped once its itemKey commits", () => {
+    const pin = makeBoxOpenPinState();
+    pin.primed = true;
+    pin.lastCount = 0;
+    // Ticks 1..7: the single slot fails to decode (itemKey uncommitted) →
+    // retried, then force-skipped after MAX_BOX_OPEN_LOG_RETRIES (6). It is NOT
+    // marked delivered, so a later overscan re-read can recover it.
+    for (let t = 0; t < 7; t++) {
+      const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 0 }]);
+      const r = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+      expect(r.opens).toEqual([]);
+      expect(r.debug?.parsed ?? 0).toBe(0);
+    }
+    expect(pin.lastCount).toBe(1);
+    // Tick 8: itemKey now committed → overscan re-read recovers the slot.
+    const m2 = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017 }]);
+    const r2 = readRuntimeBoxOpenLog(m2, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r2.opens).toHaveLength(1);
+    expect(r2.opens![0].itemKey).toBe(530017);
+  });
+});
+
+// ── readRuntimeAllLogs ─────────────────────────────────────────────────────────
+
+/** Seed LogManager with all three ELogType buckets (chest drops, stage clears, box opens). */
+function seedAllLogChain(
+  m: FakeMemory,
+  chestTypes: number[],
+  clears: [number, number, number][],
+  boxOpens: Array<{ itemKey: number; boxType?: number; level?: number }>,
+): FakeMemory {
+  m.writePtr(GA_BASE + LOG_O.typeInfoRva.logManager, LOG_CLASS)
+    .writePtr(LOG_CLASS + BigInt(CAND), LOG_BLOCK)
+    .writePtr(LOG_BLOCK, LM_INSTANCE);
+  m.writePtr(LM_INSTANCE + BigInt(O.runtime.log.logByType), LOG_DICT)
+    .writePtr(LOG_DICT + BigInt(O.dict.entries), LOG_DICT_ENTRIES)
+    .writeI32(LOG_DICT + BigInt(O.dict.count), 3);
+
+  // Entry 0: GetBox list
+  const de0 = LOG_DICT_ENTRIES + BigInt(O.container.arrayFirst);
+  m.writeI32(de0 + BigInt(O.dict.entryHash), 1)
+    .writeI32(de0 + BigInt(O.dict.entryKey), O.runtime.log.getBoxTypeKey)
+    .writePtr(de0 + BigInt(O.dict.entryValue), GETBOX_LIST);
+  m.writePtr(GETBOX_LIST + BigInt(O.container.listItems), GETBOX_ARR).writeI32(
+    GETBOX_LIST + BigInt(O.container.listSize),
+    chestTypes.length,
+  );
+  const chestFirst = GETBOX_ARR + BigInt(O.container.arrayFirst);
+  for (let i = 0; i < chestTypes.length; i++) {
+    const e = 0xf00000n + BigInt(i * 0x100);
+    m.writePtr(chestFirst + BigInt(i * 8), e).writeI32(
+      e + BigInt(O.runtime.getBoxLog.monsterType),
+      chestTypes[i],
+    );
+  }
+
+  // Entry 1: StageClear list
+  const de1 = de0 + BigInt(O.dict.entrySize);
+  m.writeI32(de1 + BigInt(O.dict.entryHash), 1)
+    .writeI32(de1 + BigInt(O.dict.entryKey), O.runtime.log.stageClearTypeKey)
+    .writePtr(de1 + BigInt(O.dict.entryValue), STAGE_CLEAR_LIST);
+  m.writePtr(STAGE_CLEAR_LIST + BigInt(O.container.listItems), STAGE_CLEAR_ARR).writeI32(
+    STAGE_CLEAR_LIST + BigInt(O.container.listSize),
+    clears.length,
+  );
+  const clearFirst = STAGE_CLEAR_ARR + BigInt(O.container.arrayFirst);
+  for (let i = 0; i < clears.length; i++) {
+    const e = 0xe10000n + BigInt(i * 0x100);
+    const [act, stage, time] = clears[i]!;
+    m.writePtr(clearFirst + BigInt(i * 8), e)
+      .writeI32(e + BigInt(O.runtime.stageClearLog.act), act)
+      .writeI32(e + BigInt(O.runtime.stageClearLog.stage), stage)
+      .writeI32(e + BigInt(O.runtime.stageClearLog.clearTimeSec), time);
+  }
+
+  // Entry 2: GetItemWithBoxOpen list (key 99 to match BOX_LOG_O)
+  const de2 = de1 + BigInt(O.dict.entrySize);
+  m.writeI32(de2 + BigInt(O.dict.entryHash), 1)
+    .writeI32(de2 + BigInt(O.dict.entryKey), 99)
+    .writePtr(de2 + BigInt(O.dict.entryValue), BOX_OPEN_LIST);
+  m.writePtr(BOX_OPEN_LIST + BigInt(O.container.listItems), BOX_OPEN_ARR).writeI32(
+    BOX_OPEN_LIST + BigInt(O.container.listSize),
+    boxOpens.length,
+  );
+  const boxFirst = BOX_OPEN_ARR + BigInt(O.container.arrayFirst);
+  for (let i = 0; i < boxOpens.length; i++) {
+    const e = 0xeb0000n + BigInt(i * 0x100);
+    m.writePtr(boxFirst + BigInt(i * 8), e).writeI32(e + BigInt(0x10), boxOpens[i]!.itemKey);
+    if (boxOpens[i]!.boxType != null) m.writeI32(e + BigInt(0x14), boxOpens[i]!.boxType!);
+    if (boxOpens[i]!.level != null) m.writeI32(e + BigInt(0x18), boxOpens[i]!.level!);
+  }
+  return m;
+}
+
+describe("readRuntimeAllLogs", () => {
+  it("reads all three buckets into one result (connected, arrays populated)", () => {
+    const pins = {
+      chest: makeChestLogPinState(),
+      boxOpen: makeBoxOpenPinState(),
+      stageClear: makeStageClearPinState(),
+    };
+    // Prime each tail non-empty so subsequent calls only see new entries.
+    let m = seedAllLogChain(new FakeMemory(), [0], [[3, 1, 85]], [{ itemKey: 530017 }]);
+    const prime = readRuntimeAllLogs(m, GA_BASE, GA_SIZE, BOX_LOG_O, pins);
+    expect(prime.connected).toBe(true);
+    expect(prime.chestDrops).toEqual([]);
+    expect(prime.boxOpens).toEqual([]);
+    expect(prime.stageClears).toEqual([]);
+
+    // Append one of each kind → all three delivered by a single call.
+    m = seedAllLogChain(
+      new FakeMemory(),
+      [0, 1],
+      [
+        [3, 1, 85],
+        [3, 2, 63],
+      ],
+      [{ itemKey: 530017 }, { itemKey: 601171, boxType: 0, level: 5 }],
+    );
+    const all = readRuntimeAllLogs(m, GA_BASE, GA_SIZE, BOX_LOG_O, pins);
+    expect(all.connected).toBe(true);
+    // Box opens: new indices delivered immediately.
+    expect(all.boxOpens).toEqual([{ itemKey: 601171, boxType: 0, level: 5 }]);
+    // Stage clears: new clear delivered (old one deduped by fingerprint).
+    expect(all.stageClears).toEqual([{ act: 3, stage: 2, clearTimeSec: 63, valid: true }]);
+    // Chest drops are always an array in this wired LogManager.
+    expect(Array.isArray(all.chestDrops)).toBe(true);
+  });
+
+  it("returns null for buckets missing from the LogManager, keeping the rest", () => {
+    const pins = {
+      chest: makeChestLogPinState(),
+      boxOpen: makeBoxOpenPinState(),
+      stageClear: makeStageClearPinState(),
+    };
+    // seedBoxOpenChain wires getBox (empty, active) + box open but NO stage bucket.
+    // Prime the box tail first so the next read delivers its new opens.
+    readRuntimeBoxOpenLog(
+      seedBoxOpenChain(new FakeMemory(), []),
+      GA_BASE,
+      GA_SIZE,
+      BOX_LOG_O,
+      pins.boxOpen,
+    );
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017 }]);
+    const all = readRuntimeAllLogs(m, GA_BASE, GA_SIZE, BOX_LOG_O, pins);
+    expect(all.boxOpens).toEqual([{ itemKey: 530017 }]);
+    expect(all.stageClears).toBeNull(); // no StageClear bucket → unavailable
+    expect(Array.isArray(all.chestDrops)).toBe(true); // getBox present (empty) → active
+  });
+
+  it("returns all-null when no LogManager RVA is derived", () => {
+    const pins = {
+      chest: makeChestLogPinState(),
+      boxOpen: makeBoxOpenPinState(),
+      stageClear: makeStageClearPinState(),
+    };
+    const all = readRuntimeAllLogs(new FakeMemory(), GA_BASE, GA_SIZE, O, pins);
+    expect(all.connected).toBe(false);
+    expect(all.chestDrops).toBeNull();
+    expect(all.boxOpens).toBeNull();
+    expect(all.stageClears).toBeNull();
   });
 });
 
@@ -1724,6 +2019,572 @@ describe("readRuntimePets", () => {
     const result = readRuntimePets(m, GA_BASE, GA_SIZE, PET_O);
     expect(result.pets).toHaveLength(3);
     expect(result.pets).toEqual(pets);
+  });
+});
+
+// ── readRuntimeAcquireLogs (LogManager@0x20 "获得记录" ring) ────────────────────
+
+const ACQ_RING = 0xf00000n;
+const ACQ_BUF = 0xf10000n;
+const ACQ_ENTRY = 0xf20000n;
+
+/** Write a .NET string object: header (length at +0x10) then UTF-16LE chars. */
+function writeDotNetString(m: FakeMemory, addr: bigint, content: string): void {
+  const hdr = Buffer.alloc(0x14);
+  hdr.writeInt32LE(content.length, 0x10);
+  m.writeBytes(addr, hdr);
+  m.writeBytes(addr + 0x14n, Buffer.from(content, "utf16le"));
+}
+
+/**
+ * Seed LogManager + the LogManager@0x20 ring with the given lines. A `null` line
+ * writes the slot pointer but leaves the message uncommitted (mid-write).
+ * Each line's strings are written as .NET objects at `objBase`; the entry fields
+ * (+0x18 category / +0x20 message / +0x28 time) hold pointers to them.
+ */
+function seedAcquireRing(
+  m: FakeMemory,
+  lines: ({ msg: string; time?: string; cat?: string } | null)[],
+): FakeMemory {
+  m = seedLogChain(m, []);
+  m.writePtr(LM_INSTANCE + 0x20n, ACQ_RING)
+    .writeI32(ACQ_RING + 0x1cn, lines.length)
+    .writeI32(ACQ_RING + 0x18n, lines.length)
+    .writePtr(ACQ_RING + 0x10n, ACQ_BUF);
+  const elemBase = ACQ_BUF + 0x20n;
+  lines.forEach((line, k) => {
+    const entryPtr = ACQ_ENTRY + BigInt(k * 0x100);
+    const objBase = 0x300000n + BigInt(k * 0x300);
+    m.writePtr(elemBase + BigInt(k * 8), entryPtr);
+    if (line) {
+      const msgAddr = objBase;
+      writeDotNetString(m, msgAddr, line.msg);
+      m.writePtr(entryPtr + 0x20n, msgAddr);
+      if (line.time) {
+        const timeAddr = objBase + 0x100n;
+        writeDotNetString(m, timeAddr, `[${line.time}]`);
+        m.writePtr(entryPtr + 0x28n, timeAddr);
+      }
+      if (line.cat) {
+        const catAddr = objBase + 0x200n;
+        writeDotNetString(m, catAddr, line.cat);
+        m.writePtr(entryPtr + 0x18n, catAddr);
+      }
+    }
+  });
+  return m;
+}
+
+describe("readRuntimeAcquireLogs", () => {
+  /**
+   * Write one ring entry at absolute `index` (slot = index % capacity) and set
+   * the counter to `index + 1`. Unlike `seedAcquireRing` this can address the
+   * wrapped region (index >= capacity), which is where the counter/slot skew
+   * lives.
+   */
+  function writeAcquireEntry(m: FakeMemory, index: number, msg: string, time: string): void {
+    const slot = index % 2000;
+    const entryPtr = ACQ_ENTRY + BigInt(slot * 0x100);
+    const objBase = 0x300000n + BigInt(slot * 0x300);
+    m.writePtr(ACQ_BUF + 0x20n + BigInt(slot * 8), entryPtr);
+    writeDotNetString(m, objBase, msg);
+    m.writePtr(entryPtr + 0x20n, objBase);
+    writeDotNetString(m, objBase + 0x100n, `[${time}]`);
+    m.writePtr(entryPtr + 0x28n, objBase + 0x100n);
+    m.writeI32(ACQ_RING + 0x1cn, index + 1);
+    // Ring fill count (session-scoped): a base-0 session that appended
+    // `index + 1` entries, capped at the capacity once the ring wraps.
+    m.writeI32(ACQ_RING + 0x18n, Math.min(index + 1, 2000));
+  }
+
+  /** Monotonic in-game stamp for ring index `index` (1 game-minute / 10 entries). */
+  function acquireStampFor(index: number): string {
+    const minutes = (600 + Math.floor(index / 10)) % 1440;
+    return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  }
+
+  /** Wrapped ring whose slots hold indices `[from, to)`; counter left at `to`. */
+  function seedWrappedRing(m: FakeMemory, from: number, to: number): FakeMemory {
+    for (let i = from; i < to; i++) writeAcquireEntry(m, i, `msg ${i}`, acquireStampFor(i));
+    return m;
+  }
+
+  it("reads the whole ring on the initial sync and advances the pin", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [
+      { msg: "获得了<color=#D7D7D7>永恒之弓</color>。", time: "17:45" },
+      { msg: "获得金币 x2", time: "17:46" },
+    ]);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.entries).toHaveLength(2);
+    expect(res?.entries[0]).toMatchObject({ seq: 1, time: "17:45" });
+    expect(res?.entries[0].message).toContain("永恒之弓");
+    expect(res?.entries[1].message).toBe("获得金币 x2");
+    expect(pin.total).toBe(2);
+  });
+
+  it("returns only the tail increment after the pin advanced", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [
+      { msg: "获得了永恒之弓。", time: "17:45" },
+      { msg: "获得金币 x2", time: "17:46" },
+    ]);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin); // initial full read
+    expect(pin.total).toBe(2);
+
+    // 打开一个箱子 → 环形区追加一条（slot 2）
+    m.writeI32(ACQ_RING + 0x1cn, 3);
+    const entryPtr = ACQ_ENTRY + BigInt(2 * 0x100);
+    m.writePtr(ACQ_BUF + 0x20n + BigInt(2 * 8), entryPtr);
+    const msgAddr = 0x300000n + BigInt(2 * 0x300);
+    writeDotNetString(m, msgAddr, "获得了<color=#E8695A>骰子</color>。");
+    m.writePtr(entryPtr + 0x20n, msgAddr);
+    writeDotNetString(m, msgAddr + 0x100n, "[17:47]");
+    m.writePtr(entryPtr + 0x28n, msgAddr + 0x100n);
+
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.entries).toHaveLength(1);
+    expect(res?.entries[0].message).toContain("骰子");
+    expect(pin.total).toBe(3);
+  });
+
+  /**
+   * Write an entry of a NON-zero-base session: ring index `k` maps to slot
+   * `(k - base) % capacity` — the mapping the game actually uses after it
+   * wipes the ring for a new in-game session (the monotonic counter keeps
+   * running across the wipe, so `slot = k % capacity` mis-aligns).
+   */
+  function writeSessionEntry(
+    m: FakeMemory,
+    k: number,
+    base: number,
+    msg: string,
+    time: string,
+  ): void {
+    const slot = (((k - base) % 2000) + 2000) % 2000;
+    const entryPtr = 0x500000n + BigInt(slot * 0x100); // fresh object region
+    const objBase = 0x400000n + BigInt(slot * 0x300);
+    m.writePtr(ACQ_BUF + 0x20n + BigInt(slot * 8), entryPtr);
+    writeDotNetString(m, objBase, msg);
+    m.writePtr(entryPtr + 0x20n, objBase);
+    writeDotNetString(m, objBase + 0x100n, `[${time}]`);
+    m.writePtr(entryPtr + 0x28n, objBase + 0x100n);
+  }
+
+  it("re-anchors when the game wipes the ring mid-process (counter keeps running)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [
+      { msg: "old A", time: "17:45" },
+      { msg: "old B", time: "17:46" },
+    ]);
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1?.entries).toHaveLength(2);
+    expect(pin.total).toBe(2);
+
+    // The game wipes the ring (slots cleared) and starts a fresh session at
+    // counter 36161 — live-verified 2026-09-16. The counter does NOT reset.
+    m.writePtr(ACQ_BUF + 0x20n, 0n).writePtr(ACQ_BUF + 0x20n + 8n, 0n);
+    writeSessionEntry(m, 36161, 36161, "new A", "18:01");
+    writeSessionEntry(m, 36162, 36161, "new B", "18:02");
+    m.writeI32(ACQ_RING + 0x1cn, 36163).writeI32(ACQ_RING + 0x18n, 2);
+
+    // Two consecutive polls confirm the new base (guards against transient
+    // counter/fill skew mid-append). The first read sees no readable slots.
+    const r2a = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2a?.entries).toHaveLength(0);
+    expect(r2a?.reanchoredBase).toBeNull();
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // NOT a restart: indices keep running, the fresh backlog is a plain increment.
+    expect(r2?.restartDetected).toBe(false);
+    expect(r2?.reanchoredBase).toBe(36161);
+    expect(r2?.entries.map((e) => e.message)).toEqual(["new A", "new B"]);
+    expect(r2?.entries.map((e) => e.seq)).toEqual([36162, 36163]);
+    expect(pin.total).toBe(36163);
+    // Steady increment afterwards maps slots relative to the new base.
+    writeSessionEntry(m, 36163, 36161, "new C", "18:03");
+    m.writeI32(ACQ_RING + 0x1cn, 36164).writeI32(ACQ_RING + 0x18n, 3);
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r3?.entries.map((e) => e.message)).toEqual(["new C"]);
+    expect(r3?.reanchoredBase).toBeNull();
+    expect(pin.total).toBe(36164);
+  });
+
+  it("resumes into an already-wiped ring by jumping to the new session start", () => {
+    const pin = makeAcquireRingPinState();
+    pin.resumeTotal = 36028; // persisted watermark from before the wipe
+    const m = seedAcquireRing(new FakeMemory(), []);
+    writeSessionEntry(m, 36161, 36161, "new A", "18:01");
+    writeSessionEntry(m, 36162, 36161, "new B", "18:02");
+    m.writeI32(ACQ_RING + 0x1cn, 36163).writeI32(ACQ_RING + 0x18n, 2);
+
+    // The first poll applies the resume but only *candidates* the new base
+    // (pending); the second poll confirms it and skips the pin forward —
+    // the unread stretch between watermark and base holds only cleared slots.
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1?.resumed).toBe(true);
+    expect(r1?.entries).toHaveLength(0);
+    expect(r1?.reanchoredBase).toBeNull();
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.restartDetected).toBe(false);
+    expect(res?.reanchoredBase).toBe(36161);
+    expect(res?.entries.map((e) => e.seq)).toEqual([36162, 36163]);
+    expect(pin.total).toBe(36163);
+  });
+
+  it("calibrates the session base without disturbing a healthy mid-session pin", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [{ msg: "a", time: "17:45" }]);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin); // initial, base calibrated to 0
+    writeAcquireEntry(m, 1, "b", "17:46"); // fill 2, counter 2 → base still 0
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.entries.map((e) => e.message)).toEqual(["b"]);
+    expect(res?.reanchoredBase).toBeNull();
+    expect(res?.fillCount).toBe(2);
+    expect(pin.total).toBe(2);
+  });
+
+  /**
+   * Wrap coverage: a saturated ring (fill pinned at 2000) carries NO base
+   * signal, so correctness across the wrap rests entirely on the base having
+   * been calibrated while fill was still below capacity — base 0 for a session
+   * that never wiped, the re-anchored base for a wiped one (§15). These three
+   * cases walk the real "past the ring limit" paths.
+   */
+
+  it("keeps delivering across the wrap once the base is calibrated (base-0 session saturates)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), []);
+    // Mid-session: fill < capacity pins base = 0 (counter 1500, fill 1500).
+    seedWrappedRing(m, 0, 1500);
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1?.entries).toHaveLength(1500);
+    expect(r1?.fillCount).toBe(1500);
+    expect(pin.total).toBe(1500);
+
+    // The session grows past the capacity: counter 2500, fill pinned at 2000,
+    // slots 0..499 overwritten by the wrap. The calibrated base stays 0, so
+    // every wrapped slot still maps onto the entry the game wrote there.
+    seedWrappedRing(m, 1500, 2500);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2?.entries).toHaveLength(1000);
+    expect(r2?.entries[0]?.seq).toBe(1501);
+    expect(r2?.entries[0]?.message).toBe("msg 1500");
+    expect(r2?.entries[999]?.message).toBe("msg 2499");
+    expect(r2?.fillCount).toBeNull(); // saturated — no base signal anymore
+    expect(pin.total).toBe(2500);
+
+    // Steady wrap: one more append lands on slot 0 (the overwritten oldest)
+    // and delivers as a plain increment.
+    writeAcquireEntry(m, 2500, "msg 2500", acquireStampFor(2500));
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r3?.entries.map((e) => e.message)).toEqual(["msg 2500"]);
+    expect(r3?.reanchoredBase).toBeNull();
+    expect(pin.total).toBe(2501);
+  });
+
+  it("keeps a wiped session's calibrated base across its own wrap to saturation", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [{ msg: "old", time: "17:45" }]);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin); // base-0 session, pin 1
+
+    // Wipe → new session at 36161 (§15 scenario), calibrated via two polls.
+    m.writePtr(ACQ_BUF + 0x20n, 0n);
+    writeSessionEntry(m, 36161, 36161, "n0", "18:01");
+    m.writeI32(ACQ_RING + 0x1cn, 36162).writeI32(ACQ_RING + 0x18n, 1);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin); // pending
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2?.reanchoredBase).toBe(36161);
+    expect(pin.total).toBe(36162);
+
+    // The wiped session itself runs to saturation (2000 entries) and wraps:
+    // the oldest entries (slots 0..160) are overwritten while fill stays 2000.
+    for (let k = 36162; k <= 38161; k++) {
+      writeSessionEntry(m, k, 36161, `msg ${k}`, acquireStampFor(k % 2000));
+    }
+    m.writeI32(ACQ_RING + 0x1cn, 38162).writeI32(ACQ_RING + 0x18n, 2000);
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r3?.entries).toHaveLength(2000);
+    expect(r3?.entries[0]?.seq).toBe(36163);
+    expect(r3?.entries[0]?.message).toBe("msg 36162");
+    expect(r3?.entries[1999]?.seq).toBe(38162);
+    expect(r3?.entries[1999]?.message).toBe("msg 38161");
+    expect(pin.total).toBe(38162);
+  });
+
+  it("resumes into a saturated wrapped ring via the persisted session base", () => {
+    const pin = makeAcquireRingPinState();
+    // Same game session as the previous companion run (the §15 follow-up):
+    // base 36161 was calibrated live, then persisted with the watermark. Since
+    // the restart the ring saturated AND wrapped once (2001 appends, slot 0
+    // already rewritten), so fill carries NO calibration signal on resume.
+    // `setAcquireResume` restores the persisted base before the first read —
+    // without it the base-0 fallback maps k=38156 to slot 156 (holding
+    // "msg 36317") and delivers misaligned rows.
+    pin.resumeTotal = 38156; // gate: 38162 - 38156 = 6 <= capacity → accepted
+    pin.sessionBase = 36161;
+    const m = seedAcquireRing(new FakeMemory(), []);
+    for (let k = 36161; k <= 38161; k++) {
+      writeSessionEntry(m, k, 36161, `msg ${k}`, acquireStampFor(k % 2000));
+    }
+    m.writeI32(ACQ_RING + 0x1cn, 38162).writeI32(ACQ_RING + 0x18n, 2000);
+
+    // A watermark more than one ring behind the counter — e.g. one that
+    // predates the wipe AND the re-saturation — is rejected by the resume gate
+    // itself and falls through to the fresh full-window anchor (covered above).
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1?.resumed).toBe(true);
+    // seq is the ring index + 1 (1-based), mirroring the game's own numbering.
+    expect(r1?.entries.map((e) => e.seq)).toEqual([38157, 38158, 38159, 38160, 38161, 38162]);
+    // Correct slots — NOT the k % 2000 fallback, which would surface "msg 36317".
+    expect(r1?.entries[0]?.message).toBe("msg 38156");
+    expect(r1?.entries[0]?.time).toBe(acquireStampFor(156));
+    expect(r1?.entries[5]?.message).toBe("msg 38161");
+    expect(pin.total).toBe(38162);
+
+    // Steady state across the wrap: the next append (slot 1, overwriting the
+    // pre-wrap entry) delivers normally with no re-anchor needed.
+    writeSessionEntry(m, 38162, 36161, "msg 38162", acquireStampFor(38162 % 2000));
+    m.writeI32(ACQ_RING + 0x1cn, 38163).writeI32(ACQ_RING + 0x18n, 2000);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2?.entries.map((e) => e.message)).toEqual(["msg 38162"]);
+    expect(r2?.reanchoredBase).toBeNull();
+    expect(pin.total).toBe(38163);
+  });
+
+  it("stops at a mid-write entry and retries it on the next poll (no loss)", () => {
+    const pin = makeAcquireRingPinState();
+    // slot 2 is mid-write: pointer committed, message not yet.
+    const m = seedAcquireRing(new FakeMemory(), [
+      { msg: "获得了永恒之弓。", time: "17:45" },
+      { msg: "获得金币 x2", time: "17:46" },
+      null,
+    ]);
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1?.entries).toHaveLength(2); // only the committed lines
+    expect(pin.total).toBe(2); // pin must NOT pass the mid-write entry
+
+    // Game finishes writing before the next poll → the tail is retried.
+    const entryPtr = ACQ_ENTRY + BigInt(2 * 0x100);
+    const msgAddr = 0x300000n + BigInt(2 * 0x300);
+    writeDotNetString(m, msgAddr, "获得了<color=#E8695A>骰子</color>。");
+    m.writePtr(entryPtr + 0x20n, msgAddr);
+    writeDotNetString(m, msgAddr + 0x100n, "[17:47]");
+    m.writePtr(entryPtr + 0x28n, msgAddr + 0x100n);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r2?.entries).toHaveLength(1);
+    expect(r2?.entries[0].message).toContain("骰子");
+    expect(pin.total).toBe(3);
+  });
+
+  it("stops at an unwritten slot pointer (total advanced before the slot is committed)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [{ msg: "获得了永恒之弓。", time: "17:45" }]);
+    // total becomes 2 but slot 1 has no pointer yet (mid-write).
+    m.writeI32(ACQ_RING + 0x1cn, 2);
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(r1?.entries).toHaveLength(1);
+    expect(pin.total).toBe(1);
+  });
+
+  it("rewinds the pin when the ring counter restarts (new game session)", () => {
+    const pin = makeAcquireRingPinState();
+    // Session 1: ring holds 2 lines; the pin is delivered to total=2.
+    const m1 = seedAcquireRing(new FakeMemory(), [
+      { msg: "获得了永恒之弓。", time: "12:52" },
+      { msg: "获得金币 x2", time: "12:53" },
+    ]);
+    readRuntimeAcquireLogs(m1, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(pin.total).toBe(2);
+
+    // Session 2 (game restarted): ring cleared, counter restarts from 1.
+    const m2 = seedAcquireRing(new FakeMemory(), [
+      { msg: "获得了<color=#E8695A>骰子</color>。", time: "00:05" },
+    ]);
+    const res = readRuntimeAcquireLogs(m2, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.entries).toHaveLength(1);
+    expect(res?.entries[0].message).toContain("骰子");
+    expect(pin.total).toBe(1);
+  });
+
+  // ── counter/slot skew (live 2026-09-15): the +0x1C counter runs ahead of the
+  // slot writes, so the slots for the newest indices may still hold the PREVIOUS
+  // ring pass' entries. Delivering those silently (the old behaviour) put the pin
+  // a full ring behind the game for hours.
+
+  it("holds the pin at a slot the game has not rewritten yet (counter over-leads the slots)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 500, 2500);
+    const first = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(first?.entries).toHaveLength(2000);
+    expect(first?.entries[0].message).toBe("msg 500");
+    expect(first?.heldAt).toBeNull();
+    expect(pin.total).toBe(2500);
+
+    // The counter jumps 10 ahead but only 5 slots are rewritten: the slots for
+    // indices 2505..2509 still hold the previous pass' entries.
+    for (let i = 2500; i < 2505; i++) writeAcquireEntry(m, i, `msg ${i}`, acquireStampFor(i));
+    m.writeI32(ACQ_RING + 0x1cn, 2510);
+
+    const second = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(second?.entries.map((e) => e.message)).toEqual([
+      "msg 2500",
+      "msg 2501",
+      "msg 2502",
+      "msg 2503",
+      "msg 2504",
+    ]);
+    expect(second?.heldAt).toBe(2505);
+    expect(second?.heldReason).toBe("stale-slot");
+    expect(pin.total).toBe(2505);
+
+    // The guard must NOT depend on the ring's time string: the game rewrites and
+    // reuses that object (measured 2026-09-15), so a stamp change on an untouched
+    // slot is normal and must not defeat the hold.
+    const slot505Entry = ACQ_ENTRY + BigInt(505 * 0x100);
+    const timeAddr = 0x300000n + BigInt(505 * 0x300) + 0x100n;
+    writeDotNetString(m, timeAddr, "[23:59]");
+    m.writePtr(slot505Entry + 0x28n, timeAddr);
+    const stillHeld = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(stillHeld?.heldAt).toBe(2505);
+    expect(stillHeld?.heldReason).toBe("stale-slot");
+
+    // Once the game rewrites the held slot the hold resolves — nothing is lost.
+    writeAcquireEntry(m, 2505, "msg 2505", acquireStampFor(2505));
+    m.writeI32(ACQ_RING + 0x1cn, 2510);
+    const third = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(third?.entries.map((e) => e.message)).toEqual(["msg 2505"]);
+    expect(pin.total).toBe(2506);
+  });
+
+  it("takes the whole window on a FRESH reader (a new session's archive dedupe is the main process' job)", () => {
+    const pin = makeAcquireRingPinState();
+    // Wrapped ring, head at 2490 (slots hold indices 490..2489), counter over-leads
+    // by 10 — the tail slots still hold indices 490..499.
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 490, 2490);
+    m.writeI32(ACQ_RING + 0x1cn, 2500);
+
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // A fresh pin has no identities to compare, so the reader cannot tell fresh
+    // from previous-pass content: it delivers the window as-is and lets
+    // TrackingService.ingestAcquireBatch drop what the archive already holds
+    // (counted raw-text budget). No hold is reported.
+    expect(res?.entries).toHaveLength(2000);
+    expect(res?.entries[1989].message).toBe("msg 2489");
+    expect(res?.heldAt).toBeNull();
+    expect(pin.total).toBe(2500);
+  });
+
+  it("reports the capacity the ring object declares (ring+0x18)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [{ msg: "获得了银锭。", time: "10:00" }]);
+    // Live-verified layout on v1.2.2: ring+0x18 = 2000 (backing array 2048).
+    m.writeI32(ACQ_RING + 0x18n, 2000);
+    expect(readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin)?.declaredCapacity).toBe(2000);
+    // A future build changing it must surface instead of silently drifting.
+    m.writeI32(ACQ_RING + 0x18n, 5000);
+    expect(readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin)?.declaredCapacity).toBe(5000);
+    // Absent / implausible → null (reader keeps its own default).
+    m.writeI32(ACQ_RING + 0x18n, 0);
+    expect(readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin)?.declaredCapacity).toBeNull();
+  });
+
+  it("resumes from the persisted watermark instead of replaying the window", () => {
+    const pin = makeAcquireRingPinState();
+    // The parent pushes the persisted read position (the last shutdown's pin).
+    pin.resumeTotal = 29500;
+    // The ring has since moved one entry ahead.
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 27501, 29501);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.resumed).toBe(true);
+    expect(res?.entries).toHaveLength(1);
+    expect(res?.entries[0].message).toBe("msg 29500");
+    expect(pin.total).toBe(29501);
+  });
+
+  it("reports a restart when the counter is below the watermark (new game session)", () => {
+    const pin = makeAcquireRingPinState();
+    pin.resumeTotal = 29500;
+    // The game restarted: the ring counter restarted from 0 and is way below
+    // the persisted watermark — the new session's backlog is genuinely new.
+    const m = seedAcquireRing(new FakeMemory(), [
+      { msg: "A", time: "00:01" },
+      { msg: "B", time: "00:02" },
+      { msg: "C", time: "00:03" },
+    ]);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.restartDetected).toBe(true);
+    expect(res?.resumed).toBe(false);
+    expect(res?.entries).toHaveLength(3);
+    expect(pin.total).toBe(3);
+  });
+
+  it("ignores a watermark that is more than one ring behind the counter", () => {
+    const pin = makeAcquireRingPinState();
+    pin.resumeTotal = 500;
+    // The companion was off for > one full ring: the gap is partially
+    // overwritten, the watermark is unusable → fresh full-window anchor.
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 3000, 5000);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.resumed).toBe(false);
+    expect(res?.restartDetected).toBe(false);
+    expect(res?.entries).toHaveLength(2000);
+    expect(res?.entries[0].message).toBe("msg 3000");
+    expect(pin.total).toBe(5000);
+  });
+
+  it("measures the ring capacity from the stride between two rewrites of one slot", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 500, 2500);
+    const first = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    // Slot 0 is read at index 2000 → probe armed, no estimate yet.
+    expect(first?.capacityEstimate).toBeNull();
+
+    // One full ring later (index 4000 = slot 0 again) the content differs →
+    // stride = 4000 - 2000 = the ring's true capacity.
+    for (let i = 2500; i <= 4000; i++) writeAcquireEntry(m, i, `msg ${i}`, acquireStampFor(i));
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    expect(res?.capacityEstimate).toBe(2000);
+    expect(pin.capacityEstimate).toBe(2000);
+  });
+
+  it("releases the hold once the counter keeps moving past it (loud escape hatch)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 500, 2500);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, 0);
+    expect(pin.total).toBe(2500);
+
+    // Counter advances every second while slot 500 is never rewritten.
+    m.writeI32(ACQ_RING + 0x1cn, 2501);
+    expect(readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, 1_000)?.heldReason).toBe(
+      "stale-slot",
+    );
+
+    let released = false;
+    for (let t = 2_000; t <= ACQUIRE_HOLD_RELEASE_MS + 5_000; t += 1_000) {
+      m.writeI32(ACQ_RING + 0x1cn, 2501 + t / 1_000);
+      const r = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, t);
+      if (r?.heldReason === "released") {
+        released = true;
+        expect(r.entries).toHaveLength(1);
+        break;
+      }
+    }
+    expect(released).toBe(true);
+  });
+
+  it("does not expire a hold while the game is idle (counter not moving)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 500, 2500);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, 0);
+
+    // Counter frozen at 2501, slot 2500 never rewritten → hold forever, silently.
+    m.writeI32(ACQ_RING + 0x1cn, 2501);
+    for (let t = 1_000; t <= ACQUIRE_HOLD_RELEASE_MS * 4; t += 1_000) {
+      const r = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, t);
+      expect(r?.heldReason).toBe("stale-slot");
+      expect(r?.entries).toHaveLength(0);
+    }
+    expect(pin.total).toBe(2500);
   });
 });
 

@@ -15,7 +15,7 @@ import {
   type LocationFilter,
 } from "../lib/inventoryFilters";
 import { computeInventoryComposition } from "../../core/inventory/composition";
-import { TBH_MARKET_FEE_RATES } from "../../core/steamMarketFee";
+import { feeRatesForCurrency, TBH_MARKET_FEE_RATES } from "../../core/steamMarketFee";
 import { InventorySummary } from "../components/inventory/InventorySummary";
 import { InventoryFilters } from "../components/inventory/InventoryFilters";
 import { InventoryColumnPicker } from "../components/inventory/InventoryColumnPicker";
@@ -134,8 +134,12 @@ export function Inventory() {
   ]);
 
   const composition = useMemo(
-    () => computeInventoryComposition(rows, TBH_MARKET_FEE_RATES),
-    [rows],
+    () =>
+      computeInventoryComposition(
+        rows,
+        feeRatesForCurrency(TBH_MARKET_FEE_RATES, inv?.currency ?? "USD"),
+      ),
+    [rows, inv?.currency],
   );
 
   if (!inv) {

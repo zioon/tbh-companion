@@ -31,6 +31,12 @@ export function InventorySummary({
     Number.isFinite(c.buyOrderValuedTotal) &&
     c.buyOrderValuedTotal > 0;
 
+  const hasInstantNet = c.buyOrderNetTotal != null && Number.isFinite(c.buyOrderNetTotal);
+  const instantNet = hasInstantNet ? formatMoney(c.buyOrderNetTotal, currency) : "-";
+  const instantFee =
+    hasInstantValue && hasInstantNet ? c.buyOrderValuedTotal - c.buyOrderNetTotal : 0;
+  const hasInstantFees = hasInstantValue && instantFee > 0;
+
   return (
     <>
       <div className="grid grid-cols-2 gap-2.5 max-[560px]:grid-cols-1">
@@ -61,6 +67,16 @@ export function InventorySummary({
           label={t("summary.instantTotal")}
           title={t("summary.instantSellTip")}
           value={hasInstantValue ? formatMoney(c.buyOrderValuedTotal, currency) : "-"}
+          detail={
+            <span>
+              <span className="font-semibold text-gold">{instantNet}</span> {t("summary.afterFees")}
+              {hasInstantFees ? (
+                <span className="block">
+                  −{formatMoney(instantFee, currency)} {t("summary.feesLabel")}
+                </span>
+              ) : null}
+            </span>
+          }
         />
       </div>
 

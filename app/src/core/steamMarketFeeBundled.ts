@@ -14,6 +14,7 @@ export function getTbhMarketFeeRates(): SteamMarketFeeRates {
       steamFeePercent: raw.steamFeePercent,
       publisherFeePercent: raw.publisherFeePercent,
       minFeeMajor: raw.minFeeMajor,
+      minPayoutMajor: raw.minPayoutMajor ?? TBH_MARKET_FEE_RATES.minPayoutMajor,
     };
   } catch {
     cachedTbhMarketFeeRates = TBH_MARKET_FEE_RATES;

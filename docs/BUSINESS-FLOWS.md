@@ -587,6 +587,7 @@ heroDeltaGain(prev, curLevel, curExp) → number
 - **secondsSinceRead**：`nowSeconds() - lastSnap.saveMtime`（save 内容年龄，非 poll 间隔）。
 - 其它字段：rollingRate、sessionRate、goldRate、cumulativeGained、goldGained、elapsed、secondsSinceGain、stageName（用 catalog 本地化）、history（visible 50 条，每条带 stageName）、chestDrops、boxOpens、dps、mapDamage、mapMobsKilled、sessionDamage、sessionMobsKilled、aliveMonsters、hpSum、hpMaxSum。
 - **chestDrops 速率计时锚定**：`commonPerHour` / `rarePerHour` / `actPerHour`（及 `*RecentPerHour` 滚动 1h）由 `ChestDropTracker` 计算。会话速率窗口锚定到 `min(开始追踪时刻, 首个掉落的墙钟)`，因此等待首个箱子掉落的时间会计入分母——启动 6 分钟后落下的第 1 个普通箱子显示约 10/hr，而不是旧行为（锚定首个掉落 + 60s 下限截断）产生的 60/hr 虚高；而早于启动的历史/恢复掉落仍锚定其真实掉落时间。`applySnapshot`（restore）会把窗口覆写为**最早恢复的掉落**，使跨空闲时段的恢复历史仍计入速率，避免被削减为 0。窗口下限截断 `MIN_RATE_WINDOW_SEC=60` 保留，仅用于防止刚起步的秒级除以零/荒谬峰值。**恢复锚点持久化（2026-09-11 修复）**：`captureSnapshot` 现将 `sessionDropStart` 一并写入快照，`applySnapshot` 优先采用该持久化锚点（与最早恢复条目取 `min`，旧快照缺失时回退最早恢复条目）。修复前恢复只锚定 `history[0]`，而 `history` 被 `HISTORY_LIMIT=500` 截断、`countsByKey` 不截断——单次运行掉落超过 500 后，重开应用的 perHour 分子覆盖整个会话、分母却从截断后的时间窗算起，导致速率虚高（实测 600 掉落/6h 会话恢复后显示 ~119/hr，真实 ~99/hr）。
+- **chestDrops 地图感知分母（2026-09-11）**：普通图与瘟疫图是互斥的地图类型（见 `isPlagueStage`），common/rare/act 只会在普通图掉落，plagueCommon/plagueRare/plagueAct 只会在瘟疫图掉落。若所有宝箱类别共用「总墙钟时间」作分母，混合两种地图的会话会把「刷另一类地图的时间」也算进本类速率的分母，导致速率被稀释（例如 1h 普通图爆 30 箱 + 1h 瘟疫图爆 15 箱：普通 30/(2h)=15/hr 而被低估为真实 30/hr）。修复：`ChestDropTracker` 新增 `noteMapTime(stageKey, at)`，由 `TrackingService.ingestLiveFrame` 每一实时帧喂入；依据当前 `stageKey`（`isPlagueStage` 判定，区分 4 位普通 key 与 6 位瘟疫 key；null/未知关不归属任何桶）把相邻帧墙钟差累积为 `normalMapSec` / `plagueMapSec`（会话级）及 1h 滚动 `rollingNormalSec` / `rollingPlagueSec`（segment 双端队列增量维护，超出 `ROLLING_HOUR_SEC=3600` 的段被剪枝）。`getStats` 中：普通三类速率分母 = `max(MIN_RATE_WINDOW_SEC, normalMapSec)/3600`，瘟疫三类 = `max(…, plagueMapSec)/3600`；`*RecentPerHour` 同理用滚动值。调用侧（`TrackingService.ingestLiveFrame`）以 `snap.stageKey ?? lastLiveStage?.stageKey` 喂入，与掉落分类同源兜底——某帧 `stageKey` 为空时不归 null 桶而是沿用上一已知关卡，避免地图时间静默停滞。当某桶无累积地图时间（未附加实时内存 / 恢复后尚无新帧）时，**回退原总时间口径**（会话用 `hours`、滚动用 `recentHours`），保持纯存档模式行为不变、避免分母为 0 导致速率虚高。`captureSnapshot` 持久化 `normalMapSec`/`plagueMapSec`（滚动值属短期指标不入快照），`applySnapshot` 在恢复后重置采样锚点与滚动队列，避免首帧跨离线空档误计；`reset` 清空全部地图时间。测试：`test/core/chestDropTracker.test.ts` 的 `map-type-aware rate denominator` 块覆盖会话/滚动/回退/剪枝/重置/恢复六种情形。
 - **boxOpens 买断价币种（2026-09-11 修复）**：`TrackingService.buildBoxOpenPriceResolver` 解析掉落物品买断价——主路径用库存求购订单簿（`itemordershistogram`，**用户本币**，深度感知即时出售）；兜底用 CI lookup 快照 `prices[hash]`（**USD** `lowest_price`）。旧实现兜底直接返回 USD 数值未换算，非 USD 用户（如 CNY）会把 $0.03 显示成 ¥0.03（人民币地板价是 ¥0.10，明显偏低）。修复：兜底优先用快照本币字段（`buyOrderLocal` → `pricesLocal`，本地 polling 直抓目标币，无 FX 圆整误差）；否则 `usd × fx[currency]`（快照 `fx` 缺失该币时回落 USD 原值）。`TrackingService.setCurrency` 由 appState 在启动（`config.currency`）与货币切换（`setCurrency` IPC）时注入。
 
 ### 4.7 blend.ts 纯函数（`app/src/core/liveMemory/blend.ts`）
@@ -964,7 +965,8 @@ flowchart TD
      - `resolveClearedStageKey`（`core/stages.ts`）识别 `fallbackStageKey` 为瘟疫关时，用日志 `act`（21/22/23，跨区推进时更正所属区）+ 日志 `stage` 重建 6 位 key（`plagueBaseFromAct`→2012/2013/2014 × 100 + stage），解决清除后 stageKey 已前进的 off-by-one；`act` 非瘟疫值时回落当前 live 区的 base。
      - `stageName` 对 6 位瘟疫 key 先按完整 key 查 `catalog.stages`（瘟疫关名如 `201201`→"Nightmare Plaguelands" 以此 key 存储），miss 则回退 `<难度> <act>-<stage>`（act 21/22/23 映射 Nightmare/Hell/Torment）。
 9. **box opens**：对每个 `snap.boxOpens` 调用 `resolveBoxOpenEntry(entry)` 解析 boxKey/itemKey/name/grade → `boxOpenTracker.recordOpen(...)`。
-   - **BoxOpenLog burst 抢读（2026-09-11）**：`snap.boxOpens` 来自 `readRuntimeBoxOpenLog` 对 `BoxOpenLog` 的 tail 读取。玩家短时间内连开多箱会一次性在末尾追加多条 `BoxOpenLog` 条目（每箱一条，itemKey/boxType/level 视为包裹写入）；每条字段在 mid-write 窗口内才提交完整，单次 tail 扫描会把尚未提交的末尾条目 park 到 `boxOpenPin.retryFrom`，只返回已提交的条目。若不补读，park 条目要等下一 25Hz tick（~40ms）才重读，期间日志若被清理（shrink）即永久丢失——表现为"连开 3 箱只记 1 item"。修复（`liveReader.ts read()`）：当此 tick 检出 box-open 活动（`opens.length>0` 或 `retryFrom` 挂起）时，在同一突发窗口内按 `BOX_BURST_ROUNDS`（4 次）× `BOX_BURST_GAP_MS`（2ms）连续重读 `readRuntimeBoxOpenLog`，把各次增量累积进 `opens`；一旦无新提交条目即停，仍挂起的 mid-write 条目留给下一 tick——避免在同一窗口内重读耗尽该条目的 `retryConsecutive` 预算而误触发 force-skip 漏记。
+   - **BoxOpenLog burst 抢读（2026-09-11）**：`snap.boxOpens` 来自 `readRuntimeBoxOpenLog` 对 `BoxOpenLog` 的 tail 读取。玩家短时间内连开多箱会一次性在末尾追加多条 `BoxOpenLog` 条目（每箱一条，itemKey/boxType/level 视为包裹写入）；每条字段在 mid-write 窗口内才提交完整，单次 tail 扫描会把尚未提交的末尾条目 park 到 `boxOpenPin.retryFrom`，只返回已提交的条目。若不补读，park 条目要等下一 25Hz tick（~40ms）才重读，期间日志若被清理（shrink）即永久丢失——表现为"连开 3 箱只记 1 item"。修复（`liveReader.ts read()`）：当此 tick 检出 box-open 活动（`opens.length>0` 或 `retryFrom` 挂起）时，在同一突发窗口内按 `BOX_BURST_ROUNDS`（4 次）× `BOX_BURST_GAP_MS`（2ms）连续重读 `readRuntimeBoxOpenLog`，把各次增量累积进 `opens`；一旦无新提交条目、且无挂起的 mid-write（`retryFrom` 为空）即停；若有挂起条目则在同一突发窗口内持续重读直至其提交（条目提交仅需几 ms，不会耗尽 `retryConsecutive` 预算误触发 force-skip）。
+   - **三路 burst 统一（2026-09-11 实测：开启多个，第一个没被记录）**：chest（掉落）、box（打开物品）、stageClear（通关）三条 tail 读取都在 `liveReader.read()` 有对应 burst 抢读。**进入条件统一包含“mid-write 挂起（`retryFrom` 非空）”**，否则当一次开/掉落多个宝箱、**第一个条目恰好 mid-write 时**，单次扫描会把它 park 进 `retryFrom`，但返回的 drops/opens 为空——旧条件（仅看 `length>0` / settle / shrink）不触发 burst，该条要等下一 25Hz tick（~40ms），期间日志 shrink 即永久丢失。修复：`CHEST_BURST` / `BOX_BURST` 进入条件补 `retryFrom != null`，停牌条件改为“无新提交条目且 `retryFrom` 为空才停”，使第一个 mid-write 条目在同一突发窗口内被持续追击到提交。
 10. **节流 broadcast**：若 `Date.now() - lastLiveBroadcastMs >= 200` → `pushStats()`。
 
 ### 5.8 offset healing 机制
@@ -1262,9 +1264,9 @@ flowchart LR
 均位于 `app/src/core/inventory/`：
 
 - **aggregates.ts**：`parseAggregateEntries(player)` 提取 `{ type, subKey, value }` 三元组；`aggregateSubKeyToItemKey(type, subKey)` SubKey → ItemKey 映射；`materialStacksFromAggregates(entries, isMaterialItemKey)` 过滤出材料。
-- **composition.ts**：`computeInventoryComposition(rows, feeRates)` 聚合 `InventoryComposition`（计数维度 + 价格维度 + 手续费）；每行的 `value` 字段在此设置。
+- **composition.ts**：`computeInventoryComposition(rows, feeRates)` 聚合 `InventoryComposition`（计数维度 + 价格维度 + 手续费）；每行的 `value` 字段在此设置。`buyOrderValuedTotal` 累加毛额，`buyOrderNetTotal` 通过 `instantSellNetValue` 逐级扣费精确累加（不再用整体 feeRatio 估算）。
 - **location.ts**：`unassignedCount(row)`、`rowMatchesLocation(row, filter)`、`rowMatchesAnyLocation(rows, filter)` 用于 UI 位置过滤。
-- **buyOrder.ts**：`instantSellValue(ownedCount, levels)` 把 `ownedCount` 件物品按 `BuyOrderLevel[]` 从高到低价吃单，返回 `{ value, coveredCount }`。
+- **buyOrder.ts**：`instantSellValue(ownedCount, levels)` 把 `ownedCount` 件物品按 `BuyOrderLevel[]` 从高到低价吃单，返回毛额 `{ value, coveredCount }`；`instantSellNetValue(ownedCount, levels, rates)` 同逻辑但每档按 `sellerProceedsFromBuyerPrice(price, rates)` 计算净到手（逐级扣 Steam/厂商交易成本与收款保底）。
 - **ownedPriceTargets.ts**：`ownedPriceTargetForItem(item)` 单个 GameItem → `OwnedPriceTarget | null`；`ownedPriceTargets(snapshot, lookup, excludeItemKey?)` 遍历派生目标去重；`flattenOwnedHashes(targets)` 摊平为 `string[]` 供价格缓存裁剪使用。
 - **predictFillTime.ts**：`predictFillTime(input)` 根据 `inventoryCapacity / inventoryUsed` + 多个 `ChestFillSource` 预测多久后背包满。每个 chest type 是串行队列，开箱速率 = `3600 / autoOpenSecondsPerChest`。
 - **columnPrefs.ts**：UI 表格列可见性配置归一化。
@@ -1567,12 +1569,13 @@ flowchart LR
 
 文件：`app/src/core/steamMarketFee.ts`（纯函数）+ `app/src/core/steamMarketFeeBundled.ts`（main/core 专用，读 bundled `data/steam_market_fee.json`）。
 
-- `SteamMarketFeeRates = { steamFeePercent, publisherFeePercent, minFeeMajor }`。
-- TBH 的 `publisherFeePercent` 通常为 0。
-- `sellerFees(sellerAmount, rates)`：卖家到手金额 → 总手续费。
-- `buyerPriceFromSellerAmount(sellerAmount, rates)` = `sellerAmount + sellerFees(...)`。
-- `sellerProceedsFromBuyerPrice(buyerPrice, rates)`：**逆向**，二分搜索（48 次迭代，精度 0.01）——因为 Steam 按 seller amount floor 费用，不能直接除法。
-- `aggregateSellerProceeds(lines, rates)`：多行累加 `{ grossTotal, netTotal, feeTotal }`。
+- `SteamMarketFeeRates = { steamFeePercent, publisherFeePercent, minFeeMajor, minPayoutMajor }`。
+- 费率（2026-09 更新）：`steamFeePercent = 0.05`（Steam 5%，最少 0.01）、`publisherFeePercent = 0.1`（厂商 10%，最少 0.01）、`minPayoutMajor = 0.01`（收款保底）。
+- **最低手续费按货币（2026-09 新增）**：Steam 2025-12 起单笔最低费为 $0.01 等值，国区实测为 ¥0.07。`MIN_FEE_BY_ISO = { CNY: 0.07 }`，其余币种回退 $0.01。`minFeeForCurrency(iso, fallback)` 取值；`feeRatesForCurrency(rates, iso)` 返回按币种调整 `minFeeMajor`/`minPayoutMajor` 后的费率副本（未收录币种返回原对象）。调用方（renderer Inventory/InventoryTable、main InventoryService worker）用展示币种构造费率，使人民币下最低费为 ¥0.07。
+- `sellerFees(price, rates)`：按**买家/售价**直接计算总手续费 = `steam(price) + publisher(price)`，每个费用分量 `max(floor(price * rate * 100)/100, minFeeMajor)`。
+- `buyerPriceFromSellerAmount(amount, rates)` = `amount + sellerFees(amount, rates)`（上架时想要到手 `amount` 的标价辅助）。
+- `sellerProceedsFromBuyerPrice(buyerPrice, rates)` = `max(buyerPrice - sellerFees(buyerPrice), minPayoutMajor)`——费用按售价直接扣除，收款保底 0.01；**不再使用二分搜索逆向**，因为费用直接基于售价计算。
+- `aggregateSellerProceeds(lines, rates)`：多行累加 `{ grossTotal, netTotal, feeTotal }`，`netTotal = Σ sellerProceedsFromBuyerPrice(buyerUnitPrice) * count`，`feeTotal = grossTotal - netTotal`。
 
 ### 8.3 steamBuyOrderApi（买单价，`app/src/main/services/steamBuyOrderApi.ts`）
 
@@ -2148,14 +2151,16 @@ flowchart TD
 
 ### 13.5 v1.2.2 宝箱槽位：save 侧 BoxBucketGetBoxList 路径
 
-v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除，但**未开箱子仍以普通物品形式存在于 save**：`itemSaveDatas` 中的 STAGEBOX 物品（如 `910901` Normal Monster Box Lv90），其 `UniqueId` 列在 `BoxBucketGetBoxList`（未开）/ `BoxBucketUseBoxList`（已开）。
+v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除，但**未开箱子仍以 STAGEBOX 普通物品形式存在于 `itemSaveDatas`**。其中 `BoxBucketGetBoxList`（未开）/`BoxBucketUseBoxList`（已开）记录部分箱子的 `UniqueId`，但**并不覆盖全部**——详见下方第 3 步的判定规则。
 
 **解析**（`app/src/core/inventory/parse.ts → parseChests`）：
 1. `player.BoxData` 存在 → 走旧路径（BoxTypes × BoxQuantity）。
-2. 否则从 `playerStr` 正则提取 `BoxBucketGetBoxList` 的 bucket-id 字符串集合；`splitTopLevelObjects(itemSaveDatas)` 逐对象按原始文本取 `UniqueId`（超 `Number.MAX_SAFE_INTEGER`，**必须字符串比较**，禁止 JSON.parse 后转 number）——命中集合即为未开箱子，`type` 携带 gamedata 物品 id。
-3. 分类由调用方注入 `classifyBoxItemKey`（`InventoryService.parseFromSave` 按 gamedata `type === "STAGEBOX"` + 物品名前缀：`Normal Monster Box*`→common、`Stage Boss Box*`→rare、`Act Boss Box*`→act，`categoryFromBoxItemName` 在 `core/liveMemory/chestSlots.ts`）；分类结果写入 `ChestHolding.category/label`。
-4. `resolveChestHoldings`（`core/boxes/resolve.ts`）优先采用 holding 自带的 `category/label`，缺省回退 boxTypeCatalog（旧版本行为不变）。
-5. 分类失败的箱子仍以 unclassified 行展示（`Type <itemId>`），不静默丢弃，便于发现 gamedata 过期。
+2. 否则从 `playerStr` 按原始文本遍历 `itemSaveDatas` 物品对象（`UniqueId` 超 `Number.MAX_SAFE_INTEGER`，**必须字符串比较**，禁止 JSON.parse 后转 number），`type` 携带 gamedata 物品 id。
+3. **持有的判定（2026-09-13 修复）**：凡 `classifyBoxItemKey(itemKey)` 返回已知 STAGEBOX 分类（`Normal Monster Box*`→common、`Stage Boss Box*`→rare、`Act Boss Box*`→act，`categoryFromBoxItemName` 在 `core/liveMemory/chestSlots.ts`）且该 item 的 `UniqueId` **不在 `BoxBucketUseBoxList`（已开桶）** 即计入持有。
+   - **关键**：不要求一定出现在 `BoxBucketGetBoxList`（未开桶）。v1.2.2 实测普通/关卡箱（910901/920901）的 `UniqueId` 在未开桶，而**章节 Boss 箱（930901）的 `UniqueId` 既不在未开桶也不在已开桶、仅以 STAGEBOX 物品存在于 `itemSaveDatas`**。旧实现用「未开桶」过滤 → 章节 Boss 箱被误判为已开而整体丢弃 → act 持有=0 → reconcile 把刚 +1 的实时计数覆盖回 0（"掉落章节宝箱后队列被误归零"）。
+   - 未知 id 的箱子（`classifyBoxItemKey` 返回 null）仍以出现在未开桶作为识别依据，计入 unclassified 行（`Type <itemId>`），不静默丢弃，便于发现 gamedata 过期。
+4. 分类由调用方注入 `classifyBoxItemKey`（`InventoryService.parseFromSave` 按 gamedata `type === "STAGEBOX"` + 物品名前缀）；分类结果写入 `ChestHolding.category/label`。
+5. `resolveChestHoldings`（`core/boxes/resolve.ts`）优先采用 holding 自带的 `category/label`，缺省回退 boxTypeCatalog（旧版本行为不变）。
 
 历史教训：曾尝试内存侧「逐箱 BoxData 清堆枚举」兜底（方案 B，已移除）——其前提是"save 无法提供逐类数量"，实为误判；且 v1.2.2 堆中箱子对象无稳定类名（`BoxData` 不在 GA 类索引），枚举不可靠。**v1.2.2 宝箱槽位以 save 为唯一数据源**，live 快照 `chestSlots` 在 v1.2.2 下为 null，`ChestService.setLiveSlots(null)` 回落 save 派生值。
 
@@ -2324,6 +2329,7 @@ flowchart TD
 4. **Step 3: liveSlots = {...slots}** — save 是 ground truth，覆盖实时调整。
 5. **Step 4: backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
 6. **Step 5: 漏掉掉落补偿（rare/act/plague*）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act/plagueCommon/plagueRare/plagueAct）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。对 `missedLive = increase - coveredLive` 个补偿掉落（`toRecover = min(missedLive, deficit)`）：
+   - **打开反推获得（auto-open 兜底，2026-09-11）**：Step5 依赖"存档未开槽位净增"，对"掉落即被自动打开"（save 净变 0）失效。补一条不依赖槽位的来源——**打开事件**。`classifyAllPendingBursts` 把"被打开但未匹配到活获得记录"的 `pendingBursts` 归入某类别后，用守恒补记：若该类别最近 `OPEN_BACKFILL_WINDOW_SEC`(=120s) 内的获得记录数（`ChestDropTracker.dropCountWithin`）不足本次打开数，差额即被 live miss 且 save 补不到的"获得"，以 `"reconcile"` 来源补记（不污染 live 学分）。去重由近窗计数承担，避免把窗口内正常获得重复补记。
    - **去重护栏（live credit 模型，2026-09-10）**：`ChestDropTracker` 按来源区分 live/reconcile，每次 `recordLiveChestDrop(cat, wallTime, "live")` 压入一个**带时间戳的信用**（`liveCreditsByCategory[cat]`）。对账前调 `coveredLive = chestDropTracker.claimLiveDropCredits(cat, increase)` —— 用 save 的槽位增量去**消耗**这些信用：被消耗的部分是 live 已记录过的掉落，不重复补偿。
      - **为何不能用"每周期 delta/mark"**：save 槽位增量相对 live 检测存在**滞后**（存档写入时机晚于内存中的掉落事件），一个真实的 live 掉落可能要跨若干次 save 对账才能在槽位增量里体现。"每周期标记"会在增量出现前被中间的对账清零 → 仍会重复补偿（即上一版修复失效的原因）。（注：2026-09-10 起 `setLiveSlots(null)` 不再每帧触发 reconcile，对账改由 save 解析驱动，但跨 save 周期的滞后依然存在，故时间上界信用仍必要。）
      - **信用为何能命中**：真实重复场景是——① live 检测到 rare 掉落（历史+1、信用+1）并经 `handleChestDrop` 入队（queue=1），此时存档尚未写入；② 一次对账读到仍为旧值 0 的 save，Step1 看到 `queue(1) > slots(0)` → **把排队的 rare 提前 excess-prune 掉**（queue=0）；③ 存档写入 rare=1 → 对账 `increase=1, deficit=1` → 旧代码补记一条、用**对账时刻**盖戳（比真实掉落晚数秒，即用户看到的「单次掉落出现两条、间隔 <1 分钟」）。信用跨这些对账存活，在 ③ 覆盖增量 → 不再补记。
@@ -2689,6 +2695,11 @@ flowchart LR
 | AutoClassify 规约 | `docs/findings/auto-classify-business-logic.md` |
 | chestDropTracker | `app/src/core/chestDropTracker.ts` |
 | boxOpenTracker | `app/src/core/boxOpenTracker.ts` |
+| boxOpenBackfill | `app/src/core/boxOpenBackfill.ts` |
+| acquireLog（含色值→品质） | `app/src/core/acquireLog.ts` |
+| recordLogFit | `app/src/core/recordLogFit.ts` |
+| recordLogTracker | `app/src/core/recordLogTracker.ts` |
+| RecordLogService | `app/src/main/services/RecordLogService.ts` |
 | dpsTracker | `app/src/core/liveMemory/dpsTracker.ts` |
 | NotificationService | `app/src/main/services/NotificationService.ts` |
 | notificationCatalog | `app/shared/notificationCatalog.ts` |
@@ -2726,3 +2737,208 @@ flowchart LR
 - AutoClassify 串行队列模型于 2026-07 重构为 per-category shared timer + 漂移检测 + WeakSet slot 计数（见 `project_memory.md` 的 Auto-classify 条目）。
 - CatalogRefresh 于 2026-07 加入，从游戏 Unity bundle 直接提取 catalog + locale，替代手动维护 `data/gamedata.json`。
 - LookupPricePollingService 于 2026-07 加入，让用户本地刷新 watched/owned 物品价格，弥补 CI 6 小时快照的滞后。后于 2026-08 收敛为**图鉴页仅轮询星标（watched）物品**（阈值/拥有集合不再参与图鉴轮询），并在交易页新增「刷新历史价格」按钮（`selectHistoryRefreshTargets`）强制拉取星标 ∪ 快照价格达标物品的 pricehistory。2026-08 中旬移除自动周期的 6h 固定冷却（`POLLING_MIN_REFRESH_MS` + `lookup_polling_cache.json` 持久化），让 `intervalMinutes` 设置严格生效（见 7.3 定时调度）。
+
+## 23. 统一记录日志（Record Log）业务流程
+
+**动机（2026-09 更新）**：记录页从"三类桶事件的统一聚合"演进为**游戏内「获得记录」界面的完全复刻**——数据只来自 `LogManager@0x20` 会话级环形区（游戏自带"获得记录"时间线），不再掺入由掉落/开箱/通关事件桶合成的记录。桶读取（GetBox/BoxOpenLog/StageClearLog）仍各自服务既有聚合（chestDrops/boxOpens/stageRuns/Loot），但**不再进入 recordLog**。`record_log.json` 承担跨会话长期归档。
+
+**数据源核查结论**：磁盘上无任何持久化的掉落/开箱/通关记录文件（存档 `PlayerSaveData` 无 record 字段、`Player.log` 仅异常栈回溯、游戏 Data 目录无日志文件），"游戏自带记录"本体即内存 `LogManager`。因此记录页 = 实时读取"获得记录"环形区并归档。
+
+### 23.1 数据流
+```
+游戏进程 LogManager@0x20（获得记录环形区：会话级、容量 ~2000、单调 total 计数）
+  → worker 独立"获得记录"通道（~10ms，不经过 snapshot / read() 帧）
+      ├─ 初次全量：attach 后首次成功读取拉取环形区最新窗口（total-2000 → total，initial=true）
+      ├─ 定期增量：从 acquirePin.total（读取端自己的位置）向前读，**不再以环形区计数器为锚**
+      └─ 陈旧槽位守卫：命中「同槽指纹未变 / 游戏内时间戳回退」→ 停在真实写入位置、pin 不推进（下一轮重试）
+      → post({type:"acquire", entries, initial}) → LiveMemoryService → TrackingService.ingestAcquireBatch(entries)
+          └─ 唯一喂入口：feed("acquire", now, {acquireRaw, acquireName, acquireCount, acquireColor, acquireTime})
+      ↘ RecordLogTracker（core，递增 seq + 容量裁剪）
+          → RecordLogService.schedulePersist() 防抖 ~2s
+          → 写 userData/record_log.json  {nextSeq, entries}
+  → buildStats 输出 Stats.recordLog（最新窗口 200 条 + total + byKind）
+  → onStats(IPC.STATS) → StatsContext → RecordLog tab（倒序、复刻游戏「获得记录」界面）
+```
+> 注：`获得记录` 由 worker 的**独立高频轮询**（`fastAcquirePollTimer` → `pollAcquireTailFast`，~10ms）直接 post 给 main，**不经过 snapshot / `read()` 帧**——不受 stage 为 null、name-scan 等 `read()` 提前返回影响，不堆积、不丢失。获取模型为**初次全量 + 定期增量**：attach 后首次成功读取把环形区最新窗口作为 `initial` 批下发，之后每轮从 `acquirePin.total`（读取端位置）向前续读。**读取位置只由读取端自身推进，绝不以环形区计数器 `ring+0x1C` 为锚**——该计数器实测会跑到槽位实际写入之前（2026-09-15 现场：attach 全量窗口尾部仍留着上一圈的条目，时间戳落后 6~7 小时），以它为锚会让后续每次增量读到「同槽 = 上一圈」的旧条目，真正最新行永不投递（记录页恒定滞后一整圈）。UI 侧只渲染 `kind === "acquire"` 条目（兼容旧版 record_log.json 里遗留的 drop/open/clear 历史数据），每条显示游戏内时间 + 原始消息（`<color=#RRGGBB>` 保持品质色渲染），完全复刻游戏内「获得记录」界面。
+
+### 23.2 关键文件
+| 职责 | 路径 |
+|------|------|
+| 统一记录器（纯逻辑） | `app/src/core/recordLogTracker.ts`（`RecordLogTracker`：`feed/getStats/snapshot/applySnapshot`） |
+| 持久化载体 | `app/src/main/services/RecordLogService.ts`（load-once / 防抖 persist / stop flush） |
+| 事件接入 | `app/src/main/services/TrackingService.ts`（`ingestAcquireBatch`——记录日志**唯一喂入口**；`resetRecordLog()`） |
+| "获得记录"环形区读取 | `app/src/core/liveMemory/runtime.ts`(`readRuntimeAcquireLogs`) + `app/src/main/liveMemory/liveReader.ts`(`pollAcquireTailFast` 初次全量+增量) + `app/src/main/liveMemory/worker.ts`(`fastAcquirePollTimer` 直接 post) |
+| 富文本→结构化解析 | `app/src/core/acquireLog.ts`（`parseAcquireMessage`：提取名称/数量/品质色/种类） |
+| 统计输出 | `app/src/main/stats.ts`（`buildStats` 增参 `recordLogTracker`，输出 `Stats.recordLog`） |
+| 文件注册/清除 | `app/src/main/services/appData.ts`（`RECORD_LOG_FILE`＝`record_log.json`；入 paths 清单与 `all-except-config`） |
+| UI | `app/src/renderer/tabs/RecordLog.tsx`（新 tab id = `log`） |
+
+### 23.3 持久化与去重
+- **文件**：`record_log.json`＝`{nextSeq, entries: RecordLogEntry[]}`。
+- **写入**：事件批量后防抖 ~2s；`TrackingService.stop()` 强制 `flush()`。`<2s` 尾部窗在崩溃时丢失（可接受，不产生重复）。
+- **容量**：内存与文件均裁剪至 10000 条（`capacity`），展示窗口取最新 200 条（`recentWindow`）。
+- **去重**：唯一消费点是 `ingestAcquireBatch`，靠 `acquirePin.total`（**读取端自己的位置**）单调向前增量；`readRuntimeAcquireLogs` 只在条目被确认「本圈已写入」时才推进 pin（槽位指针/消息 mid-write、同槽指纹未变三类情况一律**停机重试**，不投递、不推进），因此环形区条目不重读、不重复投递；崩溃重启后 `nextSeq` 从磁盘续增、`applySnapshot` 按 `seq` 合并（重复 seq 被覆盖）→ 无重复。
+- **断点续读（2026-09-15 终版：持久化读取位置水印）**：`record_log.json` 额外持久化 `acquireWatermark`（读取端最后交付的环形区索引）。链路：worker 每批带 `watermark` → `ingestAcquireBatch` → `RecordLogService.setAcquireWatermark`（随归档防抖落盘）；下次启动 `appState` 从 `tracking.getAcquireWatermark()` 取回，经 `LiveMemoryService.setAcquireResume` → worker `{type:"acquireResume"}` → `pin.resumeTotal`。首次读取时 `readRuntimeAcquireLogs` 校验：计数器 ≥ 水印且差距 ≤ 一个环 → **从水印续读**（`resumed=true`，该批按普通增量处理、不走 initial 去重）→ 重启后只交付"上次关机之后"的新行，**存量重灌从机制上不再发生**；计数器 < 水印 → 环形区重启（新游戏会话）→ `restartDetected=true` 旁路去重并全量展示；计数器比水印多出一个环以上 → 离线太久、水印失效 → 回退到全窗锚点 + ringSeq 去重。`ringSeq` 去重保留作为无水印场景（首次运行/水印失效）的兜底——注意它对旧归档（无 ringSeq 字段的历史条目）是冷启动无效的，这正是水印不可省的原因。
+- **重新 attach 存量去重（2026-09-15 终版：按环形区索引 `ringSeq`）**：`initial` 批（重新 attach 后的会话存量）**不再用 `(acquireTime, acquireRaw)`**——环形区的 `[HH:MM]` 时间串是游戏可复用/改写的对象（同一条未重写的条目 45 分钟后重读时间戳会变，实测 14:07 → 14:40），该键不稳定；也**不用"交付顺序重叠/按原文计数"**——文案高度重复且归档偶有漏行，16:40:53 的一次重启中精确前缀对齐在第 3 行就失配，整批 2000 条被重灌（`deduped=0`）。现改为：`RecordLogEntry` 新增 `ringSeq`（环形区索引，即 `AcquireLogEntry.seq`，随条目持久化），`RecordLogTracker.ringSeqSeen` 维护已归档索引集合，initial 批按 `hasRingSeq(a.seq)` 逐条判定——**与时间串、文本、顺序全部无关**；索引不在集合里 = 上个会话漏掉的行 → 现在补上（恢复而非吞掉）。**环形区重启（新游戏会话）的 initial 批绕过该去重**（索引从 1 重来会与旧会话冲突）：`pollAcquireTailFast` 返回 `ringRestarted=true` 全链路透传。每次 ingest 日志带 `deduped=N`。测试用例必须使用高位唯一索引（如 `900000+`），避免污染真实归档的去重集合。
+- **生命周期**：**不随"重置会话"清空**（长期保留）；仅 Settings → Data 清除的 `record-log` / `all-except-config` 会删文件并同步 `TrackingService.resetRecordLog()` 清内存。
+
+### 23.4 错误处理
+- 读文件失败/损坏 → `RecordLogService.load()` 记 warn，从空态继续。
+- 写盘失败（只读/满盘）→ `persist()` 记 warn，不回滚内存，下次调度再试。
+- `record_log.json` 被 Settings 删除 → `clearAppData(record-log)` 删除文件后 `tracking.resetRecordLog()` 清内存态。
+- 通关条目被跳过（漏记）有两道门，均会输出诊断日志，避免静默丢记录：
+  1. **`fallbackStageKey === 0`**：当帧 `snap.stageKey`/`lastLiveStage.stageKey`/`lastSnap.stageKey` 都为空 → 整段跳过（`log.warn("clear skipped: ...")`）。回退链已含 `lastLiveStage.stageKey`（用最后存活关卡补难度，`resolveClearedStageKey` 仅取其 difficulty，不造成 off-by-one 归因）。
+  2. **`valid === false`**：通关条目的 act/stage 在 mid-write 读成不可读 → 首次读到（新条）时以 `valid=false` 报给调用方丢弃，输出 `log.info("clear invalid: dropped ...")`。
+- **overscan 回读 + 指纹去重（`readRuntimeStageClears`，`runtime.ts`）**：每次除新增 `[lastCount, count)` 外，还回读最近 `STAGE_CLEAR_OVERSCAN=4` 个已扫描槽位。半截条目一旦在下一 tick 提交完整，即可被回读补记（此前 `lastCount` 直接越过后即永久丢失）；已交付槽位用 (act, stage, clearTimeSec) 指纹去重（FIFO，`STAGE_CLEAR_FINGERPRINT_CAP=32`），避免重复记账。回读永不越过 `tailBase`（prime 时的日志起点 / shrink 后的新起点），故 attach 存量日志与重置后的旧槽位不会被误补。
+- **开箱 overscan + 索引级去重（`readRuntimeBoxOpenLog`，`runtime.ts`）**：回读窗口（`BOX_OPEN_OVERSCAN=64`，**必须 ≥ 一次批量规模**）解决批量开箱漏记——游戏会**先把 BoxOpenLog 的 count 预留、再逐条落定 itemKey**；批量靠后的条目在我们扫到时仍在 mid-write → 被 park / force-skip，而 `MAX_BOX_OPEN_LOG_RETRIES=6` 给它提交等待。若回读窗口过小，force-skip 的条会在 itemKey 补齐前被推进的尾指针推出窗口→**按批量规模成比例漏**（开 20 漏 ~2）；宽窗口保证它在从 log 消失前持续可回读补记。去重按**槽位索引**（`deliveredIndices`），不按物品值（两个箱子可开同一物品）。回读受 `tailBase` 门控，不触碰 attach 存量与重置后数据。
+- **掉落 overscan + 索引级去重（`readRuntimeChestLog`，`runtime.ts`）**：同样补上回读窗口（`CHEST_OVERSCAN=4`）——被 `MAX_CHEST_LOG_RETRIES=3` 强制跳过的掉落槽位，等其 monsterType 提交后由回读补记。掉落去重同样按**槽位索引**（`deliveredIndices`），因为连掉的两个宝箱可能是同类（按类别去重会误并）。实现上**与跨 tick settle 共存**：有新掉落要 settle 的那一拍不启用 overscan（避免重读被 hold 的条目）；且仅在"最新解码的是日志最后一格新掉落"时才 hold 它做 settle——若最后一格是强制跳过的或最新是 overscan 补回的，则不 hold，避免把已交付的记录重复结算。
+- **统一入口 + 公共尾推进（`readRuntimeAllLogs` + `scanLogBucket`，`runtime.ts`）**：三条日志读取在中层合并为一个入口 `readRuntimeAllLogs(reader, ga, o, pins)`——一次 resolve LogManager 后，把三个 ELogType 桶（掉落/开箱/通关）各走一遍统一尾推进器 `scanLogBucket`，返回单一 `UnifiedLogsResult`（`{chestDrops, boxOpens, stageClears, statusByKind, debugByKind}`），三个下游（`liveReader.read()` 组帧 → `TrackingService.ingestLiveFrame`）从中各取所需。开箱与通关共用 `scanLogBucket` 的推进骨架（prime/shrink/overscan/park+force-skip/去重/lastCount）；掉落因**跨 tick settle** 语义特殊保留独立解码，但在统一入口内一并读取。`LiveMemorySnapshot` 的三字段结构与可空语义保持**不变**，故 `TrackingService` 零改动。
+- **记录日志唯一喂入口（`TrackingService.ingestAcquireBatch`）**：记录页（"记录" tab）不再接收任何桶事件（`ingestRecordLogs` 及 backfill 已移除）。`ingestAcquireBatch(entries, initial)` 是 `recordLog` 的唯一喂入口：每条"获得记录"条目 feed 为 `acquire` 记录（`acquireRaw`＝剥标签原文、`acquireName/count/color`＝结构化解析、`acquireTime`＝游戏内 [HH:MM]）。`initial` 批（会话存量）先按签名跳过已归档条目（见 23.3「重新 attach 存量去重」），批内合法重复保留。**feed 后立即按 `LIVE_BROADCAST_INTERVAL_MS`（200ms）节流 `pushStats`**——获得记录通道独立于 snapshot/`read()` 帧，若只依赖 live 帧推送，主菜单/村庄（stage null）期间新记录不会刷新到 UI。UI 只渲染 `kind === "acquire"`（兼容旧版 record_log.json 遗留的 drop/open/clear 历史数据），每条显示游戏内时间 + 原始消息（`<color=#RRGGBB>` 保持品质色），完全复刻游戏「获得记录」界面。
+- **"获得记录"解码（`readRuntimeAcquireLogs`，`runtime.ts`）**：游戏自带"获得记录"界面数据源为 `LogManager@0x20` 的**会话级环形区**（容量约 2000，单调 total 计数，重启即清空；内存中完整、不被分桶覆盖）。worker 的独立轮询（`fastAcquirePollTimer` → `pollAcquireTailFast`，~10ms）按 `acquirePin.total` 增量读取并**直接 post 给 main**（`{type:"acquire", entries, initial}`），**不经过 snapshot / `read()` 帧**（stage 为 null、name-scan 等 `read()` 提前返回不影响其下发，也不堆积、不丢失）。获取模型为**初次全量 + 定期增量**：attach 后首次成功读取以 `initial=true` 下发整个会话存量，之后每轮只读新增条目。**mid-write 防漏**：游戏追加条目时"先写 slot 指针、再提交字符串"，worker 读到未提交条目（`message` 解码为空或 slot 指针未写）时**停在失败条目、不推进 `pin.total`**（此前为 continue + 无条件推进，导致"打开箱子后新记录永久丢失"），下一轮 poll 重读该尾段；环形区按序追加，未提交条目必为最新一条。
+- **detach/re-attach 续读（2026-09-15 新增）**：`detach()` **不再重置** `acquirePin`/`acquireInitialDone`/`lastAcquireTotal`——同一游戏会话内的 detach→re-attach（游戏卡顿/进程句柄抖动触发的 worker 重连）会**继续按 pin 增量读**，不再把整个环形区存量重新作为 `initial` 批下发（此前每次 re-attach 都重新全量，旧记录以新 seq 重新排到记录页顶部，表现为"打开箱子后新增的不是最新的"）。真正的**新游戏会话**由环形区计数器重启识别：`readRuntimeAcquireLogs` 检测 `total < pin.total` 时把 pin 回退到 0 并清空槽位指纹/末段时间戳重新全量，`pollAcquireTailFast` 检测 `res.total < lastAcquireTotal` 时重置 `acquireInitialDone` 使该批标记为 `initial`（companion 重启后仍会初次全量展示存量）。
+- **陈旧槽位守卫（2026-09-15 修复：记录页恒定滞后一整圈）**：实测环形区计数器 `ring+0x1C` **跑在槽位实际写入之前**——attach 全量窗口 `[total-2000, total)` 的尾部仍持有**上一圈**条目（同一槽位 2000 次追加前的内容，游戏内时间戳落后 6~7 小时），此前的半写保护只挡 `entryPtr == null` / 消息解不出，**挡不住这种"完整可解码的旧条目"**：它被当作新记录投递且 pin 无条件推进，导致此后每次增量都命中「同槽 = 上一圈」内容、真正最新行永不投递（现场证据：`app.log` 的 attach 批尾部出现 02:32/03:54/…/07:15，紧随其后的增量批是 attach 批开头区域的顺序回放；`record_log.json` 最新条目时间戳落后真实最新约 2000 条 / 6~7 小时）。修复（`readRuntimeAcquireLogs` + `acquireHoldReason`）：
+  1. **读取锚点改为读取端位置**：稳态下 `from = acquirePin.total`，只在 pin 为 0（真正首次读取）时才锚定 `total - CAPACITY` 取最新窗口；单轮最多续读一整圈（`limit = from + CAPACITY`），落后多时用连续几轮（10ms/轮）追平，而不是把 pin 一步跳过未读条目。
+  2. **陈旧判定改用「指针 + 消息」指纹**（`acquireIdentity` = `entryPtr|msgPtr|message`）：同槽指纹与上一圈读到的完全相同 → 该槽未被本圈覆盖 → **break**（不投递、不推进 pin，下一轮重试）。被停住的槽位正是下一次写入的目标，因此游戏一追加就自然解除，无需额外自愈逻辑。**指纹里故意不含时间串**：实测（2026-09-15）游戏会复用/改写 `entry+0x28` 指向的时间字符串对象，同一条未重写的条目 45 分钟后重读时间戳会变（14:07 → 14:40），所以「时间戳回退」判据**已整体删除**（它既是漏检原因，也会在跨天回绕时误判）。
+  3. **释放阀（`ACQUIRE_HOLD_RELEASE_MS=5s`）**：若同一槽位在**计数器持续前进**（= 游戏确实在产出行）的情况下被停住超过 5 s，说明新鲜度模型不成立 → 直接交付并输出 `acquire hold (RELEASED)` 日志（响亮兜底，避免永久停顿）；计数器静止（游戏空闲）时 hold 永不过期——此时本来也没有新行可交付。
+  4. **容量探针（不再"假设 2000"）**：记录 0 号槽位内容最近一次变化的索引，两次变化之间正好一个环长 → `pin.capacityEstimate`；`liveReader` 在变化时输出 `acquire ring capacity MEASURED: N entries per slot cycle (assumed 2000 — matches|MISMATCH!)`。
+  5. **可观测**：`liveReader.logAcquireHold`（节流 5 s / 槽位变化立即记）输出 `acquire hold: seq=… reason=stale-slot|released total=… pin=…`；环形区 dump **由主进程按策略下发**（不再依赖环境变量是否传到 worker——实测 `TBH_ACQUIRE_DUMP=1` 重启后一条 dump 都没有）：`LiveMemoryService.start()` fork 后 postMessage `{type:"acquireDump", enabled, maxDumps, windowSize}`，未打包（dev）构建默认开启且限量（200 条 dump × 8 槽位，只在环形区"动过"或每 10 s 基线时落盘），`TBH_ACQUIRE_DUMP=1` 全量窗口（24 槽位、不限量）、`=0` 关闭；启动日志会打 `acquire dump policy: enabled=… (TBH_ACQUIRE_DUMP=…, packaged=…)` 便于核对。`dumpRuntimeAcquireRing` 输出计数器、ring/buf/elemBase、长度探针（`buf+0x18`/`buf+0x1C`/`ring+0x18`、内层数组指针与 `innerLen`）与尾部槽位的 entryPtr + 时间戳 + 消息，相邻两次 dump 即可确认计数器超前量、槽位指针是否随覆写变化、以及真实容量。
+  回归测试见 `app/test/core/liveMemoryRuntime.test.ts`：计数器超前 10 但只写 5 槽时只交付 5 条并把 pin 停在 2505、**改写时间串不影响 hold**、被覆写后自然解除、容量探针测出 2000 步长、活跃停顿 5 s 触发 RELEASED、计数器静止时永不过期；`app/test/main/trackingService.test.ts` 覆盖「时间戳变化的重复行被跳过」与「ringRestarted 批不被吞」。
+
+### 23.5 边界与注意
+- **排序规律**：列表按记录**读取/归档顺序（`seq` 降序）**展示，最新在最上。游戏内时间（`acquireTime`，`[HH:MM]`）**不参与排序**——它不含日期，跨会话/跨天时无法区分先后；只有 `seq`（全局递增的归档序号，worker 按环形区读取顺序 feed）能唯一确定先后。展示窗口取最新 200 条（`recentWindow`）。
+- 复用现有 `onStats` 流推送（未新增 IPC channel）；未改动 `onLiveMemory` 语义。
+- "获得记录"环形区**会话级**（重启清空）：`attach` 晚于游戏启动时，attach 时**仍留在环形区（最近 ~2000 条）内的会话记录**由初次全量批以 acquire 记录补全展示；已被环形区覆盖/越界的更早记录读不到（由 record_log.json 的跨会话归档承接）。以此为定位，不做跨重启的连续读取。
+- 掉落/开箱/通关的事件桶读取与既有聚合（`chestDrops`/`boxOpens`/`stageRuns`/Loot）完全不受影响——它们只是**不再进入 recordLog**；本日志为独立于事件桶的"获得记录"归档。
+- **环形区计数器的信任边界（2026-09-15）**：`ring+0x1C` 只能当作"游戏已经计过数的条目上界"，**不能当作"槽位已提交"的水位**——实测它领先槽位写入（见 23.4「陈旧槽位守卫」）。`total - pin.total` 长期偏大是**正常现象**，不代表滞后；判断"记录是否最新"要看**交付条目的游戏内时间戳是否跟随游戏内面板推进**，而不是看计数器差值。若记录页再次出现"新增的不是最新"，先看 `app.log` 的 `acquire hold` 与 `acquire poll` 行（前者说明守卫在拦、后者给出实际交付的 seq/时间戳区间），必要时以 `TBH_ACQUIRE_DUMP=1` 抓环形区原始 dump 定位（审计报告与现场证据见 `docs/findings/record-log-audit-2026-09-15.md`）。
+- **环形区时间戳不可作为身份（2026-09-15）**：`entry+0x28` 的 `[HH:MM]` 字符串对象会被游戏**复用/改写**——同一条未重写的环形区条目隔一段时间重读，时间戳会变成"最近"的值。因此：① 展示时间仅供参考，**不要用它做排序或去重**（排序用 `seq`，去重按原文计数，见 23.3）；② 任何"时间戳回退/跳变 = 陈旧"的判据都不可靠，陈旧判定只能用「指针 + 消息文本」指纹。
+- **"是否最新"看 `wall`，不看游戏时钟（2026-09-15）**：记录页每条显示两列时间——左列 `wall`（companion 收到该行的真实时刻，含日期）与右列游戏内 `[HH:MM]`。游戏内时钟是会话/游玩时钟，**不是墙钟**，实测每 44 分钟墙钟只推进 116 游戏分钟（≈2.6 倍速度），因此它天然落后墙钟 1~3 小时（15:24 时游戏钟 12:54，16:08 时 14:50）。判断记录是否实时：**看左列 `wall` / DEV 调试行的 `age=Ns`**（最新条目距今多少秒，正常为几秒~几十秒，因为游戏本身 30~60 秒才出一行）；`age` 按分钟持续增长才是真滞后。DEV 调试行格式：`dbg: total=… shown=… topSeq=… topAcq=… topWall=hh:mm:ss now=hh:mm:ss age=Ns`。
+- **环形区容量：2000，已实测确认（2026-09-15 dump）**：`ACQUIRE_RING_CAPACITY=2000` 与环形区对象自己的容量字段 `ring+0x18` 一致；`buf+0x18=2048` 只是底层数组的分配长度（.NET 按 2 的幂分配），游戏取模用的是 2000——dump 中 `#29700 → slot 1700`、`#29713 → slot 1713` 直接验证了 `槽位 = 计数器 % 2000`。同一份 dump 还确认：每次追加会**新分配一个 entry 对象**（相邻索引的 entry 地址互不相同且分散），所以「指针 + 消息」指纹在槽位被覆写时必然变化，陈旧槽位守卫可用。为防将来游戏改容量，读取端每次都会读出 `declaredCapacity`（`ring+0x18`），一旦与假设不符，`liveReader` 输出一次 `acquire capacity MISMATCH: ring declares N but the reader assumes 2000 …`；容量探针（同槽两次内容变化的索引步长）继续在后台给出 `acquire ring capacity MEASURED: N …`。
+
+---
+
+## 24. 开箱统计补齐（Box-Open Backfill）业务流程
+
+> 面向的问题：**Loot 页漏统计**——玩家确实开了箱、确实拿到了物品，但 Loot 页条目比实际少。本节记录用「获得记录」环形区日志对漏掉的开箱条目做**统计侧补齐**的完整链路。
+
+### 24.1 背景与定位
+
+开箱读取器（`readRuntimeBoxOpenLog`）追踪的是 `GetItemWithBoxOpen` 事件桶。该桶由游戏**增量写入**：先抬高列表长度，最后才提交每个槽位的 `itemKey`（字符串引用）。扫描到"写了一半"的槽位会被停住并重试（`BOX_OPEN_OVERSCAN=64`、`MAX_BOX_OPEN_LOG_RETRIES=6`），常见情况能吸收，但**一次性"全部开启"的大批量**、**偏移漂移窗口**或 **worker 重启**仍会丢条目，结果就是 Loot 页少算。
+
+"获得记录"环形区是**同一批事件的独立通道**：游戏每发放一件物品就追加一行「获得了…」，由陪伴应用在**独立的 ~10 ms 轮询路径**（`pollAcquireTailFast`）读取，**不受开箱桶的半写状态影响**。2026-09-16 实测：两条通道时间吻合到 64 ms 以内，最近 30 条开箱结果行在 tracker 中全部存在；对同一份归档（403 行 acquire + 500 条开箱历史）做比对，91 条发放行中有 **3 条在 tracker 中完全没有对应条目**，且其中 1 条（seq 242，黑曜石碎片）前后 10 秒内 tracker 一条记录都没有——**确属漏统计，非误分类**。
+
+定位（三条硬边界）：
+
+1. **只补统计，不改日志**：绝不回写 `record_log.json`，记录页仍是游戏自带界面的忠实镜像。
+2. **补不回来源宝箱**：环形区行只给出物品名 + 品质色，**不说明来自哪个箱子**。因此只能按"最近的开箱/掉落证据"归因，无证据时落 `unclassified`，**绝不臆造等级**（臆造会污染各箱的掉率统计）。
+3. **单向**：与 §23 的 `recordLogFit` 方向相反——`recordLogFit` 是「日志行 → 事件桶」的展示侧拟合，`boxOpenBackfill` 是「日志行 → 统计」的补齐侧修复。两者共用同一套"最近事件 + count 占用"语义，所以对同一行的判定一致。
+
+### 24.2 数据流
+
+```
+[游戏] GetItemWithBoxOpen 桶 ──25Hz 帧──> liveReader ──> ingestLiveFrame
+                                                              │
+                                                              └─> boxOpenTracker.recordOpen()  ← 主通道（会丢）
+
+[游戏] "获得记录" 环形区 ──~10ms 轮询──> ingestAcquireBatch ──> recordLog（只归档，不改）
+                                                              │
+                    1Hz tick ──> runBoxOpenBackfill() ─────────┘
+                                        │
+                                        ├─ 输入 A：recordLog.getStats().entries（窗口内的 acquire 行）
+                                        ├─ 输入 B：boxOpenTracker.fitHistory()
+                                        ├─ 输入 C：chestDropTracker.fitHistory()（GetBox 掉落，作兜底证据）
+                                        │
+                                        └─ core/boxOpenBackfill.backfillOpensFromLog()
+                                                  │  candidates（tracker 里没有的行）
+                                                  ├─ resolveBackfillItem()：物品名(+色值) → itemKey + grade
+                                                  └─ boxOpenTracker.recordOpen()  ← 补齐通道
+                                                            │
+                                                            └─> sessionState.flush() + pushStats()
+```
+
+### 24.3 匹配规则（`app/src/core/boxOpenBackfill.ts`，五步）
+
+1. **排除非发放行**（结构性判据，不用物品名黑名单）：非 `acquire` 种类、`bulk` 重放行（其 `wallTime` 是摄入时刻，时间匹配无意义）、不以「获得了」开头、「通关了」开头、命中 `宝箱|Chest`（箱子**掉落**提示，其内容是后续独立的行）、名称为空、`wallTime` 非有限值。**故意不按名字排除材料/货币**——同一个后缀既出现在真实战利品上也会误伤（早期版本用 `锭$` 之类的名单，实测会静默丢弃真发放行，正是本功能要修的 bug）。
+2. **已记录判定**：窗口（`BACKFILL_WINDOW_SEC=8`）内存在同名且仍有未认领数量的 tracker 条目 → 计入 `alreadyTracked` 并**按 `count` 扣减**（一条 `×3` 覆盖 3 个数量，三行各扣 1），语义与记录页一致。
+3. **兄弟归因**：仍在窗口内的最近 tracker 条目**借用其 `boxKey`**。这里**故意不要求"仍有余额"**——同一次开箱丢一条时，幸存的兄弟条目已被步骤 2 各自的行认领完，但它们仍是关于"哪个箱子产出了这件物品"的唯一证据；加余额限制会让它们永远无法被借用，恰好丢掉本功能要找回的信息（这是初版实现的 bug，已修）。
+4. **兜底归因**：回退到最近的 GetBox 掉落类别（`chestDropTracker`）。
+5. **无证据**：计 `unattributed`，按 `unclassified` 记录（或以 `allowUnclassified: false` 降级为只报告）。**绝不猜等级。**
+
+**幂等**：补齐后再跑一次，步骤 2 会命中（因为已按相同 `count` 记录、且用日志原名记录以保证字符串完全一致），候选为空——无需额外的"已补齐"账本。
+
+### 24.4 触发时机与节流（`TrackingService`）
+
+- **触发点**：`start()` 建立的 **1 Hz tickTimer**，而非 live 帧——这样即使 `read()` 停顿（主菜单/城镇）也照样执行，且天然低频。
+- **节流**：`BACKFILL_INTERVAL_MS=10_000`。
+- **成熟期（关键）**：`BACKFILL_GRACE_SEC=20`。开箱读取器会停放半写槽位并重试，**可能比环形区行晚几百毫秒才提交**。没有这个等待期，每个箱子都会被记两次（读取器补记一次 + 补齐一次）。20 秒是读取器实际所需的两百倍余量，而补齐只修统计、不是实时链路，等待没有代价。
+- **可判定窗口**：只处理 `wallTime` 落在 `[最老开箱记录 - 8s, now - 20s]` 之间的日志行。早于下界 = 开箱历史可能已被裁掉（不可判定），晚于上界 = 读取器还没来得及（不可判定）。**不可判定 ≠ 丢失**，跳过它们正是"历史被裁剪"不被误读成一串丢失的关键。
+- **无开箱记录时直接返回**：tracker 一条都没有 → 没有任何归因证据（live 内存关闭 / 还没开过箱），此时动手会把所有零散发放行变成 `unclassified` 噪音。
+
+### 24.5 物品名 → itemKey / 品质
+
+`TrackingService.resolveBackfillItem(name, color)`：
+
+- 走 `lookupVariantIndex`（`name → grade → id`）。**单变体材料**（名字只对应一个目录行）直接取该行，无需色值。
+- **多变体装备**（同名 10 个 id）用日志行的 `<color=#RRGGBB>` 解析等级，映射表在 `core/acquireLog.ts` 的 `gradeFromAcquireColor`。
+- 色值未测到时**回退基础变体**而非猜等级（猜错会选错 id，把物品归错箱子）。
+- **名字不在目录里 → 返回 null，整行跳过**。这条过滤天然把英雄（"牧师"）、关卡、宝箱提示挡在战利品统计之外——它们根本没有目录行。2026-09-16 实测：91 条发放行全部命中目录，0 条被这条规则丢掉（即它只是安全网，不误伤）。
+
+**色值→品质映射**（2026-09-16 实测，每种颜色由 ≥3 条"名字唯一对应一个目录行"的发放行确认；**未测到的一律不填**）：
+
+| 色值 | 品质 | 备注 |
+|---|---|---|
+| `#D7D7D7` | COMMON | |
+| `#7CE937` | UNCOMMON | |
+| `#519FFF` | RARE | |
+| `#EBBB00` | LEGENDARY | |
+| `#E8695A` | IMMORTAL | |
+| `#FB86FF` | ARCANA | |
+| `#00F6FF` | CELESTIAL | 灵魂石系列 |
+| — 未映射 — | BEYOND / DIVINE / COSMIC | 样本中从未出现，不臆造 |
+| `#A4A4A4` `#0070C0` `#A69255` `#7030A5` | **null** | 宝箱提示/通关/英雄的专用色，**必须**保持"未知"，否则宝箱提示会被当成真战利品 |
+
+### 24.6 目录名索引的三种拼写
+
+`lookupVariantIndex` 现在为每个物品索引三种名字（`rebuildVariantIndex()`，由 `setLookupCatalog` / `setGameDataLookup` / `setLocaleCatalog` 三者共同触发）：
+
+1. `item.name` — 本地化显示名（应用语言跟随游戏语言时命中）；
+2. `item.sourceName` — 英文原名（跨语言稳定）；
+3. `localeCatalog.items[id]` — **游戏语言下的名字**，也就是「获得了…」行里真正的字符串（应用 UI 语言与游戏语言不同时靠它命中）。
+
+同 (name, grade) 先到先得，结果不依赖目录加载顺序。gamedata 只为 lookup 缺行的基础 id 补位（lookup 仍是首选来源）。
+
+### 24.7 错误处理与降级
+
+| 情况 | 处理 |
+|---|---|
+| `recordLog` 为空 / 无 acquire 行 | 直接返回（无输入） |
+| `boxOpenTracker.fitHistory()` 为空 | 直接返回（无归因证据，避免噪音）——见 24.4 |
+| 可判定窗口为空（`newestAt < oldestAt`） | 直接返回 |
+| 候选物品名不在目录 | 跳过，计入 `unresolved`；**不影响统计正确性** |
+| 色值未测到（多变体） | 回退基础变体，`grade` 取该变体等级 |
+| 无归因证据（步骤 5） | 以 `unclassified` 记录 → 进入 AutoClassify 队列（§14），用户本来就会复核；**不污染按箱掉率** |
+| 补齐后写盘 / 推流失败 | 与既有 `sessionState.flush()` / `pushStats()` 同路径，无新增失败模式 |
+
+**可观测性**：每次有实际补齐时输出 `box-open backfill: recorded N missing opens (scanned=… tracked=… excluded=… unattributed=… unresolved=…)`；即使没补齐，只要 `unattributed`/`unresolved` 非 0 也输出一行（该数字突然变大 = 两条通道漂移/时钟偏斜/读取器停摆，正是本功能要暴露的信号）。
+
+### 24.8 边界与注意
+
+- **绝不回写 `record_log.json`**。§23.4 曾提到"记录页不再接收桶事件（backfill 已移除）"——那次移除的是**记录页 feeder**；本节是**统计侧补齐**，两者不同，勿混淆。
+- 补齐条目的 `wallTime` 取**日志行的摄入时刻**（与 tracker 同为陪伴应用时钟，实测相差 ~64 ms），因此排序/时间窗与既有条目可比。
+- 开箱历史上限 `HISTORY_LIMIT=500`；一旦被裁剪，早于"最老开箱记录 - 8s"的日志行就退出可判定窗口（24.4）。这是**主动放弃**，不是漏补。
+- `unclassified` 条目会触发 `BoxOpenTracker` 的 `onUnclassified` → AutoClassify 队列（§14）。若某次批量补齐产生大量 `unclassified`，说明归因证据整体缺失（例如读取器长时间停摆），应看 `app.log` 的 `box-open backfill:` 行定位。
+- 补齐只会**增加**条目，不会改写或重分类既有条目；用户手动重分类（`reclassifyItem`）的结果不受影响。
+- **误报风险已实测量化（2026-09-16，403 行 acquire + 500 条开箱历史）**：99 条发放行中，**96 条在 1 秒内**就有开箱记录、**98 条在 8 秒内**，只有 1 条（seq 242 黑曜石碎片，最近开箱在 75.2 秒外）落在窗口外。也就是说"刷关掉落的零散材料被误当成开箱产物"在这份真实数据里**基本不存在**——本游戏几乎所有「获得了…」行本来就是开箱产物。因此**没有额外加"必须有邻近开箱才考虑该行"的门槛**：唯一那条真实漏统计恰好在 75 秒外，加 60 秒门槛会把它挡掉（得不偿失）。若将来出现误报（表现为 `unclassified` 突然增多），首选手段是把 `allowUnclassified` 设为 `false` 降级为只报告，或加一道更宽的"活动门"（而非收紧 8 秒归因窗口——那会先伤到兄弟归因）。
+- **启动首轮的判定范围**：`oldestAt` 取自恢复的开箱历史中最老的一条，所以首轮会用**恢复的历史**去判定归档里所有落在窗口内的日志行。历史被裁到 500 条时，早于"最老开箱"的行自动退出判定（见 24.4），不会误判成丢失。
+- 幂等依赖"用日志原名记录"。若将来改为记录目录名，必须同步确认与 `acquireName` 完全一致，否则每次补齐都会重复一条。
+
+### 24.9 关键文件
+
+| 职责 | 路径 |
+|---|---|
+| 补齐核心（纯函数，可单测） | `app/src/core/boxOpenBackfill.ts` |
+| 色值→品质 | `app/src/core/acquireLog.ts`（`gradeFromAcquireColor`） |
+| 编排（1Hz 触发、节流、成熟期、目录解析、落库） | `app/src/main/services/TrackingService.ts`（`runBoxOpenBackfill` / `resolveBackfillItem` / `rebuildVariantIndex`） |
+| 补齐落点 | `app/src/core/boxOpenTracker.ts` |
+| 兜底证据（GetBox 掉落） | `app/src/core/chestDropTracker.ts` |
+| 日志源 | `app/src/core/recordLogTracker.ts` + `app/src/main/services/RecordLogService.ts` |
+| 单测 | `app/test/core/boxOpenBackfill.test.ts`（17）、`app/test/core/acquireLog.test.ts`、`app/test/main/trackingService.test.ts`（"box-open backfill" 4 例） |

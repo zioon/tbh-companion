@@ -7,8 +7,14 @@ import type { NotificationSoundPayload } from "../../../shared/types";
  * High-frequency channels that drive React re-renders. These are skipped for
  * hidden windows so a backgrounded main window (mini mode) doesn't accumulate
  * heap from 25 Hz snapshot processing it will never display.
+ *
+ * Only LIVE_MEMORY (25 Hz, large arrays) is throttled. IPC.STATS is ~5 Hz
+ * (broadcasts are throttled to 200 ms in TrackingService) and carries the
+ * record log — skipping it for a minimized/hidden main window would leave the
+ * RecordLog tab stuck on stale data (and it is never re-fetched on visibility
+ * restore), so STATS is delivered to every window.
  */
-const HIGH_FREQ_CHANNELS = new Set<string>([IPC.LIVE_MEMORY, IPC.STATS]);
+const HIGH_FREQ_CHANNELS = new Set<string>([IPC.LIVE_MEMORY]);
 
 /** Send a channel payload to every live, visible renderer window. */
 export function broadcast(channel: string, payload: unknown): void {

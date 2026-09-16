@@ -17,6 +17,7 @@ import { plausibleGold, plausibleStage, plausibleWave, type LiveOffsets } from "
 import { readStaticFieldPtr, readStaticFieldsBlock, resolveClassPtr } from "./statics";
 import { STRUCT_CONTAINER } from "./il2cppScanner";
 import type {
+  AcquireLogEntry,
   BoxOpenEntry,
   LiveHeroData,
   LiveInventoryItem,
@@ -125,6 +126,827 @@ function dictLookupIntKey(
     return readPtr(reader, eBase + BigInt(o.dict.entryValue));
   }
   return null;
+}
+
+/**
+ * Enumerate every bucket in the LogManager's `Dictionary<ELogType, List<...>>`
+ * and report each bucket's integer key and log size. Diagnostics-only: used to
+ * identify WHICH bucket backs the in-game "获得记录" timeline (the user reports
+ * it holds every box-open, complete, unoverwritten — unlike BoxOpenLog).
+ * `pin` is reused only for `resolveLogManager`'s cached lookup.
+ */
+export interface LogBucketSummary {
+  key: number;
+  count: number;
+}
+export function enumerateLogBucketCounts(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: LogManagerPinState,
+): LogBucketSummary[] | null {
+  if (o.typeInfoRva.logManager === 0n || o.runtime.log.logByType === 0) return null;
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) return null;
+  const dictPtr = readPtr(reader, lmPtr + BigInt(o.runtime.log.logByType));
+  if (dictPtr == null) return null;
+  const entriesArrPtr = readPtr(reader, dictPtr + BigInt(o.dict.entries));
+  if (entriesArrPtr == null) return null;
+  const count = readI32(reader, dictPtr + BigInt(o.dict.count));
+  if (count == null || count <= 0 || count > 100_000) return null;
+  const first = entriesArrPtr + BigInt(o.container.arrayFirst);
+  const out: LogBucketSummary[] = [];
+  for (let i = 0; i < count; i++) {
+    const eBase = first + BigInt(i * o.dict.entrySize);
+    const hash = readI32(reader, eBase + BigInt(o.dict.entryHash));
+    if (hash == null || hash < 0) continue; // deleted / unused slot
+    const key = readI32(reader, eBase + BigInt(o.dict.entryKey));
+    if (key == null) continue;
+    const vPtr = readPtr(reader, eBase + BigInt(o.dict.entryValue));
+    if (vPtr == null) continue;
+    const c = readI32(reader, vPtr + BigInt(o.container.listSize));
+    if (c == null) continue;
+    out.push({ key, count: c });
+  }
+  return out;
+}
+
+/**
+ * Probe the LogManager instance for candidate fields that look like a
+ * `List<T>` (a qword field pointing to an object whose `listSize` is a sane
+ * count). Diagnostics-only: scanning this alongside the per-type buckets helps
+ * locate the game's holistic "获得记录" buffer, which the user reports holds
+ * every item-get complete & unoverwritten. `limit` bounds the output to the
+ * largest-count candidates (the most likely log buffers).
+ */
+export interface LogListCandidate {
+  /** Byte offset of the List-pointer field relative to the LogManager object. */
+  offset: number;
+  count: number;
+}
+export function inspectLogManagerLists(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: LogManagerPinState,
+  maxOffset = 0x400,
+  limit = 12,
+): LogListCandidate[] | null {
+  if (o.typeInfoRva.logManager === 0n || o.container.listSize === 0) return null;
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) return null;
+  const out: LogListCandidate[] = [];
+  for (let off = 8; off <= maxOffset; off += 8) {
+    const vPtr = readPtr(reader, lmPtr + BigInt(off));
+    if (vPtr == null || vPtr === 0n) continue;
+    const c = readI32(reader, vPtr + BigInt(o.container.listSize));
+    if (c == null || c <= 0 || c > 200_000) continue;
+    out.push({ offset: off, count: c });
+  }
+  if (out.length === 0) return [];
+  out.sort((a, b) => b.count - a.count);
+  return out.slice(0, limit);
+}
+
+/**
+ * Dump the leading 32-bit words of an object pointed to by a specific field on
+ * the LogManager instance. Diagnostics for reverse-engineering the game's
+ * holistic "获得记录" buffer (see {@link inspectLogManagerLists}): we read the
+ * raw object header so we can recognize its item-buffer pointer / size /
+ * capacity / element layout before rendering its entries.
+ * Returns null if the slot offset yields no object.
+ */
+export interface LogManagerSlotDump {
+  /** Absolute address of the object the field points to. */
+  objPtr: bigint;
+  /** First `words` 32-bit little-endian words of the object. */
+  words: number[];
+}
+export function dumpLogManagerSlot(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: LogManagerPinState,
+  slotOffset: number,
+  words = 24,
+): LogManagerSlotDump | null {
+  if (o.typeInfoRva.logManager === 0n) return null;
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) return null;
+  const vPtr = readPtr(reader, lmPtr + BigInt(slotOffset));
+  if (vPtr == null || vPtr === 0n) return null;
+  const result: number[] = [];
+  for (let i = 0; i < words; i++) {
+    const w = readI32(reader, vPtr + BigInt(i * 4));
+    if (w == null) break;
+    result.push(w);
+  }
+  return { objPtr: vPtr, words: result };
+}
+
+/**
+ * Peek at the item buffer(s) reachable from the "获得记录" ring object. The
+ * object found at {@link dumpLogManagerSlot} has a capacity of 2000 and a
+ * monotonic total-event counter; its entries live in the QWORD buffer pointer
+ * fields. We dump a few int32 words at each candidate buffer's start AND near
+ * its end so we can tell whether entries are inline (itemId/grade/timestamp)
+ * or pointers (a second indirection), without knowing element size yet.
+ */
+export interface LogBufferPeek {
+  /** Absolute buffer address probed. */
+  base: bigint;
+  /** Leading int32 words (element-0 region). */
+  head: number[];
+  /** A sample near the tail of the buffer (wraps ring writes). */
+  mid: number[];
+}
+export function peekLogBuffer(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: LogManagerPinState,
+  slotOffset: number,
+  bufferFieldOffsets: number[],
+  headWords = 24,
+  tailScanBytes = 0x40_000,
+): LogBufferPeek[] | null {
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin);
+  if (lmPtr == null) return null;
+  const objPtr = readPtr(reader, lmPtr + BigInt(slotOffset));
+  if (objPtr == null || objPtr === 0n) return null;
+  const out: LogBufferPeek[] = [];
+  for (const fo of bufferFieldOffsets) {
+    const base = readPtr(reader, objPtr + BigInt(fo));
+    if (base == null || base === 0n) continue;
+    const head: number[] = [];
+    for (let i = 0; i < headWords; i++) {
+      const w = readI32(reader, base + BigInt(i * 4));
+      if (w == null) break;
+      head.push(w);
+    }
+    const mid: number[] = [];
+    for (let off = tailScanBytes - headWords * 4; off < tailScanBytes; off += 4) {
+      const w = readI32(reader, base + BigInt(off));
+      if (w == null) break;
+      mid.push(w);
+    }
+    out.push({ base, head, mid });
+  }
+  return out;
+}
+
+/**
+ * Dereference element pointers found in the "获得记录" ring buffer and dump each
+ * target entry object's leading int32 words. The ring stores pointer→entry, so a
+ * second indirection is needed to see itemKey / timestamp / type fields. We scan
+ * the already-read buffer head for qwords that look like heap pointers and read
+ * what they point at. Diagnostics-only.
+ */
+export interface LogEntryPeek {
+  /** Absolute address of the entry object. */
+  entryPtr: bigint;
+  /** Leading int32 words of the entry object. */
+  words: number[];
+}
+export function peekLogRingEntries(
+  reader: MemoryReader,
+  bufferBase: bigint,
+  scanWords = 24,
+  perEntryWords = 12,
+  fromWord = 4,
+): LogEntryPeek[] | null {
+  if (bufferBase === 0n) return null;
+  const out: LogEntryPeek[] = [];
+  for (let k = fromWord; k < scanWords - 1; k += 2) {
+    const lo = readI32(reader, bufferBase + BigInt(k * 4));
+    const hi = readI32(reader, bufferBase + BigInt((k + 1) * 4));
+    if (lo == null || hi == null) break;
+    if (hi <= 0 || hi >= 0x1_0000) continue; // only take obvious heap ptrs (0x..0001xxxx pattern)
+    const ptr = (BigInt(hi >>> 0) << 32n) | BigInt(lo >>> 0);
+    if (ptr === 0n) continue;
+    const words: number[] = [];
+    for (let i = 0; i < perEntryWords; i++) {
+      const w = readI32(reader, ptr + BigInt(i * 4));
+      if (w == null) break;
+      words.push(w);
+    }
+    if (words.length === 0) continue;
+    out.push({ entryPtr: ptr, words });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/**
+ * Third-level indirection: for each "获得记录" entry object, read the QWORD
+ * pointer fields at the given offsets and dump what each nested object holds.
+ * This is where the concrete itemKey / amount / timestamp live (one level below
+ * the entry), which earlier probes could not see because entries are pointer-boxed.
+ */
+export interface EntryNestedPeek {
+  entryPtr: bigint;
+  /** Byte offset of the pointer field within the entry object. */
+  field: number;
+  /** Absolute address the field points at (the nested item/amount object). */
+  target: bigint;
+  words: number[];
+}
+export function peekEntryNestedFields(
+  reader: MemoryReader,
+  entryPtrs: bigint[],
+  fieldOffsets: number[],
+  perTarget = 8,
+): EntryNestedPeek[] | null {
+  if (entryPtrs.length === 0) return null;
+  const readQwordPtr = (base: bigint): bigint | null => {
+    const lo = readI32(reader, base);
+    const hi = readI32(reader, base + 4n);
+    if (lo == null || hi == null) return null;
+    return (BigInt(hi >>> 0) << 32n) | BigInt(lo >>> 0);
+  };
+  const out: EntryNestedPeek[] = [];
+  for (const ep of entryPtrs) {
+    for (const fo of fieldOffsets) {
+      const t = readQwordPtr(ep + BigInt(fo));
+      if (t == null || t === 0n) continue;
+      const words: number[] = [];
+      for (let i = 0; i < perTarget; i++) {
+        const w = readI32(reader, t + BigInt(i * 4));
+        if (w == null) break;
+        words.push(w);
+      }
+      if (words.length === 0) continue;
+      out.push({ entryPtr: ep, field: fo, target: t, words });
+    }
+  }
+  return out;
+}
+
+/**
+ * Decode a .NET/Mono `System.String` from memory: object header, length
+ * (`int32` at +0x10), then UTF-16LE chars from +0x14. Returns the text (best
+ * effort; surrogate pairs collapse to lone halves). Used to read the actual
+ * "获得记录" message lines the game UI renders.
+ */
+export function readDotNetString(reader: MemoryReader, strPtr: bigint): string | null {
+  if (strPtr === 0n) return null;
+  const hdr = reader.readBytes(strPtr, 0x14);
+  if (!hdr || hdr.length < 0x14) return null;
+  const len = hdr.readInt32LE(0x10);
+  if (!Number.isFinite(len) || len < 0 || len > 5000) return null;
+  const bytes = reader.readBytes(strPtr + 0x14n, len * 2);
+  if (!bytes || bytes.length < len * 2) return null;
+  return bytes.toString("utf16le", 0, len * 2);
+}
+
+/**
+ * The game's holistic "获得记录" ring, reverse-engineered from a v1.2.2 live
+ * probe. It lives on the LogManager instance and is the SAME data the in-game
+ * "获得记录" UI renders — unlike BoxOpenLog it is complete & unoverwritten for
+ * the current session (monotonic total counter, cap ~2000, restart-fresh).
+ *
+ * Layout (validated by live dumps):
+ *   lm + 0x20  → ring object
+ *   ring + 0x10 → element-pointer array (elements start at array base + 0x20)
+ *   ring + 0x18 → capacity — live-verified 2026-09-15: **2000**, while the
+ *   backing array is allocated 2048 (`buf + 0x18`); slot = counter % capacity
+ *   (dump: #29700 → slot 1700, #29713 → slot 1713)
+ *   ring + 0x1C → monotonic total-acquired counter (the "seq" source)
+ *   each element = entry pointer; entry { +0x18 category string, +0x20 message
+ *   string ("获得了…"), +0x28 time string ("[HH:MM]") }
+ *
+ * Delivery is seq-driven off the monotonic counter: new counter range →
+ * slot (k mod CAPACITY) → entry → strings. This never under-reads the way the
+ * per-type BoxOpenLog shrink did.
+ *
+ * IMPORTANT (measured 2026-09-15, same build): `ring + 0x1C` runs AHEAD of the
+ * slot writes. A live attach read the window `[counter - 2000, counter)` and the
+ * window's tail still held the PREVIOUS pass' entries (in-game stamps 6-7 h
+ * behind), i.e. the counter claimed entries the slots did not hold yet. Treating
+ * the counter as a committed watermark made every later incremental read hit
+ * "same slot = previous pass" content — the newest lines were never delivered
+ * (the record log stayed ~one full ring behind the game). The reader therefore
+ * anchors on its own position and refuses to advance past a slot it can prove
+ * is stale — see {@link acquireHoldReason}.
+ */
+export interface AcquireRingPinState {
+  /** Last consumed ring index (the reader's own position, NOT the counter). */
+  total: number;
+  /** Cached LogManager pointer (shared with resolveLogManager). */
+  ptr: bigint | null;
+  /**
+   * Content identity of the entry last delivered from each ring slot:
+   * `entryPtr|msgPtr|message`. A slot read twice with an IDENTICAL identity has
+   * not been rewritten by the game — see {@link AcquireHoldReason}.
+   *
+   * Deliberately built from POINTERS + the message text, **never from the time
+   * string**: measured 2026-09-15, the game reuses/rewrites the `entry+0x28`
+   * time-string object, so the same untouched ring entry reports a different
+   * stamp 45 minutes later (a stale slot therefore looked "changed" and the
+   * guard never fired). Message text + pointers are stable for an untouched
+   * slot and change when it is rewritten. Rebuilt empty when the ring counter
+   * restarts (new game session).
+   */
+  slotIdentity: (string | null)[];
+  /** Last delivered stamp — diagnostics only, the game mutates these strings. */
+  lastTime: string | null;
+  /** Slot currently held back because it has not been rewritten this pass. */
+  holdSlot: number | null;
+  /** Wall-clock ms the current slot has been held while the counter kept moving. */
+  holdActiveMs: number;
+  /** Timestamp of the previous hold evaluation. */
+  holdLastAt: number;
+  /** Counter value at the previous hold evaluation (detects "game is idle"). */
+  holdLastTotal: number;
+  /**
+   * Capacity probe: index at which `probeSlot`'s content was last seen to
+   * change. The stride between two changes is the ring's true capacity — the
+   * measurement that validates the hard-coded {@link ACQUIRE_RING_CAPACITY}.
+   */
+  probeSlot: number;
+  probeIndex: number;
+  probeIdentity: string | null;
+  /** Measured ring capacity (stride between rewrites of `probeSlot`), or null. */
+  capacityEstimate: number | null;
+  /**
+   * Persisted read position from the previous companion run (the "watermark").
+   * When present, the first read resumes from it instead of replaying the whole
+   * ring window — a companion restart then delivers ONLY the lines appended
+   * since the last shutdown, never the backlog. Applied once; see
+   * {@link readRuntimeAcquireLogs} for the validation rules.
+   */
+  resumeTotal: number | null;
+  resumeApplied: boolean;
+  /**
+   * Counter value at which the current game session's record ring started
+   * (`base = counter - fill` while the ring is not full). The slot for ring
+   * index `k` is `(k - base) % capacity` — NOT `k % capacity`, which is only
+   * correct while the session started at counter 0. The game wipes the ring on
+   * a new in-game session WITHOUT resetting the monotonic counter (verified
+   * 2026-09-16), so the base must be tracked and re-calibrated. null until the
+   * first calibration (ring not full); while null the legacy `k % capacity`
+   * mapping (base 0) applies.
+   */
+  sessionBase: number | null;
+  /**
+   * Base candidate awaiting confirmation. The counter (+0x1C) and fill (+0x18)
+   * are separate fields — mid-append the counter may briefly lead, which makes
+   * `counter - fill` wobble by ±1. A new base is only adopted when two
+   * consecutive polls agree, so a real wipe (a permanent, large jump) costs
+   * one 10 ms poll while append skew is ignored entirely.
+   */
+  sessionBasePending: number | null;
+}
+export function makeAcquireRingPinState(): AcquireRingPinState {
+  return {
+    total: 0,
+    ptr: null,
+    slotIdentity: new Array<string | null>(ACQUIRE_RING_CAPACITY).fill(null),
+    lastTime: null,
+    holdSlot: null,
+    holdActiveMs: 0,
+    holdLastAt: 0,
+    holdLastTotal: 0,
+    probeSlot: 0,
+    probeIndex: 0,
+    probeIdentity: null,
+    capacityEstimate: null,
+    resumeTotal: null,
+    resumeApplied: false,
+    sessionBase: null,
+    sessionBasePending: null,
+  };
+}
+export const ACQUIRE_RING_CAPACITY = 2000;
+export const ACQUIRE_SLOT_COUNTER_OFF = 0x1c;
+/**
+ * The ring object's field at +0x18. Dual semantics, resolved by value: while
+ * the ring is FULL it equals the capacity (live-verified 2000 on v1.2.2, the
+ * backing array is allocated 2048 at `buf + 0x18`); below capacity it is the
+ * ring's FILL count — entries appended in the current game session. The game
+ * wipes the ring on a new in-game session and the fill restarts from ~0 while
+ * the monotonic counter (+0x1C) keeps running (live-verified 2026-09-16: fill
+ * 20 / counter 36181), which is exactly what pins down the session base:
+ * `base = counter - fill`.
+ */
+export const ACQUIRE_RING_FILL_OFF = 0x18;
+export const ACQUIRE_ELEM_BASE_REL = 0x20;
+export const ACQUIRE_RING_FIELD_REL = 0x20;
+
+/**
+ * Why a read stopped early instead of delivering the entry at `heldAt`.
+ *  - `stale-slot`: the slot's identity equals the previous pass' entry, so the
+ *    game has not rewritten it yet (the counter over-leads the slot writes).
+ *  - `released`: the hold persisted while the counter kept advancing, so the
+ *    staleness assumption is judged wrong and the entry is delivered anyway
+ *    (loud, last-resort escape hatch — see {@link ACQUIRE_HOLD_RELEASE_MS}).
+ */
+export type AcquireHoldReason = "stale-slot" | "released" | null;
+
+/**
+ * Last-resort escape hatch. A slot held back for this long WHILE the counter
+ * keeps moving means the freshness model is wrong (e.g. the game reuses fixed
+ * per-slot entry structs so the identity never changes) — deliver rather than
+ * stall forever. Holds during an idle game (counter not moving) never expire:
+ * there is nothing to deliver.
+ */
+export const ACQUIRE_HOLD_RELEASE_MS = 5_000;
+
+export function readRuntimeAcquireLogs(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: AcquireRingPinState,
+  nowMs: number = Date.now(),
+): {
+  entries: AcquireLogEntry[];
+  total: number;
+  heldAt: number | null;
+  heldReason: AcquireHoldReason;
+  /** Measured ring capacity (see {@link AcquireRingPinState.probeSlot}), or null. */
+  capacityEstimate: number | null;
+  /**
+   * Capacity the ring object itself declares — only readable while the ring is
+   * FULL: `ring + 0x18` holds the fill count while below capacity and equals
+   * the capacity (live-verified 2026-09-15: 2000, backing array 2048 at
+   * `buf + 0x18`) once full. Read every poll so a future game update that
+   * changes the modulus cannot silently mis-align slot lookups.
+   * null while the ring is not full (the field is the fill count then).
+   */
+  declaredCapacity: number | null;
+  /**
+   * Ring fill count (`ring + 0x18`): entries appended in the current game
+   * session, capped at the capacity. null when implausible.
+   */
+  fillCount: number | null;
+  /**
+   * When the game wiped the record ring mid-process (a fill count below
+   * capacity implies a session base different from what the pin tracked), the
+   * pin was re-anchored at the new session start — this is that base.
+   * Diagnostics only: ring indices keep running across the wipe, so the fresh
+   * backlog delivers as a plain increment (no restart semantics).
+   */
+  reanchoredBase: number | null;
+  /**
+   * True when this read resumed from the persisted watermark instead of
+   * replaying the ring window — the caller must treat the batch as a plain
+   * increment (no initial-batch dedupe).
+   */
+  resumed: boolean;
+  /**
+   * True when the persisted watermark is ABOVE the ring counter: the counter
+   * restarted, i.e. a new game session whose backlog is genuinely new (the
+   * caller must bypass the archive dedupe for this batch).
+   */
+  restartDetected: boolean;
+} | null {
+  if (o.typeInfoRva.logManager === 0n) return null;
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin as unknown as LogManagerPinState);
+  if (lmPtr == null) return null;
+
+  const ringObj = readPtr(reader, lmPtr + BigInt(ACQUIRE_RING_FIELD_REL));
+  if (ringObj == null || ringObj === 0n) return null;
+  const total = readI32(reader, ringObj + BigInt(ACQUIRE_SLOT_COUNTER_OFF));
+  if (total == null || total < 0) return null;
+  const fillRaw = readI32(reader, ringObj + BigInt(ACQUIRE_RING_FILL_OFF));
+  // Dual-semantics field, resolved by value: >= capacity reads as the declared
+  // capacity (a future build changing the modulus must still surface loudly);
+  // below capacity it is the session fill count (a wipe makes it restart from
+  // ~0 while the counter keeps running). Fill == capacity (a full ring) is
+  // reported as the capacity only — the base cannot be calibrated from it.
+  const declaredCapacity = fillRaw != null && fillRaw >= ACQUIRE_RING_CAPACITY ? fillRaw : null;
+  const fillCount =
+    fillRaw != null && fillRaw >= 0 && fillRaw < ACQUIRE_RING_CAPACITY ? fillRaw : null;
+  // Watermark resume (once per reader): a companion restart continues from the
+  // last shutdown's read position instead of replaying the ring window, so the
+  // first batch contains ONLY the lines appended since then.
+  //  - counter >= watermark and within one ring → resume at the watermark;
+  //  - counter < watermark → the counter restarted (new game session): report it
+  //    so the batch bypasses the archive dedupe, and let the rewind below reset;
+  //  - counter more than one ring above → the gap is partially overwritten, the
+  //    watermark is unusable → fall through to the fresh full-window anchor.
+  let resumed = false;
+  let restartDetected = false;
+  if (!pin.resumeApplied && pin.resumeTotal != null) {
+    pin.resumeApplied = true;
+    const rt = pin.resumeTotal;
+    if (total >= rt && total - rt <= ACQUIRE_RING_CAPACITY) {
+      pin.total = rt;
+      resumed = true;
+    } else if (total < rt) {
+      restartDetected = true;
+    }
+  }
+  // Ring restart (new game session / re-attach to a fresh process): the counter
+  // is monotonic, so a value below the reader's own position means the ring was
+  // cleared and re-counted from 0 — rewind the pin AND drop the freshness
+  // bookkeeping (slot identities / last stamp) of the previous ring. The
+  // session base is also dropped: the new process starts at counter 0 again.
+  if (pin.total > total) {
+    pin.total = 0;
+    pin.lastTime = null;
+    pin.holdSlot = null;
+    pin.holdActiveMs = 0;
+    pin.slotIdentity.fill(null);
+    pin.sessionBase = null;
+    pin.sessionBasePending = null;
+  }
+
+  // Session-base calibration / mid-process wipe detection. While the ring is
+  // not full, `fill = counter - base` pins the session start down exactly, and
+  // the slot for ring index k is `(k - base) % capacity` — NOT `k % capacity`,
+  // which only holds while the session started at counter 0. A base that MOVES
+  // under a tracked pin means the game wiped the record ring for a new
+  // in-game session without resetting the counter (live-verified 2026-09-16:
+  // fill 4 / counter 36165 right after the wipe, slots 173+ all null while the
+  // fresh backlog sat at slots 0..3). Re-anchor the pin at the new start.
+  // Deliberately NOT `restartDetected`: ring indices keep running across the
+  // wipe, so the fresh backlog is brand-new to the archive dedupe and delivers
+  // as a plain increment — no UI rewind, no bypass needed.
+  let reanchoredBase: number | null = null;
+  if (fillCount != null) {
+    const newBase = total - fillCount;
+    if (newBase === pin.sessionBase) {
+      pin.sessionBasePending = null;
+    } else if (pin.sessionBasePending === newBase) {
+      // Confirmed on two consecutive polls — a real wipe. A transient
+      // counter/fill skew (counter briefly ahead of fill mid-append) bounces
+      // back to the previous base instead of being adopted.
+      pin.sessionBase = newBase;
+      pin.sessionBasePending = null;
+      if (pin.total < newBase) {
+        // The pin sits before the new session start (the wipe happened after
+        // the pin's position, or a resumed watermark predates it): jump
+        // forward — nothing readable exists between the two, the old slots
+        // were cleared by the wipe.
+        pin.total = newBase;
+        pin.slotIdentity.fill(null);
+        pin.lastTime = null;
+        pin.holdSlot = null;
+        pin.holdActiveMs = 0;
+        reanchoredBase = newBase;
+      }
+    } else {
+      pin.sessionBasePending = newBase;
+    }
+  }
+  // A SATURATED ring (fill == capacity) has no calibration signal at all: the
+  // fill count is pinned at the capacity while the counter keeps running, so
+  // neither `counter - fill` nor `counter - capacity` yields the session base.
+  // By then, however, the base has long been calibrated (fill < capacity on
+  // every earlier poll of the session — a base-0 session reads base 0, a wiped
+  // session re-anchors at the wipe), and `slotBase` below keeps that value, so
+  // slot lookups stay aligned across the wrap. The only uncoverable case is a
+  // companion attaching to an ALREADY-saturated ring whose base is non-zero
+  // (the game wiped and re-saturated while no reader was attached) — there the
+  // base-0 fallback mis-maps slots by a constant offset; entries still deliver
+  // (the hold guard paces them) but ring indices are shifted until the next
+  // wipe recalibrates. 17+ in-game hours of unattended play are needed to hit
+  // it, so the fallback stands.
+
+  const bufPtr = readPtr(reader, ringObj + BigInt(0x10));
+  if (bufPtr == null || bufPtr === 0n) return null;
+  const elemBase = bufPtr + BigInt(ACQUIRE_ELEM_BASE_REL);
+
+  const entries: AcquireLogEntry[] = [];
+  const start = Math.max(0, pin.total);
+  // Read anchor. A fresh reader (pin 0) anchors on the calibrated session base
+  // when known — the backlog IS the current session (base..counter), while
+  // `total - capacity` may predate the wipe that started it — and on the
+  // newest window otherwise. Steady state anchors on the PIN, never on
+  // `total - CAPACITY`: the counter may over-lead the slot writes (see the
+  // header comment), and anchoring on it would silently skip entries the pin
+  // has not consumed yet.
+  const from =
+    start === 0
+      ? pin.sessionBase != null && pin.sessionBase <= total
+        ? pin.sessionBase
+        : Math.max(0, total - ACQUIRE_RING_CAPACITY)
+      : start;
+  // Slot mapping follows the calibrated session base (see the calibration
+  // comment above); the positive-mod guard is belt-and-braces.
+  const slotBase = pin.sessionBase ?? 0;
+  // Bounded catch-up: at most one ring length per poll. A starved reader
+  // (worker paused for longer than the ring holds) catches up over successive
+  // 10 ms polls instead of jumping its pin past unread entries.
+  const limit = Math.min(total, from + ACQUIRE_RING_CAPACITY);
+  // Delivered watermark. Two reasons to stop early, both retried by the next
+  // poll (never skipped, never delivered):
+  //  1. slot pointer not committed yet / message still mid-write (pre-existing);
+  //  2. the slot still holds the PREVIOUS ring pass' entry (identical identity)
+  //     — the counter runs ahead of the slot writes. Measuring the in-game stamp
+  //     is NOT usable here: the game reuses/rewrites the time-string object, so
+  //     the stamp of an untouched slot changes under us.
+  // Everything up to that point decoded cleanly, so only those advance the pin.
+  let deliveredUpTo = start;
+  let heldAt: number | null = null;
+  let heldReason: AcquireHoldReason = null;
+  for (let k = from; k < limit; k++) {
+    const slot =
+      (((k - slotBase) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) % ACQUIRE_RING_CAPACITY;
+    const eAddr = elemBase + BigInt(slot * 8);
+    const entryPtr = readPtr(reader, eAddr);
+    if (entryPtr == null || entryPtr === 0n) break; // slot not committed yet (mid-write)
+    const msgPtr = readPtr(reader, entryPtr + 0x20n);
+    const message = msgPtr ? readDotNetString(reader, msgPtr) : null;
+    if (!message) break; // mid-write: stop here; retry the tail next poll
+    const catPtr = readPtr(reader, entryPtr + 0x18n);
+    const timePtr = readPtr(reader, entryPtr + 0x28n);
+    const rawTime = timePtr ? readDotNetString(reader, timePtr) : null;
+    const time = (rawTime ?? "").replace(/[[]/g, "").replace(/]/g, "").trim();
+    const identity = acquireIdentity(entryPtr, msgPtr, message);
+
+    const hold = acquireHoldReason(pin, slot, k, identity, total, nowMs);
+    // "released" = the freshness assumption was judged wrong; deliver this entry
+    // anyway, surface it through `heldReason` (the caller logs it loudly) and
+    // stop — the slots after it belong to the same unwritten region.
+    const released = hold === "released";
+    if (hold != null && !released) {
+      heldAt = k;
+      heldReason = hold;
+      break;
+    }
+
+    entries.push({
+      seq: k + 1,
+      time,
+      message,
+      category: catPtr ? (readDotNetString(reader, catPtr) ?? undefined) : undefined,
+    });
+    pin.slotIdentity[slot] = identity;
+    pin.lastTime = time;
+    pin.holdSlot = null;
+    pin.holdActiveMs = 0;
+    probeAcquireCapacity(pin, slot, k, identity);
+    deliveredUpTo = k + 1;
+    if (released) {
+      heldReason = "released";
+      break;
+    }
+  }
+
+  if (deliveredUpTo > pin.total) pin.total = deliveredUpTo;
+  return {
+    entries,
+    total,
+    heldAt,
+    heldReason,
+    capacityEstimate: pin.capacityEstimate,
+    declaredCapacity,
+    fillCount,
+    reanchoredBase,
+    resumed,
+    restartDetected,
+  };
+}
+
+/**
+ * Identity of one ring slot's content: entry pointer + message pointer +
+ * message text. Pointers catch a replaced entry object, the text catches an
+ * in-place overwrite — and neither is affected by the game rewriting the time
+ * string object (which is why the stamp is not part of it).
+ */
+function acquireIdentity(entryPtr: bigint, msgPtr: bigint | null, message: string): string {
+  return `${entryPtr.toString(16)}|${msgPtr == null ? "null" : msgPtr.toString(16)}|${message}`;
+}
+
+/**
+ * Measure the ring's true capacity: remember where `probeSlot`'s content was
+ * last seen to CHANGE — two consecutive changes are exactly one ring length
+ * apart. This is the runtime check of the hard-coded {@link ACQUIRE_RING_CAPACITY}
+ * (a wrong modulus silently mis-aligns every slot lookup).
+ */
+function probeAcquireCapacity(
+  pin: AcquireRingPinState,
+  slot: number,
+  k: number,
+  identity: string,
+): void {
+  if (slot !== pin.probeSlot) return;
+  if (pin.probeIdentity == null) {
+    pin.probeIndex = k;
+    pin.probeIdentity = identity;
+    return;
+  }
+  if (pin.probeIdentity === identity) return;
+  const stride = k - pin.probeIndex;
+  if (stride > 0) pin.capacityEstimate = stride;
+  pin.probeIndex = k;
+  pin.probeIdentity = identity;
+}
+
+/**
+ * Decide whether the entry at ring index `k` / slot `slot` is a not-yet-rewritten
+ * (stale) slot rather than a fresh append. Returns the hold reason, or null when
+ * the entry may be delivered. Also owns the hold bookkeeping (which slot is held
+ * and for how long the counter kept moving while holding).
+ */
+function acquireHoldReason(
+  pin: AcquireRingPinState,
+  slot: number,
+  k: number,
+  identity: string,
+  total: number,
+  nowMs: number,
+): AcquireHoldReason {
+  // Slot identities only mean something once the slot has been written at least
+  // once before (index >= capacity) and we have read it on that earlier pass.
+  const sameAsPreviousPass =
+    k >= ACQUIRE_RING_CAPACITY &&
+    pin.slotIdentity[slot] != null &&
+    pin.slotIdentity[slot] === identity;
+
+  if (!sameAsPreviousPass) {
+    pin.holdSlot = null;
+    pin.holdActiveMs = 0;
+    return null;
+  }
+  const reason: AcquireHoldReason = "stale-slot";
+
+  // Hold bookkeeping + last-resort release valve. The held slot IS the next
+  // write target, so the hold normally resolves on the game's next append; the
+  // valve only counts time during which the counter kept advancing (an idle
+  // game has nothing to deliver, so its holds never expire).
+  if (pin.holdSlot !== slot) {
+    pin.holdSlot = slot;
+    pin.holdActiveMs = 0;
+    pin.holdLastAt = nowMs;
+    pin.holdLastTotal = total;
+    return reason;
+  }
+  if (total > pin.holdLastTotal) pin.holdActiveMs += Math.max(0, nowMs - pin.holdLastAt);
+  else pin.holdActiveMs = 0;
+  pin.holdLastAt = nowMs;
+  pin.holdLastTotal = total;
+  if (pin.holdActiveMs >= ACQUIRE_HOLD_RELEASE_MS) {
+    pin.holdSlot = null;
+    pin.holdActiveMs = 0;
+    return "released";
+  }
+  return reason;
+}
+
+/**
+ * Raw "获得记录" ring dump for offset/behaviour investigations, gated behind
+ * `TBH_ACQUIRE_DUMP=1` on the worker side. Prints the ring geometry (counter,
+ * ring/buffer/element-base pointers, candidate length probes at +0x18 / +0x1C)
+ * plus the tail window's slot pointers and decoded stamps. Two consecutive
+ * dumps answer the open questions: does the counter move before the slot
+ * content, and does a slot's entry pointer change when it is rewritten?
+ */
+export function dumpRuntimeAcquireRing(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pin: AcquireRingPinState,
+  windowSize = 24,
+): string | null {
+  if (o.typeInfoRva.logManager === 0n) return null;
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin as unknown as LogManagerPinState);
+  if (lmPtr == null) return null;
+  const ringObj = readPtr(reader, lmPtr + BigInt(ACQUIRE_RING_FIELD_REL));
+  if (ringObj == null || ringObj === 0n) return null;
+  const total = readI32(reader, ringObj + BigInt(ACQUIRE_SLOT_COUNTER_OFF));
+  const bufPtr = readPtr(reader, ringObj + BigInt(0x10));
+  if (total == null || bufPtr == null) return null;
+  const elemBase = bufPtr + BigInt(ACQUIRE_ELEM_BASE_REL);
+  const hex = (v: bigint | null): string => (v == null ? "null" : `0x${v.toString(16)}`);
+  // Capacity probes. `bufPtr` looks like a ring container: the array whose data
+  // starts at +0x20 (matching ACQUIRE_ELEM_BASE_REL) sits behind a pointer at
+  // +0x10, and +0x18 / +0x1C read like capacity / committed-count ints. A sane
+  // length there settles the hard-coded 2000 without waiting for the runtime
+  // stride probe to complete a full ring.
+  const inner = readPtr(reader, bufPtr + 0x10n);
+  const innerLen = inner == null ? null : readI32(reader, inner + 0x18n);
+  const sane = (v: number | null): string =>
+    v != null && v >= 16 && v <= 100_000 ? String(v) : "?";
+  const lines: string[] = [
+    `acquire dump: total=${total} pin=${pin.total} fill=${readI32(reader, ringObj + BigInt(ACQUIRE_RING_FILL_OFF)) ?? "?"} base=${pin.sessionBase ?? "-"} slotCounter=+0x1C ring=${hex(ringObj)} buf=${hex(bufPtr)} elemBase=${hex(elemBase)}`,
+    `  len probes: buf+0x18=${readI32(reader, bufPtr + 0x18n) ?? "?"} buf+0x1C=${readI32(reader, bufPtr + 0x1cn) ?? "?"} ring+0x18=${readI32(reader, ringObj + 0x18n) ?? "?"} inner=${hex(inner)} innerLen=${sane(innerLen)} (assumed capacity=${ACQUIRE_RING_CAPACITY})`,
+    `  state: holdSlot=${pin.holdSlot ?? "-"} capacityEstimate=${pin.capacityEstimate ?? "-"} lastStamp=${pin.lastTime ?? "-"}`,
+  ];
+  const slotBase = pin.sessionBase ?? 0;
+  const from = Math.max(0, total - windowSize);
+  for (let k = from; k < total; k++) {
+    const slot =
+      (((k - slotBase) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) % ACQUIRE_RING_CAPACITY;
+    const entryPtr = readPtr(reader, elemBase + BigInt(slot * 8));
+    const msgPtr = entryPtr == null ? null : readPtr(reader, entryPtr + 0x20n);
+    const timePtr = entryPtr == null ? null : readPtr(reader, entryPtr + 0x28n);
+    const message = msgPtr ? readDotNetString(reader, msgPtr) : null;
+    const rawTime = timePtr ? readDotNetString(reader, timePtr) : null;
+    lines.push(
+      `  #${k} slot=${slot} entry=${hex(entryPtr)} t=${(rawTime ?? "?").replace(/[[\]]/g, "")} ` +
+        `fp="${(message ?? "<undecodable>").slice(0, 28)}"`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /** Decode one ACTk ObscuredLong from its struct base address. */
@@ -652,7 +1474,7 @@ export interface ChestLogPinState extends LogManagerPinState {
   pendingCat: LiveChestCategory | null;
 }
 
-export function makeChestLogPinState(): ChestLogPinState {
+export function makeChestLogPinState(): ChestDropPinState {
   return {
     ptr: null,
     lastCount: 0,
@@ -661,7 +1483,19 @@ export function makeChestLogPinState(): ChestLogPinState {
     retryConsecutive: 0,
     pendingIdx: null,
     pendingCat: null,
+    tailBase: 0,
+    deliveredIndices: new Set(),
   };
+}
+
+/** Per-reader pin for the GetBox (chest-drop) log tail.
+ *  Extends the shared tail shape with overscan state. Dedup is by SLOT INDEX
+ *  (not chest category) because two chests can legitimately drop the same kind. */
+export interface ChestDropPinState extends ChestLogPinState {
+  /** Lowest tail index the overscan recovery window may re-read (prime/shrink gated). */
+  tailBase: number;
+  /** Indices already delivered as chest drops since prime/shrink. */
+  deliveredIndices: Set<number>;
 }
 
 const MAX_CHEST_LOG = 5_000;
@@ -680,6 +1514,13 @@ const MAX_CHEST_LOG_RETRIES = 3;
  *  why boss chests (rare/act) were occasionally missed while common drops
  *  (stable memory during normal farming) were not. */
 const CHEST_LOG_SAMPLES = 3;
+/**
+ * Overscan depth: how many already-scanned GetBox tail slots are re-read on each
+ * tick so a chest drop whose monsterType was force-skipped or still half-written
+ * on its first pass can be recovered once it commits. Index-deduped; bounded — a
+ * slot that falls out of this window is irretrievable (covered by the log).
+ */
+const CHEST_OVERSCAN = 4;
 const LM_STATIC_SCAN_MAX = 0x100;
 
 /** EMonsterLogType → chest category (0 common, 1 stage boss, 2 act boss). */
@@ -893,7 +1734,7 @@ export function readRuntimeChestLog(
   gaBase: bigint,
   gaSize: number,
   o: LiveOffsets,
-  pin: ChestLogPinState,
+  pin: ChestDropPinState,
 ): ReadChestLogResult {
   if (o.typeInfoRva.logManager === 0n) {
     return {
@@ -931,6 +1772,8 @@ export function readRuntimeChestLog(
   const { arr, count } = list;
   if (!pin.primed) {
     pin.lastCount = count;
+    pin.tailBase = count; // never overscan into the attach backlog
+    pin.deliveredIndices.clear();
     pin.primed = true;
     return { drops: [], status: "" };
   }
@@ -957,6 +1800,8 @@ export function readRuntimeChestLog(
       };
     }
     pin.lastCount = next;
+    pin.tailBase = next;
+    pin.deliveredIndices.clear();
     // A shrink invalidates any parked retry position (the log no longer has
     // that index), so reset the retry state; scanning resumes from `next`.
     pin.retryFrom = null;
@@ -1003,12 +1848,26 @@ export function readRuntimeChestLog(
         debugSettled = { idx: pin.pendingIdx, from: pin.pendingCat, to: settledCat };
       }
     }
+    pin.deliveredIndices.add(pin.pendingIdx);
     pin.pendingIdx = null;
     pin.pendingCat = null;
   }
 
-  const start = pin.retryFrom ?? resumeFrom;
+  // Overscan: besides the new entries [retryFrom-or-lastCount, count), when no
+  // settle is pending also re-read the last CHEST_OVERSCAN already-scanned slots
+  // so a chest drop whose monsterType was force-skipped on its first pass can be
+  // recovered once it commits. Already-delivered indices are skipped (index
+  // dedup); the window never goes below tailBase. When a settle is pending we
+  // stick to resumeFrom = pendingIdx+1 to avoid re-reading the withheld entry.
+  const settleActive = pin.pendingIdx != null;
+  const overscanBottom = Math.max(pin.tailBase, lastCountBefore - CHEST_OVERSCAN);
+  const baseStart = settleActive ? resumeFrom : overscanBottom;
+  const start = pin.retryFrom ?? baseStart;
+  let newestNewIdx: number | null = null;
   for (let i = start; i < count; i++) {
+    const isNew = i >= lastCountBefore;
+    // An already-delivered overscan slot is skipped (index dedup).
+    if (!isNew && pin.deliveredIndices.has(i)) continue;
     // Re-read up to CHEST_LOG_SAMPLES times to defend against mid-write races:
     // the game may have allocated the entry slot but not yet committed the
     // monsterType field. A single sample in that window reads null (RPM fail)
@@ -1018,20 +1877,27 @@ export function readRuntimeChestLog(
     const cat = readChestCategoryAt(reader, first, i, o);
     if (cat != null) {
       drops.push(cat);
+      pin.deliveredIndices.add(i);
+      if (isNew) newestNewIdx = i;
       continue; // valid category decoded, this entry is settled *enough* to collect
     }
-    // A mid-write race: the entry slot exists but monsterType isn't committed
-    // yet. Do NOT advance the tail past it (that would drop the chest
-    // permanently). Park `retryFrom` at this index so the next tick re-reads
-    // the same entry after the writer has finished. If the same index keeps
-    // failing for MAX_CHEST_LOG_RETRIES ticks it's a corrupt slot — force-skip
-    // it (pretend decoded) so we can't wedge the tail forever.
+    // A slot we already scanned before (overscan region) that still won't decode
+    // is left alone — it gets another shot on a later tick's overscan, and if it
+    // never commits it silently falls out of the window (bounded).
+    if (!isNew) continue;
+    // A mid-write race in the NEW region: the entry slot exists but monsterType
+    // isn't committed yet. Do NOT advance the tail past it (that would drop the
+    // chest permanently). Park `retryFrom` at this index so the next tick
+    // re-reads the same entry after the writer has finished. If the same index
+    // keeps failing for MAX_CHEST_LOG_RETRIES ticks it's a corrupt slot —
+    // force-skip it (pretend decoded) so we can't wedge the tail forever.
     const sameAsLast = pin.retryFrom === i;
     pin.retryConsecutive = sameAsLast ? pin.retryConsecutive + 1 : 1;
     pin.retryFrom = i;
     if (pin.retryConsecutive > MAX_CHEST_LOG_RETRIES) {
-      // Corrupt slot; skip it and keep the tail moving. Reset counters so a
-      // *later* genuine mid-write entry still gets its own retry budget.
+      // Force-skip a corrupt slot; keep the tail moving. NOT added to the dedup
+      // set, so a later overscan re-read can still recover it. Reset counters so
+      // a *later* genuine mid-write entry still gets its own retry budget.
       pin.retryFrom = null;
       pin.retryConsecutive = 0;
       continue;
@@ -1053,15 +1919,16 @@ export function readRuntimeChestLog(
   }
 
   // Reaching here means the scan completed without parking (no live mid-write):
-  // every entry in [start, count) was decoded or force-skipped. Withhold the
-  // newest decoded entry for cross-tick settle (re-read by its absolute
-  // index next tick to see the committed monsterType), if any new drops came
-  // in. `lastCount` uniformly advances to `count` — the pending re-read uses
-  // `pendingIdx`, not `lastCount`, so no entry is re-scanned twice.
+  // every entry in [start, count) was decoded or force-skipped. When a genuine
+  // NEW entry was decoded and it is the newest in the log (index count-1),
+  // withhold it for cross-tick settle (re-read by its absolute index next tick
+  // to see the committed monsterType). If the newest new slot was force-skipped
+  // or the newest drop is an overscan recovery, there is nothing to settle —
+  // don't withhold (withholding an already-delivered recovery would duplicate).
   pin.retryFrom = null;
   pin.retryConsecutive = 0;
-  if (count > start && drops.length > 0) {
-    // Hold the newest entry: its category may still settle (e.g. common→rare).
+  if (newestNewIdx === count - 1 && drops.length > 0) {
+    // Hold the newest new entry: its category may still settle (e.g. common→rare).
     const tailCat = drops.pop() as LiveChestCategory;
     pin.pendingIdx = count - 1;
     pin.pendingCat = tailCat;
@@ -1070,6 +1937,14 @@ export function readRuntimeChestLog(
     pin.pendingCat = null;
   }
   pin.lastCount = count;
+  // Keep the dedup set bounded: only indices that could still be re-scanned by
+  // a future overscan matter.
+  const pruneBefore = Math.max(pin.tailBase, count - CHEST_OVERSCAN - 8);
+  if (pruneBefore > 0) {
+    for (const idx of pin.deliveredIndices) {
+      if (idx < pruneBefore) pin.deliveredIndices.delete(idx);
+    }
+  }
   return {
     drops,
     status: "",
@@ -1085,8 +1960,31 @@ export function readRuntimeChestLog(
 
 // ── Live stage clears (LogManager → Dictionary<ELogType, List<StageClearLog>>) ─
 
+/** Fingerprint of a fully-committed stage-clear entry — used to dedupe re-reads. */
+export interface StageClearFingerprint {
+  act: number;
+  stage: number;
+  clearTimeSec: number;
+}
+
 /** Per-reader pin for the LogManager instance pointer and the StageClear-log tail position. */
-export type StageClearPinState = ChestLogPinState;
+export interface StageClearPinState extends ChestLogPinState {
+  /**
+   * Lowest tail index the overscan recovery window may re-read. Set to `count`
+   * when the reader primes (so the attach backlog is never re-delivered) and
+   * when the log shrinks (old indices are gone). Without this gate, overscan
+   * would re-report entries that were intentionally skipped at attach.
+   */
+  tailBase: number;
+  /**
+   * Fingerprints of stage-clear entries already delivered since prime/shrink
+   * (FIFO, capped). Re-reads inside the overscan window are suppressed when
+   * their fingerprint is already present — this is what prevents duplicates
+   * while still letting a previously half-written entry be recovered once its
+   * act/stage commit on a later tick.
+   */
+  delivered: StageClearFingerprint[];
+}
 
 export function makeStageClearPinState(): StageClearPinState {
   return {
@@ -1097,6 +1995,8 @@ export function makeStageClearPinState(): StageClearPinState {
     retryConsecutive: 0,
     pendingIdx: null,
     pendingCat: null,
+    tailBase: 0,
+    delivered: [],
   };
 }
 
@@ -1111,6 +2011,29 @@ const MAX_CLEAR_TIME_SEC = 36_000;
  *  entry is dropped silently and pin.lastCount advances past it — the clear
  *  is lost permanently. */
 const STAGE_CLEAR_LOG_SAMPLES = 3;
+/**
+ * Overscan depth: how many already-scanned tail slots are re-read on each tick
+ * so a stage-clear entry that was half-written on its first read (act/stage not
+ * yet committed) can be recovered on the next tick once it completes. Bounded —
+ * a slot that falls out of this window is irretrievable (covered by the log).
+ */
+const STAGE_CLEAR_OVERSCAN = 4;
+/** Max delivered fingerprints retained for overscan dedup. Must comfortably
+ *  exceed STAGE_CLEAR_OVERSCAN plus any per-tick append burst so a re-read of a
+ *  just-delivered slot is always caught. */
+const STAGE_CLEAR_FINGERPRINT_CAP = 32;
+
+function stageClearFpEqual(a: StageClearFingerprint, b: StageClearFingerprint): boolean {
+  return a.act === b.act && a.stage === b.stage && a.clearTimeSec === b.clearTimeSec;
+}
+function stageClearFpHas(arr: StageClearFingerprint[], fp: StageClearFingerprint): boolean {
+  return arr.some((x) => stageClearFpEqual(x, fp));
+}
+function stageClearFpPush(arr: StageClearFingerprint[], fp: StageClearFingerprint): void {
+  arr.push(fp);
+  const overflow = arr.length - STAGE_CLEAR_FINGERPRINT_CAP;
+  if (overflow > 0) arr.splice(0, overflow);
+}
 
 /**
  * Plausible cleared-stage `act`: 1-digits (1-9) for normal stages, or the
@@ -1173,94 +2096,115 @@ export function readRuntimeStageClears(
   if (list == null) return null;
 
   const { arr, count } = list;
-  if (!pin.primed) {
-    pin.lastCount = count;
-    pin.primed = true;
-    return [];
-  }
-
-  if (count < pin.lastCount) {
-    // See `handleLogShrink` for the transient-race defense rationale.
-    const next = handleLogShrink(count, pin.lastCount);
-    if (next == null) return [];
-    pin.lastCount = next;
-    return [];
-  }
-
-  const start = pin.lastCount;
-  const clears: StageClearEntry[] = [];
-  const first = arr + BigInt(o.container.arrayFirst);
   const actOff = BigInt(o.runtime.stageClearLog.act);
   const stageOff = BigInt(o.runtime.stageClearLog.stage);
   const clearTimeOff = BigInt(o.runtime.stageClearLog.clearTimeSec);
-  for (let i = start; i < count; i++) {
-    // Re-read up to STAGE_CLEAR_LOG_SAMPLES times to defend against mid-write
-    // races: stage clear entries are written exactly when the player finishes
-    // a stage (dense memory activity — UI updates, save triggers, log appends
-    // from multiple systems). A single sample may read entryPtr allocated but
-    // clearTimeSec/act/stage fields not yet committed; the entry would be
-    // silently dropped and pin.lastCount would advance past it, losing the
-    // clear permanently. Mirrors CHEST_LOG_SAMPLES / BOX_OPEN_LOG_SAMPLES.
-    let entryPtr: bigint | null = null;
-    let clearTimeSec: number | null = null;
-    let act: number | null = null;
-    let stage: number | null = null;
-    let resolved = false;
-    for (let s = 0; s < STAGE_CLEAR_LOG_SAMPLES; s++) {
-      entryPtr = readPtr(reader, first + BigInt(i * 8));
-      if (entryPtr == null) continue; // retry next sample
-      clearTimeSec = readI32(reader, entryPtr + clearTimeOff);
-      if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) {
-        continue; // retry next sample
-      }
-      act = readI32(reader, entryPtr + actOff);
-      stage = readI32(reader, entryPtr + stageOff);
-      // act is 1-digit (1-9) for normal stages, 2-digit (21-23) for plague
-      // (Contaminated) stages; stage is 1-99. 0 or out-of-range ⇒ corrupted /
-      // mid-write read. Retry once more in case the writer hadn't committed
-      // these fields yet.
-      const actValid = isPlausibleClearAct(act);
-      const stageValid = stage != null && stage >= 1 && stage <= 99;
-      if (actValid && stageValid) {
-        clears.push({ act: act!, stage: stage!, clearTimeSec, valid: true });
-        resolved = true;
-        break;
-      }
-    }
-    if (resolved) continue;
-    // All samples failed to read a fully-valid entry. If we at least got a
-    // plausible clearTimeSec, surface the entry with `valid=false` so the
-    // caller can drop it: falling back to the live stageKey would re-introduce
-    // the off-by-one attribution bug (live stageKey has already advanced past
-    // the cleared stage by the time we poll the next tick). Preserves the
-    // original valid=false semantics for persistently-corrupted entries while
-    // the retry above handles transient mid-write races.
-    if (
-      entryPtr != null &&
-      clearTimeSec != null &&
-      clearTimeSec > 0 &&
-      clearTimeSec < MAX_CLEAR_TIME_SEC
-    ) {
-      const actValid = isPlausibleClearAct(act);
-      const stageValid = stage != null && stage >= 1 && stage <= 99;
-      clears.push({
-        act: actValid ? act! : 0,
-        stage: stageValid ? stage! : 0,
-        clearTimeSec,
-        valid: actValid && stageValid,
-      });
-    }
-    // else: never read even a plausible clearTimeSec across all samples —
-    // skip entirely (cannot record a clear without a clear-time).
+  const out = scanLogBucket<StageClearEntry>(
+    reader,
+    o,
+    arr + BigInt(o.container.arrayFirst),
+    count,
+    {
+      readSlot: (r, first, i, _o, isNew) => {
+        // Re-read up to STAGE_CLEAR_LOG_SAMPLES times to defend against mid-write
+        // races: stage clear entries are written exactly when the player finishes
+        // a stage (dense memory activity). A single sample may read entryPtr
+        // allocated but clearTimeSec/act/stage fields not yet committed.
+        let clearTimeSec: number | null = null;
+        let act: number | null = null;
+        let stage: number | null = null;
+        for (let s = 0; s < STAGE_CLEAR_LOG_SAMPLES; s++) {
+          const entryPtr = readPtr(r, first + BigInt(i * 8));
+          if (entryPtr == null) continue; // retry next sample
+          clearTimeSec = readI32(r, entryPtr + clearTimeOff);
+          if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) {
+            continue; // retry next sample
+          }
+          act = readI32(r, entryPtr + actOff);
+          stage = readI32(r, entryPtr + stageOff);
+          // act is 1-digit (1-9) for normal stages, 2-digit (21-23) for plague;
+          // stage is 1-99. 0 or out-of-range ⇒ corrupted / mid-write read.
+          const actValid = isPlausibleClearAct(act);
+          const stageValid = stage != null && stage >= 1 && stage <= 99;
+          if (actValid && stageValid) {
+            return { kind: "ok", entry: { act: act!, stage: stage!, clearTimeSec, valid: true } };
+          }
+        }
+        // Never read a fully-valid entry. If there's no plausible clear-time
+        // either, skip entirely (cannot record a clear without one).
+        if (clearTimeSec == null || clearTimeSec <= 0 || clearTimeSec >= MAX_CLEAR_TIME_SEC) {
+          return { kind: "skip", bad: "bad" };
+        }
+        // Half-written act/stage with a plausible clear-time. Surface the
+        // valid=false probe only for genuinely NEW entries so a chronically-corrupt
+        // overscan slot isn't re-reported every tick; the caller drops it and once
+        // it commits a later overscan re-read delivers it (valid). Falling back to
+        // the live stageKey would re-introduce the off-by-one attribution bug.
+        if (!isNew) return { kind: "skip", bad: "bad" };
+        const actValid = isPlausibleClearAct(act);
+        const stageValid = stage != null && stage >= 1 && stage <= 99;
+        return {
+          kind: "ok",
+          entry: {
+            act: actValid ? act! : 0,
+            stage: stageValid ? stage! : 0,
+            clearTimeSec,
+            valid: actValid && stageValid,
+          },
+        };
+      },
+      overscan: STAGE_CLEAR_OVERSCAN,
+      maxRetries: 3, // stage never parks; kept for the shared scanner contract
+    },
+    {
+      // Stage clears dedup by fingerprint (act, stage, clearTimeSec).
+      isDelivered: (e) =>
+        stageClearFpHas(pin.delivered, {
+          act: e.act,
+          stage: e.stage,
+          clearTimeSec: e.clearTimeSec,
+        }),
+      markDelivered: (e) =>
+        stageClearFpPush(pin.delivered, {
+          act: e.act,
+          stage: e.stage,
+          clearTimeSec: e.clearTimeSec,
+        }),
+      clearDelivered: () => {
+        pin.delivered = [];
+      },
+      pruneDelivered: () => {
+        /* fp capacity is bounded by stageClearFpPush; nothing to prune by index */
+      },
+    },
+    pin,
+  );
+
+  if (out.mode === "prime" || out.mode === "shrink-stale" || out.mode === "shrink-realigned") {
+    return [];
   }
-  pin.lastCount = count;
-  return clears;
+  return out.added.map((x) => x.entry);
 }
 
 // ── Live box opens (LogManager → Dictionary<ELogType, List<BoxOpenLog>>) ─────
 
 /** Per-reader pin for the BoxOpenLog tail. Same shape as chest/stage-clear pins. */
-export type BoxOpenPinState = ChestLogPinState;
+export interface BoxOpenPinState extends ChestLogPinState {
+  /**
+   * Lowest tail index the overscan recovery window may re-read. Set to `count`
+   * on prime (so the attach backlog is never re-delivered) and on shrink (old
+   * indices are gone). Mirrors {@link StageClearPinState.tailBase}.
+   */
+  tailBase: number;
+  /**
+   * Indices already delivered as valid box opens since prime/shrink. Overscan
+   * re-reads of a just-delivered slot are suppressed by checking this — box
+   * opens are deduped by SLOT INDEX, not by item value, because two boxes in a
+   * burst can legitimately drop the same item and a value fingerprint would
+   * wrongly collapse them.
+   */
+  deliveredIndices: Set<number>;
+}
 
 export function makeBoxOpenPinState(): BoxOpenPinState {
   return {
@@ -1271,6 +2215,8 @@ export function makeBoxOpenPinState(): BoxOpenPinState {
     retryConsecutive: 0,
     pendingIdx: null,
     pendingCat: null,
+    tailBase: 0,
+    deliveredIndices: new Set(),
   };
 }
 
@@ -1281,13 +2227,29 @@ const MAX_BOX_OPEN_LOG = 5_000;
  *  writer ~10µs total to finish committing fields — enough for the typical
  *  2-3 store-instruction sequence the game uses to append a log entry. */
 const BOX_OPEN_LOG_SAMPLES = 3;
+/**
+ * Overscan depth — MUST be ≥ the largest plausible one-shot "open N boxes"
+ * batch. When the game bumps the BoxOpenLog size first and then finishes
+ * committing itemKey per slot, later slots of a batch (which the writer
+ * commits in index order) are still half-written on the ticks we scan them,
+ * get parked then force-skipped, and by the time their itemKey finally commits
+ * the advancing tail has pushed them out of a small window → silent loss
+ * proportional to batch size (open 20 → lose ~2). A wide window keeps every
+ * force-skipped slot re-scanable until it either resolves or the log is
+ * genuinely consumed/covered. Cost is negligible and bounded because
+ * index-dedup suppresses re-emission of already-delivered slots.
+ */
+const BOX_OPEN_OVERSCAN = 64;
 
-/** Maximum consecutive ticks a single BoxOpenLog entry may fail to decode
- *  before it is force-skipped. A genuine mid-write race resolves within 1-2
- *  ticks (the writer commits the itemKey within a few store instructions;
- *  reader polls at ~25Hz); anything persisting longer is a corrupt slot that
- *  would otherwise wedge the tail forever. Mirrors MAX_CHEST_LOG_RETRIES. */
-const MAX_BOX_OPEN_LOG_RETRIES = 3;
+/**
+ * Maximum consecutive ticks a single BoxOpenLog entry may fail to decode
+ * before it is force-skipped. A genuine mid-write race resolves within 1-2
+ * ticks, but the FIRST entry of a batch waits for its (String-ref) itemKey,
+ * which the game commits last — give it a wider budget so it isn't force-skipped
+ * while still eventually committing. Anything persisting this long is a corrupt
+ * slot that would otherwise wedge the tail forever. Mirrors MAX_CHEST_LOG_RETRIES.
+ */
+const MAX_BOX_OPEN_LOG_RETRIES = 6;
 
 /** Resolve the GetItemWithBoxOpen List<BoxOpenLog> backing array + length. */
 function boxOpenLogList(
@@ -1327,6 +2289,10 @@ export interface ReadBoxOpenLogResult {
     count: number;
     lastCountBefore: number;
     start: number;
+    /** Decoded-ok slots suppressed by index-dedup (already delivered this lineage). */
+    dedupSkipped?: number;
+    /** Indexes force-skipped this tick (undecodable past MAX retries). */
+    forcedIndexes?: number[];
     /** Index parked for the next tick because a mid-write entry couldn't decode. */
     retryFrom?: number;
     /** Consecutive ticks `retryFrom` has failed to decode (self-heal/force-skip counter). */
@@ -1376,6 +2342,231 @@ export function peekBoxOpenLogCount(
     return { count: null, status: "BoxOpenLog list not walkable" };
   }
   return { count: list.count, status: "" };
+}
+
+/**
+ * One-slot decode result for the shared log-bucket scanner.
+ *   - `ok`:    decoded a deliverable entry.
+ *   - `skip`:  slot not decodable this tick and NOT a new-region mid-write —
+ *              leave it; a later overscan re-read recovers it (bounded).
+ *   - `park`:  a NEW-region mid-write — stop the tail at this index so the
+ *              next tick retries it (box-open / chest semantics).
+ * `bad` classifies the rejection for debug counters (null-ptr / bad-itemKey).
+ */
+type SlotDecode<T> =
+  | { kind: "ok"; entry: T }
+  | { kind: "skip"; bad: "null" | "bad" }
+  | { kind: "park"; bad: "null" | "bad" };
+
+/** Tail/retry state the scanner mutates (shared by every in-memory log bucket). */
+interface LogScanState {
+  lastCount: number;
+  primed: boolean;
+  tailBase: number;
+  retryFrom: number | null;
+  retryConsecutive: number;
+}
+
+/** Dedup container operations for a bucket (box/chest = slot index; stage = fingerprint). */
+interface LogScanDeliver<T> {
+  isDelivered(entry: T, index: number): boolean;
+  markDelivered(entry: T, index: number): void;
+  clearDelivered(): void;
+  pruneDelivered(belowIndex: number): void;
+}
+
+interface LogScanOut<T> {
+  mode: "prime" | "shrink-realigned" | "shrink-stale" | "scan";
+  added: { index: number; entry: T }[];
+  scanned: number;
+  parsed: number;
+  nullEntry: number;
+  badItemKey: number;
+  /** Decoded-ok slots that were suppressed by the bucket's dedup (already delivered). */
+  dedupSkipped: number;
+  /** Indexes force-skipped this call (undecodable past `maxRetries` ticks). */
+  forcedIndexes?: number[];
+  count: number;
+  lastCountBefore: number;
+  start: number;
+  retryFrom?: number;
+  retryConsecutive?: number;
+}
+
+/**
+ * Shared log-bucket tail scanner used by the BoxOpen and StageClear readers.
+ * It owns the parts the two readers share verbatim: prime, shrink handling,
+ * overscan-window start, per-index scan, index/fingerprint dedup, mid-write
+ * park+force-skip, and `lastCount` advancement. Each bucket injects how to
+ * decode a slot (`readSlot`), how large its overscan window is, and how to
+ * dedup delivered entries.
+ */
+function scanLogBucket<T>(
+  reader: MemoryReader,
+  o: LiveOffsets,
+  first: bigint, // arr + container.arrayFirst
+  count: number,
+  cfg: {
+    readSlot(
+      reader: MemoryReader,
+      first: bigint,
+      i: number,
+      o: LiveOffsets,
+      isNew: boolean,
+    ): SlotDecode<T>;
+    overscan: number;
+    maxRetries: number;
+  },
+  deliver: LogScanDeliver<T>,
+  state: LogScanState,
+): LogScanOut<T> {
+  const lastCountBefore = state.lastCount;
+  if (!state.primed) {
+    state.lastCount = count;
+    state.tailBase = count; // never overscan into the attach backlog
+    state.retryFrom = null;
+    state.retryConsecutive = 0;
+    state.primed = true;
+    return {
+      mode: "prime",
+      added: [],
+      scanned: 0,
+      parsed: 0,
+      nullEntry: 0,
+      badItemKey: 0,
+      dedupSkipped: 0,
+      count,
+      lastCountBefore: count,
+      start: count,
+    };
+  }
+
+  if (count < lastCountBefore) {
+    // See `handleLogShrink` for the transient-race defense rationale. A real
+    // shrink invalidates any parked retry position and the dedup set — the old
+    // indices are gone, so re-reading them would classify history as new.
+    const next = handleLogShrink(count, lastCountBefore);
+    if (next == null) {
+      return {
+        mode: "shrink-stale",
+        added: [],
+        scanned: 0,
+        parsed: 0,
+        nullEntry: 0,
+        badItemKey: 0,
+        dedupSkipped: 0,
+        count,
+        lastCountBefore,
+        start: lastCountBefore,
+      };
+    }
+    state.lastCount = next;
+    state.tailBase = next;
+    state.retryFrom = null;
+    state.retryConsecutive = 0;
+    deliver.clearDelivered();
+    return {
+      mode: "shrink-realigned",
+      added: [],
+      scanned: 0,
+      parsed: 0,
+      nullEntry: 0,
+      badItemKey: 0,
+      dedupSkipped: 0,
+      count,
+      lastCountBefore,
+      start: next,
+    };
+  }
+
+  // Overscan: besides the new entries [lastCount, count), also re-read the last
+  // `overscan` already-scanned slots so an entry that was force-skipped or still
+  // half-written on its first pass can be recovered once it commits. Re-reads of
+  // already-delivered slots are suppressed (dedup); the window never goes below
+  // tailBase (the attach backlog / post-shrink data is out of scope).
+  const start = state.retryFrom ?? Math.max(state.tailBase, lastCountBefore - cfg.overscan);
+  const added: { index: number; entry: T }[] = [];
+  let scanned = 0;
+  let parsed = 0;
+  let nullEntry = 0;
+  let badItemKey = 0;
+  let dedupSkipped = 0;
+  const forcedIndexes: number[] = [];
+  for (let i = start; i < count; i++) {
+    const isNew = i >= lastCountBefore;
+    scanned++;
+    const decode = cfg.readSlot(reader, first, i, o, isNew);
+    if (decode.kind === "ok") {
+      // Dedup is delegated to the bucket: index-dedup (box) lets genuinely-new
+      // slots always deliver and only suppresses overscan re-reads; fingerprint
+      // dedup (stage) suppresses any re-delivery, new or re-read.
+      if (deliver.isDelivered(decode.entry, i)) {
+        dedupSkipped++;
+      } else {
+        added.push({ index: i, entry: decode.entry });
+        deliver.markDelivered(decode.entry, i);
+        parsed++;
+      }
+      continue;
+    }
+    if (decode.bad === "null") nullEntry++;
+    else badItemKey++;
+    if (decode.kind === "skip") {
+      // Overscan / half-write slot that stays undecodable — leave it; a later
+      // overscan re-read may recover it once the writer commits (bounded).
+      continue;
+    }
+    // `park`: a NEW-region mid-write. Do NOT advance the tail past it (that would
+    // drop it permanently). Stop at this index so the next tick re-reads the same
+    // entry after the writer finishes. If the same index keeps failing for
+    // `maxRetries` ticks it's a corrupt slot — force-skip it so we can't wedge
+    // the tail forever. (Not delivered, so an overscan re-read can still recover
+    // a later commit.)
+    const sameAsLast = state.retryFrom === i;
+    state.retryConsecutive = sameAsLast ? state.retryConsecutive + 1 : 1;
+    state.retryFrom = i;
+    if (state.retryConsecutive > cfg.maxRetries) {
+      state.retryFrom = null;
+      state.retryConsecutive = 0;
+      forcedIndexes.push(i);
+      continue;
+    }
+    state.lastCount = Math.min(state.lastCount, i);
+    state.retryFrom = i;
+    return {
+      mode: "scan",
+      added,
+      scanned,
+      parsed,
+      nullEntry,
+      badItemKey,
+      dedupSkipped,
+      count,
+      lastCountBefore,
+      start,
+      retryFrom: i,
+      retryConsecutive: state.retryConsecutive,
+    };
+  }
+  state.retryFrom = null;
+  state.retryConsecutive = 0;
+  state.lastCount = count;
+  // Keep the dedup set bounded: only indices that could still be re-scanned by a
+  // future overscan matter.
+  deliver.pruneDelivered(Math.max(state.tailBase, count - cfg.overscan - 8));
+  return {
+    mode: "scan",
+    added,
+    scanned,
+    parsed,
+    nullEntry,
+    badItemKey,
+    dedupSkipped,
+    forcedIndexes,
+    count,
+    lastCountBefore,
+    start,
+  };
 }
 
 /**
@@ -1431,23 +2622,54 @@ export function readRuntimeBoxOpenLog(
   }
 
   const { arr, count } = list;
-  if (!pin.primed) {
-    pin.lastCount = count;
-    pin.primed = true;
-    return { opens: [], status: "" };
-  }
+  const out = scanLogBucket<BoxOpenEntry>(
+    reader,
+    o,
+    arr + BigInt(o.container.arrayFirst),
+    count,
+    {
+      readSlot: (r, first, i, oo, isNew) => {
+        // Multi-sample: the game appends BoxOpenLog entries while we iterate. A
+        // single sample taken mid-write may see the slot allocated but the
+        // itemKey/boxType/level fields not yet committed — yielding a null
+        // itemKey and the entry being silently dropped. Re-read up to
+        // BOX_OPEN_LOG_SAMPLES times until itemKey resolves; the few-µs delay
+        // between samples is enough for the writer to finish committing fields.
+        let result: BoxOpenEntryRead = { ok: false, reason: "null-ptr" };
+        for (let s = 0; s < BOX_OPEN_LOG_SAMPLES; s++) {
+          result = readBoxOpenLogEntry(r, first + BigInt(i * 8), oo);
+          if (result.ok) break;
+        }
+        if (result.ok) return { kind: "ok", entry: result.entry };
+        const bad = result.reason === "null-ptr" ? "null" : "bad";
+        // Overscan re-read of a slot that still won't decode → skip (bounded).
+        // A new-region mid-write → park so the next tick retries it.
+        return isNew ? { kind: "park", bad } : { kind: "skip", bad };
+      },
+      overscan: BOX_OPEN_OVERSCAN,
+      maxRetries: MAX_BOX_OPEN_LOG_RETRIES,
+    },
+    {
+      // Box opens are deduped by slot index, not item value, so a burst that
+      // drops the same item twice is still fully recorded.
+      isDelivered: (_entry, i) => pin.deliveredIndices.has(i),
+      markDelivered: (_entry, i) => {
+        pin.deliveredIndices.add(i);
+      },
+      clearDelivered: () => pin.deliveredIndices.clear(),
+      pruneDelivered: (below) => {
+        if (below <= 0) return;
+        for (const idx of pin.deliveredIndices) {
+          if (idx < below) pin.deliveredIndices.delete(idx);
+        }
+      },
+    },
+    pin,
+  );
 
-  const lastCountBefore = pin.lastCount;
-  if (count < lastCountBefore) {
-    // See `handleLogShrink` for the transient-race defense rationale. A shrink
-    // invalidates any parked retry position (the log no longer has that
-    // index), so reset the retry state; scanning resumes from the realigned
-    // tail on the next tick.
-    const next = handleLogShrink(count, lastCountBefore);
-    if (next == null) return { opens: [], status: "" };
-    pin.lastCount = next;
-    pin.retryFrom = null;
-    pin.retryConsecutive = 0;
+  if (out.mode === "prime") return { opens: [], status: "" };
+  if (out.mode === "shrink-stale") return { opens: [], status: "" };
+  if (out.mode === "shrink-realigned") {
     return {
       opens: [],
       status: "",
@@ -1456,84 +2678,118 @@ export function readRuntimeBoxOpenLog(
         parsed: 0,
         nullEntry: 0,
         badItemKey: 0,
+        dedupSkipped: 0,
         count,
-        lastCountBefore,
-        start: next,
+        lastCountBefore: out.lastCountBefore,
+        start: out.start,
       },
     };
   }
-
-  // Resume scanning from the retry position set by a prior mid-write entry
-  // that failed to decode, or from the normal tail.
-  const start = pin.retryFrom ?? pin.lastCount;
-  const opens: BoxOpenEntry[] = [];
-  const first = arr + BigInt(o.container.arrayFirst);
-  let scanned = 0;
-  let parsed = 0;
-  let nullEntry = 0;
-  let badItemKey = 0;
-  for (let i = start; i < count; i++) {
-    // Multi-sample: the game appends BoxOpenLog entries while we iterate. A
-    // single sample taken mid-write may see the slot allocated but the
-    // itemKey/boxType/level fields not yet committed — yielding a null
-    // itemKey and the entry being silently dropped. Re-read up to
-    // BOX_OPEN_LOG_SAMPLES times until itemKey resolves; the few-µs delay
-    // between samples is enough for the writer to finish committing fields.
-    let result: BoxOpenEntryRead = { ok: false, reason: "null-ptr" };
-    for (let s = 0; s < BOX_OPEN_LOG_SAMPLES; s++) {
-      result = readBoxOpenLogEntry(reader, first + BigInt(i * 8), o);
-      if (result.ok) break;
-    }
-    scanned++;
-    if (result.ok) {
-      opens.push(result.entry);
-      parsed++;
-      continue;
-    }
-    if (result.reason === "null-ptr") nullEntry++;
-    else badItemKey++;
-    // Mid-write race: the entry slot exists but its fields aren't committed
-    // yet (e.g. the FIRST item entry of an open-burst — the game bumps the
-    // list size before writing itemKey, and when several boxes are opened in
-    // a row the append window overlaps the reader's tick). Do NOT advance the
-    // tail past it — that would drop the entry permanently. Park `retryFrom`
-    // at this index so the next tick re-reads the same entry after the writer
-    // has finished. If the same index keeps failing for
-    // MAX_BOX_OPEN_LOG_RETRIES ticks it's a corrupt slot — force-skip it so
-    // we can't wedge the tail forever. (Same pattern as readRuntimeChestLog.)
-    const sameAsLast = pin.retryFrom === i;
-    pin.retryConsecutive = sameAsLast ? pin.retryConsecutive + 1 : 1;
-    pin.retryFrom = i;
-    if (pin.retryConsecutive > MAX_BOX_OPEN_LOG_RETRIES) {
-      pin.retryFrom = null;
-      pin.retryConsecutive = 0;
-      continue;
-    }
-    // Park the tail at the failing entry; return whatever decoded so far.
-    pin.lastCount = Math.min(pin.lastCount, i);
+  const opens = out.added.map((x) => x.entry);
+  if (out.retryFrom != null) {
+    // Parked the tail at a new-region mid-write; return what decoded so far.
     return {
       opens,
       status: "",
       debug: {
-        scanned,
-        parsed,
-        nullEntry,
-        badItemKey,
+        scanned: out.scanned,
+        parsed: out.parsed,
+        nullEntry: out.nullEntry,
+        badItemKey: out.badItemKey,
+        dedupSkipped: out.dedupSkipped,
+        forcedIndexes: out.forcedIndexes,
         count,
-        lastCountBefore,
-        start,
-        retryFrom: i,
-        retryConsecutive: pin.retryConsecutive,
+        lastCountBefore: out.lastCountBefore,
+        start: out.start,
+        retryFrom: out.retryFrom,
+        retryConsecutive: out.retryConsecutive,
       },
     };
   }
-  pin.retryFrom = null;
-  pin.retryConsecutive = 0;
-  pin.lastCount = count;
   return {
     opens,
     status: "",
-    debug: { scanned, parsed, nullEntry, badItemKey, count, lastCountBefore, start },
+    debug: {
+      scanned: out.scanned,
+      parsed: out.parsed,
+      nullEntry: out.nullEntry,
+      badItemKey: out.badItemKey,
+      dedupSkipped: out.dedupSkipped,
+      forcedIndexes: out.forcedIndexes,
+      count,
+      lastCountBefore: out.lastCountBefore,
+      start: out.start,
+    },
+  };
+}
+
+/** Pins for all three in-memory log buckets (tail state stays bucket-local). */
+export interface UnifiedLogPins {
+  chest: ChestDropPinState;
+  boxOpen: BoxOpenPinState;
+  stageClear: StageClearPinState;
+}
+
+/** Result of reading all three logs in one pass, ready to split into a snapshot. */
+export interface UnifiedLogsResult {
+  connected: boolean;
+  chestDrops: LiveChestCategory[] | null;
+  boxOpens: BoxOpenEntry[] | null;
+  stageClears: StageClearEntry[] | null;
+  statusByKind: { chest?: string; boxOpen?: string; stageClear?: string };
+  debugByKind?: { chest?: unknown; boxOpen?: unknown; stageClear?: unknown };
+}
+
+/**
+ * Read ALL in-memory logs (chest drops GetBox, box opens GetItemWithBoxOpen,
+ * stage clears StageClear) in one call. Resolves the LogManager once, walks each
+ * ELogType bucket, and returns a single result the three consumers split from.
+ * Keeps the per-bucket null semantics of the individual readers (`[]` = active
+ * but nothing new; `null` = log unavailable), so the caller can map these onto
+ * `LiveMemorySnapshot` unchanged.
+ */
+export function readRuntimeAllLogs(
+  reader: MemoryReader,
+  gaBase: bigint,
+  gaSize: number,
+  o: LiveOffsets,
+  pins: UnifiedLogPins,
+): UnifiedLogsResult {
+  const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pins.chest);
+  if (o.typeInfoRva.logManager === 0n || lmPtr == null) {
+    // No live LogManager → all three logs are unavailable (null, not []).
+    return {
+      connected: false,
+      chestDrops: null,
+      boxOpens: null,
+      stageClears: null,
+      statusByKind: {
+        chest: "LogManager unavailable (RVA not derived or singleton unresolved)",
+        boxOpen: "LogManager unavailable (RVA not derived or singleton unresolved)",
+        stageClear: "LogManager unavailable (RVA not derived or singleton unresolved)",
+      },
+    };
+  }
+
+  const chest = readRuntimeChestLog(reader, gaBase, gaSize, o, pins.chest);
+  const box = readRuntimeBoxOpenLog(reader, gaBase, gaSize, o, pins.boxOpen);
+  const stage = readRuntimeStageClears(reader, gaBase, gaSize, o, pins.stageClear);
+
+  return {
+    connected: chest.drops !== null || box.opens !== null || stage !== null,
+    chestDrops: chest.drops,
+    boxOpens: box.opens,
+    stageClears: stage,
+    statusByKind: {
+      chest: chest.status || undefined,
+      boxOpen: box.status || undefined,
+      stageClear: stage !== null ? undefined : "StageClear log unavailable",
+    },
+    debugByKind: {
+      chest: chest.debug,
+      boxOpen: box.debug,
+      stageClear: undefined,
+    },
   };
 }
 

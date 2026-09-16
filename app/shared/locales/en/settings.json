@@ -137,6 +137,11 @@
       "detail": "box_timers.json",
       "confirm": "Reset stage boss chest tracker timers and enabled routes to defaults? Active cooldowns will be cleared."
     },
+    "record-log": {
+      "label": "Clear record log",
+      "detail": "record_log.json",
+      "confirm": "Clear the record log? Every acquired record in the Record Log panel will be removed, and collection restarts from the game's current record window."
+    },
     "session": {
       "label": "Clear session snapshot",
       "detail": "session_state.json",

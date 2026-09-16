@@ -30,6 +30,7 @@
     "location": "場所",
     "inUse": "装備済み",
     "marketPrice": "マーケット価格",
+    "inHand": "受取額",
     "listValue": "マーケット合計",
     "instantSell": "即時売却",
     "instantTotal": "即時合計",
@@ -43,12 +44,12 @@
   "summary": {
     "marketValue": "マーケット価値",
     "instantTotal": "即時合計",
-    "afterFees": "Steam 手数料引き後",
-    "feesLabel": "Steam 手数料",
+    "afterFees": "取引コスト控除後",
+    "feesLabel": "取引コスト",
     "estimate": "推定",
     "listValueTip": "Steam マーケット価格での出品合計額（買い手支払額）",
     "estimateTip": "すべてをマーケット価格で出品した場合の推定ウォレット受け取り額。Steam 出品 UI が優先されます。",
-    "instantSellTip": "各行の即時売却の合計：注文簿を段階的に販売し、最良価格から優先して、あなたのスタックがカバーされるか注文簿が尽きるまで。出品手数料なし。",
+    "instantSellTip": "各行の即時売却の合計：注文簿を段階的に販売し、最良価格から優先して、あなたのスタックがカバーされるか注文簿が尽きるまで。取引コストは差し引かれています。",
     "unknownCount": "{{count}} 個のアイテムがこのアプリのアイテムリストにありません（不明 #… と表示）。アプリを更新するか、進捗については Discord を確認してください。",
     "discord": "Discord"
   },
@@ -72,7 +73,8 @@
     "notLoadedTitle": "Steam 価格はまだ読み込まれていません",
     "notPricedTitle": "価格設定なし（取引不可、または伝説未満の装備）",
     "openOnSteam": "Steam マーケットで開く",
-    "totalIfListed": "マーケット価格で出品した場合の合計"
+    "totalIfListed": "マーケット価格で出品した場合の合計",
+    "inHandTip": "マーケット価格で売却した場合、Steam とパブリッシャーの取引コストを差し引いた 1 個あたりの受取額"
   },
   "locationCell": {
     "inv": "イ {{count}}",
@@ -87,8 +89,8 @@
     "allEquipped": "すべての所有コピーが装備済み"
   },
   "instantTotal": {
-    "cappedTitle": "注文簿を段階的に販売 — {{count}} 件中 {{covered}} 件をカバー；残りは深さ不足。出品手数料なし。",
-    "defaultTitle": "注文簿を段階的に販売、最良価格から優先。出品手数料なし。"
+    "cappedTitle": "注文簿を段階的に販売 — {{count}} 件中 {{covered}} 件をカバー；残りは深さ不足。取引コストは差し引かれています。",
+    "defaultTitle": "注文簿を段階的に販売、最良価格から優先。取引コストは差し引かれています。"
   },
   "chaotic": "混沌",
   "emptyMessage": "これらのフィルターに一致するアイテムはありません。",

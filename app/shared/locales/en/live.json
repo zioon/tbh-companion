@@ -50,6 +50,8 @@
   "sessionXpPerHour": "Session XP/hr",
   "sessionGoldPerHour": "Session gold/hr",
   "commonChests": "Common chests",
+  "normalMapTime": "Normal maps {{time}}",
+  "plagueMapTime": "Plague maps {{time}}",
   "stageBossChests": "Stage boss chests",
   "actBossChests": "Act boss chests",
   "plagueCommonChests": "Plague common chests",

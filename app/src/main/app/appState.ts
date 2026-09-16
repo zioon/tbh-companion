@@ -367,6 +367,25 @@ export function startTracking(): SessionUiSnapshot {
   liveMemory.setOnSnapshot((snap) => tracking.ingestLiveFrame(snap));
   const ui = sessionState.load(config);
   tracking.start(config);
+  // Register the acquire channel AFTER tracking.start(): `ingestAcquireBatch`
+  // drops lines while recordLogService is still null, and a dropped batch never
+  // re-posts (worker already advanced the pin) — an early worker message would
+  // otherwise lose the first new records.
+  // The resume watermark is handed to the worker here as well (tracking.start
+  // created recordLogService, which loaded it from record_log.json): a companion
+  // restart then continues the ring from the last shutdown's read position.
+  // The persisted session base rides along — a saturated ring has no base
+  // signal of its own, so the reader needs the pair to stay slot-aligned.
+  liveMemory.setAcquireResume(tracking.getAcquireWatermark(), tracking.getAcquireSessionBase());
+  liveMemory.setOnAcquire((batch) =>
+    tracking.ingestAcquireBatch(
+      batch.entries,
+      batch.initial,
+      batch.ringRestarted,
+      batch.watermark,
+      batch.sessionBase,
+    ),
+  );
   // Feed inventory + lookup-price snapshots to TrackingService for box-open price resolution.
   tracking.setGameDataLookup(inventory.getGameDataLookup());
   // Inject the lookup catalog so TrackingService.variantIndex is built from
@@ -691,12 +710,14 @@ export function getAppServices() {
       const reloadLookupPrices = target === "lookup-prices" || target === "all-except-config";
       const reloadTimers = target === "box-timers" || target === "all-except-config";
       const reloadStageRuns = target === "stage-runs" || target === "all-except-config";
+      const reloadRecordLog = target === "record-log" || target === "all-except-config";
       const reloadSession = target === "session" || target === "all-except-config";
 
       if (reloadPrices) inventory.reloadPriceCache();
       if (reloadLookupPrices) lookupPrices.reloadFromDisk();
       if (reloadTimers) boxTimers.resetStorage();
       if (reloadStageRuns) stageRuns.resetStorage();
+      if (reloadRecordLog) tracking.resetRecordLog();
       if (reloadSession) {
         tracking.onSessionFileDeleted();
         tracking.clearSession();
@@ -889,6 +910,8 @@ export function getAppServices() {
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
     getStageRuns: () => stageRuns.getStats(),
+    getRecordLogPage: (page: number, pageSize?: number) =>
+      tracking.getRecordLogPage(page, pageSize ?? 200),
     getCatalogStatus: () => catalogRefresh.getStatus(),
     refreshCatalog: async () => {
       const result = await catalogRefresh.refresh();

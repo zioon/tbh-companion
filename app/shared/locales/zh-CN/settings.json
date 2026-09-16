@@ -137,6 +137,11 @@
       "detail": "box_timers.json",
       "confirm": "确认将关卡 Boss 宝箱追踪器计时与启用路线恢复为默认值？当前冷却会被清除。"
     },
+    "record-log": {
+      "label": "清除记录日志",
+      "detail": "record_log.json",
+      "confirm": "确认清除记录日志？「记录日志」面板中的全部获得记录会被清空，之后从游戏当前的记录窗口重新开始收集。"
+    },
     "session": {
       "label": "清除会话快照",
       "detail": "session_state.json",

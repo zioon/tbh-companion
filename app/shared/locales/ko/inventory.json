@@ -30,6 +30,7 @@
     "location": "위치",
     "inUse": "장착됨",
     "marketPrice": "마켓 가격",
+    "inHand": "수령액",
     "listValue": "마켓 총액",
     "instantSell": "즉시 판매",
     "instantTotal": "즉시 총액",
@@ -43,12 +44,12 @@
   "summary": {
     "marketValue": "마켓 가치",
     "instantTotal": "즉시 총액",
-    "afterFees": "Steam 수수료 제후",
-    "feesLabel": "Steam 수수료",
+    "afterFees": "거래 비용 차감 후",
+    "feesLabel": "거래 비용",
     "estimate": "추정",
     "listValueTip": "Steam 마켓 가격 기준 총 등록 가치(구매자가 지불하는 금액)",
     "estimateTip": "모든 것을 마켓 가격에 등록할 경우 예상 지갑 수익. Steam 등록 UI가 권위 있습니다.",
-    "instantSellTip": "각 행의 즉시 판매 합계: 주문장을 레벨별로, 가장 좋은 가격부터 순서대로 판매하며, 스택이 채워지거나 주문장이 소진될 때까지 진행됩니다. 등록 수수료 없음.",
+    "instantSellTip": "각 행의 즉시 판매 합계: 주문장을 레벨별로, 가장 좋은 가격부터 순서대로 판매하며, 스택이 채워지거나 주문장이 소진될 때까지 진행됩니다. 거래 비용은 이미 차감되어 있습니다.",
     "unknownCount": "{{count}}개 아이템이 이 앱의 아이템 목록에 없습니다(알 수 없음 #…으로 표시). 앱을 업데이트하거나, 해당 ID의 진행 상황은 Discord에서 확인하세요.",
     "discord": "Discord"
   },
@@ -72,7 +73,8 @@
     "notLoadedTitle": "Steam 가격이 아직 로드되지 않음",
     "notPricedTitle": "가격 책정 안 됨(거래 불가 또는 전설 미만 장비)",
     "openOnSteam": "Steam 마켓에서 열기",
-    "totalIfListed": "마켓 가격으로 등록할 경우 총액"
+    "totalIfListed": "마켓 가격으로 등록할 경우 총액",
+    "inHandTip": "마켓 가격으로 판매할 때 Steam 및 퍼블리셔 거래 비용을 차감한 개당 수령액"
   },
   "locationCell": {
     "inv": "인벤 {{count}}",
@@ -87,8 +89,8 @@
     "allEquipped": "보유한 모든 사본이 현재 장착됨"
   },
   "instantTotal": {
-    "cappedTitle": "주문장에 레벨별로 판매 — 보유한 {{count}}개 중 {{covered}}개 처리; 나머지를 처리할 만큼 깊은 구매 주문이 없음. 등록 수수료 없음.",
-    "defaultTitle": "주문장에 레벨별로, 가장 좋은 가격부터 판매. 등록 수수료 없음."
+    "cappedTitle": "주문장에 레벨별로 판매 — 보유한 {{count}}개 중 {{covered}}개 처리; 나머지를 처리할 만큼 깊은 구매 주문이 없음. 거래 비용은 이미 차감되어 있습니다.",
+    "defaultTitle": "주문장에 레벨별로, 가장 좋은 가격부터 판매. 거래 비용은 이미 차감되어 있습니다."
   },
   "chaotic": "혼돈",
   "emptyMessage": "이 필터와 일치하는 아이템이 없습니다.",

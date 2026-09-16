@@ -56,13 +56,10 @@ export function fmtXpUpdated(seconds: number | null): string {
 
 export function fmtClock(epochSeconds: number): string {
   const d = new Date(epochSeconds * 1000);
-  const h24 = d.getHours();
-  const h = h24 % 12 || 12;
-  const ampm = h24 < 12 ? "AM" : "PM";
-  const hh = String(h).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss} ${ampm}`;
+  return `${hh}:${mm}:${ss}`;
 }
 
 /** Inventory fill prediction: duration until full, e.g. "45 min", "3.2 hours", "2d 5h". */
@@ -74,10 +71,10 @@ export function fmtHoursUntilFull(hours: number): string {
   return `${days}d ${rem}h`;
 }
 
-/** Inventory fill prediction: clock time it will hit full, e.g. "today at 4:30 PM". */
+/** Inventory fill prediction: clock time it will hit full, e.g. "today at 16:30". */
 export function fmtFillEta(hours: number, now: Date = new Date()): string {
   const eta = new Date(now.getTime() + hours * 3600 * 1000);
-  const time = eta.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = eta.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   if (eta.toDateString() === now.toDateString()) return `today at ${time}`;
   const dateStr = eta.toLocaleDateString([], { month: "short", day: "numeric" });
   return `${dateStr} at ${time}`;

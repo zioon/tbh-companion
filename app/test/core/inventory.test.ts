@@ -109,6 +109,38 @@ describe("parseInventory", () => {
     ]);
   });
 
+  it("v1.2.2: counts act-boss chests whose UniqueId is in neither Get nor Use bucket", () => {
+    // 章节 Boss 箱（930901）的 UniqueId 既不在 BoxBucketGetBoxList（未开）也不在
+    // BoxBucketUseBoxList（已开），仅以 STAGEBOX 物品存在于 itemSaveDatas。
+    // 回归：旧实现只认未开桶 → 章节 Boss 箱被误丢 → “掉落章节宝箱后队列被误归零”。
+    const inner = `{
+      "BoxBucketUseBoxList":["551278195918946219"],
+      "BoxBucketGetBoxList":["551278195918946161"],
+      "itemSaveDatas":[
+        {"ItemKey":910901,"UniqueId":551278195918946161,"IsChaotic":false},
+        {"ItemKey":920901,"UniqueId":551278195918946217,"IsChaotic":false},
+        {"ItemKey":930901,"UniqueId":551278195918946302,"IsChaotic":false},
+        {"ItemKey":930901,"UniqueId":551278195918946305,"IsChaotic":false},
+        {"ItemKey":910901,"UniqueId":551278195918946219,"IsChaotic":false}
+      ]
+    }`;
+    const classify = (key: number) =>
+      key === 910901
+        ? { category: "common" as const, label: "Normal Monster Box Lv90" }
+        : key === 920901
+          ? { category: "rare" as const, label: "Stage Boss Box Lv90" }
+          : key === 930901
+            ? { category: "act" as const, label: "Act Boss Box Lv90" }
+            : null;
+    const snap = parseInventory(wrapPlayer(inner), 0, undefined, classify);
+    // 910901(Get 桶) + 920901 + 930901×2 计入；Use 桶里的 910901 排除。
+    expect(snap.chests).toHaveLength(4);
+    expect(snap.chests.filter((c) => c.type === 930901)).toEqual([
+      { type: 930901, quantity: 1, category: "act", label: "Act Boss Box Lv90" },
+      { type: 930901, quantity: 1, category: "act", label: "Act Boss Box Lv90" },
+    ]);
+  });
+
   it("v1.2.2: keeps boxes with unknown item ids as unclassified rows", () => {
     const inner = `{
       "BoxBucketGetBoxList":["551278195918946161"],

@@ -4,7 +4,7 @@
 // never touch the Electron main thread or renderer (perf-isolation requirement).
 // Streams snapshots + status to the main process via parentPort.
 
-import type { LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type { AcquireLogEntry, LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
 import { LiveMemoryReader } from "./liveReader";
 import { setWinProcessLogger } from "./winProcess";
 
@@ -31,6 +31,14 @@ const HEAL_UNSUPPORTED_MS = 10_000; // re-try offset resolution while degraded
  */
 const FAST_CHEST_POLL_MS = 5;
 /**
+ * Cadence of the independent "获得记录" ring monitor while attached+supported.
+ * Coarser than the chest tail poll (decoding a ring entry costs more than a
+ * GetBox count probe) but far faster than the 40 ms read tick, so new lines
+ * are folded into the pending buffer within ~10 ms instead of waiting for the
+ * next 25 Hz frame.
+ */
+const FAST_ACQUIRE_POLL_MS = 10;
+/**
  * Fallback heal cadence for enrichment fields (e.g. BoxOpenLog struct offsets)
  * when the event-driven path is blocked. The box-open event detector relies
  * on `getItemWithBoxOpenTypeKey`, which is itself an enrichment field — when
@@ -49,6 +57,33 @@ let healDueAt = 0;
 let enrichmentHealDueAt = 0;
 /** High-frequency chest tail monitor timer (see FAST_CHEST_POLL_MS). */
 let fastPollTimer: ReturnType<typeof setInterval> | null = null;
+/**
+ * High-frequency "获得记录" ring monitor timer (see FAST_ACQUIRE_POLL_MS).
+ * Runs independently of the 25 Hz `read()` tick so the complete game timeline
+ * is always drained promptly; `read()` only consumes the pending buffer.
+ */
+let fastAcquirePollTimer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Raw "获得记录" ring dump timer, active only when `TBH_ACQUIRE_DUMP=1`. Each
+ * tick logs the ring geometry + tail slots (see `dumpRuntimeAcquireRing`); two
+ * consecutive dumps show whether the `+0x1C` counter moves ahead of the slot
+ * writes and whether a slot's entry pointer changes when it is rewritten.
+ */
+let dumpAcquireTimer: ReturnType<typeof setInterval> | null = null;
+/** Dump cadence — fast enough to catch a counter/slot write race. */
+const ACQUIRE_DUMP_MS = 500;
+/** Ring dump enabled (policy pushed by the parent; see LiveMemoryService). */
+let dumpEnabled = false;
+/** Remaining dumps before auto-disable (0 = disabled). */
+let dumpRemaining = 0;
+/** Slots per dump (the parent narrows this for the automatic dev budget). */
+let dumpWindow = 24;
+/** First line of the last posted dump (carries the ring counter) — change detect. */
+let dumpLastHead = "";
+/** Ticks since the dump timer started (for the periodic idle baseline). */
+let dumpTicks = 0;
+/** While the ring is quiet, still post one dump every N ticks (10 s at 500 ms). */
+const DUMP_BASELINE_EVERY = 20;
 
 try {
   reader = new LiveMemoryReader();
@@ -65,6 +100,13 @@ try {
 
 type WorkerMessage =
   | { type: "snapshot"; snapshot: LiveMemorySnapshot }
+  | {
+      type: "acquire";
+      entries: AcquireLogEntry[];
+      initial: boolean;
+      ringRestarted: boolean;
+      watermark: number;
+    }
   | { type: "status"; status: LiveMemoryStatus }
   | { type: "log"; message: string };
 
@@ -98,11 +140,12 @@ function schedule(ms: number): void {
 }
 
 /**
- * Start/stop the high-frequency chest tail monitor to match reader state
- * (running only while attached+supported). Each tick calls
- * `reader.pollChestTailFast()` which is a cheap GetBox tail scan; a guard flag
- * prevents a long-running read/extract from being re-entered mid-way, but in
- * practice the single-threaded event loop serializes them, and the scan is ~µs.
+ * Start/stop the high-frequency chest tail monitor and the "获得记录" ring monitor
+ * to match reader state (running only while attached+supported). Each tick calls
+ *  - `reader.pollChestTailFast()` (cheap GetBox tail scan)
+ *  - `reader.pollAcquireTailFast()` (read the complete acquire-ring tail → pending)
+ * A guard flag prevents a long-running read/extract from being re-entered, but in
+ * practice the single-threaded event loop serializes them, and the scans are ~µs.
  */
 function ensureFastPoll(): void {
   const should = !!reader && reader.attached && reader.supported;
@@ -122,6 +165,69 @@ function ensureFastPoll(): void {
   } else if (!should && fastPollTimer) {
     clearInterval(fastPollTimer);
     fastPollTimer = null;
+  }
+
+  // Acquire-ring monitor: independent of the chest tail poll and of the 25 Hz
+  // `read()` frame. It performs an initial full sync (all session backlog lines,
+  // marked `initial: true`) followed by periodic incremental tail syncs, posting
+  // each batch straight to the main process — so "获得记录" delivery is never
+  // gated on a `read()` tick succeeding (null-stage / name-scan early returns).
+  if (should && !fastAcquirePollTimer) {
+    let busy = false;
+    fastAcquirePollTimer = setInterval(() => {
+      if (busy || !reader || !reader.attached) return;
+      busy = true;
+      try {
+        const res = reader.pollAcquireTailFast();
+        if (res && res.entries.length > 0) {
+          post({
+            type: "acquire",
+            entries: res.entries,
+            initial: res.initial,
+            ringRestarted: res.ringRestarted,
+            watermark: res.watermark,
+          });
+        }
+      } catch {
+        // suppress transient failures; the next poll retries
+      } finally {
+        busy = false;
+      }
+    }, FAST_ACQUIRE_POLL_MS);
+  } else if (!should && fastAcquirePollTimer) {
+    clearInterval(fastAcquirePollTimer);
+    fastAcquirePollTimer = null;
+  }
+
+  // Ring dump: raw geometry + tail slots. The parent decides the policy (dev
+  // builds are enabled by default with a small budget; `TBH_ACQUIRE_DUMP=1`
+  // enables it anywhere, `=0` disables) and sends it right after spawn — see
+  // `LiveMemoryService`. Diagnostics only.
+  const wantDump = should && dumpEnabled && dumpRemaining > 0;
+  if (wantDump && !dumpAcquireTimer) {
+    dumpAcquireTimer = setInterval(() => {
+      if (!reader || !reader.attached) return;
+      const dump = reader.dumpAcquireRing(dumpWindow);
+      if (!dump) return;
+      // Post on every ring movement (the counter's value is in the dump's first
+      // line) plus a periodic baseline, so a before/after pair around each append
+      // lands in the log without dumping 2x/s forever.
+      const head = dump.split("\n", 1)[0];
+      dumpTicks += 1;
+      const moved = head !== dumpLastHead;
+      if (!moved && dumpTicks % DUMP_BASELINE_EVERY !== 0) return;
+      dumpLastHead = head;
+      post({ type: "log", message: dump });
+      dumpRemaining -= 1;
+      if (dumpRemaining <= 0 && dumpAcquireTimer) {
+        clearInterval(dumpAcquireTimer);
+        dumpAcquireTimer = null;
+        post({ type: "log", message: "acquire dump budget exhausted — diagnostics off" });
+      }
+    }, ACQUIRE_DUMP_MS);
+  } else if (!wantDump && dumpAcquireTimer) {
+    clearInterval(dumpAcquireTimer);
+    dumpAcquireTimer = null;
   }
 }
 
@@ -326,10 +432,54 @@ parentPort?.on("message", (evt) => {
   // 成立（停止指令曾因此静默失效，仅靠父进程 kill() 兜底）。
   const msg: unknown =
     evt != null && typeof evt === "object" && "data" in evt ? (evt as { data: unknown }).data : evt;
+  // Ring-dump policy pushed by the parent right after spawn. Env-var gating was
+  // not reliable (the dump never ran in a dev restart where it was exported), so
+  // the decision lives in the parent — see LiveMemoryService.
+  if (msg != null && typeof msg === "object" && (msg as { type?: string }).type === "acquireDump") {
+    const policy = msg as { enabled?: boolean; maxDumps?: number; windowSize?: number };
+    const max = policy.maxDumps ?? 0;
+    dumpEnabled = Boolean(policy.enabled) && max !== 0;
+    dumpRemaining = max < 0 ? Number.MAX_SAFE_INTEGER : max;
+    dumpWindow = Math.max(1, policy.windowSize ?? 24);
+    post({
+      type: "log",
+      message:
+        `acquire dump policy: enabled=${dumpEnabled} dumps=${dumpEnabled ? dumpRemaining : 0} ` +
+        `window=${dumpWindow}`,
+    });
+    return;
+  }
+  // Read-position watermark pushed by the parent right after spawn (persisted
+  // across companion restarts) — the acquire ring then resumes incrementally
+  // instead of replaying the whole window on every start.
+  if (
+    msg != null &&
+    typeof msg === "object" &&
+    (msg as { type?: string }).type === "acquireResume"
+  ) {
+    const resume = msg as { total?: number | null; sessionBase?: number | null };
+    reader?.setAcquireResume(
+      typeof resume.total === "number" ? resume.total : null,
+      typeof resume.sessionBase === "number" ? resume.sessionBase : null,
+    );
+    post({
+      type: "log",
+      message: `acquire resume watermark: ${typeof resume.total === "number" ? resume.total : "none"} base: ${typeof resume.sessionBase === "number" ? resume.sessionBase : "none"}`,
+    });
+    return;
+  }
   if (msg === "stop") {
     if (fastPollTimer) {
       clearInterval(fastPollTimer);
       fastPollTimer = null;
+    }
+    if (fastAcquirePollTimer) {
+      clearInterval(fastAcquirePollTimer);
+      fastAcquirePollTimer = null;
+    }
+    if (dumpAcquireTimer) {
+      clearInterval(dumpAcquireTimer);
+      dumpAcquireTimer = null;
     }
     if (timer) {
       clearTimeout(timer);

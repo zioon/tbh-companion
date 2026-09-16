@@ -8,6 +8,7 @@
   "market": "Market",
   "trading": "Trading",
   "settings": "Settings",
+  "log": "Record",
   "about": "About",
   "debug": "Debug",
   "mainTabsAriaLabel": "Main tabs"

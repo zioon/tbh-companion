@@ -728,3 +728,144 @@ describe("plague (Contaminated) chest drop tracking", () => {
     expect(stats.combinedTotal).toBe(1);
   });
 });
+
+describe("ChestDropTracker map-type-aware rate denominator", () => {
+  // Normal stage key 1 (non-plague), plague stage key 201201. Kept in service
+  // of a single fake-clock base so noteMapTime deltas and recent-window pruning
+  // (which uses real nowSeconds()) stay aligned.
+  const BASE = 100_000; // fake wall-clock seconds
+
+  it("uses normal/plague split denominators for session rates when map time is accumulated", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // 30 min on a normal map → 1 common → 1 / 0.5h = 2/hr
+      tracker.noteMapTime(1, BASE);
+      tracker.noteMapTime(1, BASE + 1800);
+      tracker.recordLiveChestDrop("common", BASE);
+      // 30 min on a plague map → 1 plagueCommon → 1 / 0.5h = 2/hr
+      tracker.noteMapTime(201201, BASE + 1800);
+      tracker.noteMapTime(201201, BASE + 3600);
+      tracker.recordLiveChestDrop("plagueCommon", BASE + 1800);
+
+      // Total elapsed is 1h → the old single denominator would give both 1/hr,
+      // not 2/hr; map-aware denominators give each "2 / its own 30min".
+      const stats = tracker.getStats(3600);
+      expect(stats.commonPerHour).toBeCloseTo(2, 5);
+      expect(stats.plagueCommonPerHour).toBeCloseTo(2, 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses normal/plague split denominators for recent 1h rates", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // 30 min normal + 30 min plague, each with 1 recent drop.
+      tracker.noteMapTime(1, BASE - 3600);
+      tracker.noteMapTime(1, BASE - 1800);
+      tracker.recordLiveChestDrop("common", BASE - 900);
+      tracker.noteMapTime(201201, BASE - 1800);
+      tracker.noteMapTime(201201, BASE);
+      tracker.recordLiveChestDrop("plagueCommon", BASE - 900);
+
+      const stats = tracker.getStats(3600);
+      // recent window = 900s (old) → would be 1/0.25h = 4/hr under a single
+      // denominator; map-aware uses each bucket's 1800s → 1/0.5h = 2/hr.
+      expect(stats.commonRecentPerHour).toBeCloseTo(2, 5);
+      expect(stats.plagueCommonRecentPerHour).toBeCloseTo(2, 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to total window when no map time is accumulated (non-attached)", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.recordLiveChestDrop("common", BASE);
+      tracker.recordLiveChestDrop("plagueCommon", BASE);
+
+      const stats = tracker.getStats(3600);
+      // No noteMapTime → both buckets use the 60s-clamped window: 1/(60/3600)
+      // = 60/hr. Old behavior preserved.
+      expect(stats.commonPerHour).toBe(60);
+      expect(stats.plagueCommonPerHour).toBe(60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("prunes map segments older than the 1h rolling window", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // >1h ago: 1800s normal (will be pruned).
+      tracker.noteMapTime(1, BASE - 7200);
+      tracker.noteMapTime(1, BASE - 5400);
+      // >1h ago: 1800s plague (will be pruned).
+      tracker.noteMapTime(201201, BASE - 5400);
+      tracker.noteMapTime(201201, BASE - 3600);
+      // Within 1h: 600s normal (kept) → 1 drop / (600/3600)h = 6/hr.
+      tracker.noteMapTime(1, BASE - 3600);
+      tracker.noteMapTime(1, BASE - 3000);
+      tracker.recordLiveChestDrop("common", BASE - 600);
+
+      const stats = tracker.getStats(3600);
+      expect(stats.commonRecentPerHour).toBeCloseTo(6, 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resets map time buckets on reset and goes back to the fallback denominator", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.noteMapTime(1, BASE);
+      tracker.noteMapTime(1, BASE + 1800);
+      tracker.noteMapTime(201201, BASE + 1800);
+      tracker.noteMapTime(201201, BASE + 3600);
+      tracker.recordLiveChestDrop("common", BASE);
+
+      tracker.reset();
+      // After reset, no counts and no map time. A fresh drop with no map time
+      // falls back to the 60s-clamped window → 1/(60/3600) = 60/hr.
+      tracker.recordLiveChestDrop("common", BASE);
+      const after = tracker.getStats(3600);
+      expect(after.commonPerHour).toBe(60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("restores map time from snapshot so restarts stay map-aware", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // 30 min normal + 30 min plague, one drop each → 2/hr each on restore.
+      tracker.noteMapTime(1, BASE);
+      tracker.noteMapTime(1, BASE + 1800);
+      tracker.recordLiveChestDrop("common", BASE);
+      tracker.noteMapTime(201201, BASE + 1800);
+      tracker.noteMapTime(201201, BASE + 3600);
+      tracker.recordLiveChestDrop("plagueCommon", BASE + 1800);
+      const snap = tracker.captureSnapshot();
+
+      const restored = new ChestDropTracker();
+      restored.applySnapshot(snap);
+      const stats = restored.getStats(3600);
+      expect(stats.commonPerHour).toBeCloseTo(1 / (1800 / 3600), 5); // 2/hr
+      expect(stats.plagueCommonPerHour).toBeCloseTo(1 / (1800 / 3600), 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
