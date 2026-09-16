@@ -23,3 +23,15 @@ export function useTbhContext(): TbhContextValue {
   }
   return ctx;
 }
+
+/**
+ * Same as `useTbhContext` but returns `null` instead of throwing when no
+ * provider is mounted. For read-only consumers that already treat the value as
+ * optional (the shared catalog is `LookupItem[] | null` until the startup
+ * prefetch resolves), so isolated renders — a single tab or panel in a DOM
+ * test, or a surface mounted outside the app root — degrade to "not ready yet"
+ * rather than crashing the whole tree.
+ */
+export function useTbhContextOptional(): TbhContextValue | null {
+  return useContext(TbhContext);
+}
