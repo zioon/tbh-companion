@@ -580,14 +580,17 @@ heroDeltaGain(prev, curLevel, curExp) → number
 
 - `liveXp = liveFrame?.connected === true && tracker.xpLiveActive()` — live 帧已连接且 5 秒内有数据。
 - **heroes**：liveHeroes 为 true → 用 `liveFrame.heroes` 构造 `HeroRate[]`（含 `heroLevelEstimate` 计算 `xpToNextLevel` 和 `timeToLevelSec`）；否则用 `lastSnap?.heroes ?? tracker.heroes`，过滤 `unlocked || exp > 0`。
+- **heroes live/save 交叉单调性闸门（v1.2.4，2026-09-17）**：live 英雄等级不再被无条件信任。`buildStats` 先由 `lastSnap.heroes`（存档英雄，权威下界）建 `saveHeroLevelByKey: Map<heroKey, level>`，再调用 `liveHeroFrameTrustworthy(liveFrame.heroes, saveHeroLevelByKey)`（`core/tracker.ts`）：对 live 帧中每个 heroKey，若存档已知该英雄等级且 live 等级 **低于** 存档 → 该帧不可信（返回 false）。v1.2.4 偏移表 fallback 到 1.2.2 使 `runtime.ts:1311` 的 `heroRuntime` 解码产生垃圾 → 等级被 `level > 0 && level <= 200 ? level : 1` 地板到 1，若直接采信会把已 L100+ 的英雄"回退"成 L1。闸门命中（`liveHeroesTrusted=false`）→ live 分支整体回退到 `saveHeroes ?? []`，保留真实存档等级；闸门通过则照常采信 live 等级。**关键正确性**：存档中本就 L1 的英雄（如 `501:L1/e0`、`601:L1/e0`）其 `saveLevel===1` 且 live 报 1 不"低于"下界 → 仍判可信，不被误杀（回归测试 `test/main/stats.test.ts` 覆盖：v1.2.4 帧回退到 save 取 L101、匹配/超 save 仍取 live L102）。`goldLiveSuspect` 同样经 Stats 透出（`stats.goldLiveSuspect = tracker.goldLiveSuspect`，`shared/types.ts` `Stats` 接口新增可选字段），供 `SaveStatusBar` 渲染陈旧金币警示。
 - **stageKey**：live 优先（`liveFrame.stageKey`），否则 `lastSnap.stageKey ?? 0`。
 - **stageWave**：live `stageWave`（**必须 > 0**）→ `dpsTracker.currentWave`（怪物数量波次判断，**无论 live 是否连接**都参与）→ `lastSnap.stageWave`（兜底），并**以 `stageWaveTotal` 封顶**（wave 超过关卡总波次时显示总数，防止漏检 stage clear 导致的跨局累计显示成 "30/16"）。
 - **stageWaveTotal 符文减波修正**：live 读到的总波次（`StageInfoData.waveAmount`）在 `TrackingService.ingestLiveFrame` **单点**用存档符文减波数修正为 `max(1, raw − runeWaveReduction)`。`runeWaveReduction` 由 `appState` 存档回调用 `runeWaveCountReduction(chests.getRunePurchases(), loadRuneWaveCatalog())` 计算并 `setRuneWaveReduction` 下推——数据源为 `data/rune_wave.json`（Rune of Brevity 的 `WaveCountReduction` 节点，含 1171/1242/1301，各 −1 波）。修正只作用于 `stageWaveTotal`，不影响 `stageWave`/`stageKey`/`stageAlive`/heroes/DPS；`runeWaveReduction === 0` 时逐字节等同旧行为（不创建副本）。该单点修正使下方 run-end 重置判据（`currentWave >= stageWaveTotal`）与显示（`buildStats`）基于同一有效总波次。若 `raw <= reduction`（钳制到 1），`warnClampedWaveTotal` 打节流 warn——这通常是"游戏运行时 `waveAmount` 已内建减波导致重复扣"的信号。`> 0` 校验防止**已漂移的 StageManager runtimeWave 偏移**（如 v1.01.05 的 +0x138 恒读 0）把 0 当作权威值、屏蔽后续 fallback —— 否则 mini 悬浮窗波次会永久卡在 `0/N`。`dpsTracker.currentWave` 由怪物数量（HP 数组或 StageManager alive 计数）驱动，因此即使 live 波次字段缺失/无效、甚至 live 帧断开，只要 DpsTracker 有怪物数量波次判断就用它，最后才落到 save 的静态值。**stale 波次清洗（2026-09-02）**：实测 v1.01.05 的 runtimeWave +0x138 还可能读到**恒定的非零值**（实测恒 2，怪物清波循环 25+ 波不变）——过 `> 0` 校验后被当作权威，UI 波次永久卡在 "2/31"。修复：`liveReader` 层 `StaleWaveGuard`（`core/liveMemory/staleWaveGuard.ts`）跟踪「同一非零值持续 ≥ 8s 且期间怪物存活数发生过 0↔N 波切换」→ 判定 stale → `stageWave` 报 null，stats 自动回落到怪物计数推断；数值一旦变化立即恢复信任。日志 `stale live wave N — constant across wave transitions; falling back to monster-count wave estimate`（一次性）。
 - **status**：`statusOverride` > `lastError` > `secondsSinceGain > 120 ? "No XP gained for Xs..."` > `"Tracking"`。
+- **saveStale（2026-09-17）**：TrackingService 连续 ≥3 次（`SAVE_STALE_ERROR_THRESHOLD`）save 读取/解析失败 → `stats.saveStale=true`，成功即复位。含义：`lastSnap` 派生的全部数值（金币余额、关卡、英雄、进度）均为**失败前旧值**——典型场景是游戏更新改了 ES3 密码/布局导致解密持续失败，UI 却继续显示更新前数据（"金币回退"的另一根源）。SaveStatusBar 显示 `saveStatusStale` 警示；另在首个"heroes 与 gold 全空"的解析结果上打一次格式漂移 warn。
 - **secondsSinceRead**：`nowSeconds() - lastSnap.saveMtime`（save 内容年龄，非 poll 间隔）。
 - 其它字段：rollingRate、sessionRate、goldRate、cumulativeGained、goldGained、elapsed、secondsSinceGain、stageName（用 catalog 本地化）、history（visible 50 条，每条带 stageName）、chestDrops、boxOpens、dps、mapDamage、mapMobsKilled、sessionDamage、sessionMobsKilled、aliveMonsters、hpSum、hpMaxSum。
 - **chestDrops 速率计时锚定**：`commonPerHour` / `rarePerHour` / `actPerHour`（及 `*RecentPerHour` 滚动 1h）由 `ChestDropTracker` 计算。会话速率窗口锚定到 `min(开始追踪时刻, 首个掉落的墙钟)`，因此等待首个箱子掉落的时间会计入分母——启动 6 分钟后落下的第 1 个普通箱子显示约 10/hr，而不是旧行为（锚定首个掉落 + 60s 下限截断）产生的 60/hr 虚高；而早于启动的历史/恢复掉落仍锚定其真实掉落时间。`applySnapshot`（restore）会把窗口覆写为**最早恢复的掉落**，使跨空闲时段的恢复历史仍计入速率，避免被削减为 0。窗口下限截断 `MIN_RATE_WINDOW_SEC=60` 保留，仅用于防止刚起步的秒级除以零/荒谬峰值。**恢复锚点持久化（2026-09-11 修复）**：`captureSnapshot` 现将 `sessionDropStart` 一并写入快照，`applySnapshot` 优先采用该持久化锚点（与最早恢复条目取 `min`，旧快照缺失时回退最早恢复条目）。修复前恢复只锚定 `history[0]`，而 `history` 被 `HISTORY_LIMIT=500` 截断、`countsByKey` 不截断——单次运行掉落超过 500 后，重开应用的 perHour 分子覆盖整个会话、分母却从截断后的时间窗算起，导致速率虚高（实测 600 掉落/6h 会话恢复后显示 ~119/hr，真实 ~99/hr）。
 - **chestDrops 地图感知分母（2026-09-11）**：普通图与瘟疫图是互斥的地图类型（见 `isPlagueStage`），common/rare/act 只会在普通图掉落，plagueCommon/plagueRare/plagueAct 只会在瘟疫图掉落。若所有宝箱类别共用「总墙钟时间」作分母，混合两种地图的会话会把「刷另一类地图的时间」也算进本类速率的分母，导致速率被稀释（例如 1h 普通图爆 30 箱 + 1h 瘟疫图爆 15 箱：普通 30/(2h)=15/hr 而被低估为真实 30/hr）。修复：`ChestDropTracker` 新增 `noteMapTime(stageKey, at)`，由 `TrackingService.ingestLiveFrame` 每一实时帧喂入；依据当前 `stageKey`（`isPlagueStage` 判定，区分 4 位普通 key 与 6 位瘟疫 key；null/未知关不归属任何桶）把相邻帧墙钟差累积为 `normalMapSec` / `plagueMapSec`（会话级）及 1h 滚动 `rollingNormalSec` / `rollingPlagueSec`（segment 双端队列增量维护，超出 `ROLLING_HOUR_SEC=3600` 的段被剪枝）。`getStats` 中：普通三类速率分母 = `max(MIN_RATE_WINDOW_SEC, normalMapSec)/3600`，瘟疫三类 = `max(…, plagueMapSec)/3600`；`*RecentPerHour` 同理用滚动值。调用侧（`TrackingService.ingestLiveFrame`）以 `snap.stageKey ?? lastLiveStage?.stageKey` 喂入，与掉落分类同源兜底——某帧 `stageKey` 为空时不归 null 桶而是沿用上一已知关卡，避免地图时间静默停滞。当某桶无累积地图时间（未附加实时内存 / 恢复后尚无新帧）时，**回退原总时间口径**（会话用 `hours`、滚动用 `recentHours`），保持纯存档模式行为不变、避免分母为 0 导致速率虚高。`captureSnapshot` 持久化 `normalMapSec`/`plagueMapSec`（滚动值属短期指标不入快照），`applySnapshot` 在恢复后重置采样锚点与滚动队列，避免首帧跨离线空档误计；`reset` 清空全部地图时间。测试：`test/core/chestDropTracker.test.ts` 的 `map-type-aware rate denominator` 块覆盖会话/滚动/回退/剪枝/重置/恢复六种情形。
+- **chestDrops 滚动小时速率窗口与突刺保护（2026-09-12）**：`*RecentPerHour`（滚动 1h 速率）的分母 = `min(ROLLING_HOUR_SEC=3600, now − 首个 recent 掉落)`——即**从窗口内第一个掉落开始计时**（`earliestRecentWallTime`），会话刚起步时不被整 1h 分母稀释、也不受等待首个掉落的空闲时间影响（该语义只属于会话速率）。在此基础上新增 `RECENT_MIN_WINDOW_SEC=300` 下限（会话速率的 `MIN_RATE_WINDOW_SEC=60` 不变）：仅有 60s 下限时，一次 4 连 burst 落在首分钟内会读出 4/(60/3600)=240/hr 的荒谬峰值；300s 下限把同一 burst 压到 48/hr，而稳态速率不受影响（连续刷取会话的分母要么是整 1h 窗口、要么是 ≥300s 的真实累计）。地图感知滚动分母（`rollingNormalSec`/`rollingPlagueSec`）同样使用 300s 下限，防止新累积的地图时间内 burst 突刺。测试：`test/core/chestDropTracker.test.ts` 的 `rolling recent-rate window` 块。
 - **boxOpens 买断价币种（2026-09-11 修复）**：`TrackingService.buildBoxOpenPriceResolver` 解析掉落物品买断价——主路径用库存求购订单簿（`itemordershistogram`，**用户本币**，深度感知即时出售）；兜底用 CI lookup 快照 `prices[hash]`（**USD** `lowest_price`）。旧实现兜底直接返回 USD 数值未换算，非 USD 用户（如 CNY）会把 $0.03 显示成 ¥0.03（人民币地板价是 ¥0.10，明显偏低）。修复：兜底优先用快照本币字段（`buyOrderLocal` → `pricesLocal`，本地 polling 直抓目标币，无 FX 圆整误差）；否则 `usd × fx[currency]`（快照 `fx` 缺失该币时回落 USD 原值）。`TrackingService.setCurrency` 由 appState 在启动（`config.currency`）与货币切换（`setCurrency` IPC）时注入。
 
 ### 4.7 blend.ts 纯函数（`app/src/core/liveMemory/blend.ts`）
@@ -619,6 +622,19 @@ detectHeroLevelUps(prev: HeroSnapshot[], next: HeroSnapshot[]) → HeroLevelUpEv
 - `autoClassify?.tick()`（无论是否 broadcast 都跑，保证 prompt 超时与队列 prune 准确）。
 - **stale-frame guard**：若 `lastLiveFrame` 超过 5000ms 未更新 → 清空 `lastLiveFrame` 和 `lastLiveStage`，避免 worker 崩溃后 stage/DPS 卡死。
 - **节流**：若距上次 live broadcast < 200ms（`LIVE_BROADCAST_INTERVAL_MS`）→ 跳过 pushStats；否则 `pushStats()`。
+
+### 4.10 gold 突变防护与恢复对账（2026-09-17）
+
+XP 早有 per-tick 上限（`MAX_LIVE_XP_GAIN_PER_TICK`，4.1/4.5）与自愈，gold 此前**没有**——游戏更新使 LiveMemory 偏移失效或迁移余额时，错误读数/跳变会以"当前值"进入会话统计，表现为金币回退或虚高。三层防护 + 一个 stale 上限：
+
+- **live per-tick 上限**：`applyLiveGold` 单 tick（40ms）增益 > `MAX_LIVE_GOLD_GAIN_PER_TICK=1e7` → 增益记 0，但基线照常推进（`prevGold=gold`，持续跳变不会被永久拒绝）；显示值 `currentGold` 仍跟随真实读数。
+- **save 路径速率护栏**：`updateGold` 用 `lastGoldParseMtime`（私有、不持久化；init 分支与 live→save handover 分支同样写入）计算两次解析间隔，增益隐含速率 ≥ `MAX_PLAUSIBLE_GOLD_RATE`（=5e10/h，复用 XP 速率上限）→ 不计入会话、基线已推进，下一次正常解析不受影响。
+- **恢复对账 `reconcileGoldBaseline(saveGold, saveMtime, persistedLastMtime)`**：`SessionStateService.tryRestoreOnSnapshot` 在 `applySnapshot` 后、首次 `update()` 前调用（见 §10.4 第 5 步）。diff≤0 → noop；diff>0 且按离线 gap 的隐含速率 < 上限 → 计为一次性 bridging 收益（保持旧行为）；≥ 上限（典型：游戏更新迁移余额）→ 仅重锚基线（`prevGold=currentGold=saveGold`），日志 `Session gold baseline re-anchored to save (implausible jump …)`。
+- **恢复快照金币校验**：`isPlausibleTrackerSnapshot` 新增 `currentGold`/`prevGold`/`goldGained` 的 `isPlausibleGoldBalance`/`isPlausibleCumulativeGold` 校验（`core/trackerLimits.ts`，上限 `MAX_PLAUSIBLE_CUMULATIVE_GOLD=1e15`），脏快照在恢复前即被丢弃（见 §10.4 第 3 步）。
+- **live gold stale 上限**：`readRuntimeGold`（`core/liveMemory/runtime.ts`）所有读取路径失败时仅返回 `GOLD_STALE_MAX_MS=5000` 内的 `pin.lastKnown`（防 UI 闪烁），超龄返回 null——防止游戏更新后 25Hz 轮询把更新前余额当当前值无限回放（"金币回退"现象的直接根源之一）。`GoldPinState` 新增 `lastKnownAt`（成功读取时打点）。
+- **ObscuredLong u64 掩码（2026-09-17，v1.2.4 修复）**：ACTk ObscuredLong 的解码公式 `(hidden - crypto) ^ crypto` 在 C# 是 ulong（mod-2^64）运算，但 JS BigInt 无回绕——当 hidden 的最高位为 1（int64 视角为负，v1.2.4 实测的 wallet 加密对即如此）时，未掩码的 BigInt 解码结果为负，`Number()` 后被 `plausibleGold` 拒绝 → `readGoldFromEntry` 恒 null → live 金币永久失效。修复：与 `readObscuredInt`（英雄等级，本就有 `& 0xffffffff`）对齐，`readObscuredLong` 改为 `((hidden - crypto) & U64) ^ crypto) & U64`。此 bug 与版本无关（1.2.2 只是数据巧合未触发），修复对旧版本行为不变。
+- **live/save 发散守卫 + 陈旧标记（v1.2.4，2026-09-17）**：`TrackingService.ingestLiveFrame` 在 `lastLiveFrame = snap` 之前，先用 `evaluateGoldDivergence(snap.gold, saveGold, goldDivergeSinceSec, snap.at/1000, GOLD_DIVERGE_SUSTAIN_SEC=8)`（`core/tracker.ts`）比对 live 读数与上一存档余额 `saveGold = lastSnap?.gold`。当 `liveGold < saveGold`（live 读数低于存档"权威下界"，典型为偏移失效导致的回退/倒退）→ `substitute=true`，用 `saveGold` 覆盖 `snap.gold`，并首次触发时记 `goldDivergeSinceSec = snap.at/1000`；该"低于下界"状态**持续 ≥8s**（`nowSec - goldDivergeSinceSec >= sustainSec`）→ `suspect=true` 且 `tracker.goldLiveSuspect=true`，UI 经 `SaveStatusBar` 显示 `goldStatusStale` 警示（见 `shared/locales/*/live.json`）。读数与存档持平或更高（含 null 缺失）→ 复位 `goldDivergeSinceSec=null`、`goldLiveSuspect=false`。注意：`saveGold` 取自**会话内最近一次 save 解析**而非实时读数，因此它代表"游戏已落盘的已知最低余额"；live 永远不应低于它，低于即判为 stale。这是 §4.6 `saveStale` 之外的**第二道金币回退防线**，专门覆盖"save 解析仍成功、但 live 偏移失效读错"的情形（v1.2.4 偏移表 fallback 到 1.2.2 导致 `wallet gold` 读数错位）。
+- **save 英雄经验合理性钳制（v1.2.4，2026-09-17）**：实测 v1.2.4 存档英雄 `exp` 高达 1.4e12，超过运行时解码上限 `MAX_HERO_RUNTIME_EXP=1e12` 的口径，会污染 `heroDeltaGain`/`healInflatedXpTotals` 的合理性判据。`tracker.update()` 在写入 `this.heroes` 时统一用 `clampHeroSaveExp(exp)`（`MAX_HERO_SAVE_EXP=1e15`）：非有限或负值归 0，超 1e15 钳到 1e15。init 与 live→save handover 两个分支同样钳制，保证 save 与 live 路径一致。该上限独立于运行时 1e12 上限——save 是累计总经验、量级本就更大，1e15 是为防脏存档（内存损坏/错误偏移写入）反噬统计而设的硬性天花板。
 
 ---
 
@@ -740,7 +756,7 @@ type WorkerMessage =
 - 精确命中：`fallback=false`，`source="bundled"`。
 - 同 major.minor 邻近版本命中：`fallback=true`，table 上贴 `_fallbackFromVersion: <bestVersion>`，`source="bundled"`。
 - 都不命中：`base=null`，准备走纯 extractor 路径。
-- **版本表现状（2026-09-09）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / **1.2.2**。v1.2.2 是 1.x 大版本跳升，英雄运行时结构偏移与 1.01.x 不同（`unit.cache` 0x3b0→0x3d0、`heroRuntime.levelHidden/levelKey` 0xd0/0xd4→0x610/0x614、`heroRuntime.expHidden/expKey` 0x118/0x120→0x658/0x660、`runtime.stage.currentCache` 0x88→0xa8）。跨 major.minor 版本（如 1.3.x）不会 fallback 到旧表，只能走纯 extractor / 磁盘 cache 路径。
+- **版本表现状（2026-09-17）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / 1.2.2 / **1.2.4**。**v1.2.4 表（2026-09-17 补录）**：游戏 12:28 更新 v1.2.4 后，缺表期间按同 major.minor 规则 fallback 到 1.2.2 RVA 基线——但 v1.2.4 重编译使**全部 5 个静态 TypeInfo RVA 漂移**（currencyManager 0x5f4b8c8→0x5f4a068、stageCacheManager→0x5f4adf8、stageManager→0x5f75838、logManager→0x5f43a78、monsterSpawnManager→0x5f23148），错误的 currencyManager 使 `readRuntimeGold` 每 tick 失败 → live 金币静默降级为 5s save 轮询（用户感知为"实时数据回退成 save 数据"；结构布局本身未变，`unit.cache`/`heroRuntime` 等沿用 1.2.2 值）。表由 `scripts/capture-live-offsets.ts` 从运行中的 v1.2.4 游戏（critical path，gold probe 通过）捕获补录。**fallback 日志措辞修正（2026-09-17）**：旧日志把 `meta.table.gameVersion`（=1.2.4）当来源显示 "fallback from v1.2.4" 自相矛盾；已改为 `meta.table._fallbackFromVersion ?? meta.table.gameVersion`。跨 major.minor 版本（如 1.3.x）不会 fallback 到旧表，只能走纯 extractor / 磁盘 cache 路径。**v1.2.4 已知差距（英雄运行时经验）**：`heroRuntime.expHidden/expKey`（0x658/0x660，继承自 1.2.2）在 v1.2.4 上读数**冻结不更新**（实测探针三次读数 bit 级一致，且与骑士的存档本级经验逐位相同），0x1000 范围差分扫描未找到任何像实时经验的字段（唯一变化的 qword 是跨英雄共享的指针缓存）。即 v1.2.4 的 live 英雄经验/每英雄速率暂不可用——等级显示不受影响（信任闸门整帧回退 save 真值），满级（101）下速率 0 本就是设计行为；诊断页"英雄（实时经验）"显示的是**原始 live 读数**（设计如此，不做闸门修正），其中占位壳槽位显示 L1/0、经验列可能是过期值。恢复实时英雄经验需要专门的偏移再派生（extractor 无法按形状派生 heroRuntime 字段，需配合游戏内可对照的等级/经验变化做实测捕获）。
 
 **Step 2 — Disk cache**（`liveReader.ts:612-635`）：
 - `loadCachedOffsets(cacheDir, version, EXTRACTOR_REVISION)`：
@@ -769,7 +785,7 @@ type WorkerMessage =
   - fallback base（`_fallbackFromVersion` 存在）：**derived-wins** — derived 非零字段覆盖 base。保证 fallback 表的 stale RVAs 能被 extractor 重新推导覆盖。
   - cache-pollution 强制模式下，先手动把 base 的 `getItemWithBoxOpenTypeKey` 和 `boxOpenLog.{itemStringKey, itemGradeType, gradeSO, gradeSOGrade, boxType, level}` 清零再 merge，让 derived 填空。
 - 合并结果写 `_extractorRev = EXTRACTOR_REVISION`，`saveCachedOffsets` 原子写入磁盘。
-- **Rev 13 新增**：若 `useCriticalBudget=true` 且 derived 的 `stageManager` + `stageCacheManager` RVA 都非零，再写 `_criticalRvasValidated = true`。失败 / null 返回 / enrichment-only 模式都不写此字段 → `isCriticalStaleOnBaseline` 仍返回 true，等 Path 1.6 触发重试。
+- **Rev 13 新增 / Rev 16 修正（2026-09-17）**：若 `useCriticalBudget=true` 且 derived 的 `stageManager` + `stageCacheManager` RVA 都非零 **且本次运行实际派生出 `currencyManager`（`derived.offsets.typeInfoRva.currencyManager !== 0n`）**，才写 `_criticalRvasValidated = true`。Rev 15 及以前只检查 stage 两个 RVA——v1.2.4 更新后数分钟的 critical 运行中 gold probe 失败（游戏初始化未完成），merge 保留了 stale 的 1.2.2 currencyManager 基线却仍打上 validated 标记，`isCriticalStaleOnBaseline` 从此恒 false，关键路径永不重试，错误 RVA 被永久锁定（live 金币失效的直接根因）。失败 / null 返回 / enrichment-only 模式都不写此字段 → `isCriticalStaleOnBaseline` 仍返回 true，等 Path 1.6 触发重试。
 - `source = base ? "merged" : "extracted"`。
 
 **Step 5 — Degraded fallback**（`liveReader.ts:802-806`）：
@@ -781,7 +797,7 @@ type WorkerMessage =
 
 | 字段 | 位置 | 作用 |
 |------|------|------|
-| `EXTRACTOR_REVISION` | `offsetExtractor.ts` 常量 = 13 | 提取器策略版本；bump 后所有旧 cache 自动失效。Rev 13 引入 `_criticalRvasValidated`、LogManager name-scan fallback、cache-pollution 检测器扩展、`findBoxDataFields` 结构化派生、StageManager-availability transition（Path 1.6） |
+| `EXTRACTOR_REVISION` | `offsetExtractor.ts` 常量 = **16** | 提取器策略版本；bump 后所有旧 cache 自动失效。Rev 13 引入 `_criticalRvasValidated`、LogManager name-scan fallback、cache-pollution 检测器扩展、`findBoxDataFields` 结构化派生、StageManager-availability transition（Path 1.6）；Rev 15 引入 `findBoxDataStructurally`；**Rev 16（2026-09-17）**：`_criticalRvasValidated` 增加"本次运行成功派生 currencyManager"前置条件（见 Step 4），bump 使被毒化的 v1.2.4 rev-15 缓存（currencyManager 锁定在 1.2.2 基线）自动失效 |
 | `_extractorRev` | `LiveOffsets._extractorRev?` | 单表上的标记：本次表的产出 revision。envelope 里也存一份 `extractorRevision`。**Rev 13 起 `isCriticalStaleOnBaseline` 不再读它**（旧的 `_extractorRev`-based 检查有死锁：extractor 跑过一次即使是失败也会设此标记 → 永远不重试）。仍用于 `enrichmentAlreadyAttempted` 判断（决定 Path 2 是否重置 enrichment 预算） |
 | `_fallbackFromVersion` | `LiveOffsets._fallbackFromVersion?` | provenance 标记：当前表是同 major.minor 邻居 fallback 而来；`mergeOffsets` 保留它跨 cache |
 | `_criticalRvasValidated` | `LiveOffsets._criticalRvasValidated?`（Rev 13 新增） | **liveness 标记**：extractor 在 critical 模式下成功派生（或确认）了 `stageManager` + `stageCacheManager` RVAs。仅当 `useCriticalBudget=true` 且两个 RVA 都非零时设为 true。`isCriticalStaleOnBaseline` 用此字段替代 `_extractorRev` 判断 baseline 是否可信。失败/未跑过 critical 路径都不设 → reader 会重试，但重试由 `consumeSmTransition`（Path 1.6）触发，不是 30s 定时器，避免无限循环 |
@@ -884,6 +900,8 @@ v1.2.2 是布局迁移版本（`stage.currentCache` 0x88→0xa8、`unit.cache` 0
      - level 回退 → 保持上一帧，不推进；level 升级 → 以重置后 exp 为新基线；同 level 的 exp 回退 → 保持且不推进基线；其余前向 → 接受并推进；`null`/空透传（撤场边界由 failDetector 治理），回归测试 `app/test/core/heroStable.test.ts`。
    - **`StageRunFailDetector` 撤场防抖**（见 12.3）：瞬时 `heroes` 离场（smPtr 抖动致 `snap.heroes=null`）不被当作真实撤场，避免误归零波次、误记虚假失败。
 
+   - **v1.2.4 偏移 fallback 地板到 1 的消费者侧兜底（2026-09-17）**：v1.2.4 无内置偏移表，fallback 到 v1.2.2 的 `heroRuntime` RVAs（`runtime.ts` 中 `levelHidden/levelKey` 0x610/0x614 等）与 1.2.4 内存布局错位，ACTk `ObscuredInt` 解码出垃圾 → `readParty` 的 `level > 0 && level <= 200 ? level : 1` 把已 L100+ 英雄地板到 L1（`runtime.ts:1311`）。`heroStable.stabilizeHeroes`（上文"只进不退"）只能挡住"本帧相对上帧倒退"，挡不住"首帧即解码为 1"——因为 1 与上帧（同为垃圾 1）不构成回退、会被接受。`buildStats` 的 `liveHeroFrameTrustworthy` 闸门（见 §4.6）作为**第二道、跨 save 的权威下界**补位：任何 live 等级低于存档已知等级即判该帧不可信、整体回退 save。这层是消费者侧（main/renderer）防御，不依赖 extractor 能否推导 1.2.4 偏移——在缺表期间持久生效。
+
    > 曾经的方案「`probeHeroListOffset` 运行期探测并改写 `o.runtime.heroList`」被**移除**：实测 `runtime.heroList=0x30` 正确，探测既无必要，且偶发命中错误偏移会反过来污染 heroList。
 
 ### 5.6 snapshot 帧从 worker 传回主进程 + bufferPool
@@ -940,7 +958,7 @@ flowchart TD
 `TrackingService.ts:688-845`。按调用顺序：
 
 1. `!snap.connected` 直接 return。
-2. `lastLiveFrame = snap`。
+2. **gold live/save 发散守卫（v1.2.4，2026-09-17）**：在 `lastLiveFrame = snap` 之前，先用 `evaluateGoldDivergence(snap.gold, saveGold=lastSnap?.gold, goldDivergeSinceSec, snap.at/1000, GOLD_DIVERGE_SUSTAIN_SEC=8)`（`core/tracker.ts`）比对 live 读数与上一存档余额。若 `snap.gold < saveGold` → `substitute=true`，用 `saveGold` 覆盖 `snap.gold`、首次触发记 `goldDivergeSinceSec`，持续 ≥8s 置 `tracker.goldLiveSuspect=true`；持平/更高/null → 复位 `goldDivergeSinceSec=null`、`goldLiveSuspect=false`。详见 §4.10 第二道防线。随后 `lastLiveFrame = snap`。
 3. `tracker.updateLive({ gold: snap.gold, heroes: snap.heroes }, snap.at / 1000, stage)` — 喂 XpTracker。
 4. **stageEventBaseline 初始化**：若 null，用 `tracker.cumulativeGained` 和 `tracker.currentGold` seed。
 5. **DPS / monster tracking**：检测 **stage 切换**（`stageKey` 变化，含首次 live frame）→ `dpsTracker.beginMap()`（该检测移出 `monsterHp` 分支，对所有 live 帧生效）；随后分两路喂 DpsTracker：
@@ -1728,7 +1746,7 @@ flowchart LR
 
 ### 9.1 启动时机
 
-`CatalogRefreshService` 在 `appState.ts` 顶部构造。**自动触发**：启动时若 `localeData` 为空（首次运行）或 `status.stale`，自动 refresh。**`stale` = catalog 版本 ≠ 游戏版本，或已加载 catalog 的 `schemaVersion` ≠ `CATALOG_SCHEMA_VERSION`（如 `IsDeletedInServer` 过滤加入前生成的旧 `userData/gamedata.json`，仍含 Lv85 装备）**——两者都会触发一次 refresh 用新逻辑重写缓存（旧缓存自愈）。自动 refresh 会**延迟 3s**（`AUTO_REFRESH_DELAY_MS`）：`extractCatalog`/`extractLocales` 在主进程同步解析大体积 Unity bundle 会阻塞全部 IPC handler，若与启动首帧重叠会拖住 renderer 的首批 `getLookupCatalog`/`getInventory` 请求，导致物品栏/掉落页先渲染灰点占位、目录到达后再整体刷新一次；延迟后首帧（图标 + 品质色）先完成，refresh 完成后的 re-emit 成为后台小更新。**手动触发**：IPC `CATALOG_REFRESH` → `catalogRefresh.refresh()` → 成功后 `reloadLocaleCatalog()` + `inventory.reloadGameData(...)` + `inventory.setLookupCatalog(...)`。**gameVersion 变化触发**：`liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged())` — 仅广播 `CATALOG_STATUS`（让 UI 显示 stale banner），**不自动 refresh**（避免游戏运行中读 asset 文件冲突）。
+`CatalogRefreshService` 在 `appState.ts` 顶部构造。**自动触发**：启动时若 `localeData` 为空（首次运行）或 `status.stale`，自动 refresh。**`stale` = catalog 版本 ≠ 游戏版本，或已加载 catalog 的 `schemaVersion` ≠ `CATALOG_SCHEMA_VERSION`（如 `IsDeletedInServer` 过滤加入前生成的旧 `userData/gamedata.json`，仍含 Lv85 装备）**——两者都会触发一次 refresh 用新逻辑重写缓存（旧缓存自愈）。自动 refresh 会**延迟 3s**（`AUTO_REFRESH_DELAY_MS`）：`extractCatalog`/`extractLocales` 在主进程同步解析大体积 Unity bundle 会阻塞全部 IPC handler，若与启动首帧重叠会拖住 renderer 的首批 `getLookupCatalog`/`getInventory` 请求，导致物品栏/掉落页先渲染灰点占位、目录到达后再整体刷新一次；延迟后首帧（图标 + 品质色）先完成，refresh 完成后的 re-emit 成为后台小更新。**手动触发**：IPC `CATALOG_REFRESH` → `catalogRefresh.refresh()` → 成功后 `reloadLocaleCatalog()` + `inventory.reloadGameData(...)` + `inventory.setLookupCatalog(...)`。**gameVersion 变化触发**：`liveMemory.setOnGameVersionChanged(() => catalogRefresh.onGameVersionChanged())` — 广播 `CATALOG_STATUS`（stale banner）+ **版本失配自动刷新（2026-09-17）**：`onGameVersionChanged` 现在会在确认失配（`catalogVersion` 与 `gameVersion` 均非 null 且不等）时调用 `maybeAutoRefresh()` 自动执行一次 `refresh()`——此前只出 banner 等用户手点，实测旧 `userData/gamedata.json` 会无限期继续生效（新物品无映射、新宝箱进 unclassified）。护栏：每个目标游戏版本每次应用运行只自动刷一次（`autoRefreshedVersion`），失败不自动重试（banner 保留，手动刷新可用），`autoRefreshInFlight` 防重入；仅版本失配触发，schema-only stale（游戏未运行、gameVersion=null）仍走手动/启动路径。
 
 ### 9.2 resolveAssetPaths 扫描游戏目录
 
@@ -1882,10 +1900,11 @@ flowchart TD
 
 1. `!pendingTracker || pendingLastSaveMtime === null` → `lastSaveMtime = snap.saveMtime`，返回 `"fresh"`。
 2. **mtime 连续性校验**：`snapshotContinuesSession(pendingLastSaveMtime, snap)` = `snap.saveMtime >= pendingLastSaveMtime`。失败 → 清空 pending、`lastSaveMtime = snap.saveMtime`、`setStatusOverride("New session")`、`deleteFile()`、返回 `"discarded"`（save 被回滚或替换）。
-3. **数值合理性校验**：`isPlausibleTrackerSnapshot(pendingTracker)`（`app/src/core/sessionState.ts:35`）— 校验 cumulativeGained、sessionRateValue、rollingRateValue、所有 heroMeters.gained 与 rolling 都通过 plausibility 检查。失败 → 同上清理 + 返回 `"discarded"`（防止 live/save baseline 混合污染的快照被恢复）。
+3. **数值合理性校验**：`isPlausibleTrackerSnapshot(pendingTracker)`（`app/src/core/sessionState.ts:35`）— 校验 cumulativeGained、sessionRateValue、rollingRateValue、所有 heroMeters.gained 与 rolling 都通过 plausibility 检查；**金币字段校验（2026-09-17）**：`currentGold`/`prevGold`（非 null 时）须过 `isPlausibleGoldBalance`（有限、≥0、<1e15）、`goldGained` 须过 `isPlausibleCumulativeGold`（含按 elapsed 的隐含速率上限 `MAX_PLAUSIBLE_GOLD_RATE=5e10/h`）——此前只查 XP，脏 live 读数或游戏更新余额迁移会随快照恢复。失败 → 同上清理 + 返回 `"discarded"`（防止 live/save baseline 混合污染的快照被恢复）。
 4. **应用 snapshot**：try 块中调用 `tracker.applySnapshot(pendingTracker)` + `chestDropTracker.applySnapshot(pendingChestDropTracker)` + `boxOpenTracker.applySnapshot(pendingBoxOpenTracker)`。任一抛错（schema drift / 腐败）→ warn + `deleteFile()` + 返回 `"discarded"`。
-5. finally 块清空 pending + 更新 `lastSaveMtime = snap.saveMtime`。
-6. 成功返回 `"restored"`。
+5. **金币基线对账（2026-09-17）**：`applySnapshot` 后、`finally` 清空前，调用 `tracker.reconcileGoldBaseline(snap.gold, snap.saveMtime, pendingLastSaveMtime)`（见 §4.10）——离线期间游戏更新迁移余额时不再把差值算成会话收益；离线期合理增益仍按旧语义计入一次。
+6. finally 块清空 pending + 更新 `lastSaveMtime = snap.saveMtime`。
+7. 成功返回 `"restored"`。
 
 `applySnapshot` 内部还会调用 `liveXp.restore` / `liveGold.restore` / `healInflatedXpTotals`，并强制 `xpLiveOwning = goldLiveOwning = false`（恢复的 session 从 save 路径开始）。
 
@@ -1956,7 +1975,7 @@ flowchart TD
 
 ### 11.1 数据来源
 
-- `catalogFile = loadStageBoxCatalogFile()`：读 `data/stage_boxes.json`，含 `defaultCooldownSeconds`。
+- `catalogFile = loadStageBoxCatalogFile()`：读 `data/stage_boxes.json`，含 `defaultCooldownSeconds`。**gameVersion 告警（2026-09-17）**：`GameDataProvider.loadStageBoxes`（`app/src/main/gameDataProvider.ts`）现在会读取文件里的 `gameVersion` 字段（此前写入了但无人读），与已加载 gamedata 的版本不一致时打 warn——旧表在新游戏版本下会静默失配（新关卡箱不计时、不进 tracker），至少要可诊断。
 - `routes = loadStageBoxTrackerRoutes()`：从 catalog 过滤 `grade === "RARE" && obtainable && tracker.canonical === true` 的条目，构造 `StageBoxTrackerRoute[]`。注意该过滤用的是**物品稀有度** `grade`，因此除标准 `920xxx` 关卡 Boss 箱外，还包含 `925xxx` 污染箱（Contaminated Stage Box，Nightmare/Hell/Torment 各 20 条，等级与标准箱重复：40/65/90）——目录共 71 条路线、仅 11 个不同等级。
 - `routeById = trackerRoutesById(routes)`、`boxById = new Map(...)`、`routeBoxIds`（按 level 升序）。
 - `buildCatalog()` 的每个 `BoxTimerCatalogEntry` 额外带 `category`（由箱名经 `categoryFromBoxItemName` 推导）：标准关卡 Boss 箱 → `"rare"`，污染箱 → `"plagueRare"`。渲染层据此区分：**等级 chip 仍按 level 合并**（71→11）；**「逐等级设置」按 (category, level) 聚合**，标准箱与污染箱各占一行，以便分别设置冷却/通知（两者自动开启用时不同）。污染多变体组不显示「刷怪位置」下拉（各变体关卡不同），改为列出掉落区间。
@@ -2308,7 +2327,7 @@ flowchart TD
   Wait --> Step3
   Step3 --> Step4[Step4 backfill 队列数 < 槽位数 用 placeholder 锚定]
   Step4 --> Step5{Step5 漏掉掉落补偿 rare/act/plague*}
-  Step5 -- save 槽位增量 > 0 --> Missed[recordLiveChestDrop 补偿（不触发 BoxTimer）]
+  Step5 -- save 槽位增量 > 0 --> Missed[延迟 5s 宽限 → flush 时先 claim 信用 → recordLiveChestDrop 补偿（不触发 BoxTimer）]
   Step5 -- 否 --> Done[结束]
   class Reconcile,Recalib,Step1,AllBurst,Classify,Wait,Step3,Step4,Missed data
   class Step2,Signals,Step5 dec
@@ -2328,17 +2347,18 @@ flowchart TD
    - 多 category decreased（真正歧义）→ 不 reclassify，所有 category 用 earliestBurstMs + per-cat autoOpenSec 重置 timer。
 4. **Step 3: liveSlots = {...slots}** — save 是 ground truth，覆盖实时调整。
 5. **Step 4: backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
-6. **Step 5: 漏掉掉落补偿（rare/act/plague*）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act/plagueCommon/plagueRare/plagueAct）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。对 `missedLive = increase - coveredLive` 个补偿掉落（`toRecover = min(missedLive, deficit)`）：
+6. **Step 5: 漏掉掉落补偿（rare/act/plague*，延迟宽限）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act/plagueCommon/plagueRare/plagueAct）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。把 `count = min(increase, deficit)` 存为待定恢复、延迟 `RECOVERY_GRACE_MS=5s` 后由 `flushDueDropRecoveries` 先 claim 信用再对差额补偿（`recordLiveChestDrop` 补偿，不触发 BoxTimer）：
    - **打开反推获得（auto-open 兜底，2026-09-11）**：Step5 依赖"存档未开槽位净增"，对"掉落即被自动打开"（save 净变 0）失效。补一条不依赖槽位的来源——**打开事件**。`classifyAllPendingBursts` 把"被打开但未匹配到活获得记录"的 `pendingBursts` 归入某类别后，用守恒补记：若该类别最近 `OPEN_BACKFILL_WINDOW_SEC`(=120s) 内的获得记录数（`ChestDropTracker.dropCountWithin`）不足本次打开数，差额即被 live miss 且 save 补不到的"获得"，以 `"reconcile"` 来源补记（不污染 live 学分）。去重由近窗计数承担，避免把窗口内正常获得重复补记。
-   - **去重护栏（live credit 模型，2026-09-10）**：`ChestDropTracker` 按来源区分 live/reconcile，每次 `recordLiveChestDrop(cat, wallTime, "live")` 压入一个**带时间戳的信用**（`liveCreditsByCategory[cat]`）。对账前调 `coveredLive = chestDropTracker.claimLiveDropCredits(cat, increase)` —— 用 save 的槽位增量去**消耗**这些信用：被消耗的部分是 live 已记录过的掉落，不重复补偿。
+   - **去重护栏（live credit 模型，2026-09-10）**：`ChestDropTracker` 按来源区分 live/reconcile，每次 `recordLiveChestDrop(cat, wallTime, "live")` 压入一个**带时间戳的信用**（`liveCreditsByCategory[cat]`）。对账补偿用 `coveredLive = chestDropTracker.claimLiveDropCredits(cat, count)` —— 用 save 的槽位增量去**消耗**这些信用：被消耗的部分是 live 已记录过的掉落，不重复补偿。
      - **为何不能用"每周期 delta/mark"**：save 槽位增量相对 live 检测存在**滞后**（存档写入时机晚于内存中的掉落事件），一个真实的 live 掉落可能要跨若干次 save 对账才能在槽位增量里体现。"每周期标记"会在增量出现前被中间的对账清零 → 仍会重复补偿（即上一版修复失效的原因）。（注：2026-09-10 起 `setLiveSlots(null)` 不再每帧触发 reconcile，对账改由 save 解析驱动，但跨 save 周期的滞后依然存在，故时间上界信用仍必要。）
+     - **延迟补偿宽限（2 倍会话速率修复，2026-09-12）**：live credit 模型只覆盖「live 先记、对账后到」的顺序，**反向顺序仍会双计**——对账可能在 live GetBox burst 尚未 flush/记录时就观察到槽位增量（旧版本：`onLiveChestSlots` 5Hz 实时槽位对账与 burst 缓冲发生在同一 live 帧，burst 需 ~0.5–1s 静默后才 flush；v1.2.2：掉落即存档的 save 解析可落在同样的 burst-flush 延迟窗内）。此刻信用尚未压入 → 旧代码立即补偿记一条，随后 live burst flush 再记一条，而其后压入的信用永远等不到增量来消耗 → **同一颗宝箱双计，会话速率读数 ≈ 真实的 2 倍**。修复：Step 5 不再同步补偿，而是把 `count = min(increase, deficit)` 作为**待定恢复（pendingDropRecoveries）**延迟 `RECOVERY_GRACE_MS=5s`，由 1Hz tick / 下次对账在宽限期满时 `flushDueDropRecoveries` 统一**先 claim 信用再决定补偿**：宽限内 live burst 记录了该掉落 → 其信用覆盖增量 → 不补偿；live 真漏检 → 无信用 → 照旧补偿（仅晚 5s，属历史回填、非时间敏感）。补偿仍以 `suppressingHandleChestDrop` 抑制 `onDrop → handleChestDrop` 重复入队，且不触发 BoxTimer。**会话纪元护栏**：待定恢复携带 stash 时的 `ChestDropTracker.getSessionEpoch()`（`reset`/`applySnapshot` 递增），flush 时纪元不一致即丢弃，防止用户在宽限期内重置会话后把旧掉落补进新会话。`setEnabled(false)` 同步清空待定恢复。
      - **信用为何能命中**：真实重复场景是——① live 检测到 rare 掉落（历史+1、信用+1）并经 `handleChestDrop` 入队（queue=1），此时存档尚未写入；② 一次对账读到仍为旧值 0 的 save，Step1 看到 `queue(1) > slots(0)` → **把排队的 rare 提前 excess-prune 掉**（queue=0）；③ 存档写入 rare=1 → 对账 `increase=1, deficit=1` → 旧代码补记一条、用**对账时刻**盖戳（比真实掉落晚数秒，即用户看到的「单次掉落出现两条、间隔 <1 分钟」）。信用跨这些对账存活，在 ③ 覆盖增量 → 不再补记。
      - 信用有时间上限 `LIVE_CREDIT_TTL_SEC = 180s`（`claimLiveDropCredits` 先丢弃过期信用），避免陈旧信用永久压制真正的漏检补偿。
    - 对 `toRecover` 个调 `chestDropTracker.recordLiveChestDrop(cat, nowSec(), "reconcile")` 写入掉落历史 → 修复「掉落统计缺 +1」（`"reconcile"` 不压信用）。用 `suppressingHandleChestDrop` 标志让 `recordLiveChestDrop` 的 `onDrop → handleChestDrop` 入队被抑制，避免与 backfill 本身重复入队。
    - **不再触发 BoxTimer 倒计时**（2026-09-10 变更）：对账只补记掉落历史，不再调用已移除的 `onLiveStageBossDrop`。原因：live 路径（GetBox 日志）与 reconcile 路径（save 槽位增量）各自用自己的 stage 快照反查 boxId，当两条快照跨越等级边界（如 Torment 2-8=Lv80 / 2-9=Lv90 相邻）时，同一次掉落会解析出两个箱子并启动两个倒计时。改为由 **live GetBox 路径独占**倒计时触发（另加 `BoxTimerService` 内的 15s 同次掉落去重护栏兜底），单次掉落只会 arm 一个箱子。
    - **门控**：`prev != null` 排除 app 首次对账（前代既有宝箱不算掉落）；`min(missedLive, deficit)` 确保不超过 save 实际增量（掉落+开启同窗口抵消的案例因 save 数据固有歧义而不记录，比 live 漏检少见得多）。补偿类别为 rare/act/plague*（2026-09-11 扩展）：`plague*` 的 save 槽位增量同 rare/act 一样代表真实掉落（live GetBox 路径与 save 路径 stage 快照各自独立，尾部仍旧 same），且 `plague*` 也有 live credit 去重；不记录 common（common live 检测可靠且掉落频繁）。
    - **live 瘟疫地图判定（2026-09-11 新增）**：GetBox 日志只含 `monsterType`（0/1/2 → common/rare/act），无法直接区分瘟疫/普通箱子。但**瘟疫箱子只在瘟疫地图掉落**（`data/stage_boxes.json`：瘟疫箱 id 前缀 915/925/935 的 `tracker.dropStageKeys`/`idealStageKey` 全部落在 act 21+ 的瘟疫之地，普通箱最高到 act 20）。`ChestDropTracker.isPlagueStage(stageKey)` 惰性聚合瘟疫箱掉落关卡成 Set，`resolveLiveDropCategory(stageKey, base)` 据此把 live 掉落的 base category 升级为 `plague*`（TrackingService 调用）。live 升出的 `plague*` 掉落同样压 `plague*` credit，供 Step 5 对账去重。
-   - 新日志：`reconcile: recorded N missed rare/act drop(s) from save slot increase (prev→slots, deficit D, covered-live C)`；信用生效时：`reconcile: {cat} discount C already-live drop(s) (increase=inc) to avoid duplicate history`。
+   - 新日志：`reconcile: deferred N {cat} drop recovery(s) from save slot increase (prev→slots, deficit D) by 5000ms grace`（stash 时）；宽限期满 flush 时：`reconcile: recorded N missed {cat} drop(s) (deferred save slot increase, grace 5000ms, covered-live C)`；信用生效时：`reconcile: {cat} discount C already-live drop(s) (deferred recovery) to avoid duplicate history`。
 
 ### 14.5 tick()（1Hz，由 TrackingService.tickTimer 调用）
 

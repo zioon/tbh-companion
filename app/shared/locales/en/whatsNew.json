@@ -3,6 +3,15 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.24.0": {
+      "title": "What's new in v1.24.0",
+      "bullets": [
+        "Game v1.2.4 is supported — live gold, stage and wave tracking no longer fall back to 5-second save polling after the update.",
+        "Gold rollbacks are fixed: live readings that stay below your saved balance are flagged and replaced, and hero levels no longer collapse to 1.",
+        "Chest drop rates no longer double-count — session rates were up to 2x too high, and the rolling hourly rate is now protected against opening bursts.",
+        "New Wish / Craft / Reforge categories in the Record log filters."
+      ]
+    },
     "1.23.0": {
       "title": "What's new in v1.23.0",
       "bullets": [
