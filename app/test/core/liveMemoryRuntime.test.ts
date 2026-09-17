@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   readRuntimeStage,
   readRuntimeGold,
@@ -226,7 +226,7 @@ describe("readRuntimeGold", () => {
 
     // Give pin a stale pointer to an address never seeded — readGoldFromEntry returns null
     const STALE_PTR = 0x7f0000n;
-    const pin: GoldPinState = { entryPtr: STALE_PTR, lastKnown: null };
+    const pin: GoldPinState = { entryPtr: STALE_PTR, lastKnown: null, lastKnownAt: null };
 
     const result = readRuntimeGold(m, GA_BASE, GA_SIZE, O, pin);
     expect(result).toBe(77_001);
@@ -234,10 +234,48 @@ describe("readRuntimeGold", () => {
     expect(pin.entryPtr).toBe(CURR_ENTRY);
   });
 
-  it("returns lastKnown when all read attempts fail", () => {
-    const pin: GoldPinState = { entryPtr: null, lastKnown: 55_000 };
+  it("returns lastKnown when all read attempts fail (fresh lastKnown)", () => {
+    const pin: GoldPinState = {
+      entryPtr: null,
+      lastKnown: 55_000,
+      lastKnownAt: Date.now(),
+    };
     // Empty memory — no currency manager resolvable
     expect(readRuntimeGold(new FakeMemory(), GA_BASE, GA_SIZE, O, pin)).toBe(55_000);
+  });
+
+  it("returns null when lastKnown expired (GOLD_STALE_MAX_MS of consecutive failures)", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_700_000_000_000);
+      const pin: GoldPinState = {
+        entryPtr: null,
+        lastKnown: 55_000,
+        lastKnownAt: Date.now(),
+      };
+      const empty = new FakeMemory();
+      // Within the window the stale value is still returned (anti-flicker).
+      vi.setSystemTime(1_700_000_000_000 + 4_000);
+      expect(readRuntimeGold(empty, GA_BASE, GA_SIZE, O, pin)).toBe(55_000);
+      // Past GOLD_STALE_MAX_MS the stale value must stop being replayed.
+      vi.setSystemTime(1_700_000_000_000 + 6_000);
+      expect(readRuntimeGold(empty, GA_BASE, GA_SIZE, O, pin)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records lastKnownAt on a successful read", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_700_000_000_000);
+      const m = seedGoldChain(new FakeMemory(), 99_000n);
+      const pin = makeGoldPinState();
+      expect(readRuntimeGold(m, GA_BASE, GA_SIZE, O, pin)).toBe(99_000);
+      expect(pin.lastKnownAt).toBe(Date.now());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns null when currency manager is not found and no lastKnown", () => {
@@ -258,7 +296,7 @@ describe("readRuntimeGold", () => {
       cryptoKey,
     );
 
-    const pin: GoldPinState = { entryPtr: null, lastKnown: 1234 };
+    const pin: GoldPinState = { entryPtr: null, lastKnown: 1234, lastKnownAt: Date.now() };
     expect(readRuntimeGold(m, GA_BASE, GA_SIZE, O, pin)).toBe(1234);
   });
 });
@@ -2734,5 +2772,46 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
     const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O5, pin);
     expect(r).not.toBeNull();
     expect(r!.monsterHps).toEqual([[0xd00000, 50, 100]]);
+  });
+});
+
+// ── v1.2.4 bundled table + ObscuredLong u64 mask ─────────────────────────────
+
+describe("v1.2.4 offsets", () => {
+  it("has an exact bundled table (no same-major.minor fallback)", () => {
+    const t = offsetsForVersion("1.2.4")!;
+    expect(t.gameVersion).toBe("1.2.4");
+    expect(t._fallbackFromVersion).toBeUndefined();
+    // Re-derived on a live v1.2.4 run 2026-09-17 (see offsets.ts comment).
+    expect(t.typeInfoRva.currencyManager).toBe(0x5f4a068n);
+  });
+});
+
+describe("readRuntimeGold u64 decode", () => {
+  it("decodes an ObscuredLong whose hidden word has the sign bit set", () => {
+    // v1.2.4 regression: (hidden - crypto) ^ crypto in signed BigInt yields a
+    // negative value when hidden's top bit is set, even though the low 64 bits
+    // are the correct balance — plausibleGold rejected it and live gold went
+    // permanently null. The decoder must mask to u64 (like ObscuredInt).
+    const goldVal = 49_979_096_419n; // ≈ the live wallet observed on v1.2.4
+    const crypto = 0xc000_0000_0000_0005n; // top bits set → hidden gets the int64 sign bit
+    const U64 = (1n << 64n) - 1n;
+    // ACTk encode: hidden = (value ^ crypto) + crypto (u64 arithmetic).
+    const hidden = ((goldVal ^ crypto) + crypto) & U64;
+    // Sanity: hidden's int64 reinterpretation is negative — the exact input
+    // that made the unmasked decoder produce a negative Number.
+    expect(hidden > 1n << 63n).toBe(true);
+
+    const m = seedGoldChain(new FakeMemory(), 0n); // chain only; overwrite value
+    const structAddr = CURR_ENTRY + BigInt(O.runtime.currency.entryObscuredQty);
+    const hBuf = Buffer.alloc(8);
+    hBuf.writeBigUInt64LE(hidden, 0);
+    m.writeBytes(structAddr + 8n, hBuf);
+    const kBuf = Buffer.alloc(8);
+    kBuf.writeBigUInt64LE(crypto, 0);
+    m.writeBytes(structAddr + 16n, kBuf);
+
+    const pin = makeGoldPinState();
+    expect(readRuntimeGold(m, GA_BASE, GA_SIZE, O, pin)).toBe(Number(goldVal));
   });
 });

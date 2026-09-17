@@ -827,7 +827,7 @@ export class LiveMemoryReader {
       source = "bundled";
       this.log(
         meta.fallback
-          ? `resolve: bundled table for v${version} (fallback from v${meta.table.gameVersion} — RVAs kept as baseline; extractor will re-derive critical anchors if still stale)`
+          ? `resolve: bundled table for v${version} (fallback from v${meta.table._fallbackFromVersion ?? meta.table.gameVersion} — RVAs kept as baseline; extractor will re-derive critical anchors if still stale)`
           : `resolve: bundled table for v${version}`,
       );
     }
@@ -1027,17 +1027,23 @@ export class LiveMemoryReader {
             merged._extractorRev = EXTRACTOR_REVISION;
             // Mark critical RVAs as validated when the extractor ran the full
             // critical path (enrichmentOnly=false) AND returned non-zero
-            // stageManager + stageCacheManager RVAs. This is the flag that
-            // `isCriticalStaleOnBaseline` checks to decide whether the fallback
-            // baseline can be trusted — without it, the reader would keep
-            // retrying the critical path even after a successful derivation
-            // (because the merged RVAs might happen to match the baseline).
-            // When useCriticalBudget=false (enrichment-only), critical RVAs
-            // were NOT probed — don't set the flag.
+            // stageManager + stageCacheManager RVAs AND actually derived the
+            // currencyManager this run. That last condition is essential: when
+            // the gold probe fails (e.g. seconds after a game update the wallet
+            // isn't initialized yet), the extractor returns currencyManager=0
+            // and mergeOffsets keeps the stale baseline value — marking the
+            // table validated then would lock the stale RVA in forever (the
+            // v1.2.4 regression where a 12:29 post-update run pinned the
+            // v1.2.2 currencyManager and live gold never recovered). Without
+            // this flag, the reader would keep retrying the critical path even
+            // after a successful derivation (because the merged RVAs might
+            // happen to match the baseline). When useCriticalBudget=false
+            // (enrichment-only), critical RVAs were NOT probed — don't set.
             if (
               useCriticalBudget &&
               merged.typeInfoRva.stageManager !== 0n &&
-              merged.typeInfoRva.stageCacheManager !== 0n
+              merged.typeInfoRva.stageCacheManager !== 0n &&
+              derived.offsets.typeInfoRva.currencyManager !== 0n
             ) {
               merged._criticalRvasValidated = true;
             } else if (baseForMerge?._criticalRvasValidated) {

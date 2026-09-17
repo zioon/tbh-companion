@@ -97,12 +97,21 @@ export function readRuntimeStage(
 export interface GoldPinState {
   /** Cached pointer to the currency entry for `goldKey`; null when unknown/stale. */
   entryPtr: bigint | null;
-  /** Last successfully decoded gold value; returned when all reads fail. */
+  /** Last successfully decoded gold value; returned when all reads fail (while fresh). */
   lastKnown: number | null;
+  /** Wall-clock ms (Date.now()) when `lastKnown` was captured; null when never read. */
+  lastKnownAt: number | null;
 }
 
+/**
+ * How long a stale `lastKnown` may keep being returned after reads start failing.
+ * Prevents a game update that invalidates offsets from replaying the pre-update
+ * gold value indefinitely: past this window readRuntimeGold returns null.
+ */
+export const GOLD_STALE_MAX_MS = 5_000;
+
 export function makeGoldPinState(): GoldPinState {
-  return { entryPtr: null, lastKnown: null };
+  return { entryPtr: null, lastKnown: null, lastKnownAt: null };
 }
 
 /** Walk `Dictionary<int, T>` entries and return the value pointer for a matching int key. */
@@ -954,7 +963,14 @@ function readObscuredLong(reader: MemoryReader, structAddr: bigint): bigint | nu
   const hidden = readI64(reader, structAddr + 8n);
   const crypto = readI64(reader, structAddr + 16n);
   if (hidden == null || crypto == null) return null;
-  return (hidden - crypto) ^ crypto;
+  // ACTk decodes in ulong (mod-2^64) arithmetic; JS BigInt subtraction has no
+  // wraparound, so without the u64 mask a hidden value with the sign bit set
+  // makes (hidden - crypto) negative and the XOR result negative — the decoded
+  // gold is then rejected by plausibleGold even though its low 64 bits are the
+  // correct balance (observed on v1.2.4: live gold permanently null). Mirror
+  // the ObscuredInt decoder's masking.
+  const U64 = (1n << 64n) - 1n;
+  return (((hidden - crypto) & U64) ^ crypto) & U64;
 }
 
 const BURST_ATTEMPTS = 4;
@@ -974,7 +990,8 @@ function readGoldFromEntry(reader: MemoryReader, entryPtr: bigint, o: LiveOffset
 /**
  * Live gold from `CurrencyManager → Dictionary<int, uz.tn> → ObscuredLong`.
  * Uses a per-caller `GoldPinState` to cache the entry pointer across ticks.
- * Returns `pin.lastKnown` when all reads fail (stale rather than null).
+ * Returns `pin.lastKnown` when all reads fail, but only while it is younger
+ * than GOLD_STALE_MAX_MS; past that window returns null (stale expiry).
  */
 export function readRuntimeGold(
   reader: MemoryReader,
@@ -990,6 +1007,7 @@ export function readRuntimeGold(
     const v = readGoldFromEntry(reader, pin.entryPtr, o);
     if (v != null) {
       pin.lastKnown = v;
+      pin.lastKnownAt = Date.now();
       return v;
     }
     pin.entryPtr = null; // stale — GC may have moved the entry; re-walk
@@ -1011,13 +1029,24 @@ export function readRuntimeGold(
       if (v != null) {
         pin.entryPtr = entryPtr;
         pin.lastKnown = v;
+        pin.lastKnownAt = Date.now();
         return v;
       }
     }
   }
 
-  // All paths failed — return last known rather than null to reduce UI flicker.
-  return pin.lastKnown;
+  // All paths failed — return last known rather than null to reduce UI flicker,
+  // but only while the value is fresh. After GOLD_STALE_MAX_MS of consecutive
+  // failures (e.g. a game update invalidating offsets), report null so the UI
+  // does not keep replaying a pre-update value as current.
+  if (
+    pin.lastKnown != null &&
+    pin.lastKnownAt != null &&
+    Date.now() - pin.lastKnownAt <= GOLD_STALE_MAX_MS
+  ) {
+    return pin.lastKnown;
+  }
+  return null;
 }
 
 // ── COMBAT GOLD from PlayerSaveData.aggregateSaveDatas (tbh-meter approach) ─────

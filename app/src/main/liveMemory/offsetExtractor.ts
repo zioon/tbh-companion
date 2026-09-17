@@ -125,8 +125,16 @@ import type { WinProcess } from "./winProcess";
  * runtime name-scan fallback relies on), restoring live chest slots without
  * a bundled table. Bump invalidates v1.01.02–v1.01.05 caches that were
  * written with boxData=0 so they re-derive once the player owns chests.
+ * Rev 16: critical-validation flag fix — a critical-path run whose gold probe
+ * failed (e.g. seconds after a game update, wallet not yet initialized) used
+ * to merge the stale baseline `currencyManager` and still mark the table
+ * `_criticalRvasValidated = true` (the flag only checked the stage RVAs),
+ * permanently locking a wrong RVA that silently broke live gold (v1.2.4
+ * regression: fallback-from-1.2.2 cache pinned 0x5f4b8c8 instead of the real
+ * 0x5f4a068). The flag now also requires this-run currency derivation, and
+ * the bump invalidates every rev-15 cache — notably the poisoned v1.2.4 one.
  */
-export const EXTRACTOR_REVISION = 15;
+export const EXTRACTOR_REVISION = 16;
 
 /**
  * Module-level flag: `dumpSaveListHolders` has run once this process lifetime.

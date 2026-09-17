@@ -924,6 +924,118 @@ const V1_2_2: LiveOffsets = {
   goldKey: 100001,
 };
 
+// v1.2.4 — captured from a live run via `scripts/capture-live-offsets.ts`
+// (extractor Rev 15, critical path, 2026-09-17, game mid-combat at stage 4309).
+//
+// The 1.2.4 binary SHIFTED every static TypeInfo RVA relative to v1.2.2
+// (recompilation), which is why the same-major.minor fallback kept live gold
+// silently broken: the inherited currencyManager RVA pointed at the wrong
+// static slot, readRuntimeGold failed every tick, and the UI degraded to the
+// 5s save path. Struct layouts are unchanged from v1.2.2 (hero runtime fields
+// are layout-coupled, NOT shape-derivable — the extractor copies them from the
+// base table, so the v1.2.2 values are authoritative here, not the extractor's
+// no-base fallback constants):
+//  - currencyManager 0x5f4b8c8 → 0x5f4a068 (gold probe passed on this build)
+//  - stageCacheManager 0x5f4c658 → 0x5f4adf8
+//  - stageManager 0x5f76f00 → 0x5f75838
+//  - logManager 0x5f455c0 → 0x5f43a78
+//  - monsterSpawnManager 0x5f24d38 → 0x5f23148
+//
+// Known gaps mirror v1.2.2: player.boxData / boxData.* not derivable (ES3 byte
+// stream), runtime.monster.* not extractable by shape.
+const V1_2_4: LiveOffsets = {
+  gameVersion: "1.2.4",
+  typeInfoRva: {
+    commonSaveData: 0n, // not static-reachable — save layer is ES3 byte stream
+    currencyManager: 0x5f4a068n, // re-derived (gold probe passed on this build)
+    stageCacheManager: 0x5f4adf8n,
+    stageManager: 0x5f75838n,
+    localInventoryManager: 0n,
+    logManager: 0x5f43a78n,
+    monsterSpawnManager: 0x5f23148n,
+  },
+  player: {
+    commonSaveData: 0x10,
+    currency: 0x48,
+    heroSaveDatas: 0x50,
+    petSaveDatas: 0x70,
+    itemSaveDatas: 0xa8,
+    aggregates: 0xb8,
+    boxData: 0, // ES3 byte stream — not derivable at runtime (see v1.01.05 notes)
+  },
+  boxData: {
+    boxTypes: 0,
+    boxQuantity: 0,
+  },
+  common: {
+    playTime: 0x20,
+    arrangedHeroKey: 0x48,
+    maxCompletedStage: 0x54,
+    currentStageKey: 0x58,
+    currentStageWave: 0x5c,
+  },
+  hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+  unit: { cache: 0x3d0 }, // unchanged from v1.2.2 (layout-coupled, extractor copies from base)
+  heroRuntime: {
+    info: 0x30,
+    levelHidden: 0x610,
+    levelKey: 0x614,
+    expHidden: 0x658,
+    expKey: 0x660,
+  },
+  heroInfoData: { heroKey: 0x30 },
+  currency: { key: 0x10, quantity: 0x18 },
+  petSaveData: { petKey: 0x10, isUnlock: 0x14 },
+  inventoryItem: { itemKey: 0x10, isChaotic: 0x20 },
+  runtime: {
+    currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
+    stage: {
+      currentCache: 0xa8,
+      cacheInfoData: 0x10,
+      stageKey: 0x30,
+      waveAmount: 0x54,
+      runtimeWave: 0x138,
+      alive: 0, // not derived on this build
+    },
+    currencyInfoKey: 0x30,
+    heroList: 0x30,
+    log: {
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      stageClearTypeKey: 1,
+      getItemWithBoxOpenTypeKey: 2,
+    },
+    getBoxLog: {
+      monsterType: 0x50,
+    },
+    boxOpenLog: {
+      itemStringKey: 0x40,
+      itemGradeType: 0x48,
+      gradeSO: 0x50,
+      gradeSOGrade: 0x10,
+      boxType: 0,
+      level: 0,
+    },
+    stageClearLog: {
+      act: 0x40,
+      stage: 0x44,
+      clearTimeSec: 0x48,
+    },
+    monster: {
+      monsterList: 0,
+      summonedList: 0,
+      deadMonsterList: 0,
+      monsterHealth: 0,
+      hpCurrent: 0,
+      hpMax: 0,
+    },
+  },
+  container: CONTAINER,
+  dict: DICT,
+  il2cppClass: IL2CPP_CLASS,
+  goldKey: 100001,
+};
+
 const TABLE: Record<string, LiveOffsets> = {
   "1.00.21": V1_00_21,
   "1.00.23": V1_00_23,
@@ -932,6 +1044,7 @@ const TABLE: Record<string, LiveOffsets> = {
   "1.01.01": V1_01_01,
   "1.01.05": V1_01_05,
   "1.2.2": V1_2_2,
+  "1.2.4": V1_2_4,
 };
 
 /** Parse a "MAJOR.MINOR.PATCH" version string into a numeric tuple. */
