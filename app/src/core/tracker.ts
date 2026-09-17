@@ -20,6 +20,7 @@ import {
   isPlausibleCumulativeXp,
   isPlausibleXpRate,
   MAX_PLAUSIBLE_CUMULATIVE_XP,
+  MAX_PLAUSIBLE_GOLD_RATE,
 } from "./trackerLimits";
 import { perHeroGain } from "./levelCurve";
 
@@ -29,6 +30,85 @@ const HISTORY_LIMIT = 500;
 const MAX_HERO_RUNTIME_EXP = 1e12;
 /** Reject a single live tick whose summed hero gains exceed this. */
 const MAX_LIVE_XP_GAIN_PER_TICK = 1e7;
+/**
+ * Reject a single live tick (40 ms at 25 Hz) whose gold gain exceeds this.
+ * A corrupt decode can spike the balance; a legit tick never adds this much.
+ * Mirrors MAX_LIVE_XP_GAIN_PER_TICK (gold has no per-tick guard otherwise).
+ */
+const MAX_LIVE_GOLD_GAIN_PER_TICK = 1e7;
+/**
+ * Generous upper bound for a SAVE-parsed (ES3) hero exp. The runtime read caps
+ * at 1e12 (ACTk ObscuredDouble range guard); the save can legitimately hold
+ * larger cumulative exp (observed ~1.4e12 on v1.2.4), so this sits far above
+ * that — it only rejects memory-corruption / parse-garbage that would pollute
+ * the persisted session snapshot (captureSnapshot writes currentTotalXp).
+ */
+const MAX_HERO_SAVE_EXP = 1e15;
+
+/** Clamp a save-parsed hero exp to a physically-sane range (see MAX_HERO_SAVE_EXP). */
+function clampHeroSaveExp(exp: number): number {
+  return Number.isFinite(exp) && exp >= 0 ? Math.min(exp, MAX_HERO_SAVE_EXP) : 0;
+}
+
+/**
+ * Live/save cross-monotonicity gate for hero LEVELS (v1.2.4 defense).
+ *
+ * A save-parsed hero level is the authoritative LOWER BOUND for a session: a
+ * hero's level never drops mid-run. A live frame whose `level` for some hero is
+ * BELOW that hero's save level is therefore a dirty read — the v1.2.4 table
+ * reuses the v1.2.2 `HeroRuntime` offsets, so `decodeObscuredInt` returns garbage
+ * that `readParty` floors to 1 (`runtime.ts` line: `level > 0 && level <= 200 ?
+ * level : 1`). That would make `stats.ts` display the garbage level and silently
+ * overwrite the correct save level.
+ *
+ * Returns true when the live frame is consistent with the save lower bound:
+ * every live hero is at or above its save level, or has no save record yet
+ * (newly deployed hero). A false result means the whole live heroes frame is
+ * untrustworthy and callers must fall back to save heroes.
+ */
+export function liveHeroFrameTrustworthy(
+  liveHeroes: ReadonlyArray<{ heroKey: number; level: number }>,
+  saveHeroLevelByKey: ReadonlyMap<string, number>,
+): boolean {
+  for (const h of liveHeroes) {
+    const saveLevel = saveHeroLevelByKey.get(String(h.heroKey));
+    if (saveLevel != null && h.level < saveLevel) return false;
+  }
+  return true;
+}
+
+/**
+ * Live gold vs save divergence policy (v1.2.4 defense). The save is the
+ * authoritative gold balance floor; the true balance is always ≥ the last save
+ * read. A live read below the save gold means the v1.2.4 offsets (reusing the
+ * v1.2.2 CurrencyManager RVA) decoded a stale/old value — a "rollback". A
+ * genuine spend self-corrects from the save within one poll (~5 s); a rollback
+ * persists, so once the divergence has lasted `sustainSec` we also flag it
+ * `suspect` for a UI warning.
+ *
+ * Pure so the policy is unit-testable without a live reader. The caller owns
+ * the `divergeSinceSec` bookkeeping: on `substitute` with a null
+ * `divergeSinceSec`, set it to `nowSec`; on a non-`substitute` result, clear it.
+ */
+export interface GoldDivergenceResult {
+  /** Replace the live gold with the save gold this tick. */
+  substitute: boolean;
+  /** Flag a UI "gold read stale" warning (divergence has sustained past `sustainSec`). */
+  suspect: boolean;
+}
+export function evaluateGoldDivergence(
+  liveGold: number | null,
+  saveGold: number | null,
+  divergeSinceSec: number | null,
+  nowSec: number,
+  sustainSec: number,
+): GoldDivergenceResult {
+  if (liveGold == null || saveGold == null || liveGold >= saveGold) {
+    return { substitute: false, suspect: false };
+  }
+  const suspect = divergeSinceSec != null && nowSec - divergeSinceSec >= sustainSec;
+  return { substitute: true, suspect };
+}
 
 // While live-memory frames keep arriving (~25 Hz), the live path owns XP/gold and
 // the save path must not also process them — save `HeroExp` and runtime `HeroRuntime`
@@ -261,6 +341,15 @@ export class XpTracker {
   private goldLastChangeMtime!: number | null;
   private goldRollingRateValue!: number;
   private goldSessionRateValue!: number;
+  /** mtime of the previous save-path gold parse (not persisted; guard only). */
+  private lastGoldParseMtime: number | null = null;
+  /**
+   * Set by `TrackingService` when the live gold read has sustained a divergence
+   * BELOW the last save gold (stale v1.2.4 RVAs decoding an old balance) — the
+   * UI surfaces it as a "gold read may be stale, showing last save value" warning.
+   * Reset whenever a live read matches/exceeds the save floor.
+   */
+  goldLiveSuspect = false;
 
   constructor(rollingWindowSeconds = 300) {
     this.rollingWindow = Math.max(10, rollingWindowSeconds);
@@ -291,12 +380,14 @@ export class XpTracker {
 
     this.currentGold = 0;
     this.goldGained = 0;
+    this.goldLiveSuspect = false;
     this.prevGold = null;
     this.goldSamples = [];
     this.goldFirstMtime = null;
     this.goldLastChangeMtime = null;
     this.goldRollingRateValue = 0;
     this.goldSessionRateValue = 0;
+    this.lastGoldParseMtime = null;
     this.liveGold.restore(0, [], null, 0, 0);
   }
 
@@ -304,16 +395,17 @@ export class XpTracker {
   update(snap: SaveSnapshot): number {
     const now = nowSeconds();
     const mtime = snap.saveMtime || now;
-    this.heroes = snap.heroes;
+    this.heroes = snap.heroes.map((h) => ({ ...h, exp: clampHeroSaveExp(h.exp) }));
 
     if (!this.initialized) {
       for (const h of snap.heroes) {
-        this.prevHero.set(h.key, { level: h.level, exp: h.exp });
+        this.prevHero.set(h.key, { level: h.level, exp: clampHeroSaveExp(h.exp) });
         const meter = new RateMeter(this.rollingWindow);
         meter.init(mtime);
         this.heroMeters.set(h.key, meter);
       }
       this.prevGold = snap.gold;
+      this.lastGoldParseMtime = mtime;
       this.initialized = true;
       this.firstMtime = mtime;
       this.lastChangeMtime = mtime;
@@ -337,6 +429,7 @@ export class XpTracker {
         // Handover live → save: re-baseline to the save value, count nothing.
         this.goldLiveOwning = false;
         this.prevGold = snap.gold;
+        this.lastGoldParseMtime = mtime;
       } else {
         this.updateGold(snap.gold, mtime);
       }
@@ -350,13 +443,14 @@ export class XpTracker {
         // Handover live → save: re-baseline hero exp to save values, count nothing.
         this.xpLiveOwning = false;
         this.currentTotalXp = snap.totalHeroExp;
-        for (const h of snap.heroes) this.prevHero.set(h.key, { level: h.level, exp: h.exp });
+        for (const h of snap.heroes)
+          this.prevHero.set(h.key, { level: h.level, exp: clampHeroSaveExp(h.exp) });
       } else {
         this.currentTotalXp = snap.totalHeroExp;
         for (const h of snap.heroes) {
           const heroGain = heroDeltaGain(this.prevHero.get(h.key), h.level, h.exp);
           gain += heroGain;
-          this.prevHero.set(h.key, { level: h.level, exp: h.exp });
+          this.prevHero.set(h.key, { level: h.level, exp: clampHeroSaveExp(h.exp) });
           let meter = this.heroMeters.get(h.key);
           if (meter === undefined) {
             meter = new RateMeter(this.rollingWindow);
@@ -432,7 +526,12 @@ export class XpTracker {
     this.goldLiveOwning = true;
     this.lastLiveGoldSec = wallTimeSec;
 
-    const gain = takingOver ? 0 : Math.max(0, gold - (this.prevGold ?? gold));
+    const rawGain = takingOver ? 0 : Math.max(0, gold - (this.prevGold ?? gold));
+    // Dirty-read guard: one 40 ms tick cannot legitimately add
+    // MAX_LIVE_GOLD_GAIN_PER_TICK gold — a corrupt decode can. The baseline
+    // still advances (prevGold = gold below) so a persistent jump isn't
+    // rejected forever; only the spike stays out of the session meters.
+    const gain = rawGain > MAX_LIVE_GOLD_GAIN_PER_TICK ? 0 : rawGain;
     this.prevGold = gold;
 
     if (takingOver) {
@@ -646,10 +745,19 @@ export class XpTracker {
 
   private updateGold(gold: number, mtime: number): void {
     if (!Number.isFinite(gold)) return;
+    // Gap since the previous save-path parse (not persisted — mid-session guard only).
+    const dt = this.lastGoldParseMtime !== null ? mtime - this.lastGoldParseMtime : 0;
+    this.lastGoldParseMtime = mtime;
     // Gold is spent as well as earned; count only positive changes (earned).
     const gain = this.prevGold !== null ? gold - this.prevGold : 0;
     this.prevGold = gold;
     if (gain <= 0) return;
+    // Rate-based dirty-diff guard: between two save parses (seconds apart) a
+    // legit gain stays far below MAX_PLAUSIBLE_GOLD_RATE/hour. A game update
+    // that migrates the balance (or a corrupt parse) shows up as a huge
+    // one-shot diff. The baseline already advanced, so the next parse is
+    // unaffected; only the spike stays out of the session meters.
+    if (dt > 0 && (gain / dt) * 3600 >= MAX_PLAUSIBLE_GOLD_RATE) return;
     this.goldGained += gain;
     this.goldLastChangeMtime = mtime;
     this.goldSamples.push([mtime, this.goldGained]);
@@ -851,6 +959,50 @@ export class XpTracker {
     this.goldLiveOwning = false;
     this.lastLiveXpSec = null;
     this.lastLiveGoldSec = null;
+    this.lastGoldParseMtime = null;
     this.healInflatedXpTotals(nowSeconds());
+  }
+
+  /**
+   * Reconcile the restored gold baseline against the first save snapshot of
+   * the new app run. Without this, the diff between the persisted `prevGold`
+   * and the fresh save's gold is counted as session gain by the next
+   * `update()` — including a balance migration done by a game update, which
+   * would surface as a huge bogus "gold earned".
+   *
+   * - Decrease / no change: nothing to do (update() only counts positives).
+   * - Increase within MAX_PLAUSIBLE_GOLD_RATE over the offline gap: legit
+   *   bridging — count it now (preserving the pre-existing behavior) and
+   *   re-baseline so update() sees a zero delta.
+   * - Increase beyond the rate cap: rebalance/migration/corruption —
+   *   re-baseline without counting.
+   */
+  reconcileGoldBaseline(
+    saveGold: number,
+    saveMtime: number,
+    persistedLastMtime: number | null,
+  ): "noop" | "rebased" | "counted" {
+    if (!this.initialized || this.prevGold === null) return "noop";
+    if (!Number.isFinite(saveGold) || saveGold === this.prevGold) return "noop";
+    const diff = saveGold - this.prevGold;
+    if (diff <= 0) return "noop";
+
+    const mtime = saveMtime || nowSeconds();
+    const gapSec =
+      persistedLastMtime != null && persistedLastMtime > 0
+        ? Math.max(mtime - persistedLastMtime, 0)
+        : 0;
+    const impliedRate = gapSec > 0 ? (diff / gapSec) * 3600 : Number.POSITIVE_INFINITY;
+
+    this.prevGold = saveGold;
+    this.currentGold = saveGold;
+    if (impliedRate >= MAX_PLAUSIBLE_GOLD_RATE) return "rebased";
+
+    // Legit bridging: count the offline gain once, exactly as the pre-reconcile
+    // flow would have via updateGold().
+    this.goldGained += diff;
+    this.goldLastChangeMtime = mtime;
+    this.goldSamples.push([mtime, this.goldGained]);
+    return "counted";
   }
 }

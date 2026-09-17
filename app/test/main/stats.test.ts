@@ -21,6 +21,54 @@ function snap(mtime: number): SaveSnapshot {
 }
 
 describe("buildStats", () => {
+  it("exposes saveStale (default false, passthrough when reads keep failing)", () => {
+    const tracker = new XpTracker(300);
+    const base = () =>
+      buildStats(
+        tracker,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        new DpsTracker(),
+        snap(1000),
+        null,
+      );
+    expect(base().saveStale).toBe(false);
+    expect(
+      buildStats(
+        tracker,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        new DpsTracker(),
+        snap(1000),
+        "decrypt failed",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        true,
+      ).saveStale,
+    ).toBe(true);
+  });
+
+  it("exposes goldLiveSuspect from the tracker (live gold rollback warning)", () => {
+    const tracker = new XpTracker(300);
+    tracker.goldLiveSuspect = true;
+    const stats = buildStats(
+      tracker,
+      new ChestDropTracker(),
+      new BoxOpenTracker(),
+      new DpsTracker(),
+      snap(1000),
+      null,
+    );
+    expect(stats.goldLiveSuspect).toBe(true);
+  });
+
   it("includes chest drop session stats", () => {
     const tracker = new XpTracker(300);
     const chestDropTracker = new ChestDropTracker();
@@ -85,6 +133,110 @@ describe("buildStats", () => {
     expect(stats.heroes[0]?.rate).toBeGreaterThan(0);
     expect(stats.stageKey).toBe(9999);
     expect(stats.stageWave).toBe(3);
+  });
+
+  it("rejects a v1.2.4 live hero frame that regresses below the save level (falls back to save)", () => {
+    const tracker = new XpTracker(300);
+    const saveSnap: SaveSnapshot = {
+      heroes: [{ key: "101", level: 101, exp: 2_300_000_000, unlocked: true }],
+      totalHeroExp: 2_300_000_000,
+      playTime: 0,
+      saveMtime: 1000,
+      stageKey: 3205,
+      stageWave: 1,
+      maxStage: 0,
+      gold: 49595219358,
+    };
+    tracker.update(saveSnap);
+    const now = Date.now() / 1000;
+    // Seed live XP so the live heroes path is active.
+    tracker.updateLive({ gold: null, heroes: [{ heroKey: 101, level: 1, exp: 0 }] }, now);
+
+    const liveFrame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 9999,
+      stageWave: 3,
+      stageWaveTotal: null,
+      stageAlive: null,
+      gold: null,
+      // v1.2.4 reuses the v1.2.2 HeroRuntime offsets → obscured decode floors to 1.
+      heroes: [{ heroKey: 101, level: 1, exp: 0 }],
+      chestDrops: null,
+      chestSlots: null,
+      boxOpens: null,
+      inventoryItems: null,
+      stageClears: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "test",
+      readMs: 1,
+      at: now * 1000,
+    };
+
+    const stats = buildStats(
+      tracker,
+      new ChestDropTracker(),
+      new BoxOpenTracker(),
+      new DpsTracker(),
+      saveSnap,
+      null,
+      null,
+      liveFrame,
+    );
+    expect(stats.heroes).toHaveLength(1);
+    // Must fall back to the save level, NOT show the garbage level 1.
+    expect(stats.heroes[0]?.level).toBe(101);
+  });
+
+  it("still trusts a live hero frame that matches or exceeds the save level", () => {
+    const tracker = new XpTracker(300);
+    const saveSnap: SaveSnapshot = {
+      heroes: [{ key: "101", level: 101, exp: 2_300_000_000, unlocked: true }],
+      totalHeroExp: 2_300_000_000,
+      playTime: 0,
+      saveMtime: 1000,
+      stageKey: 3205,
+      stageWave: 1,
+      maxStage: 0,
+      gold: 0,
+    };
+    tracker.update(saveSnap);
+    const now = Date.now() / 1000;
+    tracker.updateLive({ gold: null, heroes: [{ heroKey: 101, level: 102, exp: 100 }] }, now);
+
+    const liveFrame: LiveMemorySnapshot = {
+      connected: true,
+      stageKey: 9999,
+      stageWave: 3,
+      stageWaveTotal: null,
+      stageAlive: null,
+      gold: null,
+      heroes: [{ heroKey: 101, level: 102, exp: 100 }],
+      chestDrops: null,
+      chestSlots: null,
+      boxOpens: null,
+      inventoryItems: null,
+      stageClears: null,
+      petData: null,
+      monsterHp: null,
+      deadMonsterCount: null,
+      source: "test",
+      readMs: 1,
+      at: now * 1000,
+    };
+
+    const stats = buildStats(
+      tracker,
+      new ChestDropTracker(),
+      new BoxOpenTracker(),
+      new DpsTracker(),
+      saveSnap,
+      null,
+      null,
+      liveFrame,
+    );
+    expect(stats.heroes[0]?.level).toBe(102);
   });
 
   it("falls back to the save wave when the live stageWave is 0 (drifted runtimeWave offset)", () => {

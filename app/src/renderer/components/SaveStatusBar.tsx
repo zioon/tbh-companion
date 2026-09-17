@@ -29,6 +29,16 @@ export function SaveStatusBar() {
         <span>{saveText}</span>
         {idle ? <span>{t("saveStatusIdleHint")}</span> : null}
       </div>
+      {stats?.saveStale ? (
+        <span className="shrink-0 font-medium text-gold" data-testid="save-stale-warning">
+          {t("saveStatusStale")}
+        </span>
+      ) : null}
+      {stats?.goldLiveSuspect ? (
+        <span className="shrink-0 font-medium text-gold" data-testid="gold-stale-warning">
+          {t("goldStatusStale")}
+        </span>
+      ) : null}
     </div>
   );
 }

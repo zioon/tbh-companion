@@ -5,7 +5,9 @@ import type {
   TrackerSnapshot,
 } from "../../shared/types";
 import {
+  isPlausibleCumulativeGold,
   isPlausibleCumulativeXp,
+  isPlausibleGoldBalance,
   isPlausibleXpRate,
   MAX_PLAUSIBLE_CUMULATIVE_XP,
 } from "./trackerLimits";
@@ -43,6 +45,14 @@ export function isPlausibleTrackerSnapshot(tracker: TrackerSnapshot): boolean {
     if (meter.gained >= MAX_PLAUSIBLE_CUMULATIVE_XP) return false;
     if (!isPlausibleXpRate(meter.rolling)) return false;
   }
+
+  // Gold: the XP checks above don't cover the balance fields, so a snapshot
+  // polluted by a corrupt live read (or a game-update balance migration)
+  // would restore bogus gold display/baselines. prevGold may legitimately be
+  // null (never initialized); anything non-null must be a sane balance.
+  if (!isPlausibleGoldBalance(tracker.currentGold)) return false;
+  if (tracker.prevGold !== null && !isPlausibleGoldBalance(tracker.prevGold)) return false;
+  if (!isPlausibleCumulativeGold(tracker.goldGained, elapsed)) return false;
 
   return true;
 }

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
-import { XpTracker } from "../../src/core/tracker";
+import {
+  XpTracker,
+  liveHeroFrameTrustworthy,
+  evaluateGoldDivergence,
+} from "../../src/core/tracker";
 import type { SaveSnapshot } from "../../shared/types";
 
 function snap(mtime: number, heroExp: number, gold = 0): SaveSnapshot {
@@ -418,5 +422,169 @@ describe("XpTracker.updateLive", () => {
     const snap2 = t.captureSnapshot();
     expect(snap2.currentTotalXp).toBe(600);
     expect(snap2.prevHero["2"]).toBeUndefined(); // dirty hero never seeded
+  });
+
+  it("caps a corrupt live gold spike and still advances the baseline", () => {
+    const t = new XpTracker(300);
+    t.update(snap(1000, 0, 1000)); // initialize so updateLive is accepted
+    t.updateLive({ gold: 1000, heroes: null }, 5000); // live takeover: baseline only
+    // Corrupt spike: +~5e7 in one 40 ms tick (far above the 1e7 per-tick cap).
+    t.updateLive({ gold: 51_000_000, heroes: null }, 5001);
+    expect(t.goldGained).toBe(0);
+    // Baseline advanced with the spike, so the next legit gain is counted.
+    t.updateLive({ gold: 51_001_000, heroes: null }, 5002);
+    expect(t.goldGained).toBe(1000);
+    expect(t.currentGold).toBe(51_001_000);
+  });
+
+  it("rejects an implausible save-path gold jump but keeps tracking afterwards", () => {
+    const t = new XpTracker(300);
+    t.update(snap(1000, 0, 1000));
+    // +1e12 over 60 s → ~6e13/hour, far above MAX_PLAUSIBLE_GOLD_RATE —
+    // e.g. a game update migrating the balance. Not counted; baseline advances.
+    t.update(snap(1060, 0, 1e12));
+    expect(t.goldGained).toBe(0);
+    // Normal gains after the jump are unaffected.
+    t.update(snap(1120, 0, 1e12 + 500));
+    expect(t.goldGained).toBe(500);
+  });
+
+  it("reconcileGoldBaseline rebases an implausible post-update jump without counting", () => {
+    const t = new XpTracker(300);
+    t.update(snap(1000, 0, 1000));
+    const result = t.reconcileGoldBaseline(1e12, 1060, 1000); // 60 s gap, huge diff
+    expect(result).toBe("rebased");
+    expect(t.goldGained).toBe(0);
+    expect(t.currentGold).toBe(1e12);
+    // The bridged diff is never counted by the next update either.
+    t.update(snap(1120, 0, 1e12));
+    expect(t.goldGained).toBe(0);
+  });
+
+  it("reconcileGoldBaseline counts a plausible offline gain exactly once", () => {
+    const t = new XpTracker(300);
+    t.update(snap(1000, 0, 1000));
+    // ~1.06M gold over a 3600 s gap → ~1.06M/hour, plausible bridging.
+    const result = t.reconcileGoldBaseline(1_060_000, 1000 + 3600, 1000);
+    expect(result).toBe("counted");
+    expect(t.goldGained).toBe(1_059_000);
+    // Same-gold update right after must not double count.
+    t.update(snap(1000 + 3660, 0, 1_060_000));
+    expect(t.goldGained).toBe(1_059_000);
+  });
+
+  it("reconcileGoldBaseline is a noop for decreases and fresh trackers", () => {
+    const t = new XpTracker(300);
+    // Not initialized yet.
+    expect(t.reconcileGoldBaseline(500, 100, null)).toBe("noop");
+    t.update(snap(1000, 0, 1000));
+    // Gold decreased across restart (spending): update() handles rebaseline.
+    expect(t.reconcileGoldBaseline(500, 1060, 1000)).toBe("noop");
+    expect(t.goldGained).toBe(0);
+  });
+
+  it("clamps a save-parsed hero exp above the sanity cap (v1.2.4 plausibility gate)", () => {
+    const t = new XpTracker(300);
+    // 2e15 exceeds MAX_HERO_SAVE_EXP (1e15) — would pollute the persisted snapshot.
+    t.update({
+      heroes: [{ key: "101", level: 101, exp: 2e15, unlocked: true }],
+      totalHeroExp: 2e15,
+      playTime: 0,
+      saveMtime: 1000,
+      stageKey: 3205,
+      stageWave: 1,
+      maxStage: 0,
+      gold: 0,
+    });
+    expect(t.heroes[0]?.exp).toBe(1e15);
+    // 1.4e12 (observed on v1.2.4) is within the cap and must be accepted as-is.
+    const t2 = new XpTracker(300);
+    t2.update({
+      heroes: [{ key: "201", level: 101, exp: 1.4e12, unlocked: true }],
+      totalHeroExp: 1.4e12,
+      playTime: 0,
+      saveMtime: 1000,
+      stageKey: 3205,
+      stageWave: 1,
+      maxStage: 0,
+      gold: 0,
+    });
+    expect(t2.heroes[0]?.exp).toBe(1.4e12);
+  });
+});
+
+describe("liveHeroFrameTrustworthy", () => {
+  it("trusts a live frame whose levels are at or above the save levels", () => {
+    const save = new Map<string, number>([
+      ["101", 101],
+      ["201", 101],
+    ]);
+    expect(
+      liveHeroFrameTrustworthy(
+        [
+          { heroKey: 101, level: 101 },
+          { heroKey: 201, level: 102 },
+        ],
+        save,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a live frame that regresses a hero below its save level (v1.2.4 garbage read)", () => {
+    const save = new Map<string, number>([["101", 101]]);
+    // Stale v1.2.2 offsets floor the obscured decode to level 1.
+    expect(liveHeroFrameTrustworthy([{ heroKey: 101, level: 1 }], save)).toBe(false);
+  });
+
+  it("trusts a hero with no save record (newly deployed, not a regression)", () => {
+    const save = new Map<string, number>([["101", 101]]);
+    expect(liveHeroFrameTrustworthy([{ heroKey: 999, level: 1 }], save)).toBe(true);
+  });
+
+  it("does not flag a hero that is genuinely level 1 in the save", () => {
+    const save = new Map<string, number>([["501", 1]]);
+    expect(liveHeroFrameTrustworthy([{ heroKey: 501, level: 1 }], save)).toBe(true);
+  });
+});
+
+describe("evaluateGoldDivergence", () => {
+  it("substitutes the save gold when the live read is below it", () => {
+    expect(evaluateGoldDivergence(100, 500, null, 1000, 8)).toEqual({
+      substitute: true,
+      suspect: false,
+    });
+  });
+
+  it("flags suspect only after the divergence has sustained past the window", () => {
+    expect(evaluateGoldDivergence(100, 500, 990, 997, 8)).toEqual({
+      substitute: true,
+      suspect: false,
+    });
+    expect(evaluateGoldDivergence(100, 500, 990, 999, 8)).toEqual({
+      substitute: true,
+      suspect: true,
+    });
+  });
+
+  it("does not substitute when the live read meets or exceeds the save floor", () => {
+    expect(evaluateGoldDivergence(500, 500, null, 1000, 8)).toEqual({
+      substitute: false,
+      suspect: false,
+    });
+    expect(evaluateGoldDivergence(900, 500, null, 1000, 8)).toEqual({
+      substitute: false,
+      suspect: false,
+    });
+  });
+
+  it("does not substitute when either value is missing", () => {
+    expect(evaluateGoldDivergence(null, 500, null, 1000, 8)).toEqual({
+      substitute: false,
+      suspect: false,
+    });
+    expect(evaluateGoldDivergence(100, null, null, 1000, 8)).toEqual({
+      substitute: false,
+      suspect: false,
+    });
   });
 });

@@ -102,5 +102,7 @@
   "saveStatusConnecting": "セーブファイルに接続中…",
   "saveStatusWaiting": "最初のセーブ読み取りを待機中…",
   "saveStatusWritten": "セーブ書き込み {{ago}}",
-  "saveStatusIdleHint": "— ゲームは起動していますか？"
+  "saveStatusIdleHint": "— ゲームは起動していますか？",
+  "saveStatusStale": "セーブを読み取れないため、失敗前の古い値を表示しています（ゲーム更新後？）",
+  "goldStatusStale": "ゴールドの生読み取りが古いです（このゲームバージョンのオフセットは未対応）— 直近のセーブ残高を表示中"
 }

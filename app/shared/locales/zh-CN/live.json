@@ -102,5 +102,7 @@
   "saveStatusConnecting": "正在连接存档文件…",
   "saveStatusWaiting": "等待首次存档读取…",
   "saveStatusWritten": "存档写入于 {{ago}}",
-  "saveStatusIdleHint": "—— 游戏是否在运行？"
+  "saveStatusIdleHint": "—— 游戏是否在运行？",
+  "saveStatusStale": "存档读取失败——当前显示的是失败前的旧数值（游戏更新后？）",
+  "goldStatusStale": "金币实时读数已失效（当前游戏版本的内存偏移尚未适配）——显示的是上次存档余额"
 }

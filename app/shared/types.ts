@@ -553,6 +553,20 @@ export interface RecordLogTrackerSnapshot {
 export interface Stats {
   connected: boolean;
   status: string;
+  /**
+   * True when several consecutive save reads failed: every snapshot-derived
+   * value below (gold balance, stage, heroes) predates the failure — e.g. a
+   * game update changed the save layout. Undefined/false when reads are OK.
+   */
+  saveStale?: boolean;
+  /**
+   * True when the live gold read has sustained a divergence BELOW the last save
+   * gold — the v1.2.4 offsets (which reuse the v1.2.2 CurrencyManager RVA) are
+   * decoding a stale/old balance. The UI substitutes the last save value and
+   * shows a "gold read may be stale" warning. Undefined/false when live gold
+   * matches or exceeds the save floor.
+   */
+  goldLiveSuspect?: boolean;
   rollingRate: number; // XP/hour
   sessionRate: number; // XP/hour
   goldSessionRate: number; // gold/hour (session average)

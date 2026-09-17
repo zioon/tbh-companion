@@ -43,7 +43,7 @@ const config: AppConfig = {
   language: "auto",
 };
 
-function snap(mtime: number, heroExp: number): SaveSnapshot {
+function snap(mtime: number, heroExp: number, gold = 0): SaveSnapshot {
   return {
     heroes: [{ key: "101", level: 1, exp: heroExp, unlocked: true }],
     totalHeroExp: heroExp,
@@ -52,7 +52,7 @@ function snap(mtime: number, heroExp: number): SaveSnapshot {
     stageKey: 3205,
     stageWave: 1,
     maxStage: 0,
-    gold: 0,
+    gold,
   };
 }
 
@@ -99,6 +99,57 @@ describe("SessionStateService", () => {
     expect(fresh.cumulativeGained).toBe(600);
     expect(fresh.history).toHaveLength(1);
     expect(freshChest.getStats(3600).commonTotal).toBe(1);
+  });
+
+  it("restore re-anchors the gold baseline when the save balance jumped (game update)", async () => {
+    const tracker = new XpTracker(300);
+    tracker.update(snap(1000, 0, 1000));
+    tracker.update(snap(1060, 0, 1000));
+
+    const svc = await loadService();
+    svc.persist(tracker, new ChestDropTracker(), new BoxOpenTracker(), snap(1060, 0, 1000), config);
+
+    const svc2 = await loadService();
+    svc2.load(config);
+    const fresh = new XpTracker(300);
+    // Save balance migrated from 1000 → 1e12 between runs (game update).
+    expect(
+      svc2.tryRestoreOnSnapshot(
+        fresh,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        snap(1120, 0, 1e12),
+      ),
+    ).toBe("restored");
+    fresh.update(snap(1120, 0, 1e12));
+    expect(fresh.goldGained).toBe(0);
+    expect(fresh.currentGold).toBe(1e12);
+  });
+
+  it("restore counts plausible offline gold gains exactly once", async () => {
+    const tracker = new XpTracker(300);
+    tracker.update(snap(1000, 0, 1000));
+    tracker.update(snap(1060, 0, 1000));
+
+    const svc = await loadService();
+    svc.persist(tracker, new ChestDropTracker(), new BoxOpenTracker(), snap(1060, 0, 1000), config);
+
+    const svc2 = await loadService();
+    svc2.load(config);
+    const fresh = new XpTracker(300);
+    // +60k over a 3600 s gap → 60k/hour, plausible bridging.
+    expect(
+      svc2.tryRestoreOnSnapshot(
+        fresh,
+        new ChestDropTracker(),
+        new BoxOpenTracker(),
+        snap(1060 + 3600, 0, 61_000),
+      ),
+    ).toBe("restored");
+    expect(fresh.goldGained).toBe(60_000);
+    // Same-gold update right after must not double count.
+    fresh.update(snap(1060 + 3660, 0, 61_000));
+    expect(fresh.goldGained).toBe(60_000);
   });
 
   it("discards snapshot when save mtime rolled back", async () => {

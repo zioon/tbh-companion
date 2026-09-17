@@ -128,6 +128,22 @@ describe("sessionState", () => {
     ).toBe(false);
   });
 
+  it("isPlausibleTrackerSnapshot rejects implausible gold state", () => {
+    // Negative / corrupt balance (e.g. a dirty live read captured mid-session).
+    expect(isPlausibleTrackerSnapshot(trackerSnapshot({ currentGold: -5 }))).toBe(false);
+    expect(isPlausibleTrackerSnapshot(trackerSnapshot({ currentGold: 2e15 }))).toBe(false);
+    // Implausible session gold total (rate far beyond anything earnable).
+    expect(
+      isPlausibleTrackerSnapshot(trackerSnapshot({ goldGained: 1e14 })), // 1500 s → 2.4e14/h
+    ).toBe(false);
+    // Sane values still pass (prevGold may be null).
+    expect(
+      isPlausibleTrackerSnapshot(
+        trackerSnapshot({ currentGold: 123_456, prevGold: 120_000, goldGained: 3456 }),
+      ),
+    ).toBe(true);
+  });
+
   it("snapshotContinuesSession allows same or newer mtime only", () => {
     const snap = {
       saveMtime: 2000,

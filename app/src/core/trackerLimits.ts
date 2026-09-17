@@ -17,3 +17,24 @@ export function isPlausibleCumulativeXp(total: number, elapsedSec: number): bool
   }
   return true;
 }
+
+/** Max gold/hour we treat as physically possible (mirrors the XP cap; generous). */
+export const MAX_PLAUSIBLE_GOLD_RATE = MAX_PLAUSIBLE_XP_RATE;
+
+/** Hard cap on a gold balance / session gold total — anything above is corruption. */
+export const MAX_PLAUSIBLE_CUMULATIVE_GOLD = 1e15;
+
+/** Gate for a gold balance value (wallet read, save parse, restore). */
+export function isPlausibleGoldBalance(v: number | null | undefined): boolean {
+  return v != null && Number.isFinite(v) && v >= 0 && v < MAX_PLAUSIBLE_CUMULATIVE_GOLD;
+}
+
+/** Gate for a session gold total relative to the elapsed time. */
+export function isPlausibleCumulativeGold(total: number, elapsedSec: number): boolean {
+  if (!isPlausibleGoldBalance(total)) return false;
+  if (total > 0 && elapsedSec > 0) {
+    const impliedRate = (total / elapsedSec) * 3600;
+    if (impliedRate >= MAX_PLAUSIBLE_GOLD_RATE) return false;
+  }
+  return true;
+}

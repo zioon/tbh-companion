@@ -9,6 +9,7 @@ import type {
   BoxOpenAccessoryResolver,
 } from "../core/boxOpenTracker";
 import type { ChestDropTracker } from "../core/chestDropTracker";
+import { liveHeroFrameTrustworthy } from "../core/tracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
 import type { RecordLogTracker } from "../core/recordLogTracker";
@@ -71,11 +72,26 @@ export function buildStats(
   catalog: LocaleCatalog | null = null,
   recordLogTracker: RecordLogTracker | null = null,
   stageClearHistory: readonly ClearFitEvent[] | null = null,
+  saveStale = false,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
 
-  const heroes = liveHeroes
+  // ── Live/save cross-monotonicity gate for hero LEVEL (v1.2.4 defense) ──
+  // The save is the authoritative LOWER BOUND for a hero's level (it never drops
+  // mid-run). A live frame whose level for some hero is BELOW its save level is a
+  // dirty read — the v1.2.4 table reuses the v1.2.2 HeroRuntime offsets, so the
+  // obscured decode floors to 1 and `stats.ts` would otherwise show "level 1" for
+  // a hero that is really level 101. When the frame regresses, fall back to the
+  // save heroes entirely (the whole frame is untrusted); 501/601 that are
+  // genuinely level 1 in the save are unaffected (no regression).
+  const saveHeroes = lastSnap?.heroes ?? tracker.heroes;
+  const saveHeroLevelByKey = new Map<string, number>();
+  for (const h of saveHeroes ?? []) saveHeroLevelByKey.set(h.key, h.level);
+  const liveHeroesTrusted =
+    liveHeroes && liveHeroFrameTrustworthy(liveFrame!.heroes!, saveHeroLevelByKey);
+
+  const heroes = liveHeroesTrusted
     ? liveFrame!.heroes!.map((h) => {
         const key = String(h.heroKey);
         const rate = tracker.heroRate(key);
@@ -87,7 +103,7 @@ export function buildStats(
           ...heroLevelEstimate(h.level, h.exp, rate),
         };
       })
-    : (lastSnap?.heroes ?? tracker.heroes)
+    : (saveHeroes ?? [])
         .filter((h) => h.unlocked || h.exp > 0)
         .map((h) => {
           const rate = tracker.heroRate(h.key);
@@ -178,6 +194,15 @@ export function buildStats(
     connected: lastError === null,
 
     status,
+
+    /**
+     * True when N consecutive save reads failed: every value derived from the
+     * last snapshot (gold balance, stage, heroes…) predates the failure —
+     * e.g. after a game update changed the save layout. The UI must mark it
+     * instead of presenting it as live data.
+     */
+    saveStale,
+    goldLiveSuspect: tracker.goldLiveSuspect,
 
     rollingRate: tracker.rollingRate,
 

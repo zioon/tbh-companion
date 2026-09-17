@@ -2,7 +2,7 @@ import { expandPath } from "../config";
 import { SaveWatcher } from "../saveWatcher";
 import { buildStats } from "../stats";
 import { makeHistoryLogger } from "../historyLog";
-import { XpTracker } from "../../core/tracker";
+import { XpTracker, evaluateGoldDivergence } from "../../core/tracker";
 import { emptyLocaleCatalog, type LocaleCatalog } from "../../core/localeCatalog";
 import {
   ChestDropTracker,
@@ -70,6 +70,15 @@ const LIVE_BROADCAST_INTERVAL_MS = 200;
  */
 const STAGE_CLEAR_FIT_LIMIT = 200;
 /**
+ * How long a live gold read may stay BELOW the last save gold before it is
+ * treated as a stale-offset "rollback" (not a legitimate spend) and flagged for
+ * the UI warning. The save watcher polls every ~5 s, so a genuine spend
+ * self-corrects from the save within one poll; a rollback (v1.2.4 reusing the
+ * v1.2.2 CurrencyManager RVA) persists. 8 s is longer than one save poll, so
+ * only a sustained divergence trips the flag (matches StaleWaveGuard's window).
+ */
+const GOLD_DIVERGE_SUSTAIN_SEC = 8;
+/**
  * Freshness window for `lastLiveFrame`. The worker produces a frame every ~40 ms
  * while attached; if no frame has arrived for this long, treat the cached frame
  * as stale and clear it so `buildStats`/`dpsTracker` fall back to save values.
@@ -97,6 +106,14 @@ const BACKFILL_GRACE_SEC = 20;
  * the reconciliation more than ~6×/min.
  */
 const BACKFILL_INTERVAL_MS = 10_000;
+/**
+ * Consecutive save read/parse errors after which the last snapshot is treated
+ * as stale (`saveStale` in the stats payload). One error is often a transient
+ * mid-write read; three in a row — with a poll interval of seconds — means the
+ * save can no longer be read at all (e.g. a game update changed the ES3
+ * password/layout) and every displayed value predates the failure.
+ */
+const SAVE_STALE_ERROR_THRESHOLD = 3;
 
 export class TrackingService {
   private tracker!: XpTracker;
@@ -143,6 +160,14 @@ export class TrackingService {
    */
   private stageEventBaseline: { xp: number; gold: number } | null = null;
   /**
+   * Wall-clock (snapshot `at`/1000) at which the live gold read first dropped
+   * below the last save gold. Persisting past {@link GOLD_DIVERGE_SUSTAIN_SEC}
+   * means stale v1.2.4 offsets are decoding an old balance (a "rollback"), not a
+   * legitimate spend — `tracker.goldLiveSuspect` is then set for the UI warning.
+   * Null when the live read currently meets/exceeds the save floor.
+   */
+  private goldDivergeSinceSec: number | null = null;
+  /**
    * Recent live stage clears (wallTime + cleared stageKey) for the record
    * page's source fit. In-memory only — the fit explains visible acquire
    * lines, which never predate a companion restart by more than the ring
@@ -163,6 +188,16 @@ export class TrackingService {
   /** Heuristic stage-run failure detector (see `core/stageRunFailDetector.ts`). */
   private readonly failDetector = new StageRunFailDetector();
   private lastError: string | null = null;
+  /** Consecutive save read/parse errors (reset on the next success). */
+  private saveErrorCount = 0;
+  /**
+   * True once {@link SAVE_STALE_ERROR_THRESHOLD} consecutive save errors — every
+   * stat derived from `lastSnap` is then a pre-failure value (e.g. after a game
+   * update changed the encryption/layout) and the UI must say so.
+   */
+  private saveStale = false;
+  /** Warn once when a parsed save looks structurally empty (format drift). */
+  private warnedEmptySaveParse = false;
   private config!: AppConfig;
   private restoreApplied = false;
   private readonly onInventory: (snap: InventorySnapshot) => void;
@@ -414,6 +449,7 @@ export class TrackingService {
       this.localeCatalog,
       this.recordLog,
       this.stageClearHistory,
+      this.saveStale,
     );
   }
 
@@ -1238,6 +1274,33 @@ export class TrackingService {
         snap = { ...snap, stageWaveTotal: effective };
       }
     }
+
+    // ── Live gold vs save divergence guard (v1.2.4 defense) ──
+    // The save is the authoritative gold balance floor: the true balance is
+    // always ≥ the most recent save read (gold only grows, or is spent). A live
+    // read that comes back BELOW the last save gold means the v1.2.4 offsets
+    // (which reuse the v1.2.2 CurrencyManager RVA) decoded a stale/old value —
+    // a "rollback" showing the pre-update balance. A genuine spend self-corrects
+    // from the save within ~5 s; a rollback persists, so after
+    // GOLD_DIVERGE_SUSTAIN_SEC we flag `goldLiveSuspect` and substitute the save
+    // value so no stale balance is ever displayed or fed to the tracker.
+    const saveGold = this.lastSnap?.gold ?? null;
+    const div = evaluateGoldDivergence(
+      snap.gold,
+      saveGold,
+      this.goldDivergeSinceSec,
+      snap.at / 1000,
+      GOLD_DIVERGE_SUSTAIN_SEC,
+    );
+    if (div.substitute) {
+      if (this.goldDivergeSinceSec == null) this.goldDivergeSinceSec = snap.at / 1000;
+      this.tracker.goldLiveSuspect = div.suspect;
+      snap = { ...snap, gold: saveGold! };
+    } else {
+      this.goldDivergeSinceSec = null;
+      this.tracker.goldLiveSuspect = false;
+    }
+
     this.lastLiveFrame = snap;
 
     const stage =
@@ -1568,6 +1631,14 @@ export class TrackingService {
       password: this.config.es3Password,
       pollMs,
       onSnapshot: (snap) => {
+        this.saveErrorCount = 0;
+        this.saveStale = false;
+        if (!this.warnedEmptySaveParse && snap.heroes.length === 0 && snap.gold === 0) {
+          this.warnedEmptySaveParse = true;
+          log.warn(
+            "parsed save has zero heroes and zero gold — save format may have changed in a game update; stats may be wrong until the companion supports the new format",
+          );
+        }
         if (this.lastSnap) {
           const levelUps = detectHeroLevelUps(this.lastSnap.heroes, snap.heroes);
           if (levelUps.length > 0) {
@@ -1614,6 +1685,10 @@ export class TrackingService {
       },
       onError: (message) => {
         this.lastError = message;
+        this.saveErrorCount++;
+        if (this.saveErrorCount >= SAVE_STALE_ERROR_THRESHOLD) {
+          this.saveStale = true;
+        }
         this.pushStats();
       },
       onInventory: this.onInventory,

@@ -147,6 +147,23 @@ export class SessionStateService {
     // snapshot doesn't retry the same bad payload in an error loop.
     try {
       tracker.applySnapshot(this.pendingTracker);
+      // Re-anchor the restored gold baseline to the fresh save before the next
+      // tracker.update() counts its diff: a game update that migrates the
+      // balance would otherwise surface as a huge bogus "gold earned".
+      // (pendingLastSaveMtime is nulled in the finally below, so read it here.)
+      const persistedLastMtime = this.pendingLastSaveMtime;
+      const reconcile = tracker.reconcileGoldBaseline(
+        snap.gold,
+        snap.saveMtime,
+        persistedLastMtime,
+      );
+      if (reconcile === "rebased") {
+        log.info(
+          "Session gold baseline re-anchored to save (implausible jump — game update or balance migration)",
+        );
+      } else if (reconcile === "counted") {
+        log.info("Session gold bridged across restart (plausible offline gain counted)");
+      }
       if (this.pendingChestDropTracker) {
         chestDropTracker.applySnapshot(this.pendingChestDropTracker);
       }

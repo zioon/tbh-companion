@@ -102,5 +102,7 @@
   "saveStatusConnecting": "세이브 파일에 연결 중…",
   "saveStatusWaiting": "첫 세이브 읽기 대기 중…",
   "saveStatusWritten": "세이브 기록됨 {{ago}}",
-  "saveStatusIdleHint": "— 게임이 실행 중인가요?"
+  "saveStatusIdleHint": "— 게임이 실행 중인가요?",
+  "saveStatusStale": "세이브를 읽을 수 없어 실패 전의 이전 값을 표시 중입니다(게임 업데이트 후?)",
+  "goldStatusStale": "골드 실시간 판독이 오래되었습니다(이 게임 버전의 오프셋 미적용) — 최근 세이브 잔액 표시 중"
 }

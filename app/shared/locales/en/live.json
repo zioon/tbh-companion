@@ -102,5 +102,7 @@
   "saveStatusConnecting": "Connecting to the save file...",
   "saveStatusWaiting": "Waiting for the first save read...",
   "saveStatusWritten": "Save written {{ago}}",
-  "saveStatusIdleHint": "- is the game running?"
+  "saveStatusIdleHint": "- is the game running?",
+  "saveStatusStale": "Save unreadable — shown values are from before the failure (game update?)",
+  "goldStatusStale": "Live gold read is stale (memory offsets not yet adapted to this game version) — showing last save balance"
 }
