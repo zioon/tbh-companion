@@ -1,6 +1,6 @@
 {
   "title": "Record",
-  "intro": "A faithful mirror of the in-game acquisition log — read straight from the game's complete in-memory record timeline and synced in real time. Each row's mode badge is fitted against the three event buckets (chest drops / box opens / stage clears); unfitted lines are grouped as hero / synthesis by their text. Informational only.",
+  "intro": "A faithful mirror of the in-game acquisition log — read straight from the game's complete in-memory record timeline and synced in real time. Each row's mode badge is fitted against the three event buckets (chest drops / box opens / stage clears); unfitted lines are grouped as hero / wish / craft / reforge / synthesis by their text. Informational only.",
   "empty": "No records yet. Enable live memory and play — the game's acquisition records will appear here in real time.",
   "filteredEmpty": "No records match the current filters.",
   "filterAll": "All",
@@ -17,6 +17,9 @@
   "fitOpen": "Open",
   "fitClear": "Clear",
   "fitHero": "Hero",
+  "fitWish": "Wish",
+  "fitCraft": "Craft",
+  "fitReforge": "Reforge",
   "fitSynth": "Synthesis",
   "fitNone": "Item",
   "pageNewer": "Newer",

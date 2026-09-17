@@ -120,8 +120,16 @@ const HERO_COLOR = "#7030A5";
 /** Synthesis lines have no fixed in-game tint — neutral muted dot. */
 const SYNTH_COLOR = "#8b93a7";
 
-/** Unfitted-line text rules (renderer-side; only for the category filter). */
-const SYNTH_RE = /消耗.*获得|^制作结果|^祈愿结果/;
+/**
+ * Unfitted-line text rules (renderer-side; only for the category filter).
+ * 祈愿/制作 results and 品级 synthesis each have their own template; the
+ * reforge family (装饰/雕刻/铭文/铭刻/移除) is matched by keyword — real
+ * archive samples cover the 铭文/移除 templates, 装饰/雕刻 stay prospective.
+ */
+const WISH_RE = /^祈愿结果/;
+const CRAFT_RE = /^制作结果/;
+const REFORGE_RE = /装饰|雕刻|铭文|铭刻|移除/;
+const SYNTH_RE = /消耗.*获得/;
 const HERO_RE = /被击败|阵亡|升级|复活|觉醒|英雄/;
 
 /** Canonical grade order (COMMON → COSMIC) for quality-chip sorting. */
@@ -145,7 +153,7 @@ function gradeOrderIndex(grade: string | null): number {
   return i === -1 ? GRADE_ORDER.length : i;
 }
 
-/** Coarse filter buckets over the fit source (hero/synth = renderer text rules). */
+/** Coarse filter buckets over the fit source (wish/craft/reforge/synth/hero = renderer text rules). */
 type CatFilter =
   | "all"
   | "chestCommon"
@@ -155,6 +163,9 @@ type CatFilter =
   | "open"
   | "clear"
   | "hero"
+  | "wish"
+  | "craft"
+  | "reforge"
   | "synth"
   | "none";
 
@@ -168,6 +179,9 @@ const CAT_CHIP_KEYS: Record<CatFilter, string> = {
   open: "fitOpen",
   clear: "fitClear",
   hero: "fitHero",
+  wish: "fitWish",
+  craft: "fitCraft",
+  reforge: "fitReforge",
   synth: "fitSynth",
   none: "fitNone",
 };
@@ -180,6 +194,9 @@ const CAT_CHIP_COLORS: Partial<Record<CatFilter, string>> = {
   chestPlague: PLAGUE_COLOR,
   clear: CLEAR_COLOR,
   hero: HERO_COLOR,
+  wish: "#c78fe8",
+  craft: "#d99a5b",
+  reforge: "#5fb8a8",
   synth: SYNTH_COLOR,
 };
 
@@ -224,9 +241,13 @@ function deriveRow(
   let grade: string | null = null;
   if (!fit) {
     // 未命中三桶拟合的行按文本特征细分（仅影响分类筛选，不加徽章/染色）：
-    // 合成 = 消耗…获得 / 制作结果 / 祈愿结果；英雄 = 被击败 / 阵亡 / 升级 等。
+    // 祈愿 / 制作 = 各自的结果前缀；改造 = 装饰/雕刻/铭文/铭刻/移除 关键词；
+    // 合成 = 消耗…获得（品级升移）；英雄 = 被击败 / 阵亡 / 升级 等。
     const raw = e.acquireRaw ?? "";
-    if (SYNTH_RE.test(raw)) cat = "synth";
+    if (WISH_RE.test(raw)) cat = "wish";
+    else if (CRAFT_RE.test(raw)) cat = "craft";
+    else if (REFORGE_RE.test(raw)) cat = "reforge";
+    else if (SYNTH_RE.test(raw)) cat = "synth";
     else if (HERO_RE.test(raw)) cat = "hero";
     else cat = "none";
     color = null;
@@ -413,6 +434,9 @@ export function RecordLog() {
       "open",
       "clear",
       "hero",
+      "wish",
+      "craft",
+      "reforge",
       "synth",
       "none",
     ];

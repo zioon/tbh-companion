@@ -568,3 +568,27 @@ QA：tsc 0、eslint 0、prettier 过、recordLog/recordLogFit/acquireLog 通过�
 QA：tsc 0（格式化后复验 0）、eslint 0 error（4 个 json-ignore warning 为既有噪音）、prettier 全绿（eslint fix + prettier 经 `.tmp-lint-all.mjs` 脚本封装，绕 PowerShell 钩子误拦）、locale 四语言键集一致（25 键）、vitest 全量仅 `lookupPricePollingService` 9 failed（§16.3 已确认的既有失败，与本改动无关）。渲染端 `sources` 改为 useMemo（react-hooks/exhaustive-deps）。
 
 **插曲**：TrackingService.ts 曾短暂出现 971 行孤立 `*/`（注释闭合错位，tsc/eslint/prettier 三方先后报 parse error 与成功交替）——未复现成因（疑似外部进程/缓存视图不一致），prettier 格式化后状态稳定，三轮 tsc + eslint 复验全绿。若再现请优先核对 971-976 行区域。
+
+### 16.7 分类再拆分：祈愿 / 制作 / 改造（09-17 01:4x 用户需求）——已完成
+
+用户需求："记录分类增加祈愿、制作和改造（装饰、雕刻、铭文、移除）。"
+
+**规则改造**（`RecordLog.tsx` 渲染端文本分类，仅未拟合行）：原 `SYNTH_RE = /消耗.*获得|^制作结果|^祈愿结果/` 三合一拆为四条 + 顺序判定：
+
+1. `WISH_RE = /^祈愿结果/` → 祈愿（wish）
+2. `CRAFT_RE = /^制作结果/` → 制作（craft）
+3. `REFORGE_RE = /装饰|雕刻|铭文|铭刻|移除/` → 改造（reforge）
+4. `SYNTH_RE = /消耗.*获得/`（收窄为品级升移模板）→ 合成（synth）
+5. `HERO_RE` → 英雄；其余 → none
+
+改造关键词含"铭刻"：真实归档样本 `已用传说铭文卷轴对次元手套进行铭刻。` 虽被"铭文卷轴"的"铭文"覆盖，但为未来"对X进行铭刻"表述兜底。装饰/雕刻暂无归档样本，前瞻规则就位。改造族归入该类的行包括改造材料获得行（如"获得了传说铭文卷轴。"）——按用户意图，材料与操作同属改造语境。
+
+**chips**：`CatFilter` 增 `wish`/`craft`/`reforge`（顺序：宝箱系 → open → clear → hero → wish → craft → reforge → synth → none）；点色避开既有色板——wish `#c78fe8`（浅紫罗兰）、craft `#d99a5b`（铜棕）、reforge `#5fb8a8`（青绿）。分类仍只影响筛选，不加徽章/染色。
+
+**真实归档验证**（592 行 acquire，含新采集数据）：wish 2（祈愿结果：获得 神秘手套/精英弓）、craft 2（制作结果：获得 次元箭/次元头盔）、reforge 3（传说铭文卷轴获得/移除铭文效果/铭刻操作）、synth 15（消耗X品级,获得Y品级）、hero 101、none 469（多为已拟合行）。验证脚本 `.tmp-cat-verify.mjs`（未入库）。
+
+i18n：recordlog.json 四语言各增 `fitWish`/`fitCraft`/`fitReforge` 3 键（zh 祈愿/制作/改造，en Wish/Craft/Reforge，ja 祈願/製作/改造，ko 소원/제작/개조），intro 更新为五分类（现 28 键）。
+
+**环境插曲**：QA 首轮 tsc 报 `Accordion.tsx` 无法解析 `@base-ui/react/accordion`——与本次改动无关；实测 `node_modules/@base-ui/react` 包声明了 `./accordion` export 但磁盘内容缺失（包损坏，与此前 eslint `@babel/core` 缺失同源，疑似会话间被外部工具损坏）。`pnpm install --frozen-lockfile` 后台修复中被沙箱 wmic.exe 黑名单拦截中断，但主体链接已完成——`@base-ui/react/accordion` 与 `@babel/core` 均恢复。后续 vitest 又暴露同批损坏的第三处：`@rollup/rollup-win32-x64-msvc` 目录只剩 `.node` 二进制、缺 package.json（旁有 `_tmp_33796_68` 残留目录，印证安装中断于解压中途）——Node 解析包必须读到 package.json 才能定位 main，故报 MODULE_NOT_FOUND。手工补写该 package.json（name/version 4.62.2/os/cpu/main）后恢复。
+
+QA（复验闭环）：locale 四语言键集一致（28 键）；tsc RC=0 全绿；prettier 16 文件 fmt-ok；eslint 0 errors / 4 warnings（仅 recordlog.json 不在 lint 覆盖范围，正常——`@babel/core` 恢复后 eslint 环境亦复原）；vitest 相关套件 6 files / 68 tests 全过（i18n factory + main i18n + localeCatalog + language + boxOpenLog + stageRunService，2.33s）。分类规则无专属单测（RecordLog.tsx 渲染端文本规则为历史现状），由真实归档脚本验证兜底（见上）。
