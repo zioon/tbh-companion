@@ -28,12 +28,21 @@ export class GameDataProvider {
     try {
       const path = resolveBundledDataPath("stage_boxes.json");
       const raw = readFileSync(path, "utf-8").replace(/^\uFEFF/, "");
-      const d = JSON.parse(raw) as { items?: unknown[] };
+      const d = JSON.parse(raw) as { gameVersion?: string; items?: unknown[] };
       if (Array.isArray(d.items)) {
         const items = d.items
           .map((row) => normalizeGameItem(row as Record<string, unknown>))
           .filter((item): item is GameItem => item != null);
         if (items.length > 0) {
+          // The file carries a gameVersion but nothing used to read it — after
+          // a game update the stale table silently stopped matching new stage
+          // boxes (timers skipped, boxes leaking into the item list). At least
+          // make the mismatch diagnosable.
+          if (this.gameVersion && d.gameVersion && d.gameVersion !== this.gameVersion) {
+            log.warn(
+              `stage_boxes.json gameVersion ${d.gameVersion} != gamedata.json ${this.gameVersion} — stage-box detection may be outdated for the new game version`,
+            );
+          }
           this.mergeStageBoxes(items);
           return;
         }

@@ -171,6 +171,10 @@ function resolveAssetPaths(installDir: string): AssetPaths {
 export class CatalogRefreshService {
   private lastRefreshMs: number | null = null;
   private lastError: string | null = null;
+  /** Game version the auto-refresh last ran for (once per version per run). */
+  private autoRefreshedVersion: string | null = null;
+  /** True while a version-triggered auto-refresh is running. */
+  private autoRefreshInFlight = false;
   /** Cached locale data — written by refresh(), read by getLocaleData().
    * Initialized from userData/locale.json in the constructor so the 12
    * languages without offline locale_strings_<lang>.json get native item
@@ -403,9 +407,49 @@ export class CatalogRefreshService {
   }
 
   /** Called by LiveMemoryService when gameVersion changes — broadcast status so
-   * the renderer can show the stale banner. Does NOT auto-refresh. */
+   * the renderer can show the stale banner, then auto-refresh once (see
+   * {@link maybeAutoRefresh}). */
   onGameVersionChanged(): void {
     this.broadcastStatus();
+    void this.maybeAutoRefresh();
+  }
+
+  /**
+   * Auto-refresh the catalog on a confirmed game-version mismatch. Before
+   * v1.23.1 a version change only showed the stale banner and relied on the
+   * user clicking refresh — in practice the old userData/gamedata.json kept
+   * serving stale item mappings indefinitely (new items unmapped, new chests
+   * unclassified). Guarded once per target game version per app run; failures
+   * are not retried automatically (the banner stays and manual refresh works).
+   */
+  private async maybeAutoRefresh(): Promise<void> {
+    const status = this.getStatus();
+    // Only a confirmed version mismatch (both versions known) triggers the
+    // auto-refresh. Schema-only staleness (gameVersion null, e.g. game not
+    // running) stays behind the manual button.
+    if (
+      status.catalogVersion === null ||
+      status.gameVersion === null ||
+      status.catalogVersion === status.gameVersion
+    ) {
+      return;
+    }
+    if (this.autoRefreshedVersion === status.gameVersion || this.autoRefreshInFlight) return;
+    this.autoRefreshedVersion = status.gameVersion;
+    this.autoRefreshInFlight = true;
+    try {
+      log.info(
+        `auto-refreshing catalog: game ${status.gameVersion} != catalog ${status.catalogVersion}`,
+      );
+      const result = await this.refresh();
+      if (!result.ok) {
+        log.warn(
+          `catalog auto-refresh failed: ${result.error ?? "?"} — refresh manually from Settings → Item Catalog`,
+        );
+      }
+    } finally {
+      this.autoRefreshInFlight = false;
+    }
   }
 
   private broadcastStatus(): void {
