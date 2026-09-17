@@ -729,6 +729,79 @@ describe("plague (Contaminated) chest drop tracking", () => {
   });
 });
 
+describe("ChestDropTracker rolling recent-rate window", () => {
+  const BASE = 200_000; // fake wall-clock seconds
+
+  it("starts the recent denominator at the first recent drop", () => {
+    // 分母 = min(1h 滚动窗, now - 首个 recent 掉落)：drops 10min and 5min ago →
+    // window = 600s → 2 drops / (600/3600)h = 12/hr, NOT 2/hr (full-hour divide).
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.recordLiveChestDrop("common", BASE - 600);
+      tracker.recordLiveChestDrop("common", BASE - 300);
+      const stats = tracker.getStats(3600);
+      expect(stats.commonRecentPerHour).toBeCloseTo(12, 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("floors the recent denominator at 5 minutes to damp burst spikes", () => {
+    // A 4-chest burst landing "just now" would read 4/(60/3600) = 240/hr under
+    // the old 60s floor. The 300s recent floor caps it at 4/(300/3600) = 48/hr
+    // while leaving steady-state rates (window ≥ 300s) untouched.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      for (let i = 0; i < 4; i++) {
+        tracker.recordLiveChestDrop("rare", BASE - i * 0.1);
+      }
+      const stats = tracker.getStats(3600);
+      expect(stats.rareRecentPerHour).toBeCloseTo(4 / (300 / 3600), 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the full 1h window in steady state", () => {
+    // Drops spanning the whole rolling window → denominator = 3600s → the rate
+    // equals the raw in-window count (session-length farming is unaffected).
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.recordLiveChestDrop("common", BASE - 3600); // exactly at the cutoff
+      tracker.recordLiveChestDrop("rare", BASE - 1800);
+      const stats = tracker.getStats(3600);
+      expect(stats.commonRecentPerHour).toBe(1);
+      expect(stats.rareRecentPerHour).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("floors the map-aware recent denominator too", () => {
+    // 60s of freshly accumulated normal-map time with 1 drop: the map-aware
+    // denominator must not drop below RECENT_MIN_WINDOW_SEC (300s) either,
+    // else a burst inside fresh map time would spike 1/(60/3600) = 60/hr.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.noteMapTime(1, BASE - 60);
+      tracker.noteMapTime(1, BASE);
+      tracker.recordLiveChestDrop("common", BASE - 30);
+      const stats = tracker.getStats(3600);
+      expect(stats.commonRecentPerHour).toBeCloseTo(1 / (300 / 3600), 5); // 12/hr
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("ChestDropTracker map-type-aware rate denominator", () => {
   // Normal stage key 1 (non-plague), plague stage key 201201. Kept in service
   // of a single fake-clock base so noteMapTime deltas and recent-window pruning

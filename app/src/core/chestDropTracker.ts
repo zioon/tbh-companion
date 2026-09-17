@@ -87,6 +87,22 @@ const LIVE_CREDIT_MAX = 256;
  */
 const MIN_RATE_WINDOW_SEC = 60;
 /**
+ * Minimum time window (seconds) used when computing the *rolling* `*RecentPerHour`
+ * rates. The rolling rate's denominator is anchored to the first in-window drop
+ * (`now - earliestRecentWallTime`, clamped to the 1h window), so right after the
+ * first drop — or right after a burst — the raw window can be near zero and the
+ * 60s session floor alone would still let a short spike read absurdly high
+ * (e.g. a 4-chest burst in one second → 4/(60/3600) = 240/hr). A 300s (5 min)
+ * floor damps such bursts: the same burst reads 4/(300/3600) = 48/hr, and any
+ * steady-state rate is unaffected because a continuous farming session's
+ * denominator is either the full 1h window or the real elapsed time since the
+ * first in-window drop, both ≥ 300s once the session has run five minutes.
+ * Session (`*PerHour`) rates intentionally keep the shorter
+ * {@link MIN_RATE_WINDOW_SEC} floor — their semantics (whole-session pace
+ * including the wait for the first drop) are different and already validated.
+ */
+const RECENT_MIN_WINDOW_SEC = 300;
+/**
  * Rolling window for `*RecentPerHour` rates. Recent drops inside this window
  * are divided by the window size (clamped to {@link MIN_RATE_WINDOW_SEC} when
  * the first recent drop is younger than the window). 1 hour matches the
@@ -497,6 +513,21 @@ export class ChestDropTracker {
   private trackingStartedAt: number;
 
   /**
+   * Monotonic session epoch, bumped on every {@link reset} / {@link applySnapshot}
+   * (i.e. every session boundary: user reset, restore, save-path switch). Callers
+   * that defer work across time (AutoClassifyService's grace-windowed drop
+   * recovery) capture the epoch when stashing and discard the work at flush time
+   * if the epoch moved — otherwise a recovery stashed pre-reset would record a
+   * stale drop into the freshly cleared session.
+   */
+  private sessionEpoch = 0;
+
+  /** Current session epoch (see {@link sessionEpoch}). */
+  getSessionEpoch(): number {
+    return this.sessionEpoch;
+  }
+
+  /**
    * Wall time anchoring the perHour rate window. Null until the first recorded
    * drop (or an restore with no history); once set it stays pinned to
    * `min(trackingStartedAt, firstDropWallTime)` — the start of the actual
@@ -617,6 +648,7 @@ export class ChestDropTracker {
     this.mapSegments = [];
     this.rollingNormalSec = 0;
     this.rollingPlagueSec = 0;
+    this.sessionEpoch++;
     this.rebuildIncrementalCaches();
   }
 
@@ -978,20 +1010,25 @@ export class ChestDropTracker {
     }
     const recentWindowSec =
       earliestRecentWallTime !== null
-        ? Math.max(MIN_RATE_WINDOW_SEC, Math.min(ROLLING_HOUR_SEC, nowSec - earliestRecentWallTime))
+        ? Math.max(
+            RECENT_MIN_WINDOW_SEC,
+            Math.min(ROLLING_HOUR_SEC, nowSec - earliestRecentWallTime),
+          )
         : ROLLING_HOUR_SEC;
     const recentHours = recentWindowSec / 3600;
     // Map-type-aware denominators for the rolling 1-hour rates, mirroring the
     // session-rate logic: each recent rate divides by the map time actually
     // farmed (within the rolling window) for its own map type. Fall back to
-    // the total recent window when a bucket has no accumulated map time.
+    // the total recent window when a bucket has no accumulated map time. The
+    // floor uses RECENT_MIN_WINDOW_SEC (not MIN_RATE_WINDOW_SEC) so a burst
+    // inside freshly-accumulated map time cannot spike the recent rate either.
     const normalRecentHours =
       this.rollingNormalSec > 0
-        ? Math.max(MIN_RATE_WINDOW_SEC, this.rollingNormalSec) / 3600
+        ? Math.max(RECENT_MIN_WINDOW_SEC, this.rollingNormalSec) / 3600
         : recentHours;
     const plagueRecentHours =
       this.rollingPlagueSec > 0
-        ? Math.max(MIN_RATE_WINDOW_SEC, this.rollingPlagueSec) / 3600
+        ? Math.max(RECENT_MIN_WINDOW_SEC, this.rollingPlagueSec) / 3600
         : recentHours;
     const commonRecentPerHour = commonRecent / normalRecentHours;
     const rareRecentPerHour = rareRecent / normalRecentHours;
@@ -1127,5 +1164,6 @@ export class ChestDropTracker {
     this.mapSegments = [];
     this.rollingNormalSec = 0;
     this.rollingPlagueSec = 0;
+    this.sessionEpoch++;
   }
 }

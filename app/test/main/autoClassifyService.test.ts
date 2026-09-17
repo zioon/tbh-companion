@@ -852,6 +852,17 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     vi.useRealTimers();
   });
 
+  /**
+   * Advance the fake clock past the deferred drop-recovery grace
+   * (RECOVERY_GRACE_MS = 5s) and run one 1Hz tick so `flushDueDropRecoveries`
+   * finalizes — mirrors runtime, where TrackingService's 1Hz tick flushes the
+   * grace-windowed recoveries even when no save parse intervenes.
+   */
+  function flushRecoveryGrace(service: AutoClassifyService): void {
+    vi.setSystemTime(FIXED_NOW_MS + 10_000);
+    service.tick();
+  }
+
   it("prunes excess entries when queue > slots (soonest autoOpen first)", () => {
     const { service, chestDropTracker } = makeService({
       enabled: true,
@@ -1312,9 +1323,13 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
     expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(2);
 
     // Second reconcile: rare slots 2→3, queue rare still 2 → deficit 1, increase 1.
-    // The recovered drop must be recorded (rareTotal 0→1) and the queue must NOT
-    // double-enqueue (rare count 2→3, not 4). The reconcile deliberately does NOT
-    // arm the BoxTimer — only the live GetBox path may start a countdown.
+    // The recovery is DEFERRED by a 5s grace (so a live burst flushing in the
+    // meantime can cover the increase with its credit and prevent the 2x
+    // session-rate double count); after the grace, the drop must be recorded
+    // (rareTotal 0→1) and the queue must NOT double-enqueue (rare count 2→3,
+    // not 4 — the queue count is already reached by Step 4's backfill). The
+    // reconcile deliberately does NOT arm the BoxTimer — only the live GetBox
+    // path may start a countdown.
     service.reconcileWithChestSlots({
       common: 0,
       rare: 3,
@@ -1323,6 +1338,9 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueRare: 0,
       plagueAct: 0,
     });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0); // still in grace
+    expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(3);
+    flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
     expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(3);
   });
@@ -1350,7 +1368,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueRare: 0,
       plagueAct: 0,
     });
-    // rare slots 2→4 (increase 2): both are new drops missed live → record 2.
+    // rare slots 2→4 (increase 2): both are new drops missed live → record 2
+    // (after the deferred recovery grace elapses).
     service.reconcileWithChestSlots({
       common: 0,
       rare: 4,
@@ -1359,6 +1378,7 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueRare: 0,
       plagueAct: 0,
     });
+    flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(2);
   });
 
@@ -1408,6 +1428,7 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueRare: 0,
       plagueAct: 0,
     });
+    flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
   });
 
@@ -1443,6 +1464,7 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueRare: 0,
       plagueAct: 0,
     });
+    flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).commonTotal).toBe(0);
   });
 
@@ -1495,8 +1517,9 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueAct: 0,
     });
 
-    // Save finally reflects the drop: rare 0→1. The surviving live credit covers
-    // the increase, so the compensation must NOT append a second
+    // Save finally reflects the drop: rare 0→1. The live drop was already
+    // recorded AND enqueued, so the deficit is 0 → nothing is even stashed for
+    // recovery; the credit covers the increase implicitly. No second
     // (reconcile-stamped) history entry — the reported "spaced <1 min" duplicate.
     service.reconcileWithChestSlots({
       common: 0,
@@ -1506,7 +1529,135 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueRare: 0,
       plagueAct: 0,
     });
+    flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
+  });
+
+  it("recoverDrops: does NOT double-count when the live burst flushes after the reconcile observed the increase (2x session-rate regression)", () => {
+    // THE BUG: the reconcile can observe a save slot increase BEFORE the live
+    // GetBox burst has been flushed and recorded (old versions: the 5 Hz
+    // live-slot reconcile fires within the same live frame that merely buffers
+    // the burst; v1.2.2: a save written on chest gain parses inside the ~1s
+    // burst-flush latency). At that moment no live credit exists yet, so the
+    // old code compensated immediately — and the live record landed moments
+    // later, pushing its credit after the increase was already consumed. One
+    // physical chest → two history entries → the Live tab's session rate read
+    // ~2x the real drop rate.
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // Baseline: prev == null → nothing recorded.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    // The race: reconcile sees rare 0→1 while the live burst is still buffered.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    // Deferred: nothing recorded yet (pre-fix this appended a reconcile drop).
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
+    // ~0.5s later the live burst flushes → records the drop (credit +1).
+    chestDropTracker.recordLiveChestDrop("rare");
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
+    // Grace elapses → the deferred recovery claims the credit → records nothing.
+    flushRecoveryGrace(service);
+    // Pre-fix this was 2 (the reported ~2x session rate).
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
+  });
+
+  it("recoverDrops: still records a genuinely missed drop after the deferred grace elapses", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    // Save shows rare 0→1 and the live reader never surfaced a burst (no live
+    // record → no credit). The recovery is deferred, then records after grace.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
+    flushRecoveryGrace(service);
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
+  });
+
+  it("recoverDrops: discards a pending recovery when the tracker session resets mid-grace", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    // User resets the session while the grace is running → the deferred
+    // recovery belongs to the cleared session and must not record into the
+    // fresh one (session-epoch guard).
+    chestDropTracker.reset();
+    flushRecoveryGrace(service);
+    expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
   });
 });
 

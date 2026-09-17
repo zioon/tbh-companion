@@ -88,6 +88,36 @@ const AUTO_OPEN_ABSOLUTE_THRESHOLD = 1;
  */
 const BURST_MATCH_GRACE_MS = 5_000;
 
+/**
+ * Grace window (ms) before a save-slot-increase-triggered drop recovery is
+ * finalized (2x session-rate fix, 2026-09-12).
+ *
+ * The reconcile can observe a save slot increase BEFORE the live GetBox burst
+ * has been flushed and recorded by `ChestDropTracker`:
+ *   - Old game versions: `onLiveChestSlots` feeds live slot counts at 5 Hz, so
+ *     the reconcile fires within the same live frame that merely *buffers* the
+ *     GetBox burst (the burst only flushes after `burstGapSec` of silence, i.e.
+ *     ~0.5–1s later).
+ *   - v1.2.2: a save written immediately on chest gain can be parsed inside the
+ *     same ~1s burst-flush latency window.
+ * At that moment no live credit exists yet, so compensating immediately
+ * recorded the drop here AND again when the live burst flushed moments later —
+ * the credit pushed by the live record arrived *after* the increase was
+ * consumed, so nothing ever discounted it. Every such chest was counted twice
+ * and the Live tab's session rate read ~2x the real drop rate.
+ *
+ * Instead of compensating synchronously, the recovery is stashed for
+ * `RECOVERY_GRACE_MS` and live credits are claimed only at flush time (1 Hz
+ * tick / next reconcile): if the live burst recorded the drop during the grace,
+ * its credit covers the increase and nothing is appended; if the live reader
+ * genuinely missed the drop, no credit appears and the recovery records as
+ * before — just RECOVERY_GRACE_MS later, which is fine for a history backfill
+ * (it is not time-critical, unlike the queue countdown handled by Step 4).
+ * 5s comfortably exceeds the burst-flush latency (~1s) while keeping the
+ * recovery snappy.
+ */
+const RECOVERY_GRACE_MS = 5_000;
+
 interface PendingPrompt {
   promptId: number;
   itemKeys: number[];
@@ -110,6 +140,22 @@ interface PendingBurst {
   burstMs: number;
   /** Wall-clock ms when this burst was enqueued (for TTL pruning). */
   createdAtMs: number;
+}
+
+/**
+ * A save-slot-increase drop recovery deferred by {@link RECOVERY_GRACE_MS} so
+ * the live GetBox burst (which may flush after the reconcile observed the
+ * increase) gets the chance to record the drop — and push its live credit —
+ * first. Finalized by `flushDueDropRecoveries`.
+ */
+interface PendingDropRecovery {
+  category: ChestDropCategory;
+  /** Drops to recover, already capped at min(increase, queue deficit). */
+  count: number;
+  /** Wall-clock ms when the grace elapses and the recovery may be finalized. */
+  dueAtMs: number;
+  /** Tracker session epoch at stash time; the recovery is discarded if it moved. */
+  epoch: number;
 }
 
 export interface AutoClassifyServiceDeps {
@@ -278,6 +324,15 @@ export class AutoClassifyService {
    */
   private suppressingHandleChestDrop = false;
 
+  /**
+   * Deferred drop recoveries awaiting their grace window (see
+   * {@link RECOVERY_GRACE_MS}). Created by Step 5 of `reconcileWithChestSlots`
+   * instead of recording immediately; finalized by `flushDueDropRecoveries`
+   * (1 Hz tick / next reconcile), which claims live credits first so a drop the
+   * live reader recorded during the grace is NOT compensated a second time.
+   */
+  private pendingDropRecoveries: PendingDropRecovery[] = [];
+
   constructor(deps: AutoClassifyServiceDeps) {
     this.deps = deps;
   }
@@ -353,6 +408,9 @@ export class AutoClassifyService {
       this.queue = [];
       this.pending = null;
       this.pendingBursts = [];
+      // Discard deferred drop recoveries: with the service disabled they would
+      // never flush, and re-enabling must not recover stale pre-disable saves.
+      this.pendingDropRecoveries = [];
       this.liveSlots = null;
       this.lastReconcileSlots = null;
       this.lastAutoOpenSeconds = null;
@@ -542,6 +600,10 @@ export class AutoClassifyService {
     plagueAct: number;
   }): void {
     if (!this.enabled) return;
+    // Finalize any deferred drop recoveries whose grace has elapsed before the
+    // delta bookkeeping below (their `claimLiveDropCredits` must run before the
+    // new `prev` baseline is taken so ordering stays deterministic).
+    this.flushDueDropRecoveries();
     // Drift check: a save parse is the canonical moment when rune purchases
     // and other state changes become visible to ChestService, so this is the
     // primary trigger for queue recalibration.
@@ -681,52 +743,109 @@ export class AutoClassifyService {
             category === "plagueAct")
         ) {
           const increase = Math.max(0, slots[category] - prev[category]);
-          // Consume live credits for this increase: the portion of the increase
-          // the live reader ALREADY recorded is not "missed". Credits are
-          // time-bounded and survive intervening no-op reconciles (which fire
-          // ~25 Hz on v1.2.2), so the lagging save slot increase still finds
-          // them — a per-cycle delta would have been reset before it appeared
-          // (the root cause of the duplicate "spaced <1 min" rare drop entry).
-          const coveredLive = this.deps.chestDropTracker.claimLiveDropCredits(category, increase);
-          const missedLive = Math.max(0, increase - coveredLive);
-          const toRecover = Math.min(missedLive, deficit);
-          if (coveredLive > 0) {
-            log.info(
-              `reconcile: ${category} discount ${coveredLive} already-live drop(s) ` +
-                `(increase=${increase}) to avoid duplicate history`,
-            );
-          }
-          if (toRecover > 0) {
-            // Suppress handleChestDrop during the record loop so recordLiveChestDrop's
-            // onDrop → handleChestDrop doesn't enqueue the recovered chest a second
-            // time (the backfill loop above already enqueued it).
-            this.suppressingHandleChestDrop = true;
-            try {
-              const wallTimeSec = this.getEffectiveNow() / 1000;
-              for (let r = 0; r < toRecover; r++) {
-                // source "reconcile" keeps live credits untouched (only live
-                // drops push them) and marks these as recovered, not live-seen.
-                this.deps.chestDropTracker.recordLiveChestDrop(category, wallTimeSec, "reconcile");
-              }
-            } finally {
-              this.suppressingHandleChestDrop = false;
+          // DEFERRED recovery (2x session-rate fix, 2026-09-12): the increase
+          // may be observed BEFORE the live GetBox burst has flushed and been
+          // recorded (old versions: live-slot reconcile fires within the same
+          // live frame that still buffers the burst; v1.2.2: save-on-gain parse
+          // lands inside the ~1s burst-flush latency). Compensating immediately
+          // here double-counted the drop — the live record (and its credit)
+          // arrived after the increase was consumed, so nothing discounted it.
+          // Stash the recovery for RECOVERY_GRACE_MS; `flushDueDropRecoveries`
+          // (1 Hz tick / next reconcile) claims live credits at that point, so
+          // a drop the live reader recorded during the grace is not recovered
+          // again, while a genuinely missed drop still is (grace later).
+          // Capped at `min(increase, deficit)` exactly like the former
+          // `toRecover` so we never invent chests beyond what the save slot
+          // delta accounts for.
+          if (increase > 0) {
+            const stashCount = Math.min(increase, deficit);
+            if (stashCount > 0) {
+              this.pendingDropRecoveries.push({
+                category,
+                count: stashCount,
+                dueAtMs: Date.now() + RECOVERY_GRACE_MS,
+                epoch: this.deps.chestDropTracker.getSessionEpoch(),
+              });
+              log.info(
+                `reconcile: deferred ${stashCount} ${category} drop recovery(s) ` +
+                  `from save slot increase (${prev[category]}→${slots[category]}, ` +
+                  `deficit ${deficit}) by ${RECOVERY_GRACE_MS}ms grace`,
+              );
             }
-            // NOTE: the reconcile does NOT arm the BoxTimer cooldown. Only the
-            // live GetBox path (TrackingService.onLiveStageBossDrop) may start a
-            // countdown, so a single physical drop can never arm two boxes when
-            // the live and save stage snapshots straddle a level boundary.
-            // Recovered drops still land in the drop history (above).
-            log.info(
-              `reconcile: recorded ${toRecover} missed ${category} drop(s) ` +
-                `from save slot increase (${prev[category]}→${slots[category]}, ` +
-                `deficit ${deficit}, covered-live ${coveredLive})`,
-            );
           }
         }
       } else if (slotsChanged) {
         log.warn(
           `reconcile: could not backfill ${deficit} ${category} item(s) ` +
             `(queue ${queueCount} < slots ${slotCount}); boxKey unresolved`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Finalize deferred drop recoveries whose {@link RECOVERY_GRACE_MS} grace has
+   * elapsed. For each due recovery: claim live credits for the stashed count —
+   * the portion the live reader recorded during the grace (its GetBox burst
+   * flushed and pushed a credit) is discounted — and record the remainder as
+   * `"reconcile"` drops with `suppressingHandleChestDrop` set so the record's
+   * `onDrop → handleChestDrop` doesn't double-enqueue (Step 4's backfill already
+   * enqueued placeholders for the same deficit).
+   *
+   * Recoveries stashed before a session boundary (tracker `reset()` /
+   * `applySnapshot()` — detected via the tracker's session epoch) are discarded:
+   * the increase they were recovering belonged to the cleared session.
+   *
+   * Called from the 1 Hz `tick` and at the top of `reconcileWithChestSlots` so
+   * the recovery fires even when no further reconciles happen.
+   */
+  private flushDueDropRecoveries(nowMs: number = Date.now()): void {
+    if (this.pendingDropRecoveries.length === 0) return;
+    const due = this.pendingDropRecoveries.filter((p) => p.dueAtMs <= nowMs);
+    if (due.length === 0) return;
+    this.pendingDropRecoveries = this.pendingDropRecoveries.filter((p) => p.dueAtMs > nowMs);
+    const currentEpoch = this.deps.chestDropTracker.getSessionEpoch();
+    for (const recovery of due) {
+      // Session was reset/restored while the grace was running: the save
+      // increase belonged to the cleared session — drop the recovery.
+      if (recovery.epoch !== currentEpoch) continue;
+      const coveredLive = this.deps.chestDropTracker.claimLiveDropCredits(
+        recovery.category,
+        recovery.count,
+      );
+      const toRecover = recovery.count - coveredLive;
+      if (coveredLive > 0) {
+        log.info(
+          `reconcile: ${recovery.category} discount ${coveredLive} already-live drop(s) ` +
+            `(deferred recovery) to avoid duplicate history`,
+        );
+      }
+      if (toRecover > 0) {
+        // Suppress handleChestDrop during the record loop so recordLiveChestDrop's
+        // onDrop → handleChestDrop doesn't enqueue the recovered chest a second
+        // time (the backfill loop in Step 4 already enqueued it).
+        this.suppressingHandleChestDrop = true;
+        try {
+          const wallTimeSec = this.getEffectiveNow() / 1000;
+          for (let r = 0; r < toRecover; r++) {
+            // source "reconcile" keeps live credits untouched (only live
+            // drops push them) and marks these as recovered, not live-seen.
+            this.deps.chestDropTracker.recordLiveChestDrop(
+              recovery.category,
+              wallTimeSec,
+              "reconcile",
+            );
+          }
+        } finally {
+          this.suppressingHandleChestDrop = false;
+        }
+        // NOTE: the reconcile does NOT arm the BoxTimer cooldown. Only the
+        // live GetBox path (TrackingService.onLiveStageBossDrop) may start a
+        // countdown, so a single physical drop can never arm two boxes.
+        log.info(
+          `reconcile: recorded ${toRecover} missed ${recovery.category} drop(s) ` +
+            `(deferred save slot increase, grace ${RECOVERY_GRACE_MS}ms, ` +
+            `covered-live ${coveredLive})`,
         );
       }
     }
@@ -1037,6 +1156,10 @@ export class AutoClassifyService {
   /** 1Hz tick: prune expired queue items and pending prompt. Called by TrackingService. */
   tick(): void {
     if (!this.enabled) return;
+    // Finalize deferred drop recoveries whose grace has elapsed. Runs every tick
+    // so the recovery lands within ~1s of its due time even when no save parse
+    // or slot change triggers a reconcile in the meantime.
+    this.flushDueDropRecoveries();
     // Detect inventory full / not-full transitions first, so pause/resume
     // effects (effectiveNow freeze, shiftQueueTimes on resume) are applied
     // before any elapsed/expired checks below. This is the primary trigger
