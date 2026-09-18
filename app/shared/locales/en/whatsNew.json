@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.24.2": {
+      "title": "What's new in v1.24.2",
+      "bullets": [
+        "Act boss chest counts stay correct across game restarts — session boundaries now use the game's own session anchor instead of a save-time gap.",
+        "The acquisition log keeps up during long idle sessions: the reader scans the ring for the true newest entry and re-anchors itself instead of stalling on stale content."
+      ]
+    },
     "1.24.1": {
       "title": "What's new in v1.24.1",
       "bullets": [
