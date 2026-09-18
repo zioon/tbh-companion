@@ -30,6 +30,15 @@ export interface SessionScopeState {
   lastSaveMtime: number;
   /** Last observed game version string, e.g. "1.2.4" (upgrade ⇒ new session). */
   lastGameVersion: string;
+  /**
+   * Last observed game-session anchor (seconds; the mtime of a game-start-only
+   * artifact — see `gameAnchorMtimeSec` in ChestService). `undefined` marks a
+   * state written before this field existed (v1.24.1 and earlier): such a state
+   * cannot prove the current game session is the one it tracked, so the first
+   * parse after the upgrade forces a boundary (conservative). `0` = the anchor
+   * files were unavailable; the gap heuristic is then the only signal.
+   */
+  lastGameAnchor?: number;
   /** act chest UniqueId → sessionId it was first seen in. */
   act: Record<string, string>;
 }
@@ -74,16 +83,41 @@ export function extractGameVersion(text: string): string {
  *
  * Returns the id plus whether a boundary was detected (for logging).
  */
+export type SessionBoundary =
+  | "none"
+  | "version"
+  | "anchor"
+  | "anchor-unknown"
+  | "regress"
+  | "gap"
+  | "first";
+
 export function deriveSession(
   state: SessionScopeState,
   mtime: number,
   gameVersion: string,
-): { sessionId: string; boundary: "none" | "version" | "regress" | "gap" | "first" } {
+  gameAnchor: number | null = null,
+): { sessionId: string; boundary: SessionBoundary } {
   if (!state.sessionId) {
     return { sessionId: "s1", boundary: "first" };
   }
   if (gameVersion && state.lastGameVersion && gameVersion !== state.lastGameVersion) {
     return { sessionId: nextId(state.sessionId), boundary: "version" };
+  }
+  // Game-session anchor — the mtime of an artifact the game only rewrites at
+  // startup (Unity rotates Player.log at every launch). This is the ONLY signal
+  // that catches a quick relaunch: the game writes a save within seconds of
+  // loading, so the observable save gap is just the downtime (2026-09-19 live:
+  // a 25 min relaunch slipped under the 30 min gap threshold and 10 pre-restart
+  // act entries stayed counted). A state written before this field existed
+  // (v1.24.1) cannot prove it tracks the current session ⇒ one forced boundary.
+  if (gameAnchor != null) {
+    if (typeof state.lastGameAnchor !== "number") {
+      return { sessionId: nextId(state.sessionId), boundary: "anchor-unknown" };
+    }
+    if (state.lastGameAnchor > 0 && Math.abs(gameAnchor - state.lastGameAnchor) > 1) {
+      return { sessionId: nextId(state.sessionId), boundary: "anchor" };
+    }
   }
   if (state.lastSaveMtime > 0 && mtime + 1 < state.lastSaveMtime) {
     return { sessionId: nextId(state.sessionId), boundary: "regress" };
@@ -202,6 +236,15 @@ export function noteSessionSave(
   state: SessionScopeState,
   mtime: number,
   gameVersion: string,
+  gameAnchor: number | null = null,
 ): SessionScopeState {
-  return { ...state, lastSaveMtime: mtime, lastGameVersion: gameVersion || state.lastGameVersion };
+  return {
+    ...state,
+    lastSaveMtime: mtime,
+    lastGameVersion: gameVersion || state.lastGameVersion,
+    // Adopt a newly visible anchor; keep the stored one when the anchor files
+    // are unavailable this pass (a transient stat failure must not later look
+    // like a restart).
+    lastGameAnchor: gameAnchor ?? state.lastGameAnchor ?? 0,
+  };
 }

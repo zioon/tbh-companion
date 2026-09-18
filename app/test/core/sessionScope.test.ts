@@ -183,3 +183,69 @@ describe("noteSessionSave", () => {
     expect(next.lastGameVersion).toBe("1.2.4");
   });
 });
+
+describe("deriveSession game-session anchor (2026-09-19 relaunch miss)", () => {
+  it("an anchor change is a boundary even when the save gap is short", () => {
+    const state = noteSessionSave(
+      { ...emptySessionScopeState(), sessionId: "s4" },
+      1000,
+      "1.2.4",
+      5000,
+    );
+    // 25 min downtime: below SESSION_GAP_SEC, so only the anchor can catch it.
+    expect(deriveSession(state, 1000 + 25 * 60, "1.2.4", 7000)).toEqual({
+      sessionId: "s5",
+      boundary: "anchor",
+    });
+  });
+
+  it("an unchanged anchor keeps the session", () => {
+    const state = noteSessionSave(
+      { ...emptySessionScopeState(), sessionId: "s4" },
+      1000,
+      "1.2.4",
+      5000,
+    );
+    expect(deriveSession(state, 1060, "1.2.4", 5000)).toEqual({
+      sessionId: "s4",
+      boundary: "none",
+    });
+  });
+
+  it("a legacy state without lastGameAnchor forces one boundary", () => {
+    const legacy: SessionScopeState = {
+      ...emptySessionScopeState(),
+      sessionId: "s4",
+      lastSaveMtime: 1000,
+      lastGameVersion: "1.2.4",
+    };
+    expect("lastGameAnchor" in legacy).toBe(false);
+    expect(deriveSession(legacy, 1060, "1.2.4", 5000).boundary).toBe("anchor-unknown");
+    // After the adoption the session is stable again.
+    const adopted = noteSessionSave(legacy, 1060, "1.2.4", 5000);
+    expect(deriveSession(adopted, 1120, "1.2.4", 5000).boundary).toBe("none");
+  });
+
+  it("a newly visible anchor (0 → real) is adopted without a boundary", () => {
+    const state = noteSessionSave(
+      { ...emptySessionScopeState(), sessionId: "s2" },
+      1000,
+      "1.2.4",
+      null,
+    );
+    expect(state.lastGameAnchor).toBe(0);
+    expect(deriveSession(state, 1060, "1.2.4", 9000).boundary).toBe("none");
+  });
+
+  it("an unavailable anchor falls back to the gap heuristic", () => {
+    const state = noteSessionSave(
+      { ...emptySessionScopeState(), sessionId: "s2" },
+      1000,
+      "1.2.4",
+      5000,
+    );
+    expect(deriveSession(state, 1000 + SESSION_GAP_SEC + 1, "1.2.4", null).boundary).toBe("gap");
+    // Storing null preserves the last known anchor value.
+    expect(noteSessionSave(state, 2000, "1.2.4", null).lastGameAnchor).toBe(5000);
+  });
+});

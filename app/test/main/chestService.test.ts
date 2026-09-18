@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mkdtempSync, readdirSync, unlinkSync } from "node:fs";
+import { mkdtempSync, readdirSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ChestState } from "../../shared/types";
@@ -363,5 +363,58 @@ describe("ChestService session-scope act ghost filter", () => {
     second.onSave('{"version":"1.2.4"}', 1200, [actHolding("fresh1"), actHolding("fresh2")]);
     expect(second.getChests()?.actBoss.quantity).toBe(1);
     expect(second.getChests()?.orphanExclusions).toEqual({ act: 1 });
+  });
+});
+
+describe("ChestService game-anchor session boundary", () => {
+  beforeEach(() => {
+    for (const f of readdirSync(tmpUserData)) unlinkSync(join(tmpUserData, f));
+    mockBuildChestState.mockReset();
+    mockBuildChestState.mockImplementation((chests: Array<{ category?: string }>) => {
+      const act = chests.filter((c) => c.category === "act").length;
+      return makeChestState(0, 0, act);
+    });
+  });
+
+  function actHolding(uid: string) {
+    return {
+      type: 930901,
+      quantity: 1,
+      category: "act" as const,
+      label: "Act Boss Box",
+      uniqueId: uid,
+    };
+  }
+
+  it("a relaunch anchor change excludes pre-restart act entries even with a short save gap", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tbh-anchor-"));
+    const anchor = join(dir, "Player-prev.log");
+    writeFileSync(anchor, "log");
+    utimesSync(anchor, 1_700_000_000, 1_700_000_000);
+
+    const service = new ChestService();
+    service.setSavePath(join(dir, "SaveFile_Live.es3"));
+    const text = '{"version":"1.2.4"}';
+    const slots: Array<{ act: number }> = [];
+    service.setOnReconcile((s) => slots.push({ act: s.act }));
+
+    // Parse 1 (first run): the pre-existing entry is legacy → excluded.
+    service.onSave(text, 1_000, [actHolding("a1")]);
+    // Parse 2 (same game session): a fresh drop counts.
+    service.onSave(text, 1_060, [actHolding("a1"), actHolding("a2")]);
+
+    // The game relaunches 25 min later — below SESSION_GAP_SEC, so only the
+    // anchor can see it. The pre-restart entries are now ghost-like.
+    utimesSync(anchor, 1_700_002_000, 1_700_002_000);
+    service.onSave(text, 1_060 + 25 * 60, [actHolding("a1"), actHolding("a2")]);
+    // Post-relaunch drop counts again.
+    service.onSave(text, 1_060 + 25 * 60 + 60, [
+      actHolding("a1"),
+      actHolding("a2"),
+      actHolding("a3"),
+    ]);
+
+    expect(slots.map((s) => s.act)).toEqual([0, 1, 0, 1]);
+    expect(service.getChests()?.orphanExclusions).toEqual({ act: 2 });
   });
 });

@@ -19,7 +19,7 @@ import { IPC } from "../../../shared/ipc";
 import { broadcast } from "./broadcast";
 import { createLogger } from "../log";
 import { CHEST_SESSION_SCOPE_FILE } from "./appData";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { app } from "electron";
 
@@ -71,9 +71,49 @@ export class ChestService {
    * （save 每 5s 解析一次，mtime/version 簿记不触发持久化）。
    */
   private sessionScope: SessionScopeState = emptySessionScopeState();
+  /**
+   * Save file path (set by appState). Only used to locate the game's
+   * session-start artifacts next to it — see {@link gameAnchorMtimeSec}.
+   */
+  private savePath: string | null = null;
 
   constructor() {
     this.loadSessionScope();
+  }
+
+  /**
+   * Tell the service where the save lives so it can stat the game's
+   * session-start artifacts. Called at startup and whenever the configured
+   * path changes.
+   */
+  setSavePath(path: string): void {
+    this.savePath = path || null;
+  }
+
+  /**
+   * Mtime (seconds) of an artifact the game only rewrites when it STARTS:
+   * Unity rotates `Player.log` → `Player-prev.log` at every launch, so the
+   * latter's mtime is the current game session's start time. `backend.dat` is
+   * the fallback (also written during startup; observed 2026-09-17 and 09-19).
+   *
+   * This is the reliable game-restart signal: the save mtime alone cannot see
+   * a quick relaunch, because the game writes a save within seconds of loading
+   * (2026-09-19 live: a 25 min relaunch produced only a ~25 min save gap).
+   *
+   * Returns null when the save path is unknown or neither file is present
+   * (custom save locations); callers then fall back to the gap heuristic.
+   */
+  private gameAnchorMtimeSec(): number | null {
+    if (!this.savePath) return null;
+    const dir = dirname(this.savePath);
+    for (const name of ["Player-prev.log", "backend.dat"]) {
+      try {
+        return statSync(join(dir, name)).mtimeMs / 1000;
+      } catch {
+        // try the next artifact
+      }
+    }
+    return null;
   }
 
   onSave(text: string, mtime: number, chests: ChestHolding[]): void {
@@ -185,10 +225,16 @@ export class ChestService {
   private applySessionScopeAndResolve(chests: ChestHolding[], text: string, mtime: number): void {
     try {
       const gameVersion = extractGameVersion(text);
-      const { sessionId, boundary } = deriveSession(this.sessionScope, mtime, gameVersion);
+      const gameAnchor = this.gameAnchorMtimeSec();
+      const { sessionId, boundary } = deriveSession(
+        this.sessionScope,
+        mtime,
+        gameVersion,
+        gameAnchor,
+      );
       if (boundary !== "none") {
         log.info(
-          `chest session boundary (${boundary}) → ${sessionId} (was ${this.sessionScope.sessionId || "none"})`,
+          `chest session boundary (${boundary}) → ${sessionId} (was ${this.sessionScope.sessionId || "none"}, anchor=${gameAnchor ?? "n/a"})`,
         );
       }
       const decision = applySessionScope(chests, this.sessionScope, sessionId);
@@ -200,7 +246,7 @@ export class ChestService {
           `excluded ${decision.excludedActUids.length} pre-session act ghost entries: ${decision.excludedActUids.join(",")}`,
         );
       }
-      this.sessionScope = noteSessionSave(decision.state, mtime, gameVersion);
+      this.sessionScope = noteSessionSave(decision.state, mtime, gameVersion, gameAnchor);
       // 持久化：会话切换 / uid 表变化。mtime 簿记不写盘。
       if (boundary !== "none" || decision.actMapChanged) {
         this.persistSessionScope();

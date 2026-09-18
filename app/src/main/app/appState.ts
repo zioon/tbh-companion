@@ -346,6 +346,9 @@ function reloadLocaleCatalog(): void {
 
 export function startTracking(): SessionUiSnapshot {
   config = loadConfig();
+  // 会话作用域过滤需要存档所在目录（定位游戏启动产物 Player-prev.log/backend.dat
+  // 作为「游戏会话锚点」）；路径变更时在 setConfig / onSavePathChange 同步更新。
+  chests.setSavePath(expandPath(config.savePath));
   inventory.initMarket(config.currency);
   inventory.setAutoScanEnabled(config.marketAutoScanEnabled);
   inventory.setLowValueThresholdUsd(config.marketLowValueThresholdUsd);
@@ -651,6 +654,7 @@ export function getAppServices() {
           setConfig: (c) => {
             config = c;
             tracking.updateConfig(c);
+            chests.setSavePath(expandPath(c.savePath));
           },
           saveConfig,
           getTracker: () => tracking.getTracker(),
@@ -667,7 +671,10 @@ export function getAppServices() {
           pushStats: () => tracking.pushStats(),
           resolveAndPushInventory: () => inventory.resolveAndPushInventory(),
           ensureOwnedPrices: (force) => inventory.ensureOwnedPrices(force),
-          onSavePathChange: () => tracking.onSavePathChanged(),
+          onSavePathChange: () => {
+            chests.setSavePath(expandPath(config.savePath));
+            tracking.onSavePathChanged();
+          },
           setLiveMemoryEnabled: (enabled) => (enabled ? liveMemory.start() : liveMemory.stop()),
           onLiveMemoryToggled: () => tracking.onLiveMemoryToggled(),
           setMarketAutoScanEnabled: (enabled) => inventory.setAutoScanEnabled(enabled),
