@@ -103,9 +103,27 @@ describe("parseInventory", () => {
           : null;
     const snap = parseInventory(wrapPlayer(inner), 0, undefined, classify);
     expect(snap.chests).toEqual([
-      { type: 910901, quantity: 1, category: "common", label: "Normal Monster Box Lv90" },
-      { type: 910901, quantity: 1, category: "common", label: "Normal Monster Box Lv90" },
-      { type: 920901, quantity: 1, category: "rare", label: "Stage Boss Box Lv90" },
+      {
+        type: 910901,
+        quantity: 1,
+        category: "common",
+        label: "Normal Monster Box Lv90",
+        uniqueId: "551278195918946161",
+      },
+      {
+        type: 910901,
+        quantity: 1,
+        category: "common",
+        label: "Normal Monster Box Lv90",
+        uniqueId: "551278195918946189",
+      },
+      {
+        type: 920901,
+        quantity: 1,
+        category: "rare",
+        label: "Stage Boss Box Lv90",
+        uniqueId: "551278195918946217",
+      },
     ]);
   });
 
@@ -136,8 +154,20 @@ describe("parseInventory", () => {
     // 910901(Get 桶) + 920901 + 930901×2 计入；Use 桶里的 910901 排除。
     expect(snap.chests).toHaveLength(4);
     expect(snap.chests.filter((c) => c.type === 930901)).toEqual([
-      { type: 930901, quantity: 1, category: "act", label: "Act Boss Box Lv90" },
-      { type: 930901, quantity: 1, category: "act", label: "Act Boss Box Lv90" },
+      {
+        type: 930901,
+        quantity: 1,
+        category: "act",
+        label: "Act Boss Box Lv90",
+        uniqueId: "551278195918946302",
+      },
+      {
+        type: 930901,
+        quantity: 1,
+        category: "act",
+        label: "Act Boss Box Lv90",
+        uniqueId: "551278195918946305",
+      },
     ]);
   });
 
@@ -148,7 +178,13 @@ describe("parseInventory", () => {
     }`;
     const snap = parseInventory(wrapPlayer(inner), 0, undefined, () => null);
     expect(snap.chests).toEqual([
-      { type: 999999, quantity: 1, category: undefined, label: undefined },
+      {
+        type: 999999,
+        quantity: 1,
+        category: undefined,
+        label: undefined,
+        uniqueId: "551278195918946161",
+      },
     ]);
   });
 

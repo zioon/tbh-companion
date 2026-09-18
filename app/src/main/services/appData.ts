@@ -13,6 +13,7 @@ export const BOX_TIMERS_FILE = "box_timers.json";
 export const STAGE_RUN_FILE = "stage_run_history.json";
 export const RECORD_LOG_FILE = "record_log.json";
 export const SESSION_STATE_FILE = "session_state.json";
+export const CHEST_SESSION_SCOPE_FILE = "chest_session_scope.json";
 export const CONFIG_FILE = "config.json";
 export const LOOKUP_PRICES_FILE = "lookup_prices.json";
 const PRICE_CACHE_PREFIX = "prices.";
@@ -75,8 +76,10 @@ export function getAppDataPaths(userDataDir = resolveUserDataDir()): AppDataPath
     {
       id: "session",
       label: "Session snapshot",
-      files: [SESSION_STATE_FILE],
-      exists: existsSync(join(userDataDir, SESSION_STATE_FILE)),
+      files: [SESSION_STATE_FILE, CHEST_SESSION_SCOPE_FILE],
+      exists:
+        existsSync(join(userDataDir, SESSION_STATE_FILE)) ||
+        existsSync(join(userDataDir, CHEST_SESSION_SCOPE_FILE)),
     },
     {
       id: "config",
@@ -111,7 +114,7 @@ export function filesForClearTarget(
     case "record-log":
       return [RECORD_LOG_FILE];
     case "session":
-      return [SESSION_STATE_FILE];
+      return [SESSION_STATE_FILE, CHEST_SESSION_SCOPE_FILE];
     case "all-except-config":
       return [
         ...listPriceCacheFiles(userDataDir),

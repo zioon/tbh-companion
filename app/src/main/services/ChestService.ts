@@ -6,10 +6,22 @@ import {
   parseRuneSaveData,
   type RunePurchase,
 } from "../../core/boxes";
+import {
+  applySessionScope,
+  deriveSession,
+  emptySessionScopeState,
+  extractGameVersion,
+  noteSessionSave,
+  type SessionScopeState,
+} from "../../core/boxes/sessionScope";
 import type { ChestHolding, ChestState } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
 import { broadcast } from "./broadcast";
 import { createLogger } from "../log";
+import { CHEST_SESSION_SCOPE_FILE } from "./appData";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { app } from "electron";
 
 const log = createLogger("chests");
 
@@ -53,9 +65,19 @@ export class ChestService {
    * 的旧版本。
    */
   private liveSlotsOverride: ChestSlotCounts | null = null;
+  /**
+   * v1.2.4 act 幽灵防护的会话作用域状态（core/boxes/sessionScope.ts）。
+   * Load-once / persist-on-change：仅在 sessionId 变化或 act uid 表变化时写盘
+   * （save 每 5s 解析一次，mtime/version 簿记不触发持久化）。
+   */
+  private sessionScope: SessionScopeState = emptySessionScopeState();
+
+  constructor() {
+    this.loadSessionScope();
+  }
 
   onSave(text: string, mtime: number, chests: ChestHolding[]): void {
-    this.resolveAndPush(chests, text, mtime);
+    this.applySessionScopeAndResolve(chests, text, mtime);
   }
 
   /**
@@ -124,6 +146,15 @@ export class ChestService {
   }
 
   private resolveAndPush(chests: ChestHolding[], text: string, mtime: number): void {
+    this.buildPush(chests, text, mtime, undefined);
+  }
+
+  private buildPush(
+    chests: ChestHolding[],
+    text: string,
+    mtime: number,
+    orphanActExclusions: number | undefined,
+  ): void {
     try {
       const purchases = parseRuneSaveData(text);
       this.lastRunePurchases = purchases;
@@ -135,10 +166,87 @@ export class ChestService {
         this.runeCap,
         this.runeAutoOpen,
       );
+      if (orphanActExclusions != null && orphanActExclusions > 0) {
+        this.lastChests = { ...this.lastChests, orphanExclusions: { act: orphanActExclusions } };
+      }
       this.reconcile();
       broadcast(IPC.CHESTS, this.lastChests);
     } catch (err) {
       log.error(`resolveAndPush chests failed: ${String(err)}`);
+    }
+  }
+
+  /**
+   * 会话作用域过滤 + 解析推送。v1.2.4 起 act（章节 Boss 箱）条目可能作为
+   * 幽灵残留在 itemSaveDatas（游戏升级加载时未恢复、也不再显示），过滤掉
+   * 游戏会话开始前已存在的 act 条目，使 Chests 卡与 BoxTimer 队列和游戏内
+   * 一致。见 core/boxes/sessionScope.ts 顶部的不变量说明。
+   */
+  private applySessionScopeAndResolve(chests: ChestHolding[], text: string, mtime: number): void {
+    try {
+      const gameVersion = extractGameVersion(text);
+      const { sessionId, boundary } = deriveSession(this.sessionScope, mtime, gameVersion);
+      if (boundary !== "none") {
+        log.info(
+          `chest session boundary (${boundary}) → ${sessionId} (was ${this.sessionScope.sessionId || "none"})`,
+        );
+      }
+      const decision = applySessionScope(chests, this.sessionScope, sessionId);
+      // 采纳（可能新的）sessionId —— deriveSession 只计算不写入，若不回写，
+      // 状态里的 sessionId 永远为空，每个 parse 都会被当成首次运行。
+      decision.state.sessionId = sessionId;
+      if (decision.excludedActUids.length > 0) {
+        log.info(
+          `excluded ${decision.excludedActUids.length} pre-session act ghost entries: ${decision.excludedActUids.join(",")}`,
+        );
+      }
+      this.sessionScope = noteSessionSave(decision.state, mtime, gameVersion);
+      // 持久化：会话切换 / uid 表变化。mtime 簿记不写盘。
+      if (boundary !== "none" || decision.actMapChanged) {
+        this.persistSessionScope();
+      }
+      // 单次构建/广播路径：排除数在 buildChestState 之后附加。
+      this.buildPush(
+        decision.chests,
+        text,
+        mtime,
+        decision.excludedActUids.length > 0 ? decision.excludedActUids.length : undefined,
+      );
+    } catch (err) {
+      // 过滤器任何异常都不应阻塞 chest 状态更新 —— 降级为不过滤。
+      log.error(`session scope filter failed: ${String(err)}`);
+      this.resolveAndPush(chests, text, mtime);
+    }
+  }
+
+  private persistSessionScope(): void {
+    try {
+      const path = this.sessionScopePath();
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, JSON.stringify(this.sessionScope, null, 2));
+    } catch (err) {
+      log.warn(`chest session scope persist failed: ${(err as Error).message}`);
+    }
+  }
+
+  private sessionScopePath(): string {
+    try {
+      return join(app.getPath("userData"), CHEST_SESSION_SCOPE_FILE);
+    } catch {
+      return join(process.cwd(), CHEST_SESSION_SCOPE_FILE);
+    }
+  }
+
+  private loadSessionScope(): void {
+    try {
+      const path = this.sessionScopePath();
+      if (!existsSync(path)) return;
+      const raw = JSON.parse(readFileSync(path, "utf-8")) as SessionScopeState;
+      if (raw && typeof raw === "object" && raw.version === 1 && typeof raw.act === "object") {
+        this.sessionScope = raw;
+      }
+    } catch (err) {
+      log.warn(`Could not read ${CHEST_SESSION_SCOPE_FILE}: ${(err as Error).message}`);
     }
   }
 

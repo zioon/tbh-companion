@@ -295,14 +295,22 @@ function parseChests(
       // gamedata 未知 id：仅当出现在未开桶中才作为（unclassified）箱子计入，
       // 避免误收装备/材料等非箱子物品。
       if (uniqueId == null || !unopenedIds.has(uniqueId)) continue;
-      chests.push({ type: itemKey, quantity: 1 });
+      chests.push({ type: itemKey, quantity: 1, uniqueId });
       continue;
     }
     // 已知 STAGEBOX 箱子：只要不在已开桶即视为持有。
     // 章节 Boss 箱的 UniqueId 可能既不在 Get 也不在 Use 桶（v1.2.2 实测，
     // 910901/920901 在 Get 而 930901 两桶皆不在），若严格限定"未开桶"会把
     // 章节 Boss 箱误判为已开而丢弃 —— 即"掉落章节宝箱后队列被误归零"。
-    chests.push({ type: itemKey, quantity: 1, category: meta.category, label: meta.label });
+    // uniqueId 供会话作用域过滤（core/boxes/sessionScope.ts）识别 v1.2.4
+    // 跨会话遗留的 act 幽灵条目。
+    chests.push({
+      type: itemKey,
+      quantity: 1,
+      category: meta.category,
+      label: meta.label,
+      uniqueId: uniqueId ?? undefined,
+    });
   }
   return chests;
 }

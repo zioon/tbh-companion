@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, readdirSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ChestState } from "../../shared/types";
+
+// ChestService reads the userData dir via electron's app.getPath for the
+// session-scope state file. Point it at a throwaway temp dir so tests neither
+// pollute the repo cwd nor read a developer's real state file.
+const tmpUserData = mkdtempSync(join(tmpdir(), "tbh-chest-service-test-"));
+vi.mock("electron", () => ({
+  app: { getPath: (_name: string) => tmpUserData },
+}));
 
 // Mock the boxes module so we can control buildChestState output without
 // loading real catalog files from disk. vi.hoisted ensures the mock fn is
@@ -281,5 +292,76 @@ describe("ChestService.getRunePurchases", () => {
 
     service.onSave("text", 1000, []);
     expect(service.getRunePurchases()).toEqual([{ runeKey: 1171, level: 1 }]);
+  });
+});
+
+describe("ChestService session-scope act ghost filter", () => {
+  beforeEach(() => {
+    // Start each test from a clean persisted state (the earlier describes in
+    // this file already created one in the shared temp dir).
+    for (const f of readdirSync(tmpUserData)) unlinkSync(join(tmpUserData, f));
+    mockBuildChestState.mockReset();
+    // Map filtered holdings to a ChestState whose actBoss.quantity is the
+    // number of surviving act entries.
+    mockBuildChestState.mockImplementation((chests: Array<{ category?: string }>) => {
+      const act = chests.filter((c) => c.category === "act").length;
+      return makeChestState(0, 0, act);
+    });
+  });
+
+  function actHolding(uid: string) {
+    return {
+      type: 930901,
+      quantity: 1,
+      category: "act" as const,
+      label: "Act Boss Box",
+      uniqueId: uid,
+    };
+  }
+
+  it("first run excludes pre-existing act entries (legacy provenance)", () => {
+    const service = new ChestService();
+    const slots: Array<{ act: number }> = [];
+    service.setOnReconcile((s) => slots.push({ act: s.act }));
+    // text carries the game version the filter parses.
+    service.onSave('{"version":"1.2.4"}', 1000, [actHolding("ghost1")]);
+    expect(slots).toEqual([{ act: 0 }]);
+    expect(service.getChests()?.orphanExclusions).toEqual({ act: 1 });
+  });
+
+  it("same-session act drops are counted; after a version boundary the stale ones drop out", () => {
+    const service = new ChestService();
+    const slots: Array<{ act: number }> = [];
+    service.setOnReconcile((s) => slots.push({ act: s.act }));
+
+    // First parse: legacy entry excluded.
+    service.onSave('{"version":"1.2.4"}', 1000, [actHolding("ghost1")]);
+    // Second parse same session: a fresh act drop joins and is counted.
+    service.onSave('{"version":"1.2.4"}', 1100, [actHolding("ghost1"), actHolding("fresh1")]);
+    expect(slots).toEqual([{ act: 0 }, { act: 1 }]);
+    expect(service.getChests()?.orphanExclusions).toEqual({ act: 1 });
+
+    // Game upgrade (version change) => new session: the previously fresh
+    // entry is now pre-session and excluded (the game did not restore it).
+    service.onSave('{"version":"1.2.5"}', 1200, [actHolding("ghost1"), actHolding("fresh1")]);
+    expect(slots).toEqual([{ act: 0 }, { act: 1 }, { act: 0 }]);
+  });
+
+  it("persists session state across service restarts (no re-exclusion within a session)", () => {
+    const first = new ChestService();
+    // First-ever parse: the pre-existing entry is legacy → excluded.
+    first.onSave('{"version":"1.2.4"}', 1000, [actHolding("fresh1")]);
+    expect(first.getChests()?.actBoss.quantity).toBe(0);
+    // A fresh drop in the same parse sequence is counted.
+    first.onSave('{"version":"1.2.4"}', 1100, [actHolding("fresh1"), actHolding("fresh2")]);
+    expect(first.getChests()?.actBoss.quantity).toBe(1);
+
+    // Simulate an app restart: a new instance reads the persisted state,
+    // stays in the same session, so the mid-session entry is still counted
+    // and the legacy entry stays excluded.
+    const second = new ChestService();
+    second.onSave('{"version":"1.2.4"}', 1200, [actHolding("fresh1"), actHolding("fresh2")]);
+    expect(second.getChests()?.actBoss.quantity).toBe(1);
+    expect(second.getChests()?.orphanExclusions).toEqual({ act: 1 });
   });
 });

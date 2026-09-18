@@ -160,6 +160,11 @@ export function Chests() {
             fillVariant="green"
           />
         </div>
+        {chests.orphanExclusions && chests.orphanExclusions.act > 0 ? (
+          <p className="m-0 text-xs text-muted">
+            {t("orphanExcluded", { count: chests.orphanExclusions.act })}
+          </p>
+        ) : null}
       </section>
 
       <HeldChestsSection chests={chests} sources={sources} />

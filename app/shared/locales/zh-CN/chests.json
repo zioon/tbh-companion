@@ -95,5 +95,6 @@
     "reset": "重置",
     "dropped": "已掉落",
     "configureLink": "在“宝箱”标签页配置"
-  }
+  },
+  "orphanExcluded": "已排除 {{count}} 个跨游戏会话遗留的章节 Boss 箱条目（游戏内已不可见）"
 }

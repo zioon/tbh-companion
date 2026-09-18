@@ -95,5 +95,6 @@
     "reset": "Reset",
     "dropped": "Dropped",
     "configureLink": "Configure on Chests tab"
-  }
+  },
+  "orphanExcluded": "Excluded {{count}} act boss chest entries left over from a previous game session (no longer visible in game)"
 }

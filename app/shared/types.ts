@@ -705,6 +705,13 @@ export interface ChestHolding {
    */
   category?: BoxCategory;
   label?: string;
+  /**
+   * v1.2.2+：物品实例的原始 UniqueId（超出 Number.MAX_SAFE_INTEGER 的十进制
+   * 字符串，仅在 playerStr 原始文本上提取）。旧 BoxData 路径无此字段。
+   * 供会话作用域过滤（core/boxes/sessionScope.ts）识别跨游戏会话遗留的
+   * act 幽灵条目。
+   */
+  uniqueId?: string;
 }
 
 export interface InventorySnapshot {
@@ -1464,6 +1471,12 @@ export interface ChestState {
   };
   totalHeld: number;
   saveMtime: number;
+  /**
+   * v1.2.4 幽灵防护（core/boxes/sessionScope.ts）：被会话作用域过滤排除的
+   * act 条目数（跨游戏会话遗留、游戏内已不可见但 itemSaveDatas 未清除）。
+   * 省略 = 本轮未启用过滤或无排除。
+   */
+  orphanExclusions?: { act: number };
   /** @deprecated use capacity.common.runeBonus */
   runeBonusSlots: number;
 }
