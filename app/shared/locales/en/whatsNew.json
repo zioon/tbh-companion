@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.24.1": {
+      "title": "What's new in v1.24.1",
+      "bullets": [
+        "Act boss chest counts no longer include ghost entries left over from an earlier game session — v1.2.4 never restores them in game.",
+        "Those leftovers also stop creating auto-open queue entries that never counted down; the Chests tab shows how many were excluded."
+      ]
+    },
     "1.24.0": {
       "title": "What's new in v1.24.0",
       "bullets": [

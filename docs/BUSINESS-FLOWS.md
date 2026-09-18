@@ -2187,6 +2187,29 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 
 另注：方案 B 曾长期静默失效的直接原因是 utilityProcess 消息未解包——`process.parentPort.on("message")` 回调收到的是事件对象 `{data: payload}`，真实载荷在 `.data` 上（`worker.ts` 已修复，"stop" 指令曾同样因此失效）。
 
+#### 13.5.1 v1.2.4 act 幽灵条目与会话作用域过滤（2026-09-18）
+
+**现象**：游戏升到 v1.2.4 后，Chests 页 act 槽位卡显示 4 个章节 Boss 箱、BoxTimer 队列出现 4 个永不倒计时的幽灵条目，而游戏内宝箱面板显示 0。
+
+**根因**（用真实存档 + 每日备份时间序列实证）：
+
+1. v1.2.2 起 act（930901）箱子**从不进入** `BoxBucketGetBoxList`/`BoxBucketUseBoxList`（v1.2.4 未变），仅以 STAGEBOX 物品存在于 `itemSaveDatas`——真实在持与已开的区分只能靠"条目消失"（开箱时游戏直接删除条目，且不写入 UseBoxList）。
+2. 2026-09-17 06:26–12:30 之间（v1.2.4 升级加载点 12:28 前后），存档出现 4 条连续 UID 的 act 条目（与同窗口的 rare 箱 UID 交错 ⇒ 老版本会话内掉落）。
+3. v1.2.4 加载存档时恢复了 common/rare（走 GetBoxList）但**没有恢复这些 act 条目**——游戏内从此显示 0，而这 4 条在 itemSaveDatas 中**永久残留**（后续同会话掉落的 10 个 act 箱正常掉落/开箱/消失，佐证开箱删除机制本身正常）。
+4. 旧规则「已知 STAGEBOX 且不在 Use 桶即持有」把这 4 条幽灵全部计入 → act=4 多算；AutoClassify reconcile 又以此校准队列 → BoxTimer 出现永不开启的条目。
+5. UID 全文检索确认：幽灵条目在全存档中仅 itemSaveDatas 一处引用；但真实在持 act 箱亦然——**桶与存档内部结构均无法区分幽灵与在持**。
+
+**修复**：会话作用域过滤（`app/src/core/boxes/sessionScope.ts`，纯函数 + 单测）：
+
+- 不变量（v1.2.4 实证）：**凡游戏会话开始时就已存在于存档的 act 条目，游戏内必然不可见**。因此 act 持有数 = 本游戏会话内首次出现的 act 条目。
+- 会话边界判定（`deriveSession`）：游戏版本变化（升级重启）＞ 存档 mtime 回退（换档/回档）＞ 距上次存档超 30 分钟（游戏关闭）。
+- 首次启用过滤时的存量 act 条目按 `LEGACY_SESSION_ID` 记录并**保守排除**（来源不可知）。
+- 仅作用于 `act` 类别；无 `uniqueId` 的条目（旧 BoxData 路径）直接放行；`common/rare` 走 GetBoxList 恢复、不受影响；**`plagueAct` 行为未实证，暂不过滤（观察项）**。
+- 状态持久化在 `userData/chest_session_scope.json`（load-once / persist-on-change；仅会话切换或 uid 表变化时写盘），companion 重启不丢会话上下文。
+- `parseChests` 现在为每条 holding 传播原始 `uniqueId`（字符串，非数值化）；`ChestState.orphanExclusions.act` 向 UI 报告本轮排除数（Chests 页 act 卡下方提示）。
+
+**已知权衡**：若某游戏版本恢复了「act 箱跨重启保留」，本过滤会在每次游戏重启后短暂少计 act（直到下一次 act 掉落重新入账）。这是「无法从存档区分幽灵」前提下的保守取舍。
+
 ### 13.6 v1.02.00 Plague（瘟疫）宝箱：独立保管槽位
 
 游戏 v1.02.00（瘟疫之地/Plaguelands）新增**污染宝箱**（Contaminated Box，CONTENTTYPE=PLAGUE），与普通宝箱**分开保管**（wiki 确认「通常エリアの宝箱とは別に保管」，容量/自动开箱由专用符文节点控制）：
