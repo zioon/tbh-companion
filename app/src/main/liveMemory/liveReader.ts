@@ -35,6 +35,7 @@ import {
 } from "./liveMemoryCacheDir";
 import {
   ACQUIRE_RING_CAPACITY,
+  ACQUIRE_RECOVERY_MAX,
   dumpRuntimeAcquireRing,
   isLiveLogManager,
   makeAcquireRingPinState,
@@ -314,6 +315,10 @@ export class LiveMemoryReader {
   private lastAcquireCapacity: number | null = null;
   /** One-shot guard for the `ring+0x18` capacity self-check log. */
   private acquireCapacityMismatchLogged = false;
+  /** Rate-limits the base-rejection diagnostic (once per minute). */
+  private lastBaseRejectionLogAt = 0;
+  /** Rate-limits the ring-lag diagnostic (the lag is long-lived by nature). */
+  private lastRingLagLogAt = 0;
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
   /** Throttle for the "read: stage null" diagnostic log (avoid spamming every tick). */
   private lastSmFailLogAt: number | null = null;
@@ -1280,6 +1285,58 @@ export class LiveMemoryReader {
           `acquire ring re-anchored: session base=${res.reanchoredBase} ` +
             `(fill=${res.fillCount ?? "full"} counter=${res.total})`,
         );
+      }
+      // Session-base adoption/rejection diagnostics. Adoptions used to be
+      // silent when the pin did not need a jump — the 2026-09-18 mapping
+      // corruption shipped exactly through that blind spot.
+      if (res.baseAdopted != null) {
+        this.log(
+          `acquire session base adopted: ${res.baseAdopted.from ?? "none"} -> ${res.baseAdopted.to} ` +
+            `(counter=${res.total} fill=${res.fillCount ?? "full"}, probe-verified)`,
+        );
+      }
+      if (res.baseRejected != null) {
+        const now = Date.now();
+        if (now - this.lastBaseRejectionLogAt >= 60_000) {
+          this.lastBaseRejectionLogAt = now;
+          this.log(
+            `acquire session base candidate REJECTED (kept ${this.acquirePin.sessionBase ?? "none"}): ` +
+              `candidate=${res.baseRejected.candidate} — ${res.baseRejected.reason} ` +
+              `(counter=${res.total} fill=${res.fillCount ?? "full"})`,
+          );
+        }
+      }
+      // Stamp-guard verdicts. Recovery keeps the healthy prefix of the batch
+      // (may be empty) — log before the empty-batch early return so the event
+      // is always visible.
+      if (res.mappingRecovered) {
+        this.log(
+          `acquire mapping RECOVERED: reader was mis-anchored — a full-ring head scan found newer ` +
+            `content (head slot=${res.headSlot ?? "?"}) than the delivered position; the slot mapping ` +
+            `was re-anchored onto the write head and slot identities rebuilt ` +
+            `(recovery #${this.acquirePin.recoveryCount} of ${ACQUIRE_RECOVERY_MAX})`,
+        );
+      }
+      if (res.mappingSuspect) {
+        this.log(
+          `acquire mapping SUSPECT: mis-anchor persists after ${ACQUIRE_RECOVERY_MAX} re-anchors — ` +
+            `delivering UNVERIFIED entries; capture a TBH_ACQUIRE_DUMP=1 ring dump for analysis`,
+        );
+      }
+      // The ring itself lags the game's event stream (game-side backlog drain):
+      // the reader is AT the newest content (verified by the head scan) and the
+      // companion mirrors the ring faithfully — nothing can be read that the
+      // ring does not hold. Logged so the lag is never mistaken for a read bug.
+      if (res.ringLagMin != null) {
+        const now = Date.now();
+        if (now - this.lastRingLagLogAt >= 60_000) {
+          this.lastRingLagLogAt = now;
+          this.log(
+            `acquire ring lag: newest ring content is ${res.ringLagMin} min behind the wall clock ` +
+              `(head slot=${res.headSlot ?? "?"}, counter=${res.total}) — the GAME has not written ` +
+              `newer records; the companion mirrors the ring faithfully (no read fault)`,
+          );
+        }
       }
       // Capacity self-check. `ring+0x18` declares the modulus (live-verified
       // 2000, backing array 2048). A future game build changing it would

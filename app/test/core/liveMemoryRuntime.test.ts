@@ -22,6 +22,7 @@ import {
   makeAcquireRingPinState,
   readRuntimeAcquireLogs,
   ACQUIRE_HOLD_RELEASE_MS,
+  ACQUIRE_RECOVERY_MAX,
   type GoldPinState,
 } from "../../src/core/liveMemory/runtime";
 import { offsetsForVersion } from "../../src/core/liveMemory/offsets";
@@ -2141,6 +2142,19 @@ describe("readRuntimeAcquireLogs", () => {
     return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   }
 
+  /**
+   * Wall-clock ms whose LOCAL time-of-day equals `stamp` — aligns the stamp
+   * guard's wall anchor with the fake ring's in-game stamps (the guard
+   * compares delivered stamps against the wall clock; the game's stamps track
+   * the wall 1:1).
+   */
+  function msForStamp(stamp: string): number {
+    const [h, m] = stamp.split(":").map(Number);
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d.getTime();
+  }
+
   /** Wrapped ring whose slots hold indices `[from, to)`; counter left at `to`. */
   function seedWrappedRing(m: FakeMemory, from: number, to: number): FakeMemory {
     for (let i = from; i < to; i++) writeAcquireEntry(m, i, `msg ${i}`, acquireStampFor(i));
@@ -2180,7 +2194,7 @@ describe("readRuntimeAcquireLogs", () => {
     writeDotNetString(m, msgAddr + 0x100n, "[17:47]");
     m.writePtr(entryPtr + 0x28n, msgAddr + 0x100n);
 
-    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("17:47"));
     expect(res?.entries).toHaveLength(1);
     expect(res?.entries[0].message).toContain("骰子");
     expect(pin.total).toBe(3);
@@ -2231,7 +2245,7 @@ describe("readRuntimeAcquireLogs", () => {
     const r2a = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
     expect(r2a?.entries).toHaveLength(0);
     expect(r2a?.reanchoredBase).toBeNull();
-    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("18:01"));
     // NOT a restart: indices keep running, the fresh backlog is a plain increment.
     expect(r2?.restartDetected).toBe(false);
     expect(r2?.reanchoredBase).toBe(36161);
@@ -2241,7 +2255,7 @@ describe("readRuntimeAcquireLogs", () => {
     // Steady increment afterwards maps slots relative to the new base.
     writeSessionEntry(m, 36163, 36161, "new C", "18:03");
     m.writeI32(ACQ_RING + 0x1cn, 36164).writeI32(ACQ_RING + 0x18n, 3);
-    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("18:01"));
     expect(r3?.entries.map((e) => e.message)).toEqual(["new C"]);
     expect(r3?.reanchoredBase).toBeNull();
     expect(pin.total).toBe(36164);
@@ -2262,7 +2276,7 @@ describe("readRuntimeAcquireLogs", () => {
     expect(r1?.resumed).toBe(true);
     expect(r1?.entries).toHaveLength(0);
     expect(r1?.reanchoredBase).toBeNull();
-    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("18:01"));
     expect(res?.restartDetected).toBe(false);
     expect(res?.reanchoredBase).toBe(36161);
     expect(res?.entries.map((e) => e.seq)).toEqual([36162, 36163]);
@@ -2274,7 +2288,7 @@ describe("readRuntimeAcquireLogs", () => {
     const m = seedAcquireRing(new FakeMemory(), [{ msg: "a", time: "17:45" }]);
     readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin); // initial, base calibrated to 0
     writeAcquireEntry(m, 1, "b", "17:46"); // fill 2, counter 2 → base still 0
-    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("17:46"));
     expect(res?.entries.map((e) => e.message)).toEqual(["b"]);
     expect(res?.reanchoredBase).toBeNull();
     expect(res?.fillCount).toBe(2);
@@ -2303,7 +2317,7 @@ describe("readRuntimeAcquireLogs", () => {
     // slots 0..499 overwritten by the wrap. The calibrated base stays 0, so
     // every wrapped slot still maps onto the entry the game wrote there.
     seedWrappedRing(m, 1500, 2500);
-    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("12:30"));
     expect(r2?.entries).toHaveLength(1000);
     expect(r2?.entries[0]?.seq).toBe(1501);
     expect(r2?.entries[0]?.message).toBe("msg 1500");
@@ -2314,7 +2328,7 @@ describe("readRuntimeAcquireLogs", () => {
     // Steady wrap: one more append lands on slot 0 (the overwritten oldest)
     // and delivers as a plain increment.
     writeAcquireEntry(m, 2500, "msg 2500", acquireStampFor(2500));
-    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("12:30"));
     expect(r3?.entries.map((e) => e.message)).toEqual(["msg 2500"]);
     expect(r3?.reanchoredBase).toBeNull();
     expect(pin.total).toBe(2501);
@@ -2330,17 +2344,26 @@ describe("readRuntimeAcquireLogs", () => {
     writeSessionEntry(m, 36161, 36161, "n0", "18:01");
     m.writeI32(ACQ_RING + 0x1cn, 36162).writeI32(ACQ_RING + 0x18n, 1);
     readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin); // pending
-    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("18:01"));
     expect(r2?.reanchoredBase).toBe(36161);
     expect(pin.total).toBe(36162);
 
     // The wiped session itself runs to saturation (2000 entries) and wraps:
     // the oldest entries (slots 0..160) are overwritten while fill stays 2000.
     for (let k = 36162; k <= 38161; k++) {
-      writeSessionEntry(m, k, 36161, `msg ${k}`, acquireStampFor(k % 2000));
+      // Stamps follow the ring index (the game stamps real write time), so the
+      // delivered batch crosses midnight forward once instead of jumping back.
+      writeSessionEntry(m, k, 36161, `msg ${k}`, acquireStampFor(k));
     }
     m.writeI32(ACQ_RING + 0x1cn, 38162).writeI32(ACQ_RING + 0x18n, 2000);
-    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r3 = readRuntimeAcquireLogs(
+      m,
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      pin,
+      msForStamp(acquireStampFor(36162)),
+    );
     expect(r3?.entries).toHaveLength(2000);
     expect(r3?.entries[0]?.seq).toBe(36163);
     expect(r3?.entries[0]?.message).toBe("msg 36162");
@@ -2369,7 +2392,7 @@ describe("readRuntimeAcquireLogs", () => {
     // A watermark more than one ring behind the counter — e.g. one that
     // predates the wipe AND the re-saturation — is rejected by the resume gate
     // itself and falls through to the fresh full-window anchor (covered above).
-    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("10:15"));
     expect(r1?.resumed).toBe(true);
     // seq is the ring index + 1 (1-based), mirroring the game's own numbering.
     expect(r1?.entries.map((e) => e.seq)).toEqual([38157, 38158, 38159, 38160, 38161, 38162]);
@@ -2383,7 +2406,7 @@ describe("readRuntimeAcquireLogs", () => {
     // pre-wrap entry) delivers normally with no re-anchor needed.
     writeSessionEntry(m, 38162, 36161, "msg 38162", acquireStampFor(38162 % 2000));
     m.writeI32(ACQ_RING + 0x1cn, 38163).writeI32(ACQ_RING + 0x18n, 2000);
-    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("10:15"));
     expect(r2?.entries.map((e) => e.message)).toEqual(["msg 38162"]);
     expect(r2?.reanchoredBase).toBeNull();
     expect(pin.total).toBe(38163);
@@ -2408,7 +2431,7 @@ describe("readRuntimeAcquireLogs", () => {
     m.writePtr(entryPtr + 0x20n, msgAddr);
     writeDotNetString(m, msgAddr + 0x100n, "[17:47]");
     m.writePtr(entryPtr + 0x28n, msgAddr + 0x100n);
-    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("17:47"));
     expect(r2?.entries).toHaveLength(1);
     expect(r2?.entries[0].message).toContain("骰子");
     expect(pin.total).toBe(3);
@@ -2463,7 +2486,7 @@ describe("readRuntimeAcquireLogs", () => {
     for (let i = 2500; i < 2505; i++) writeAcquireEntry(m, i, `msg ${i}`, acquireStampFor(i));
     m.writeI32(ACQ_RING + 0x1cn, 2510);
 
-    const second = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const second = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("14:10"));
     expect(second?.entries.map((e) => e.message)).toEqual([
       "msg 2500",
       "msg 2501",
@@ -2482,14 +2505,14 @@ describe("readRuntimeAcquireLogs", () => {
     const timeAddr = 0x300000n + BigInt(505 * 0x300) + 0x100n;
     writeDotNetString(m, timeAddr, "[23:59]");
     m.writePtr(slot505Entry + 0x28n, timeAddr);
-    const stillHeld = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const stillHeld = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("14:10"));
     expect(stillHeld?.heldAt).toBe(2505);
     expect(stillHeld?.heldReason).toBe("stale-slot");
 
     // Once the game rewrites the held slot the hold resolves — nothing is lost.
     writeAcquireEntry(m, 2505, "msg 2505", acquireStampFor(2505));
     m.writeI32(ACQ_RING + 0x1cn, 2510);
-    const third = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const third = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("14:10"));
     expect(third?.entries.map((e) => e.message)).toEqual(["msg 2505"]);
     expect(pin.total).toBe(2506);
   });
@@ -2532,7 +2555,7 @@ describe("readRuntimeAcquireLogs", () => {
     pin.resumeTotal = 29500;
     // The ring has since moved one entry ahead.
     const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 27501, 29501);
-    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("11:10"));
     expect(res?.resumed).toBe(true);
     expect(res?.entries).toHaveLength(1);
     expect(res?.entries[0].message).toBe("msg 29500");
@@ -2580,7 +2603,7 @@ describe("readRuntimeAcquireLogs", () => {
     // One full ring later (index 4000 = slot 0 again) the content differs →
     // stride = 4000 - 2000 = the ring's true capacity.
     for (let i = 2500; i <= 4000; i++) writeAcquireEntry(m, i, `msg ${i}`, acquireStampFor(i));
-    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("14:10"));
     expect(res?.capacityEstimate).toBe(2000);
     expect(pin.capacityEstimate).toBe(2000);
   });
@@ -2588,19 +2611,22 @@ describe("readRuntimeAcquireLogs", () => {
   it("releases the hold once the counter keeps moving past it (loud escape hatch)", () => {
     const pin = makeAcquireRingPinState();
     const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 500, 2500);
-    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, 0);
+    // Hold-timing base aligned with the ring's stamps (the stamp guard's wall
+    // anchor must not fire on the released delivery) — relative deltas preserved.
+    const HOLD_T0 = msForStamp("14:10");
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, HOLD_T0);
     expect(pin.total).toBe(2500);
 
     // Counter advances every second while slot 500 is never rewritten.
     m.writeI32(ACQ_RING + 0x1cn, 2501);
-    expect(readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, 1_000)?.heldReason).toBe(
-      "stale-slot",
-    );
+    expect(
+      readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, HOLD_T0 + 1_000)?.heldReason,
+    ).toBe("stale-slot");
 
     let released = false;
     for (let t = 2_000; t <= ACQUIRE_HOLD_RELEASE_MS + 5_000; t += 1_000) {
       m.writeI32(ACQ_RING + 0x1cn, 2501 + t / 1_000);
-      const r = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, t);
+      const r = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, HOLD_T0 + t);
       if (r?.heldReason === "released") {
         released = true;
         expect(r.entries).toHaveLength(1);
@@ -2623,6 +2649,207 @@ describe("readRuntimeAcquireLogs", () => {
       expect(r?.entries).toHaveLength(0);
     }
     expect(pin.total).toBe(2500);
+  });
+
+  // ── stamp guard + write-head scan (2026-09-19) ─────────────────────────────
+  // The game's stamps track the wall clock 1:1, so a delivered stamp that
+  // deviates from the wall betrays ONE of two things — and a full-ring head
+  // scan tells them apart: the reader is mis-anchored (fix the mapping onto the
+  // head) or the RING itself lags the game's event stream (nothing to fix; the
+  // companion mirrors the ring faithfully — live 2026-09-19: an 8 h lag with
+  // pin == counter and the base untouched).
+
+  it("re-anchors the slot mapping onto the write head when the reader is mis-anchored", () => {
+    const pin = makeAcquireRingPinState();
+    // Full ring, head = index 2499 (slot 499), stamps 10:00 + 0.1 min/index.
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 0, 2500);
+    const WALL = msForStamp(acquireStampFor(2499)); // 14:09 — the head is fresh
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL); // initial (disarmed)
+    expect(pin.total).toBe(2500);
+
+    // The game appends the head's successor (slot 500) …
+    writeAcquireEntry(m, 2500, "head", acquireStampFor(2500));
+    // … and the mapping drifts: a stale base makes the pin map ~2000 slots off,
+    // so the reader would deliver ~3 h-old content while the head is fresh.
+    // Slot identities are empty here, matching the states a drift can occur in
+    // (fresh/resumed pin, post-wipe re-anchor) — otherwise the hold guard would
+    // stop the reader at the already-delivered slot instead of delivering it.
+    pin.sessionBase = 1999;
+    pin.slotIdentity.fill(null);
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    expect(res?.mappingRecovered).toBe(true);
+    expect(res?.entries).toHaveLength(0); // mis-anchored batch dropped
+    expect(res?.headSlot).toBe(500);
+    expect(res?.ringLagMin).toBe(1); // the head IS fresh — we were the problem
+    expect(pin.total).toBe(2500); // pin stays put (no label jump)
+    // Re-anchored so that slot(pin) == head.
+    expect(pin.sessionBase).toBe((2500 - 500) % 2000);
+    expect((((pin.total - (pin.sessionBase ?? 0)) % 2000) + 2000) % 2000).toBe(500);
+
+    // The newest entry (the head) is delivered next, then the guard paces the
+    // game's following append.
+    const head = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    expect(head?.entries.map((e) => e.message)).toEqual(["head"]);
+    expect(head?.mappingRecovered).toBe(false);
+    writeAcquireEntry(m, 2501, "fresh", acquireStampFor(2501));
+    const next = readRuntimeAcquireLogs(
+      m,
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      pin,
+      msForStamp(acquireStampFor(2501)),
+    );
+    expect(next?.entries.map((e) => e.message)).toEqual(["fresh"]);
+    expect(pin.total).toBe(2502);
+  });
+
+  it("does NOT recover when the ring itself lags the game (game-side backlog drain)", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 0, 1500);
+    // The ring holds content through 12:29 while the wall clock reads 23:00:
+    // the game has not written newer records — the companion is at the newest
+    // content and must NOT discard its faithful reads as "corruption".
+    const WALL = msForStamp("23:00");
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL); // initial (disarmed)
+    writeAcquireEntry(m, 1500, "msg 1500", acquireStampFor(1500));
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    expect(res?.mappingRecovered).toBe(false);
+    expect(res?.mappingSuspect).toBe(false);
+    expect(res?.entries.map((e) => e.message)).toEqual(["msg 1500"]);
+    expect(res?.headSlot).toBe(1500);
+    expect(res?.ringLagMin).toBe(630); // 23:00 − 12:30 — reported, not "fixed"
+    // Mapping untouched (base 0 ≡ the null fallback; settled without a probe).
+    expect(pin.sessionBase).toBe(0);
+    expect(pin.total).toBe(1501);
+
+    // The lag is absorbed by the tracked offset → the next batch is quiet.
+    writeAcquireEntry(m, 1501, "msg 1501", acquireStampFor(1501));
+    const next = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    expect(next?.mappingRecovered).toBe(false);
+    expect(next?.entries.map((e) => e.message)).toEqual(["msg 1501"]);
+  });
+
+  it("recovers on the first steady batch when a resumed watermark carries a shifted base", () => {
+    // Companion restart mid-corruption: the persisted (shifted) base comes
+    // back via setAcquireResume — the first delivered batch is stale content
+    // and must be dropped and re-anchored, not archived (the restart
+    // mitigation that failed on 2026-09-18).
+    const pin = makeAcquireRingPinState();
+    pin.resumeTotal = 1000;
+    pin.sessionBase = 500; // shifted vs the true base-0 layout
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 500, 2500);
+    const res = readRuntimeAcquireLogs(
+      m,
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      pin,
+      msForStamp(acquireStampFor(2499)),
+    );
+    expect(res?.resumed).toBe(true);
+    expect(res?.mappingRecovered).toBe(true);
+    expect(res?.entries).toHaveLength(0);
+    expect(pin.total).toBe(1000); // pin stays put — label space untouched
+    // Re-anchored onto the head (index 2499 → slot 499).
+    expect(pin.sessionBase).toBe((1000 - 499) % 2000);
+
+    // The head entry is delivered next (it was never delivered under the
+    // shifted base), then the hold guard waits for the game's next append.
+    const head = readRuntimeAcquireLogs(
+      m,
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      pin,
+      msForStamp(acquireStampFor(2499)),
+    );
+    expect(head?.entries.map((e) => e.message)).toEqual(["msg 2499"]);
+    expect(head?.mappingRecovered).toBe(false);
+  });
+
+  it("does not flag midnight wrap or healthy forward drift", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [{ msg: "a", time: "23:58" }]);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("23:58")); // initial
+    writeAcquireEntry(m, 1, "b", "23:59");
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("23:59"));
+    expect(r1?.mappingRecovered).toBe(false);
+    expect(r1?.entries).toHaveLength(1);
+    // Midnight wrap: forward across 00:00 is progress, never a regression.
+    writeAcquireEntry(m, 2, "c", "00:00");
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("00:00"));
+    expect(r2?.mappingRecovered).toBe(false);
+    expect(r2?.entries).toHaveLength(1);
+    expect(pin.total).toBe(3);
+  });
+
+  it("enters suspect mode after the re-anchor budget is exhausted and keeps delivering", () => {
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 0, 2500);
+    const WALL = msForStamp(acquireStampFor(2499));
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL); // initial (disarmed)
+    writeAcquireEntry(m, 2500, "head", acquireStampFor(2500)); // one append to read
+    for (let i = 0; i < ACQUIRE_RECOVERY_MAX; i++) {
+      pin.sessionBase = 1999; // re-introduce the drift each time
+      pin.slotIdentity.fill(null); // drift states carry no slot identities
+      const r = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+      expect(r?.mappingRecovered).toBe(true);
+      expect(r?.entries).toHaveLength(0);
+    }
+    expect(pin.recoveryCount).toBe(ACQUIRE_RECOVERY_MAX);
+    // Budget exhausted: delivered UNVERIFIED rather than deadlocking.
+    pin.sessionBase = 1999;
+    pin.slotIdentity.fill(null);
+    const r4 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    expect(r4?.mappingSuspect).toBe(true);
+    expect(r4?.mappingRecovered).toBe(false);
+    expect(r4?.entries).toHaveLength(1);
+  });
+
+  it("settles an equivalent base candidate without probing or rejection noise", () => {
+    // Live 2026-09-19: a fresh base-0 session keeps re-proposing candidate 0
+    // against the null fallback — the SAME mapping. It must be adopted
+    // silently, not probed and rejected once a minute forever.
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), [{ msg: "a", time: "01:41" }]);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("01:41")); // initial
+    writeAcquireEntry(m, 1, "b", "01:42");
+    const r1 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("01:42"));
+    expect(r1?.baseRejected).toBeNull(); // first sight only candidates
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("01:42"));
+    expect(r2?.baseRejected).toBeNull(); // no probe — equivalent mapping
+    expect(r2?.baseAdopted).toBeNull(); // and nothing to report
+    expect(pin.sessionBase).toBe(0); // bookkeeping settled
+    // Third poll: `newBase === sessionBase` → no candidate churn at all.
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("01:42"));
+    expect(r3?.baseRejected).toBeNull();
+  });
+
+  it("rejects a fill-derived base candidate whose live edge is staler than the incumbent's", () => {
+    // The 2026-09-18 corruption vector: the counter/fill pair produces a base
+    // whose live-edge slot maps onto an hours-old entry while the incumbent
+    // maps onto the fresh write head. The probe must keep the incumbent —
+    // adopting used to shift the mapping silently (no log, no recovery).
+    const pin = makeAcquireRingPinState();
+    const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 0, 1500);
+    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("12:29")); // initial
+
+    // One fresh append, then the fill field lies (reads 300 instead of 1501):
+    // candidate base = 1501 - 300 = 1201 → live-edge slot 299 → a ~2 h old
+    // entry, while the incumbent's live edge is the fresh write.
+    writeAcquireEntry(m, 1500, "msg 1500", acquireStampFor(1500));
+    m.writeI32(ACQ_RING + 0x18n, 300);
+
+    const r2 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("12:30"));
+    expect(r2?.baseRejected).toBeNull(); // first sight only candidates the base
+    expect(r2?.entries.map((e) => e.message)).toEqual(["msg 1500"]);
+
+    // Second consecutive poll confirms the candidate → the probe rejects it.
+    const r3 = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, msForStamp("12:30"));
+    expect(r3?.baseRejected?.candidate).toBe(1201);
+    expect(pin.sessionBase).toBeNull(); // incumbent kept (null ≡ base 0)
+    expect(r3?.mappingRecovered).toBe(false);
   });
 });
 

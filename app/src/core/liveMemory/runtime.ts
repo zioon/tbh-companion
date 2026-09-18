@@ -509,6 +509,31 @@ export interface AcquireRingPinState {
    * one 10 ms poll while append skew is ignored entirely.
    */
   sessionBasePending: number | null;
+  /**
+   * Stamp-guard bookkeeping (2026-09-19). The game's `[HH:MM]` record stamps
+   * track the wall clock 1:1 (verified 2026-09-18 across a 24 h session), so a
+   * delivered entry whose stamp sits far from the wall clock — or jumps
+   * backward relative to the previous delivered stamp — means the slot
+   * mapping is no longer aligned with the ring content. `stampOffsetMin`
+   * (wall − stamp, mod 1440) absorbs legitimate clock drift; `lastStampMin`
+   * powers the relative-backward check that catches small shifts the offset
+   * check would absorb.
+   */
+  lastStampMin: number | null;
+  stampOffsetMin: number | null;
+  /**
+   * Mapping recoveries performed this reader session. After
+   * {@link ACQUIRE_RECOVERY_MAX} the guard stops discarding and delivers
+   * unverified (suspect mode) with a loud diagnostic instead of deadlocking.
+   */
+  recoveryCount: number;
+  /**
+   * Wall-clock ms until which full-ring head scans are suppressed. A scan that
+   * confirmed "the reader IS at the newest content and the RING itself lags the
+   * game" (game-side backlog drain) needs no repeat until then — the scan costs
+   * a 2 000-slot sweep and the verdict cannot change quickly.
+   */
+  headRecheckAt: number;
 }
 export function makeAcquireRingPinState(): AcquireRingPinState {
   return {
@@ -528,6 +553,10 @@ export function makeAcquireRingPinState(): AcquireRingPinState {
     resumeApplied: false,
     sessionBase: null,
     sessionBasePending: null,
+    lastStampMin: null,
+    stampOffsetMin: null,
+    recoveryCount: 0,
+    headRecheckAt: 0,
   };
 }
 export const ACQUIRE_RING_CAPACITY = 2000;
@@ -564,6 +593,55 @@ export type AcquireHoldReason = "stale-slot" | "released" | null;
  * there is nothing to deliver.
  */
 export const ACQUIRE_HOLD_RELEASE_MS = 5_000;
+
+/**
+ * Max deviation (minutes, circular) between a delivered entry's in-game stamp
+ * and the wall clock — both absolutely (guard init) and relative to the
+ * tracked offset. The game's record stamps track the wall clock 1:1 (verified
+ * 2026-09-18 across a 24 h session: delivered stamps equalled the wall time to
+ * the minute until the moment the slot mapping broke). A deviation beyond this
+ * tolerance means the reader is no longer looking at the ring content its pin
+ * thinks it is — the mapping was shifted (2026-09-18 live: a silently adopted
+ * session base moved the mapping by a constant offset and the reader replayed
+ * ~15 h of stale ring content as fresh seq).
+ */
+export const ACQUIRE_STAMP_WALL_TOL_MIN = 180;
+
+/**
+ * Min BACKWARD jump (minutes, circular) between two consecutive delivered
+ * stamps that flags corruption even though the wall-offset check would absorb
+ * it. Catches a small constant mapping shift (the offset check would re-anchor
+ * onto a shifted timeline and go blind); the `forward > 720` disambiguation
+ * keeps midnight wraps and long idle gaps from misfiring. Stamps only move
+ * forward in healthy operation (rewrites stamp untouched slots with the
+ * CURRENT time, measured 2026-09-15), so a backward jump is never legitimate.
+ */
+export const ACQUIRE_STAMP_REGRESSION_MIN = 30;
+
+/**
+ * Mapping recoveries allowed per reader session before the stamp guard stops
+ * discarding and delivers unverified (suspect mode). A persistent corruption
+ * source would otherwise turn into a recovery loop (drop batch → rescan →
+ * drop batch) with zero delivery; suspect mode keeps data flowing under a
+ * loud diagnostic instead.
+ */
+export const ACQUIRE_RECOVERY_MAX = 3;
+
+/**
+ * A write-head scan newer than the delivered content by at least this many
+ * minutes means the reader is mis-anchored (its mapping drifted off the head) —
+ * the base is corrected onto the head. Below this the two are the same region
+ * and the difference is scan noise (same-minute entries).
+ */
+export const ACQUIRE_HEAD_NEWER_MIN = 30;
+
+/**
+ * How long a confirmed "the ring itself lags the game" verdict suppresses
+ * further full-ring head scans. The lag is game-side (backlog drain) and can
+ * last hours; re-scanning every batch would burn 2 000 slot reads at 10 ms
+ * cadence for no new information.
+ */
+export const ACQUIRE_HEAD_RECHECK_MS = 10 * 60_000;
 
 export function readRuntimeAcquireLogs(
   reader: MemoryReader,
@@ -613,6 +691,42 @@ export function readRuntimeAcquireLogs(
    * caller must bypass the archive dedupe for this batch).
    */
   restartDetected: boolean;
+  /**
+   * True when this read detected stamp-mapping corruption and re-anchored the
+   * pin at the live edge (slot identities rebuilt from current content,
+   * session base dropped). `entries` carries the healthy prefix read BEFORE
+   * the corruption point; everything from the corrupt entry to the counter is
+   * skipped — those labels were consumed by shifted content, replaying them
+   * would duplicate.
+   */
+  mappingRecovered: boolean;
+  /**
+   * True when corruption was detected but the recovery budget
+   * ({@link ACQUIRE_RECOVERY_MAX}) is exhausted — the batch is delivered
+   * UNVERIFIED and the caller must surface this loudly.
+   */
+  mappingSuspect: boolean;
+  /**
+   * The session-base adoption performed by this read (probe-verified), for
+   * diagnostics. Previously adoptions without a pin jump were silent — the
+   * 2026-09-18 corruption shipped exactly through that blind spot.
+   */
+  baseAdopted: { from: number | null; to: number } | null;
+  /**
+   * A fill-derived base candidate that FAILED the live-edge freshness probe
+   * and was rejected. The caller rate-limits the diagnostic log.
+   */
+  baseRejected: { candidate: number; reason: string } | null;
+  /**
+   * Minutes (circular) between the ring's NEWEST stamped entry (the write head)
+   * and the wall clock, as measured by the write-head scan. Non-null only when
+   * a scan ran; a large value means the RING ITSELF lags the game's event
+   * stream (game-side backlog drain — the companion mirrors the ring
+   * faithfully and nothing can be read that the ring does not hold).
+   */
+  ringLagMin: number | null;
+  /** Slot of the write head found by the scan (diagnostics), or null. */
+  headSlot: number | null;
 } | null {
   if (o.typeInfoRva.logManager === 0n) return null;
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin as unknown as LogManagerPinState);
@@ -664,6 +778,10 @@ export function readRuntimeAcquireLogs(
     pin.slotIdentity.fill(null);
     pin.sessionBase = null;
     pin.sessionBasePending = null;
+    pin.lastStampMin = null;
+    pin.stampOffsetMin = null;
+    pin.headRecheckAt = 0;
+    pin.recoveryCount = 0;
   }
 
   // Session-base calibration / mid-process wipe detection. While the ring is
@@ -678,27 +796,71 @@ export function readRuntimeAcquireLogs(
   // wipe, so the fresh backlog is brand-new to the archive dedupe and delivers
   // as a plain increment — no UI rewind, no bypass needed.
   let reanchoredBase: number | null = null;
+  let baseAdopted: { from: number | null; to: number } | null = null;
+  let baseRejected: { candidate: number; reason: string } | null = null;
+
+  // Ring buffer pointer + element base are needed by the base-candidate probe
+  // below (moved up from the read loop; the two are calibration-independent).
+  const bufPtrEarly = readPtr(reader, ringObj + BigInt(0x10));
+  if (bufPtrEarly == null || bufPtrEarly === 0n) return null;
+  const elemBase = bufPtrEarly + BigInt(ACQUIRE_ELEM_BASE_REL);
+  // Wall-clock minute-of-day in the game's local timezone — the anchor the
+  // stamp guard (and the base probe's tiebreak) compares record stamps
+  // against. Computed once per read.
+  const wallDate = new Date(nowMs);
+  const wallMin = (wallDate.getHours() * 60 + wallDate.getMinutes()) % 1440;
+
   if (fillCount != null) {
     const newBase = total - fillCount;
     if (newBase === pin.sessionBase) {
       pin.sessionBasePending = null;
     } else if (pin.sessionBasePending === newBase) {
-      // Confirmed on two consecutive polls — a real wipe. A transient
-      // counter/fill skew (counter briefly ahead of fill mid-append) bounces
-      // back to the previous base instead of being adopted.
-      pin.sessionBase = newBase;
-      pin.sessionBasePending = null;
-      if (pin.total < newBase) {
-        // The pin sits before the new session start (the wipe happened after
-        // the pin's position, or a resumed watermark predates it): jump
-        // forward — nothing readable exists between the two, the old slots
-        // were cleared by the wipe.
-        pin.total = newBase;
-        pin.slotIdentity.fill(null);
-        pin.lastTime = null;
-        pin.holdSlot = null;
-        pin.holdActiveMs = 0;
-        reanchoredBase = newBase;
+      // Confirmed on two consecutive polls — a real wipe OR a fill blip. The
+      // counter/fill pair alone has proven unreliable (2026-09-18 live: a
+      // silently adopted base shifted the slot mapping by a constant offset
+      // and the reader replayed ~15 h of stale ring content as fresh seq for
+      // hours), so the candidate must ALSO win the live-edge freshness probe
+      // before it is allowed to move the mapping: the correct base maps the
+      // newest ring index onto the freshest written entry. A candidate that is
+      // EQUIVALENT to the incumbent mapping (e.g. base 0 vs the null fallback)
+      // moves nothing — adopt it without probing so the bookkeeping settles
+      // instead of re-proposing every poll (log noise, 2026-09-19).
+      const effectiveBase = pin.sessionBase ?? 0;
+      const movesMapping =
+        (((newBase - effectiveBase) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) %
+          ACQUIRE_RING_CAPACITY !==
+        0;
+      const verdict = movesMapping
+        ? probeBaseCandidate(reader, elemBase, total, pin.sessionBase, newBase, wallMin)
+        : { adopt: true, reason: "equivalent to the incumbent mapping" };
+      if (verdict.adopt) {
+        const prevBase = pin.sessionBase;
+        pin.sessionBase = newBase;
+        pin.sessionBasePending = null;
+        // Report only mapping-MOVING adoptions: settling the bookkeeping onto an
+        // equivalent base (base 0 vs null) is not news.
+        if (movesMapping) baseAdopted = { from: prevBase, to: newBase };
+        if (pin.total < newBase) {
+          // The pin sits before the new session start (the wipe happened after
+          // the pin's position, or a resumed watermark predates it): jump
+          // forward — nothing readable exists between the two, the old slots
+          // were cleared by the wipe.
+          pin.total = newBase;
+          pin.slotIdentity.fill(null);
+          pin.lastTime = null;
+          pin.holdSlot = null;
+          pin.holdActiveMs = 0;
+          pin.lastStampMin = null;
+          pin.stampOffsetMin = null;
+          reanchoredBase = newBase;
+        }
+      } else {
+        // Rejected: keep the incumbent mapping (null ≡ base 0 in slot math),
+        // clear the pending candidate and let the next two-poll confirmation
+        // re-propose it. A genuine wipe whose old slots were cleared wins the
+        // probe on a later poll once the geometry is unambiguous.
+        pin.sessionBasePending = null;
+        baseRejected = { candidate: newBase, reason: verdict.reason };
       }
     } else {
       pin.sessionBasePending = newBase;
@@ -717,10 +879,6 @@ export function readRuntimeAcquireLogs(
   // (the hold guard paces them) but ring indices are shifted until the next
   // wipe recalibrates. 17+ in-game hours of unattended play are needed to hit
   // it, so the fallback stands.
-
-  const bufPtr = readPtr(reader, ringObj + BigInt(0x10));
-  if (bufPtr == null || bufPtr === 0n) return null;
-  const elemBase = bufPtr + BigInt(ACQUIRE_ELEM_BASE_REL);
 
   const entries: AcquireLogEntry[] = [];
   const start = Math.max(0, pin.total);
@@ -755,6 +913,41 @@ export function readRuntimeAcquireLogs(
   let deliveredUpTo = start;
   let heldAt: number | null = null;
   let heldReason: AcquireHoldReason = null;
+  let mappingRecovered = false;
+  let mappingSuspect = false;
+  let ringLagMin: number | null = null;
+  let headSlot: number | null = null;
+
+  // Re-anchor recovery: the caller has already aligned slot(pin.total) with the
+  // write head (see anchorPinToHead), so the pin STAYS PUT — the next read
+  // lands on the newest entry and then the hold guard paces the game's
+  // appends. Rebuild the slot identities from CURRENT content so that pacing
+  // works under the new mapping; the head's own identity is cleared so that
+  // newest entry is delivered rather than held back.
+  const recoverAcquireMapping = (headSlotToDeliver: number): void => {
+    for (let s = 0; s < ACQUIRE_RING_CAPACITY; s++) {
+      const p = readPtr(reader, elemBase + BigInt(s * 8));
+      if (p == null || p === 0n) {
+        pin.slotIdentity[s] = null;
+        continue;
+      }
+      const mp = readPtr(reader, p + 0x20n);
+      const msg = mp ? readDotNetString(reader, mp) : null;
+      pin.slotIdentity[s] = msg ? acquireIdentity(p, mp, msg) : null;
+    }
+    if (headSlotToDeliver >= 0 && headSlotToDeliver < ACQUIRE_RING_CAPACITY) {
+      pin.slotIdentity[headSlotToDeliver] = null;
+    }
+    pin.sessionBasePending = null;
+    pin.lastTime = null;
+    pin.holdSlot = null;
+    pin.holdActiveMs = 0;
+    pin.lastStampMin = null;
+    pin.stampOffsetMin = null;
+    pin.probeIdentity = null;
+    pin.recoveryCount += 1;
+  };
+
   for (let k = from; k < limit; k++) {
     const slot =
       (((k - slotBase) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) % ACQUIRE_RING_CAPACITY;
@@ -770,7 +963,7 @@ export function readRuntimeAcquireLogs(
     const time = (rawTime ?? "").replace(/[[]/g, "").replace(/]/g, "").trim();
     const identity = acquireIdentity(entryPtr, msgPtr, message);
 
-    const hold = acquireHoldReason(pin, slot, k, identity, total, nowMs);
+    const hold = acquireHoldReason(pin, slot, identity, total, nowMs);
     // "released" = the freshness assumption was judged wrong; deliver this entry
     // anyway, surface it through `heldReason` (the caller logs it loudly) and
     // stop — the slots after it belong to the same unwritten region.
@@ -779,6 +972,40 @@ export function readRuntimeAcquireLogs(
       heldAt = k;
       heldReason = hold;
       break;
+    }
+
+    // Stamp guard (steady state only: `start === 0` is the initial full sync,
+    // whose backlog legitimately replays hours-old stamps; and a `released`
+    // delivery is itself the hold valve's loud self-heal — it deliberately
+    // hands over a previous-pass entry whose stamp is hours behind the wall,
+    // so the guard must stand down for it). A suspected anomaly is ARBITRATED
+    // by a full-ring head scan instead of being blindly treated as corruption:
+    // either the reader is mis-anchored (its mapping drifted — fix it onto the
+    // head) or the RING itself lags the game (nothing to fix on this side —
+    // deliver faithfully and report the lag).
+    const stampMin = stampMinutes(time);
+    if (!released && start > 0 && stampMin != null) {
+      const suspect = acquireStampCorrupt(pin.stampOffsetMin, pin.lastStampMin, stampMin, wallMin);
+      if (suspect && nowMs >= pin.headRecheckAt) {
+        const verdict = arbitrateAcquireAnchor(reader, elemBase, stampMin, wallMin);
+        ringLagMin = verdict.lagMin;
+        headSlot = verdict.headSlot >= 0 ? verdict.headSlot : null;
+        if (verdict.reanchor && pin.recoveryCount < ACQUIRE_RECOVERY_MAX) {
+          anchorPinToHead(pin, verdict.headSlot);
+          recoverAcquireMapping(verdict.headSlot);
+          mappingRecovered = true;
+          break;
+        }
+        if (verdict.reanchor) {
+          mappingSuspect = true; // re-anchor budget exhausted: deliver unverified
+        } else {
+          // Confirmed: the reader is already at the newest content and the
+          // ring lags the game — suppress re-scans onward and keep delivering.
+          pin.headRecheckAt = nowMs + ACQUIRE_HEAD_RECHECK_MS;
+        }
+      }
+      pin.stampOffsetMin = (wallMin - stampMin + 1440) % 1440;
+      pin.lastStampMin = stampMin;
     }
 
     entries.push({
@@ -811,6 +1038,12 @@ export function readRuntimeAcquireLogs(
     reanchoredBase,
     resumed,
     restartDetected,
+    mappingRecovered,
+    mappingSuspect,
+    baseAdopted,
+    baseRejected,
+    ringLagMin,
+    headSlot,
   };
 }
 
@@ -822,6 +1055,224 @@ export function readRuntimeAcquireLogs(
  */
 function acquireIdentity(entryPtr: bigint, msgPtr: bigint | null, message: string): string {
   return `${entryPtr.toString(16)}|${msgPtr == null ? "null" : msgPtr.toString(16)}|${message}`;
+}
+
+/** Parse an "HH:MM" record stamp into minute-of-day (0..1439); null if malformed. */
+export function stampMinutes(time: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** Circular distance between two minute-of-day values (0..720). */
+export function circDistMin(a: number, b: number): number {
+  const d = Math.abs(a - b) % 1440;
+  return d > 720 ? 1440 - d : d;
+}
+
+function fmtStampMinute(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Decide whether a freshly decoded acquire stamp indicates ring-mapping
+ * corruption. Two independent checks (see the constants for thresholds):
+ *  1. wall-offset — the stamp must sit within {@link ACQUIRE_STAMP_WALL_TOL_MIN}
+ *     of the wall clock, absolutely on the first steady-state delivery
+     (`prevOffsetMin == null`, the game's stamps track the wall 1:1) and
+ *     relative to the tracked offset afterwards;
+ *  2. relative-backward — a backward jump of ≥
+ *     {@link ACQUIRE_STAMP_REGRESSION_MIN} against the previous delivered
+ *     stamp, disambiguated against the forward rotation (`forward > 720` —
+ *     midnight wraps and long idle gaps jump forward, never backward).
+ */
+export function acquireStampCorrupt(
+  prevOffsetMin: number | null,
+  prevStampMin: number | null,
+  stampMin: number,
+  wallMin: number,
+): boolean {
+  const offset = (wallMin - stampMin + 1440) % 1440;
+  if (circDistMin(offset, prevOffsetMin ?? 0) > ACQUIRE_STAMP_WALL_TOL_MIN) return true;
+  if (prevStampMin != null) {
+    const backward = (prevStampMin - stampMin + 1440) % 1440;
+    const forward = (stampMin - prevStampMin + 1440) % 1440;
+    if (backward >= ACQUIRE_STAMP_REGRESSION_MIN && forward > 720) return true;
+  }
+  return false;
+}
+
+/** Live-edge probe: the entry the candidate base maps the newest ring index onto. */
+function probeLiveEdgeStamp(
+  reader: MemoryReader,
+  elemBase: bigint,
+  total: number,
+  base: number | null,
+): { empty: boolean; min: number | null } {
+  const slot =
+    (((total - 1 - (base ?? 0)) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) %
+    ACQUIRE_RING_CAPACITY;
+  const p = readPtr(reader, elemBase + BigInt(slot * 8));
+  if (p == null || p === 0n) return { empty: true, min: null };
+  const tp = readPtr(reader, p + 0x28n);
+  const raw = tp ? readDotNetString(reader, tp) : null;
+  if (!raw) return { empty: false, min: null };
+  const t = raw.replace(/[[]/g, "").replace(/]/g, "").trim();
+  return { empty: false, min: stampMinutes(t) };
+}
+
+/**
+ * Verify a fill-derived base candidate against the incumbent mapping BEFORE it
+ * is allowed to move the slot mapping. The correct base maps the newest ring
+ * index (`total - 1`) onto the freshest written entry, so:
+ *  - the incumbent's live-edge slot EMPTY → the ring was wiped under the
+ *    incumbent mapping (live-verified 2026-09-16: a wipe clears the slots) →
+ *    adopt the candidate;
+ *  - the candidate's live-edge slot empty, or both slots hold undecodable
+ *    content, or both stamps tie → conservative reject (retry on a later
+ *    two-poll confirmation);
+ *  - both readable → adopt only when the candidate's live-edge stamp sits
+ *    closer to the wall clock than the incumbent's (the game's stamps track
+ *    the wall 1:1; a shifted mapping reads an entry Δ positions behind the
+ *    write head, i.e. an older stamp).
+ */
+function probeBaseCandidate(
+  reader: MemoryReader,
+  elemBase: bigint,
+  total: number,
+  oldBase: number | null,
+  newBase: number,
+  wallMin: number,
+): { adopt: boolean; reason: string } {
+  const oldE = probeLiveEdgeStamp(reader, elemBase, total, oldBase);
+  const newE = probeLiveEdgeStamp(reader, elemBase, total, newBase);
+  if (oldE.empty && !newE.empty) {
+    return { adopt: true, reason: "incumbent live-edge slot is empty (ring wiped)" };
+  }
+  if (!oldE.empty && newE.empty) {
+    return { adopt: false, reason: "candidate live-edge slot is empty" };
+  }
+  if (oldE.empty && newE.empty) {
+    return { adopt: false, reason: "both live-edge slots empty" };
+  }
+  if (oldE.min == null || newE.min == null) {
+    return { adopt: false, reason: "live-edge stamp undecodable" };
+  }
+  const oldDev = circDistMin(oldE.min, wallMin);
+  const newDev = circDistMin(newE.min, wallMin);
+  if (newDev < oldDev) {
+    return {
+      adopt: true,
+      reason: `candidate live edge ${fmtStampMinute(newE.min)} is closer to wall than incumbent ${fmtStampMinute(oldE.min)}`,
+    };
+  }
+  return {
+    adopt: false,
+    reason: `candidate live edge ${fmtStampMinute(newE.min)} is not fresher than incumbent ${fmtStampMinute(oldE.min)} (wall ${fmtStampMinute(wallMin)})`,
+  };
+}
+
+/** Result of the full-ring write-head scan (see {@link scanAcquireHead}). */
+export interface AcquireHeadScan {
+  /** Slot holding the newest-stamped entry — the write head. */
+  slot: number;
+  /** Newest stamp seen, in minute-of-day. */
+  stampMin: number;
+  /** Newest stamp as "HH:MM" (diagnostics). */
+  stamp: string;
+  /** Decodable entries seen during the sweep (diagnostics). */
+  decoded: number;
+}
+
+/**
+ * Locate the ring's write head — the slot holding the newest-stamped entry — by
+ * sweeping the whole window. This is the ONLY position reference that does not
+ * trust the monotonic counter (+0x1C), which is measured to run ahead of the
+ * actual slot writes (2026-09-18/19 live: the counter edge held content ~one
+ * full ring — 8-15 h of records — behind the game's own event stream). The
+ * newest stamp is selected on the circular minute-of-day clock; ties prefer the
+ * higher slot index (slot writes advance sequentially within a pass).
+ */
+export function scanAcquireHead(reader: MemoryReader, elemBase: bigint): AcquireHeadScan | null {
+  let bestSlot: number | null = null;
+  let bestMin: number | null = null;
+  let bestStamp: string | null = null;
+  let decoded = 0;
+  for (let s = 0; s < ACQUIRE_RING_CAPACITY; s++) {
+    const p = readPtr(reader, elemBase + BigInt(s * 8));
+    if (p == null || p === 0n) continue;
+    const tp = readPtr(reader, p + 0x28n);
+    const raw = tp ? readDotNetString(reader, tp) : null;
+    if (!raw) continue;
+    const t = raw.replace(/[[]/g, "").replace(/]/g, "").trim();
+    const min = stampMinutes(t);
+    if (min == null) continue;
+    decoded += 1;
+    if (bestMin == null) {
+      bestMin = min;
+      bestStamp = t;
+      bestSlot = s;
+      continue;
+    }
+    if (min === bestMin) {
+      if (bestSlot != null && s > bestSlot) bestSlot = s; // later write in the pass
+      continue;
+    }
+    const fwd = (min - bestMin + 1440) % 1440;
+    if (fwd <= 720) {
+      bestMin = min;
+      bestStamp = t;
+      bestSlot = s;
+    }
+  }
+  if (bestSlot == null || bestMin == null || bestStamp == null) return null;
+  return { slot: bestSlot, stampMin: bestMin, stamp: bestStamp, decoded };
+}
+
+/** Re-anchor the pin's slot mapping so that `slot(pin.total) === headSlot`. */
+function anchorPinToHead(pin: AcquireRingPinState, headSlot: number): void {
+  pin.sessionBase =
+    (((pin.total - headSlot) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) %
+    ACQUIRE_RING_CAPACITY;
+  pin.sessionBasePending = null;
+  pin.probeIdentity = null;
+}
+
+/**
+ * Arbitrate a suspected stamp anomaly with a full-ring head scan (no side
+ * effects — the caller decides whether to act):
+ *  - the head is FRESH relative to the wall clock (the game's stamps track the
+ *    wall 1:1) while the content being delivered is not, and the two differ by
+ *    {@link ACQUIRE_HEAD_NEWER_MIN} or more → the reader is mis-anchored (its
+ *    slot mapping drifted): `reanchor` is true and the caller moves the mapping
+ *    onto the head, so the newest entry is delivered and the hold guard then
+ *    paces the game's appends;
+ *  - the head itself is stale → the reader IS at the newest content and the
+ *    RING lags the game (game-side backlog drain, live 2026-09-19: an 8 h lag
+ *    with pin == counter and the base untouched) → `reanchor` is false; the lag
+ *    is reported and delivery continues, because treating a faithful read as
+ *    corruption would discard good data.
+ */
+function arbitrateAcquireAnchor(
+  reader: MemoryReader,
+  elemBase: bigint,
+  deliveredMin: number,
+  wallMin: number,
+): { reanchor: boolean; headSlot: number; lagMin: number | null; headStamp: string | null } {
+  const head = scanAcquireHead(reader, elemBase);
+  if (head == null) return { reanchor: false, headSlot: -1, lagMin: null, headStamp: null };
+  const lagMin = circDistMin(head.stampMin, wallMin);
+  const headFresh = lagMin <= ACQUIRE_STAMP_WALL_TOL_MIN;
+  const drift = circDistMin(head.stampMin, deliveredMin);
+  return {
+    reanchor: headFresh && drift >= ACQUIRE_HEAD_NEWER_MIN,
+    headSlot: head.slot,
+    lagMin,
+    headStamp: head.stamp,
+  };
 }
 
 /**
@@ -858,17 +1309,17 @@ function probeAcquireCapacity(
 function acquireHoldReason(
   pin: AcquireRingPinState,
   slot: number,
-  k: number,
   identity: string,
   total: number,
   nowMs: number,
 ): AcquireHoldReason {
-  // Slot identities only mean something once the slot has been written at least
-  // once before (index >= capacity) and we have read it on that earlier pass.
-  const sameAsPreviousPass =
-    k >= ACQUIRE_RING_CAPACITY &&
-    pin.slotIdentity[slot] != null &&
-    pin.slotIdentity[slot] === identity;
+  // A stored identity always comes from an EARLIER visit: identities are only
+  // written when an entry is delivered, and one read never visits a slot twice
+  // (`limit <= from + capacity`). Do NOT gate on an absolute ring index — after
+  // a head re-anchor (see {@link anchorPinToHead}) the pin's label space is
+  // arbitrary, and an index gate would silently disable the hold for the whole
+  // pass, letting the reader walk into not-yet-rewritten slots.
+  const sameAsPreviousPass = pin.slotIdentity[slot] != null && pin.slotIdentity[slot] === identity;
 
   if (!sameAsPreviousPass) {
     pin.holdSlot = null;
@@ -940,6 +1391,19 @@ export function dumpRuntimeAcquireRing(
     `  len probes: buf+0x18=${readI32(reader, bufPtr + 0x18n) ?? "?"} buf+0x1C=${readI32(reader, bufPtr + 0x1cn) ?? "?"} ring+0x18=${readI32(reader, ringObj + 0x18n) ?? "?"} inner=${hex(inner)} innerLen=${sane(innerLen)} (assumed capacity=${ACQUIRE_RING_CAPACITY})`,
     `  state: holdSlot=${pin.holdSlot ?? "-"} capacityEstimate=${pin.capacityEstimate ?? "-"} lastStamp=${pin.lastTime ?? "-"}`,
   ];
+  // Write-head scan: WHERE the newest content actually sits, and how far the
+  // ring lags the wall clock. The counter (+0x1C) is measured to over-lead the
+  // slot writes by up to a full ring (2026-09-19), so the counter edge is NOT a
+  // reliable "newest" reference — this line is.
+  const head = scanAcquireHead(reader, elemBase);
+  if (head) {
+    const wallDate = new Date();
+    const wallMin = (wallDate.getHours() * 60 + wallDate.getMinutes()) % 1440;
+    lines.push(
+      `  head: slot=${head.slot} stamp=${head.stamp} lag=${circDistMin(head.stampMin, wallMin)}min ` +
+        `decoded=${head.decoded} (pin maps to slot ${(((pin.total - (pin.sessionBase ?? 0)) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) % ACQUIRE_RING_CAPACITY})`,
+    );
+  }
   const slotBase = pin.sessionBase ?? 0;
   const from = Math.max(0, total - windowSize);
   for (let k = from; k < total; k++) {
