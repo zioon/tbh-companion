@@ -2161,6 +2161,29 @@ describe("readRuntimeAcquireLogs", () => {
     return m;
   }
 
+  /**
+   * Write one ring entry at an EXPLICIT slot (modulus-free) — models a ring
+   * whose true capacity is larger than the assumed 2000 (2026-09-20).
+   */
+  function writeAcquireEntryAt(
+    m: FakeMemory,
+    slot: number,
+    msg: string,
+    time: string,
+    counter: number,
+    fill: number,
+  ): void {
+    const entryPtr = ACQ_ENTRY + BigInt(slot * 0x100);
+    const objBase = 0x300000n + BigInt(slot * 0x300);
+    m.writePtr(ACQ_BUF + 0x20n + BigInt(slot * 8), entryPtr);
+    writeDotNetString(m, objBase, msg);
+    m.writePtr(entryPtr + 0x20n, objBase);
+    writeDotNetString(m, objBase + 0x100n, `[${time}]`);
+    m.writePtr(entryPtr + 0x28n, objBase + 0x100n);
+    m.writeI32(ACQ_RING + 0x1cn, counter);
+    m.writeI32(ACQ_RING + 0x18n, fill);
+  }
+
   it("reads the whole ring on the initial sync and advances the pin", () => {
     const pin = makeAcquireRingPinState();
     const m = seedAcquireRing(new FakeMemory(), [
@@ -2704,6 +2727,54 @@ describe("readRuntimeAcquireLogs", () => {
     expect(pin.total).toBe(2502);
   });
 
+  it("sweeps the whole backing array and remaps when the write head sits beyond the assumed capacity", () => {
+    // The user's 2026-09-20 hypothesis: the ring may hold more than 2000 lines.
+    // Model a 3000-entry ring inside a 4096-slot backing array. Slot math under
+    // the assumed capacity (2000) mis-reads the backlog; the full-array sweep
+    // finds the real head at slot 2999 and remaps the modulus from measured
+    // evidence instead of assuming.
+    const pin = makeAcquireRingPinState();
+    const m = seedAcquireRing(new FakeMemory(), []);
+    m.writeI32(ACQ_BUF + 0x18n, 4096); // .NET array length: 4096 slots exist
+    for (let i = 0; i < 3000; i++) {
+      writeAcquireEntryAt(m, i, `msg ${i}`, acquireStampFor(i), i + 1, Math.min(i + 1, 3000));
+    }
+    const WALL = msForStamp(acquireStampFor(2999));
+
+    const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    expect(res?.scannedSlots).toBe(4096); // the WHOLE array was swept
+    expect(res?.capacityAdopted).toBe(4096); // measured, then adopted
+    expect(res?.mappingRecovered).toBe(true);
+    expect(res?.headSlot).toBe(2999);
+    expect(res?.entries).toHaveLength(0); // mis-read backlog discarded
+    expect(pin.ringCapacity).toBe(4096);
+    // Re-anchored: the pin now maps onto the head.
+    expect((((pin.total - (pin.sessionBase ?? 0)) % 4096) + 4096) % 4096).toBe(2999);
+
+    // The pin now sits at the counter edge, so the next append unlocks the
+    // head's delivery and then the following one.
+    writeAcquireEntryAt(m, 3000, "fresh", acquireStampFor(3000), 3001, 3000);
+    const head = readRuntimeAcquireLogs(
+      m,
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      pin,
+      msForStamp(acquireStampFor(3000)),
+    );
+    expect(head?.entries.map((e) => e.message)).toEqual(["msg 2999"]); // the head at last
+    writeAcquireEntryAt(m, 3001, "newer", acquireStampFor(3001), 3002, 3000);
+    const next = readRuntimeAcquireLogs(
+      m,
+      GA_BASE,
+      GA_SIZE,
+      LOG_O,
+      pin,
+      msForStamp(acquireStampFor(3001)),
+    );
+    expect(next?.entries.map((e) => e.message)).toEqual(["fresh"]);
+  });
+
   it("does NOT recover when the ring itself lags the game (game-side backlog drain)", () => {
     const pin = makeAcquireRingPinState();
     const m = seedWrappedRing(seedAcquireRing(new FakeMemory(), []), 0, 1500);
@@ -2711,14 +2782,22 @@ describe("readRuntimeAcquireLogs", () => {
     // the game has not written newer records — the companion is at the newest
     // content and must NOT discard its faithful reads as "corruption".
     const WALL = msForStamp("23:00");
-    readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL); // initial (disarmed)
+    const initial = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
+    // Attach-time arbitration: the very FIRST read already reports the verdict
+    // (the initial batch is delivered — a backlog is not corruption).
+    expect(initial?.entries).toHaveLength(1500);
+    expect(initial?.mappingRecovered).toBe(false);
+    expect(initial?.headSlot).toBe(1499);
+    expect(initial?.ringLagMin).toBe(631); // 23:00 − 12:29
+    expect(pin.sessionBase).toBeNull();
+
     writeAcquireEntry(m, 1500, "msg 1500", acquireStampFor(1500));
     const res = readRuntimeAcquireLogs(m, GA_BASE, GA_SIZE, LOG_O, pin, WALL);
     expect(res?.mappingRecovered).toBe(false);
     expect(res?.mappingSuspect).toBe(false);
     expect(res?.entries.map((e) => e.message)).toEqual(["msg 1500"]);
-    expect(res?.headSlot).toBe(1500);
-    expect(res?.ringLagMin).toBe(630); // 23:00 − 12:30 — reported, not "fixed"
+    // Re-scans are suppressed for ACQUIRE_HEAD_RECHECK_MS — the lag is stable.
+    expect(res?.ringLagMin).toBeNull();
     // Mapping untouched (base 0 ≡ the null fallback; settled without a probe).
     expect(pin.sessionBase).toBe(0);
     expect(pin.total).toBe(1501);

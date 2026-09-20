@@ -1311,10 +1311,20 @@ export class LiveMemoryReader {
       // is always visible.
       if (res.mappingRecovered) {
         this.log(
-          `acquire mapping RECOVERED: reader was mis-anchored — a full-ring head scan found newer ` +
-            `content (head slot=${res.headSlot ?? "?"}) than the delivered position; the slot mapping ` +
+          `acquire mapping RECOVERED: reader was mis-anchored — a full sweep (${res.scannedSlots ?? "?"} slots) ` +
+            `found newer content (head slot=${res.headSlot ?? "?"}) than the delivered position; the slot mapping ` +
             `was re-anchored onto the write head and slot identities rebuilt ` +
             `(recovery #${this.acquirePin.recoveryCount} of ${ACQUIRE_RECOVERY_MAX})`,
+        );
+      }
+      // The sweep found the write head BEYOND the assumed ring capacity → the
+      // modulus assumption was wrong and the slot math has been remapped from
+      // the measured span (2026-09-20).
+      if (res.capacityAdopted != null) {
+        this.log(
+          `acquire ring capacity MEASURED-BY-SWEEP: newest content sits beyond slot ${ACQUIRE_RING_CAPACITY} — ` +
+            `slot math remapped to ${res.capacityAdopted} slots (assumed ${ACQUIRE_RING_CAPACITY}); ` +
+            `update ACQUIRE_RING_CAPACITY for this game build`,
         );
       }
       if (res.mappingSuspect) {
@@ -1333,7 +1343,7 @@ export class LiveMemoryReader {
           this.lastRingLagLogAt = now;
           this.log(
             `acquire ring lag: newest ring content is ${res.ringLagMin} min behind the wall clock ` +
-              `(head slot=${res.headSlot ?? "?"}, counter=${res.total}) — the GAME has not written ` +
+              `(head slot=${res.headSlot ?? "?"} of ${res.scannedSlots ?? "?"} swept, counter=${res.total}) — the GAME has not written ` +
               `newer records; the companion mirrors the ring faithfully (no read fault)`,
           );
         }

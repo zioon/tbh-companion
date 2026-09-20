@@ -531,9 +531,19 @@ export interface AcquireRingPinState {
    * Wall-clock ms until which full-ring head scans are suppressed. A scan that
    * confirmed "the reader IS at the newest content and the RING itself lags the
    * game" (game-side backlog drain) needs no repeat until then — the scan costs
-   * a 2 000-slot sweep and the verdict cannot change quickly.
+   * a full-array sweep and the verdict cannot change quickly.
    */
   headRecheckAt: number;
+  /**
+   * Ring capacity actually used for slot math. Starts at
+   * {@link ACQUIRE_RING_CAPACITY} (live-verified 2000; the backing array is
+   * allocated 2048) and is only RAISED when a full sweep finds decodable
+   * content at a slot index BEYOND the current capacity whose stamp is newer
+   * than anything below it — positive evidence that the modulus is larger
+   * (2026-09-20: the user reported a possible ~5000-slot ring; the sweep now
+   * measures the span instead of assuming it).
+   */
+  ringCapacity: number;
 }
 export function makeAcquireRingPinState(): AcquireRingPinState {
   return {
@@ -557,6 +567,7 @@ export function makeAcquireRingPinState(): AcquireRingPinState {
     stampOffsetMin: null,
     recoveryCount: 0,
     headRecheckAt: 0,
+    ringCapacity: ACQUIRE_RING_CAPACITY,
   };
 }
 export const ACQUIRE_RING_CAPACITY = 2000;
@@ -626,6 +637,14 @@ export const ACQUIRE_STAMP_REGRESSION_MIN = 30;
  * loud diagnostic instead.
  */
 export const ACQUIRE_RECOVERY_MAX = 3;
+
+/**
+ * Upper bound for a full-ring sweep. The backing array's declared length (a
+ * .NET array header at `buf + 0x18`, 2048 on the live build for the 2000-slot
+ * ring) bounds how many slots exist at all; this cap only guards against a
+ * garbage length field turning a sweep into an unbounded memory walk.
+ */
+export const ACQUIRE_SCAN_MAX = 8192;
 
 /**
  * A write-head scan newer than the delivered content by at least this many
@@ -727,6 +746,18 @@ export function readRuntimeAcquireLogs(
   ringLagMin: number | null;
   /** Slot of the write head found by the scan (diagnostics), or null. */
   headSlot: number | null;
+  /**
+   * How many slots the head scan swept (the backing array's declared length,
+   * floored at the assumed capacity). Diagnostics: it proves that "the slot the
+   * game actually writes" was searched across the WHOLE ring, not just the
+   * first {@link ACQUIRE_RING_CAPACITY} slots.
+   */
+  scannedSlots: number | null;
+  /**
+   * Set when the scan found the newest content beyond the assumed capacity and
+   * the ring modulus was adopted from the measured span (slot math remapped).
+   */
+  capacityAdopted: number | null;
 } | null {
   if (o.typeInfoRva.logManager === 0n) return null;
   const lmPtr = resolveLogManager(reader, gaBase, gaSize, o, pin as unknown as LogManagerPinState);
@@ -804,6 +835,16 @@ export function readRuntimeAcquireLogs(
   const bufPtrEarly = readPtr(reader, ringObj + BigInt(0x10));
   if (bufPtrEarly == null || bufPtrEarly === 0n) return null;
   const elemBase = bufPtrEarly + BigInt(ACQUIRE_ELEM_BASE_REL);
+  // Full-array sweep span. `buf + 0x18` is the .NET array header's length — the
+  // number of element slots that exist at all (2048 on the live build, for the
+  // 2000-slot ring). Sweeping the ARRAY instead of the assumed capacity is what
+  // lets a scan find "the slot the game actually writes" even if the modulus
+  // assumption is wrong (2026-09-20 user report: possibly ~5000 slots).
+  const arrayLenRaw = readI32(reader, bufPtrEarly + 0x18n);
+  const arrayLen = arrayLenRaw != null && arrayLenRaw > 0 ? arrayLenRaw : 0;
+  const sweepSlots = Math.min(Math.max(arrayLen, ACQUIRE_RING_CAPACITY), ACQUIRE_SCAN_MAX);
+  // Capacity used for slot math (see AcquireRingPinState.ringCapacity).
+  let cap = pin.ringCapacity || ACQUIRE_RING_CAPACITY;
   // Wall-clock minute-of-day in the game's local timezone — the anchor the
   // stamp guard (and the base probe's tiebreak) compares record stamps
   // against. Computed once per read.
@@ -826,12 +867,9 @@ export function readRuntimeAcquireLogs(
       // moves nothing — adopt it without probing so the bookkeeping settles
       // instead of re-proposing every poll (log noise, 2026-09-19).
       const effectiveBase = pin.sessionBase ?? 0;
-      const movesMapping =
-        (((newBase - effectiveBase) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) %
-          ACQUIRE_RING_CAPACITY !==
-        0;
+      const movesMapping = (((newBase - effectiveBase) % cap) + cap) % cap !== 0;
       const verdict = movesMapping
-        ? probeBaseCandidate(reader, elemBase, total, pin.sessionBase, newBase, wallMin)
+        ? probeBaseCandidate(reader, elemBase, total, pin.sessionBase, newBase, wallMin, cap)
         : { adopt: true, reason: "equivalent to the incumbent mapping" };
       if (verdict.adopt) {
         const prevBase = pin.sessionBase;
@@ -893,7 +931,7 @@ export function readRuntimeAcquireLogs(
     start === 0
       ? pin.sessionBase != null && pin.sessionBase <= total
         ? pin.sessionBase
-        : Math.max(0, total - ACQUIRE_RING_CAPACITY)
+        : Math.max(0, total - cap)
       : start;
   // Slot mapping follows the calibrated session base (see the calibration
   // comment above); the positive-mod guard is belt-and-braces.
@@ -901,7 +939,7 @@ export function readRuntimeAcquireLogs(
   // Bounded catch-up: at most one ring length per poll. A starved reader
   // (worker paused for longer than the ring holds) catches up over successive
   // 10 ms polls instead of jumping its pin past unread entries.
-  const limit = Math.min(total, from + ACQUIRE_RING_CAPACITY);
+  const limit = Math.min(total, from + cap);
   // Delivered watermark. Two reasons to stop early, both retried by the next
   // poll (never skipped, never delivered):
   //  1. slot pointer not committed yet / message still mid-write (pre-existing);
@@ -917,6 +955,22 @@ export function readRuntimeAcquireLogs(
   let mappingSuspect = false;
   let ringLagMin: number | null = null;
   let headSlot: number | null = null;
+  let scannedSlots: number | null = null;
+  let capacityAdopted: number | null = null;
+  /** Newest delivered stamp regardless of arming — powers the attach-time check. */
+  let lastStampAll: number | null = pin.lastStampMin;
+
+  // The sweep found the newest content BEYOND the assumed capacity: the ring
+  // modulus was wrong and every slot lookup so far was mis-aligned. Adopt the
+  // measured span and remap (shared by the steady-state and attach paths).
+  const adoptCapacityIfEvidenced = (capacityEvidence: boolean): void => {
+    if (capacityEvidence && pin.ringCapacity !== sweepSlots) {
+      pin.ringCapacity = sweepSlots;
+      cap = sweepSlots;
+      pin.slotIdentity = new Array<string | null>(cap).fill(null);
+      capacityAdopted = sweepSlots;
+    }
+  };
 
   // Re-anchor recovery: the caller has already aligned slot(pin.total) with the
   // write head (see anchorPinToHead), so the pin STAYS PUT — the next read
@@ -925,7 +979,11 @@ export function readRuntimeAcquireLogs(
   // works under the new mapping; the head's own identity is cleared so that
   // newest entry is delivered rather than held back.
   const recoverAcquireMapping = (headSlotToDeliver: number): void => {
-    for (let s = 0; s < ACQUIRE_RING_CAPACITY; s++) {
+    // Identity slots follow the capacity in use (it may have just grown).
+    if (pin.slotIdentity.length !== cap) {
+      pin.slotIdentity = new Array<string | null>(cap).fill(null);
+    }
+    for (let s = 0; s < cap; s++) {
       const p = readPtr(reader, elemBase + BigInt(s * 8));
       if (p == null || p === 0n) {
         pin.slotIdentity[s] = null;
@@ -935,7 +993,7 @@ export function readRuntimeAcquireLogs(
       const msg = mp ? readDotNetString(reader, mp) : null;
       pin.slotIdentity[s] = msg ? acquireIdentity(p, mp, msg) : null;
     }
-    if (headSlotToDeliver >= 0 && headSlotToDeliver < ACQUIRE_RING_CAPACITY) {
+    if (headSlotToDeliver >= 0 && headSlotToDeliver < pin.slotIdentity.length) {
       pin.slotIdentity[headSlotToDeliver] = null;
     }
     pin.sessionBasePending = null;
@@ -949,8 +1007,7 @@ export function readRuntimeAcquireLogs(
   };
 
   for (let k = from; k < limit; k++) {
-    const slot =
-      (((k - slotBase) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) % ACQUIRE_RING_CAPACITY;
+    const slot = (((k - slotBase) % cap) + cap) % cap;
     const eAddr = elemBase + BigInt(slot * 8);
     const entryPtr = readPtr(reader, eAddr);
     if (entryPtr == null || entryPtr === 0n) break; // slot not committed yet (mid-write)
@@ -984,19 +1041,25 @@ export function readRuntimeAcquireLogs(
     // head) or the RING itself lags the game (nothing to fix on this side —
     // deliver faithfully and report the lag).
     const stampMin = stampMinutes(time);
+    if (stampMin != null) lastStampAll = stampMin;
     if (!released && start > 0 && stampMin != null) {
       const suspect = acquireStampCorrupt(pin.stampOffsetMin, pin.lastStampMin, stampMin, wallMin);
       if (suspect && nowMs >= pin.headRecheckAt) {
-        const verdict = arbitrateAcquireAnchor(reader, elemBase, stampMin, wallMin);
+        const verdict = arbitrateAcquireAnchor(reader, elemBase, stampMin, wallMin, sweepSlots);
         ringLagMin = verdict.lagMin;
         headSlot = verdict.headSlot >= 0 ? verdict.headSlot : null;
-        if (verdict.reanchor && pin.recoveryCount < ACQUIRE_RECOVERY_MAX) {
+        scannedSlots = sweepSlots;
+        adoptCapacityIfEvidenced(verdict.capacityEvidence);
+        if (
+          (verdict.reanchor || verdict.capacityEvidence) &&
+          pin.recoveryCount < ACQUIRE_RECOVERY_MAX
+        ) {
           anchorPinToHead(pin, verdict.headSlot);
           recoverAcquireMapping(verdict.headSlot);
           mappingRecovered = true;
           break;
         }
-        if (verdict.reanchor) {
+        if (verdict.reanchor || verdict.capacityEvidence) {
           mappingSuspect = true; // re-anchor budget exhausted: deliver unverified
         } else {
           // Confirmed: the reader is already at the newest content and the
@@ -1026,6 +1089,44 @@ export function readRuntimeAcquireLogs(
     }
   }
 
+  // Attach-time correction (2026-09-20): the initial full sync delivers
+  // unverified — its backlog is legitimately hours old on a fresh attach — but
+  // when the batch's NEWEST stamp sits far from the wall clock the very first
+  // read arbitrates instead of waiting for a steady batch, so a mis-anchored or
+  // lagging ring is diagnosed (and corrected) immediately at startup. The
+  // arbitration separates the two cases by head freshness, so a genuinely old
+  // backlog is only reported, never discarded.
+  if (start === 0 && !mappingRecovered && entries.length > 0 && lastStampAll != null) {
+    if (circDistMin(lastStampAll, wallMin) > ACQUIRE_STAMP_WALL_TOL_MIN) {
+      const verdict = arbitrateAcquireAnchor(reader, elemBase, lastStampAll, wallMin, sweepSlots);
+      ringLagMin = verdict.lagMin;
+      headSlot = verdict.headSlot >= 0 ? verdict.headSlot : null;
+      scannedSlots = sweepSlots;
+      adoptCapacityIfEvidenced(verdict.capacityEvidence);
+      if (
+        (verdict.reanchor || verdict.capacityEvidence) &&
+        pin.recoveryCount < ACQUIRE_RECOVERY_MAX
+      ) {
+        // The whole batch was read through a mis-aligned map → discard the
+        // entries, but KEEP the pin where the batch ended: anchorPinToHead
+        // aligns that label onto the head, so the next append delivers the
+        // newest content (rewinding the pin would re-enter already-delivered
+        // slots and stop on the hold guard instead).
+        entries.length = 0;
+        // Advance the pin to the end of the discarded batch FIRST so the anchor
+        // aligns that label (not the batch's start) onto the head.
+        if (deliveredUpTo > pin.total) pin.total = deliveredUpTo;
+        anchorPinToHead(pin, verdict.headSlot);
+        recoverAcquireMapping(verdict.headSlot);
+        mappingRecovered = true;
+      } else if (verdict.reanchor || verdict.capacityEvidence) {
+        mappingSuspect = true;
+      } else {
+        pin.headRecheckAt = nowMs + ACQUIRE_HEAD_RECHECK_MS;
+      }
+    }
+  }
+
   if (deliveredUpTo > pin.total) pin.total = deliveredUpTo;
   return {
     entries,
@@ -1044,6 +1145,8 @@ export function readRuntimeAcquireLogs(
     baseRejected,
     ringLagMin,
     headSlot,
+    scannedSlots,
+    capacityAdopted,
   };
 }
 
@@ -1111,10 +1214,9 @@ function probeLiveEdgeStamp(
   elemBase: bigint,
   total: number,
   base: number | null,
+  cap: number = ACQUIRE_RING_CAPACITY,
 ): { empty: boolean; min: number | null } {
-  const slot =
-    (((total - 1 - (base ?? 0)) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) %
-    ACQUIRE_RING_CAPACITY;
+  const slot = (((total - 1 - (base ?? 0)) % cap) + cap) % cap;
   const p = readPtr(reader, elemBase + BigInt(slot * 8));
   if (p == null || p === 0n) return { empty: true, min: null };
   const tp = readPtr(reader, p + 0x28n);
@@ -1146,9 +1248,10 @@ function probeBaseCandidate(
   oldBase: number | null,
   newBase: number,
   wallMin: number,
+  cap: number = ACQUIRE_RING_CAPACITY,
 ): { adopt: boolean; reason: string } {
-  const oldE = probeLiveEdgeStamp(reader, elemBase, total, oldBase);
-  const newE = probeLiveEdgeStamp(reader, elemBase, total, newBase);
+  const oldE = probeLiveEdgeStamp(reader, elemBase, total, oldBase, cap);
+  const newE = probeLiveEdgeStamp(reader, elemBase, total, newBase, cap);
   if (oldE.empty && !newE.empty) {
     return { adopt: true, reason: "incumbent live-edge slot is empty (ring wiped)" };
   }
@@ -1196,12 +1299,16 @@ export interface AcquireHeadScan {
  * newest stamp is selected on the circular minute-of-day clock; ties prefer the
  * higher slot index (slot writes advance sequentially within a pass).
  */
-export function scanAcquireHead(reader: MemoryReader, elemBase: bigint): AcquireHeadScan | null {
+export function scanAcquireHead(
+  reader: MemoryReader,
+  elemBase: bigint,
+  slots: number = ACQUIRE_RING_CAPACITY,
+): AcquireHeadScan | null {
   let bestSlot: number | null = null;
   let bestMin: number | null = null;
   let bestStamp: string | null = null;
   let decoded = 0;
-  for (let s = 0; s < ACQUIRE_RING_CAPACITY; s++) {
+  for (let s = 0; s < slots; s++) {
     const p = readPtr(reader, elemBase + BigInt(s * 8));
     if (p == null || p === 0n) continue;
     const tp = readPtr(reader, p + 0x28n);
@@ -1234,9 +1341,8 @@ export function scanAcquireHead(reader: MemoryReader, elemBase: bigint): Acquire
 
 /** Re-anchor the pin's slot mapping so that `slot(pin.total) === headSlot`. */
 function anchorPinToHead(pin: AcquireRingPinState, headSlot: number): void {
-  pin.sessionBase =
-    (((pin.total - headSlot) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) %
-    ACQUIRE_RING_CAPACITY;
+  const cap = pin.ringCapacity || ACQUIRE_RING_CAPACITY;
+  pin.sessionBase = (((pin.total - headSlot) % cap) + cap) % cap;
   pin.sessionBasePending = null;
   pin.probeIdentity = null;
 }
@@ -1261,9 +1367,26 @@ function arbitrateAcquireAnchor(
   elemBase: bigint,
   deliveredMin: number,
   wallMin: number,
-): { reanchor: boolean; headSlot: number; lagMin: number | null; headStamp: string | null } {
-  const head = scanAcquireHead(reader, elemBase);
-  if (head == null) return { reanchor: false, headSlot: -1, lagMin: null, headStamp: null };
+  slots: number = ACQUIRE_RING_CAPACITY,
+): {
+  reanchor: boolean;
+  headSlot: number;
+  lagMin: number | null;
+  headStamp: string | null;
+  decoded: number;
+  capacityEvidence: boolean;
+} {
+  const head = scanAcquireHead(reader, elemBase, slots);
+  if (head == null) {
+    return {
+      reanchor: false,
+      headSlot: -1,
+      lagMin: null,
+      headStamp: null,
+      decoded: 0,
+      capacityEvidence: false,
+    };
+  }
   const lagMin = circDistMin(head.stampMin, wallMin);
   const headFresh = lagMin <= ACQUIRE_STAMP_WALL_TOL_MIN;
   const drift = circDistMin(head.stampMin, deliveredMin);
@@ -1272,6 +1395,11 @@ function arbitrateAcquireAnchor(
     headSlot: head.slot,
     lagMin,
     headStamp: head.stamp,
+    decoded: head.decoded,
+    // The head sits BEYOND the assumed capacity → the ring modulus is larger
+    // than assumed and every slot lookup so far was mis-aligned (the array was
+    // swept in full, so this is measured, not assumed).
+    capacityEvidence: head.slot >= ACQUIRE_RING_CAPACITY,
   };
 }
 
@@ -1394,14 +1522,26 @@ export function dumpRuntimeAcquireRing(
   // Write-head scan: WHERE the newest content actually sits, and how far the
   // ring lags the wall clock. The counter (+0x1C) is measured to over-lead the
   // slot writes by up to a full ring (2026-09-19), so the counter edge is NOT a
-  // reliable "newest" reference — this line is.
-  const head = scanAcquireHead(reader, elemBase);
+  // reliable "newest" reference — this line is. The sweep covers the WHOLE
+  // backing array (its declared length at buf + 0x18), not just the assumed
+  // capacity, so a larger-than-assumed ring cannot hide its write head.
+  const dumpArrayLen = readI32(reader, bufPtr + 0x18n);
+  const dumpSlots = Math.min(
+    Math.max(
+      dumpArrayLen != null && dumpArrayLen > 0 ? dumpArrayLen : ACQUIRE_RING_CAPACITY,
+      pin.ringCapacity,
+    ),
+    ACQUIRE_SCAN_MAX,
+  );
+  const head = scanAcquireHead(reader, elemBase, dumpSlots);
   if (head) {
     const wallDate = new Date();
     const wallMin = (wallDate.getHours() * 60 + wallDate.getMinutes()) % 1440;
+    const cap = pin.ringCapacity || ACQUIRE_RING_CAPACITY;
     lines.push(
       `  head: slot=${head.slot} stamp=${head.stamp} lag=${circDistMin(head.stampMin, wallMin)}min ` +
-        `decoded=${head.decoded} (pin maps to slot ${(((pin.total - (pin.sessionBase ?? 0)) % ACQUIRE_RING_CAPACITY) + ACQUIRE_RING_CAPACITY) % ACQUIRE_RING_CAPACITY})`,
+        `decoded=${head.decoded} swept=${dumpSlots} capacity=${cap} ` +
+        `(pin maps to slot ${(((pin.total - (pin.sessionBase ?? 0)) % cap) + cap) % cap})`,
     );
   }
   const slotBase = pin.sessionBase ?? 0;
