@@ -4,7 +4,12 @@
 // never touch the Electron main thread or renderer (perf-isolation requirement).
 // Streams snapshots + status to the main process via parentPort.
 
-import type { AcquireLogEntry, LiveMemorySnapshot, LiveMemoryStatus } from "../../../shared/types";
+import type {
+  AcquireLogEntry,
+  AcquireRingView,
+  LiveMemorySnapshot,
+  LiveMemoryStatus,
+} from "../../../shared/types";
 import { LiveMemoryReader } from "./liveReader";
 import { setWinProcessLogger } from "./winProcess";
 
@@ -108,6 +113,7 @@ type WorkerMessage =
       watermark: number;
     }
   | { type: "status"; status: LiveMemoryStatus }
+  | { type: "acquireRing"; requestId: number; snapshot: AcquireRingView | null }
   | { type: "log"; message: string };
 
 function post(msg: WorkerMessage): void {
@@ -450,22 +456,36 @@ parentPort?.on("message", (evt) => {
     return;
   }
   // Read-position watermark pushed by the parent right after spawn (persisted
-  // across companion restarts) — the acquire ring then resumes incrementally
-  // instead of replaying the whole window on every start.
+  // across companion restarts) — the acquire list then resumes incrementally
+  // instead of re-reading the whole list on every start.
   if (
     msg != null &&
     typeof msg === "object" &&
     (msg as { type?: string }).type === "acquireResume"
   ) {
-    const resume = msg as { total?: number | null; sessionBase?: number | null };
-    reader?.setAcquireResume(
-      typeof resume.total === "number" ? resume.total : null,
-      typeof resume.sessionBase === "number" ? resume.sessionBase : null,
-    );
+    const resume = msg as { total?: number | null };
+    reader?.setAcquireResume(typeof resume.total === "number" ? resume.total : null);
     post({
       type: "log",
-      message: `acquire resume watermark: ${typeof resume.total === "number" ? resume.total : "none"} base: ${typeof resume.sessionBase === "number" ? resume.sessionBase : "none"}`,
+      message: `acquire resume watermark: ${typeof resume.total === "number" ? resume.total : "none"}`,
     });
+    return;
+  }
+  // Whole-array raw log request (dev "raw log" view): read EVERY slot in
+  // absolute array order and hand it back. Answered on demand rather
+  // rather than streamed — it is a 2000-slot walk and only a human looks at it.
+  if (msg != null && typeof msg === "object" && (msg as { type?: string }).type === "acquireRing") {
+    const requestId = (msg as { requestId?: number }).requestId ?? 0;
+    let snapshot: AcquireRingView | null = null;
+    try {
+      snapshot = reader?.readAcquireRingSnapshot() ?? null;
+    } catch (err) {
+      post({
+        type: "log",
+        message: `acquire ring read failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+    post({ type: "acquireRing", requestId, snapshot });
     return;
   }
   if (msg === "stop") {

@@ -34,9 +34,8 @@ import {
   resolveLiveMemoryUserDataDir,
 } from "./liveMemoryCacheDir";
 import {
-  ACQUIRE_RING_CAPACITY,
-  ACQUIRE_RECOVERY_MAX,
   dumpRuntimeAcquireRing,
+  readAcquireRingSnapshot as readAcquireRingSnapshotCore,
   isLiveLogManager,
   makeAcquireRingPinState,
   makeBoxOpenPinState,
@@ -79,7 +78,6 @@ import {
   type StageClearPinState,
   type ReadInventoryResult,
   type ReadPetsResult,
-  type AcquireHoldReason,
   type AcquireRingPinState,
 } from "../../core/liveMemory/runtime";
 import { makeHeroStableState, stabilizeHeroes } from "../../core/liveMemory/heroStable";
@@ -95,6 +93,7 @@ import type {
   LiveMemorySnapshot,
   LiveMemoryStatus,
   AcquireLogEntry,
+  AcquireRingView,
 } from "../../../shared/types";
 import type { LiveChestCategory } from "../../core/liveMemory/runtime";
 
@@ -151,13 +150,6 @@ const STAGE_CLEAR_BURST_GAP_MS = 2;
  * main.log without spamming the 25 Hz tick loop.
  */
 const STATUS_FAIL_LOG_THROTTLE_MS = 30_000;
-
-/**
- * Throttle window for the "acquire hold" diagnostic. The acquire ring is polled
- * every 10 ms, so an un-throttled hold log would flood the file; a slot change
- * always logs immediately (see `logAcquireHold`).
- */
-const ACQUIRE_HOLD_LOG_THROTTLE_MS = 5_000;
 
 /**
  * How long `readRuntimeBoxOpenLog` must continuously return "list not
@@ -308,17 +300,8 @@ export class LiveMemoryReader {
    * and must not be deduped against the previous session's archive.
    */
   private acquireRingRestartPending = false;
-  /** Throttle for the "acquire hold" diagnostic (10 ms poll cadence would flood). */
-  private lastAcquireHoldLogAt = 0;
-  private lastAcquireHoldSlot: number | null = null;
-  /** Last measured ring capacity (see the capacity probe in runtime.ts). */
+  /** Entries the list held at the previous read (logged on change). */
   private lastAcquireCapacity: number | null = null;
-  /** One-shot guard for the `ring+0x18` capacity self-check log. */
-  private acquireCapacityMismatchLogged = false;
-  /** Rate-limits the base-rejection diagnostic (once per minute). */
-  private lastBaseRejectionLogAt = 0;
-  /** Rate-limits the ring-lag diagnostic (the lag is long-lived by nature). */
-  private lastRingLagLogAt = 0;
   private monsterPin: MonsterSpawnPinState = makeMonsterSpawnPinState();
   /** Throttle for the "read: stage null" diagnostic log (avoid spamming every tick). */
   private lastSmFailLogAt: number | null = null;
@@ -1236,15 +1219,8 @@ export class LiveMemoryReader {
     entries: AcquireLogEntry[];
     initial: boolean;
     ringRestarted: boolean;
-    /** The reader's own ring position after this read — persisted as the resume watermark. */
+    /** Highest counter value consumed — persisted as the resume watermark. */
     watermark: number;
-    /**
-     * The calibrated session base at read time — persisted alongside the
-     * watermark. On resume it restores the slot mapping directly: a saturated
-     * ring (fill pinned at capacity) carries no base signal, and without the
-     * persisted base the resumed read would mis-map every slot.
-     */
-    sessionBase: number | null;
   } | null {
     if (!this.attached || !this.supported) return null;
     const p = this.proc;
@@ -1258,119 +1234,22 @@ export class LiveMemoryReader {
       // read position, so this batch is a plain increment — no initial full
       // sync, no archive dedupe.
       if (res.resumed) this.acquireInitialDone = true;
-      // Ring restart (new game session): the persisted watermark sat above the
-      // (restarted) counter, or the counter dropped below the delivered
-      // watermark — the next successful read is a fresh initial full sync and
-      // its lines are genuinely new (the main process must NOT dedupe them).
+      // New game session: the persisted watermark sat above the (restarted)
+      // counter, or the counter dropped below the delivered watermark — the next
+      // successful read is a fresh initial full sync and its lines are genuinely
+      // new (the main process must NOT dedupe them).
       if (res.restartDetected || res.total < this.lastAcquireTotal) {
         this.acquireInitialDone = false;
         this.acquireRingRestartPending = true;
       }
       this.lastAcquireTotal = res.total;
-      // The read stopped at a slot the game has not rewritten yet (the ring
-      // counter over-leads the slot writes), or the last-resort release valve
-      // fired. The pin deliberately stays on the held index — see
-      // AcquireHoldReason — so this line is the visible proof the guard is
-      // working instead of the log silently lagging one full ring behind.
-      if (res.heldReason != null) this.logAcquireHold(res.heldAt, res.heldReason);
-      // The session base was set for the first time: either the game wiped the
-      // record ring mid-process (small fill — the wipe restarted the fill count
-      // while the counter kept running) or a full ring was calibrated on the
-      // first attach (fill = capacity; base = counter - capacity). Both are
-      // diagnostics only — the backlog delivers as a plain increment — but they
-      // explain a gap between the last pre-event line and the first post-event
-      // one.
-      if (res.reanchoredBase != null) {
-        this.log(
-          `acquire ring re-anchored: session base=${res.reanchoredBase} ` +
-            `(fill=${res.fillCount ?? "full"} counter=${res.total})`,
-        );
-      }
-      // Session-base adoption/rejection diagnostics. Adoptions used to be
-      // silent when the pin did not need a jump — the 2026-09-18 mapping
-      // corruption shipped exactly through that blind spot.
-      if (res.baseAdopted != null) {
-        this.log(
-          `acquire session base adopted: ${res.baseAdopted.from ?? "none"} -> ${res.baseAdopted.to} ` +
-            `(counter=${res.total} fill=${res.fillCount ?? "full"}, probe-verified)`,
-        );
-      }
-      if (res.baseRejected != null) {
-        const now = Date.now();
-        if (now - this.lastBaseRejectionLogAt >= 60_000) {
-          this.lastBaseRejectionLogAt = now;
-          this.log(
-            `acquire session base candidate REJECTED (kept ${this.acquirePin.sessionBase ?? "none"}): ` +
-              `candidate=${res.baseRejected.candidate} — ${res.baseRejected.reason} ` +
-              `(counter=${res.total} fill=${res.fillCount ?? "full"})`,
-          );
-        }
-      }
-      // Stamp-guard verdicts. Recovery keeps the healthy prefix of the batch
-      // (may be empty) — log before the empty-batch early return so the event
-      // is always visible.
-      if (res.mappingRecovered) {
-        this.log(
-          `acquire mapping RECOVERED: reader was mis-anchored — a full sweep (${res.scannedSlots ?? "?"} slots) ` +
-            `found newer content (head slot=${res.headSlot ?? "?"}) than the delivered position; the slot mapping ` +
-            `was re-anchored onto the write head and slot identities rebuilt ` +
-            `(recovery #${this.acquirePin.recoveryCount} of ${ACQUIRE_RECOVERY_MAX})`,
-        );
-      }
-      // The sweep found the write head BEYOND the assumed ring capacity → the
-      // modulus assumption was wrong and the slot math has been remapped from
-      // the measured span (2026-09-20).
-      if (res.capacityAdopted != null) {
-        this.log(
-          `acquire ring capacity MEASURED-BY-SWEEP: newest content sits beyond slot ${ACQUIRE_RING_CAPACITY} — ` +
-            `slot math remapped to ${res.capacityAdopted} slots (assumed ${ACQUIRE_RING_CAPACITY}); ` +
-            `update ACQUIRE_RING_CAPACITY for this game build`,
-        );
-      }
-      if (res.mappingSuspect) {
-        this.log(
-          `acquire mapping SUSPECT: mis-anchor persists after ${ACQUIRE_RECOVERY_MAX} re-anchors — ` +
-            `delivering UNVERIFIED entries; capture a TBH_ACQUIRE_DUMP=1 ring dump for analysis`,
-        );
-      }
-      // The ring itself lags the game's event stream (game-side backlog drain):
-      // the reader is AT the newest content (verified by the head scan) and the
-      // companion mirrors the ring faithfully — nothing can be read that the
-      // ring does not hold. Logged so the lag is never mistaken for a read bug.
-      if (res.ringLagMin != null) {
-        const now = Date.now();
-        if (now - this.lastRingLagLogAt >= 60_000) {
-          this.lastRingLagLogAt = now;
-          this.log(
-            `acquire ring lag: newest ring content is ${res.ringLagMin} min behind the wall clock ` +
-              `(head slot=${res.headSlot ?? "?"} of ${res.scannedSlots ?? "?"} swept, counter=${res.total}) — the GAME has not written ` +
-              `newer records; the companion mirrors the ring faithfully (no read fault)`,
-          );
-        }
-      }
-      // Capacity self-check. `ring+0x18` declares the modulus (live-verified
-      // 2000, backing array 2048). A future game build changing it would
-      // silently mis-align every slot lookup, so report it loudly instead.
-      if (
-        res.declaredCapacity != null &&
-        res.declaredCapacity !== ACQUIRE_RING_CAPACITY &&
-        !this.acquireCapacityMismatchLogged
-      ) {
-        this.acquireCapacityMismatchLogged = true;
-        this.log(
-          `acquire capacity MISMATCH: ring declares ${res.declaredCapacity} but the reader ` +
-            `assumes ${ACQUIRE_RING_CAPACITY} — slot lookups (k % capacity) will drift; ` +
-            `update ACQUIRE_RING_CAPACITY for this game build`,
-        );
-      }
-      // Ring capacity is now MEASURED (stride between two rewrites of one slot)
-      // instead of assumed — a wrong modulus silently mis-aligns every slot
-      // lookup, so surface the number once per change.
+      // How many entries the list currently holds — the one number that says
+      // whether the reader is looking at the whole list. Logged on change.
       if (res.capacityEstimate != null && res.capacityEstimate !== this.lastAcquireCapacity) {
         this.lastAcquireCapacity = res.capacityEstimate;
         this.log(
-          `acquire ring capacity MEASURED: ${res.capacityEstimate} entries per slot cycle ` +
-            `(assumed ${ACQUIRE_RING_CAPACITY}${res.capacityEstimate === ACQUIRE_RING_CAPACITY ? " — matches" : " — MISMATCH!"})`,
+          `acquire list: ${res.capacityEstimate} entries held (newest index ${res.newestIndex ?? "?"}, ` +
+            `counter=${res.total})`,
         );
       }
       if (res.entries.length === 0) return null;
@@ -1396,7 +1275,6 @@ export class LiveMemoryReader {
         initial,
         ringRestarted,
         watermark: this.acquirePin.total,
-        sessionBase: this.acquirePin.sessionBase,
       };
     } catch {
       // suppress transient read failures; the next poll retries
@@ -1405,47 +1283,29 @@ export class LiveMemoryReader {
   }
 
   /**
-   * Resume position for the acquire ring, persisted by the main process and
-   * pushed right after spawn. A companion restart then reads only what was
-   * appended since the last shutdown instead of replaying the ring window.
-   *
-   * `sessionBase` is the previously calibrated session start, persisted with
-   * the watermark and restored here BEFORE the first read: a saturated ring
-   * (fill pinned at capacity) cannot recalibrate from fill, and a ring whose
-   * wipe happened while no reader was attached never sees fill < capacity at
-   * all. Same game session ⇒ the base is unchanged, so the persisted value is
-   * authoritative (the fill-based calibration below then simply confirms it).
+   * Resume position for the acquire list, persisted by the main process and
+   * pushed right after spawn. A companion restart then delivers only what the
+   * counter says was appended since the last shutdown instead of re-reading the
+   * whole list.
    */
-  setAcquireResume(total: number | null, sessionBase?: number | null): void {
+  setAcquireResume(total: number | null): void {
     this.acquirePin.resumeTotal = total;
-    if (sessionBase != null) {
-      this.acquirePin.sessionBase = sessionBase;
-      this.acquirePin.sessionBasePending = null;
-    }
   }
 
   /**
-   * Throttled diagnostic for a read that stopped at a ring slot the game has not
-   * rewritten yet, or for the last-resort release valve (`reason="released"` —
-   * the freshness assumption was judged wrong and the entry was delivered
-   * anyway). Logged on a slot change and at most once per throttle window.
+   * Whole-ring raw log for the dev "raw log" view: every slot in absolute array
+   * order with its stamp and full text. Never throws.
    */
-  private logAcquireHold(seq: number | null, reason: AcquireHoldReason): void {
-    if (reason == null) return;
-    const now = Date.now();
-    const slotChanged = this.acquirePin.holdSlot !== this.lastAcquireHoldSlot;
-    if (!slotChanged && now - this.lastAcquireHoldLogAt < ACQUIRE_HOLD_LOG_THROTTLE_MS) return;
-    this.lastAcquireHoldLogAt = now;
-    this.lastAcquireHoldSlot = this.acquirePin.holdSlot;
-    this.log(
-      reason === "released"
-        ? `acquire hold (RELEASED): seq=${seq ?? "-"} total=${this.lastAcquireTotal} ` +
-            `pin=${this.acquirePin.total} — freshness guard gave up and delivered the entry; ` +
-            `report if this repeats while the game is appending lines`
-        : `acquire hold: seq=${seq ?? "-"} reason=${reason} total=${this.lastAcquireTotal} ` +
-            `pin=${this.acquirePin.total} — ring slot not rewritten in this pass yet; pin held ` +
-            `(retried every poll, resolves on the next game append)`,
-    );
+  readAcquireRingSnapshot(): AcquireRingView | null {
+    const p = this.proc;
+    const o = this.offsets;
+    const ga = this.ga;
+    if (!p || !o || !ga || !p.isAlive()) return null;
+    try {
+      return readAcquireRingSnapshotCore(p, ga.base, ga.size, o, this.acquirePin);
+    } catch {
+      return null;
+    }
   }
 
   /**

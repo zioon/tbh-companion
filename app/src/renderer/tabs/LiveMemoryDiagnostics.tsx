@@ -1,5 +1,7 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { AcquireRingView } from "../../../shared/types";
 import { useLiveMemory } from "../lib/useLiveMemory";
 import { useStats } from "../lib/useStats";
 import { liveReaderState } from "../../core/liveMemory/status";
@@ -39,11 +41,155 @@ function StatHealth({
 }
 
 /**
+ * Raw "获得记录" ring viewer. Shows EVERY slot of the game's record ring in
+ * absolute array order — slot index, in-game `[HH:MM]` stamp and full text —
+ * together with the reader's mapping diagnostics.
+ *
+ * Deliberately untranslated: this is a developer tool that never ships in the
+ * production tab bar (see AppTabBar), and adding keys to only one locale would
+ * break the locale-parity test.
+ *
+ * Why absolute slots matter: the reader walks the ring through a counter-derived
+ * map, and the counter is known to over-lead the slot writes. When that map is
+ * shifted by a constant, every index resolves to a row a fixed number of
+ * appends away from the one it claims, and the reader reports "the newest entry
+ * is hours old" while the ring actually holds current rows. Only the array
+ * itself can settle it — hence the `derivedBase` row (`(counter - fill) mod
+ * capacity`, exact even when the ring is saturated) next to the `sessionBase`
+ * the reader is actually using.
+ */
+function AcquireRingViewer() {
+  const [snap, setSnap] = useState<AcquireRingView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [scope, setScope] = useState<"near" | "all">("near");
+  const [query, setQuery] = useState("");
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const v = await window.tbh.getAcquireRing();
+      if (v == null) setErr("读取失败（游戏未运行 / 偏移缺失 / worker 无响应）");
+      setSnap(v);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const headMin = snap?.head?.stampMin ?? null;
+  const rows = useMemo(() => {
+    if (!snap) return [];
+    return snap.slots.filter((s) => {
+      if (query && !(s.message ?? "").toLowerCase().includes(query.toLowerCase())) return false;
+      if (scope === "all" || headMin == null || s.time == null) return true;
+      const [h, m] = s.time.split(":").map(Number);
+      const d = Math.abs(h * 60 + m - headMin) % 1440;
+      return (d > 720 ? 1440 - d : d) <= 60;
+    });
+  }, [snap, scope, query, headMin]);
+
+  return (
+    <section className="mt-6 w-full">
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <p className="m-0 text-[11px] font-medium uppercase tracking-wide text-muted">
+          原始游戏日志（整圈全量）
+        </p>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={busy}
+          className="rounded border border-border px-2 py-0.5 text-[12px] hover:bg-muted/10 disabled:opacity-50"
+        >
+          {busy ? "读取中…" : "刷新"}
+        </button>
+        <select
+          value={scope}
+          onChange={(e) => setScope(e.target.value as "near" | "all")}
+          className="rounded border border-border bg-transparent px-2 py-0.5 text-[12px]"
+        >
+          <option value="near">仅写入头附近（±1 小时）</option>
+          <option value="all">全部槽位</option>
+        </select>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="筛选内容…"
+          className="rounded border border-border bg-transparent px-2 py-0.5 text-[12px]"
+        />
+        {snap ? (
+          <span className="text-[12px] text-muted">
+            显示 {rows.length} / 已提交 {snap.slots.length} 槽
+          </span>
+        ) : null}
+      </div>
+
+      {err ? <p className="m-0 text-[13px] text-gold">{err}</p> : null}
+
+      {snap ? (
+        <>
+          <div className="mb-3 grid max-w-3xl grid-cols-1 gap-x-6 sm:grid-cols-2">
+            <Row label="计数器（+0x1C）" value={snap.counter} />
+            <Row label="列表长度 fill（+0x18）" value={snap.fill ?? "—"} />
+            <Row label="数组声明长度" value={snap.arrayLen ?? "—"} />
+            <Row label="容量常量" value={snap.capacity} />
+            <Row label="最新条目下标（列表末尾）" value={snap.pinSlot ?? "—"} />
+            <Row label="已投递身份数" value={snap.deliveredCount} />
+            <Row
+              label="写入头（最新内容所在槽）"
+              value={
+                snap.head
+                  ? `槽 ${snap.head.slot} @ ${snap.head.stamp}（滞后 ${snap.head.lagMin} 分）`
+                  : "—"
+              }
+            />
+            <Row
+              label="墙钟（比较基准）"
+              value={`${String(Math.floor(snap.wallMin / 60)).padStart(2, "0")}:${String(snap.wallMin % 60).padStart(2, "0")}`}
+            />
+          </div>
+
+          <div className="max-h-[60vh] overflow-auto rounded border border-border">
+            <table className="w-full border-collapse text-[12px]">
+              <thead className="sticky top-0 bg-background">
+                <tr className="text-left text-muted">
+                  <th className="w-16 border-b border-border px-2 py-1 font-medium">槽位</th>
+                  <th className="w-16 border-b border-border px-2 py-1 font-medium">时间</th>
+                  <th className="border-b border-border px-2 py-1 font-medium">内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s) => (
+                  <tr key={s.slot} className="align-top">
+                    <td className="border-b border-border px-2 py-0.5 tabular-nums">{s.slot}</td>
+                    <td className="border-b border-border px-2 py-0.5 tabular-nums">
+                      {s.time ?? "—"}
+                    </td>
+                    <td className="border-b border-border px-2 py-0.5">
+                      {s.message ?? "（空/未写入）"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+/**
  * Dev-only diagnostics for the live-memory reader: attach state, detected
  * version, cadence source, last read cost, snapshot age, and per-stat health.
  * Gated to dev builds in AppTabBar — not shipped in the production tab bar.
- */
-export function LiveMemoryDiagnostics() {
+ */ export function LiveMemoryDiagnostics() {
   const { t } = useTranslation("liveMemory");
   const { snapshot, status } = useLiveMemory();
   const stats = useStats();
@@ -277,6 +423,8 @@ export function LiveMemoryDiagnostics() {
           ) : null}
         </section>
       </div>
+
+      <AcquireRingViewer />
     </TabPage>
   );
 }

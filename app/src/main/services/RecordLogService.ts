@@ -22,12 +22,6 @@ export class RecordLogService {
    * resumes the ring incrementally instead of replaying the whole window.
    */
   private acquireWatermark: number | null = null;
-  /**
-   * The session base calibrated by the reader when the watermark advanced,
-   * persisted alongside it. A saturated ring has no base signal of its own, so
-   * a resumed reader restores this before its first read (null = none yet).
-   */
-  private acquireSessionBase: number | null = null;
 
   constructor(
     private readonly tracker: RecordLogTracker,
@@ -47,31 +41,20 @@ export class RecordLogService {
       if (typeof raw.acquireWatermark === "number" && raw.acquireWatermark > 0) {
         this.acquireWatermark = raw.acquireWatermark;
       }
-      if (typeof raw.acquireSessionBase === "number" && raw.acquireSessionBase >= 0) {
-        this.acquireSessionBase = raw.acquireSessionBase;
-      }
     } catch (err) {
       log.warn(`Could not read ${RECORD_LOG_FILE}: ${(err as Error).message}`);
     }
   }
 
-  /** The persisted acquire-ring read position (null = no resume info yet). */
+  /** The persisted acquire-list read position (null = no resume info yet). */
   getAcquireWatermark(): number | null {
     return this.acquireWatermark;
   }
 
-  /** The persisted acquire-ring session base (null = not calibrated yet). */
-  getAcquireSessionBase(): number | null {
-    return this.acquireSessionBase;
-  }
-
   /**
    * Advance the persisted read position (called with every acquire batch).
-   * `sessionBase` is the reader's calibrated base for this batch — stored when
-   * present, so the pair (watermark, base) always describes one ring state.
    */
-  setAcquireWatermark(total: number, sessionBase?: number | null): void {
-    if (sessionBase != null) this.acquireSessionBase = sessionBase;
+  setAcquireWatermark(total: number): void {
     if (this.acquireWatermark === total) return;
     this.acquireWatermark = total;
     this.schedulePersist();
@@ -103,7 +86,6 @@ export class RecordLogService {
   resetStorage(): void {
     this.tracker.reset();
     this.acquireWatermark = null;
-    this.acquireSessionBase = null;
   }
 
   private persistPath(): string {
@@ -124,7 +106,6 @@ export class RecordLogService {
           {
             ...this.tracker.snapshot(),
             acquireWatermark: this.acquireWatermark,
-            acquireSessionBase: this.acquireSessionBase,
           },
           null,
           2,

@@ -417,14 +417,9 @@ export class TrackingService {
     };
   }
 
-  /** The persisted acquire-ring read position (resume watermark), or null. */
+  /** The persisted acquire-list read position (resume watermark), or null. */
   getAcquireWatermark(): number | null {
     return this.recordLogService?.getAcquireWatermark() ?? null;
-  }
-
-  /** The persisted acquire-ring session base (null = not calibrated yet). */
-  getAcquireSessionBase(): number | null {
-    return this.recordLogService?.getAcquireSessionBase() ?? null;
   }
 
   pushStats(): void {
@@ -848,7 +843,6 @@ export class TrackingService {
     initial = false,
     ringRestarted = false,
     watermark?: number,
-    sessionBase?: number | null,
   ): void {
     if (!this.recordLogService) return;
     if (entries.length === 0) return;
@@ -897,9 +891,7 @@ export class TrackingService {
     // Persist the reader's ring position so the next companion start resumes
     // incrementally instead of replaying the whole window. Advanced even when
     // every line of the batch was deduped — the position moved regardless.
-    // The batch's calibrated session base is persisted with it: a saturated
-    // ring has no base signal, so a resumed reader must restore the pair.
-    if (watermark != null) this.recordLogService.setAcquireWatermark(watermark, sessionBase);
+    if (watermark != null) this.recordLogService.setAcquireWatermark(watermark);
     if (dirty) {
       log.info(
         `acquire ingest: ${entries.length} lines initial=${initial} ringRestarted=${ringRestarted} ` +

@@ -35,6 +35,7 @@ import type {
   PriceRefreshResult,
   PriceStatus,
   RecordLogPage,
+  AcquireRingView,
   RendererLogPayload,
   ResolvedInventory,
   StageRunStats,
@@ -291,6 +292,10 @@ const api: TbhApi = {
   },
   getRecordLogPage(page: number, pageSize?: number): Promise<RecordLogPage> {
     return ipcRenderer.invoke(IPC.GET_RECORD_LOG_PAGE, page, pageSize);
+  },
+  /** Whole "获得记录" ring, every slot in absolute order (dev raw-log view). */
+  getAcquireRing(): Promise<AcquireRingView | null> {
+    return ipcRenderer.invoke(IPC.GET_ACQUIRE_RING);
   },
   onStageRuns(cb: (stats: StageRunStats) => void): () => void {
     const listener = (_e: unknown, stats: StageRunStats): void => cb(stats);

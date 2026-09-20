@@ -426,6 +426,47 @@ export interface AcquireLogEntry {
 export type RecordLogKind = "drop" | "open" | "clear" | "acquire";
 
 /**
+ * One slot of the game's "获得记录" ring, read straight from the backing array.
+ * `slot` is the ABSOLUTE array index — deliberately NOT a counter-derived ring
+ * index, because the counter is known to over-lead the slot writes and the whole
+ * point of this view is to see the array as the game laid it out.
+ */
+export interface AcquireRingSlotView {
+  slot: number;
+  /** Entry object address as hex, null when the slot was never committed. */
+  entry: string | null;
+  /** `[HH:MM]` record stamp, brackets stripped; null when undecodable. */
+  time: string | null;
+  /** Full record text; null when the slot is empty or mid-write. */
+  message: string | null;
+}
+
+/** Whole-ring diagnostic snapshot (dev "raw log" view). */
+export interface AcquireRingView {
+  /** Ring counter (`ring + 0x1C`). */
+  counter: number;
+  /** Fill count (`ring + 0x18`) = entries currently held in the list. */
+  fill: number | null;
+  capacity: number;
+  /** Declared backing-array length (`buf + 0x18`). */
+  arrayLen: number | null;
+  /** Where the newest stamp actually sits, plus how far it lags the wall clock. */
+  head: { slot: number; stamp: string; stampMin: number; lagMin: number } | null;
+  /**
+   * Highest index holding the newest entry (the list's length − 1) — the
+   * "pinSlot" of the list model. Null when nothing is readable.
+   */
+  pinSlot: number | null;
+  /** How many entry identities the reader is currently tracking as delivered. */
+  deliveredCount: number;
+  slots: AcquireRingSlotView[];
+  /** Wall clock (minutes of day) at snapshot time — the reader's freshness yardstick. */
+  wallMin: number;
+  /** Epoch ms the snapshot was taken. */
+  takenAt: number;
+}
+
+/**
  * One entry in the unified record log (what the game itself logs via its in-memory
  * `LogManager`): chest drops (GetBox), box opens (GetItemWithBoxOpen), stage clears
  * (StageClear). Persisted long-term to `record_log.json` so it survives session
@@ -2226,6 +2267,12 @@ export interface TbhApi {
    * the stats push window, but static); page N walks further back in time.
    */
   getRecordLogPage(page: number, pageSize?: number): Promise<RecordLogPage>;
+  /**
+   * Whole "获得记录" ring: every committed slot in absolute array order, plus the
+   * mapping diagnostics that say whether the reader's index→slot map agrees with
+   * the array. On-demand (walks ~2048 slots) — for the dev raw-log view only.
+   */
+  getAcquireRing(): Promise<AcquireRingView | null>;
   resetLootBox(boxKey: string): Promise<void>;
   resetLootAll(): Promise<void>;
   reclassifyLootItem(itemKey: number, fromBoxKey: string, toBoxKey: string): Promise<void>;

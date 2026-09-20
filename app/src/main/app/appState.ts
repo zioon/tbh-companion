@@ -376,18 +376,10 @@ export function startTracking(): SessionUiSnapshot {
   // otherwise lose the first new records.
   // The resume watermark is handed to the worker here as well (tracking.start
   // created recordLogService, which loaded it from record_log.json): a companion
-  // restart then continues the ring from the last shutdown's read position.
-  // The persisted session base rides along — a saturated ring has no base
-  // signal of its own, so the reader needs the pair to stay slot-aligned.
-  liveMemory.setAcquireResume(tracking.getAcquireWatermark(), tracking.getAcquireSessionBase());
+  // restart then continues the list from the last shutdown's read position.
+  liveMemory.setAcquireResume(tracking.getAcquireWatermark());
   liveMemory.setOnAcquire((batch) =>
-    tracking.ingestAcquireBatch(
-      batch.entries,
-      batch.initial,
-      batch.ringRestarted,
-      batch.watermark,
-      batch.sessionBase,
-    ),
+    tracking.ingestAcquireBatch(batch.entries, batch.initial, batch.ringRestarted, batch.watermark),
   );
   // Feed inventory + lookup-price snapshots to TrackingService for box-open price resolution.
   tracking.setGameDataLookup(inventory.getGameDataLookup());
@@ -916,6 +908,7 @@ export function getAppServices() {
     },
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),
+    getAcquireRing: () => liveMemory.requestAcquireRingSnapshot(),
     getStageRuns: () => stageRuns.getStats(),
     getRecordLogPage: (page: number, pageSize?: number) =>
       tracking.getRecordLogPage(page, pageSize ?? 200),

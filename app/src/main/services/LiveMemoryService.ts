@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { IPC } from "../../../shared/ipc";
 import type {
   AcquireLogEntry,
+  AcquireRingView,
   LiveInventoryItem,
   LiveMemorySnapshot,
   LiveMemoryStatus,
@@ -32,33 +33,27 @@ type WorkerMessage =
       initial: boolean;
       ringRestarted: boolean;
       watermark: number;
-      sessionBase: number | null;
     }
   | { type: "status"; status: LiveMemoryStatus }
+  | { type: "acquireRing"; requestId: number; snapshot: AcquireRingView | null }
   | { type: "log"; message: string };
 
-/** One batch of "获得记录" lines delivered by the worker's acquire-ring monitor. */
+/** One batch of "获得记录" lines delivered by the worker's acquire-list monitor. */
 export interface AcquireBatch {
   entries: AcquireLogEntry[];
   /** True for the first batch after attach: the whole session backlog. */
   initial: boolean;
   /**
-   * The ring counter restarted right before this batch (new game session), so
-   * its lines are genuinely new even where the text repeats — the archive dedupe
+   * The counter restarted right before this batch (new game session), so its
+   * lines are genuinely new even where the text repeats — the archive dedupe
    * must keep them (see `TrackingService.ingestAcquireBatch`).
    */
   ringRestarted: boolean;
   /**
-   * The reader's ring position after this batch — persisted by the record log
+   * Highest counter value consumed by this batch — persisted by the record log
    * service so the next companion start resumes from here.
    */
   watermark: number;
-  /**
-   * The calibrated session base at read time — persisted alongside the
-   * watermark so a resumed reader can restore the slot mapping (a saturated
-   * ring carries no base signal of its own).
-   */
-  sessionBase: number | null;
 }
 
 export class LiveMemoryService {
@@ -88,13 +83,39 @@ export class LiveMemoryService {
    */
   private localeCatalog: LocaleCatalog = emptyLocaleCatalog();
   /**
-   * Persisted acquire-ring read position, pushed to the worker right after
+   * Persisted acquire-list read position, pushed to the worker right after
    * spawn (see `setAcquireResume`) so a companion restart resumes incrementally
-   * instead of replaying the whole ring window.
+   * instead of re-reading the whole list.
    */
   private acquireResumeTotal: number | null = null;
-  /** Session base persisted with the resume watermark (see `setAcquireResume`). */
-  private acquireResumeBase: number | null = null;
+  /** In-flight whole-array raw-log requests, keyed by request id (see below). */
+  private ringRequests = new Map<number, (v: AcquireRingView | null) => void>();
+  private nextRingRequestId = 1;
+
+  /**
+   * Ask the worker for the whole "获得记录" array (every slot, absolute order).
+   * On-demand only — it walks all ~2048 slots, so it is for a human looking at
+   * the dev raw-log view, not for the read path. Resolves null on timeout so a
+   * wedged worker cannot hang the renderer's IPC call.
+   */
+  requestAcquireRingSnapshot(timeoutMs = 8000): Promise<AcquireRingView | null> {
+    const child = this.child;
+    if (!child) return Promise.resolve(null);
+    const id = this.nextRingRequestId++;
+    return new Promise((resolve) => {
+      const done = (v: AcquireRingView | null): void => {
+        if (!this.ringRequests.delete(id)) return;
+        resolve(v);
+      };
+      this.ringRequests.set(id, done);
+      setTimeout(() => done(null), timeoutMs);
+      try {
+        child.postMessage({ type: "acquireRing", requestId: id });
+      } catch {
+        done(null);
+      }
+    });
+  }
 
   /** Register a callback invoked on every snapshot frame from the reader worker. */
   setOnSnapshot(cb: (snap: LiveMemorySnapshot) => void): void {
@@ -117,15 +138,10 @@ export class LiveMemoryService {
    * worker immediately (it must arrive before the worker's first ring read,
    * otherwise the whole window is replayed once).
    */
-  setAcquireResume(total: number | null, sessionBase?: number | null): void {
+  setAcquireResume(total: number | null): void {
     this.acquireResumeTotal = total;
-    if (sessionBase !== undefined) this.acquireResumeBase = sessionBase;
     if (this.child) {
-      this.child.postMessage({
-        type: "acquireResume",
-        total,
-        sessionBase: this.acquireResumeBase,
-      });
+      this.child.postMessage({ type: "acquireResume", total });
     }
   }
 
@@ -254,12 +270,13 @@ export class LiveMemoryService {
               initial: msg.initial,
               ringRestarted: msg.ringRestarted,
               watermark: msg.watermark,
-              sessionBase: msg.sessionBase,
             });
           } catch (err) {
             log.warn(`Acquire batch callback failed: ${String(err)}`);
           }
         }
+      } else if (msg.type === "acquireRing") {
+        this.ringRequests.get(msg.requestId)?.(msg.snapshot);
       } else if (msg.type === "log") {
         log.info(`[worker] ${msg.message}`);
       }
