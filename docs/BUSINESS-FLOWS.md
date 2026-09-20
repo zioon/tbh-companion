@@ -19,13 +19,13 @@ TBH Companion 是 idle game **TBH: Task Bar Hero** 的桌面伴侣应用。它**
 
 ### 四层架构
 
-| 层 | 路径 | 规则 |
-|----|------|------|
-| **shared** | `app/shared/` | `types.ts` + `ipc.ts`（IPC 通道名）+ `notificationCatalog.ts`。无运行时逻辑。 |
-| **core** | `app/src/core/` | 纯领域逻辑。**无** `electron`、**无** `node:fs`、**无** `fetch`、**无** React。Vitest 单测覆盖。 |
-| **main** | `app/src/main/` | 文件 I/O、网络、窗口、IPC。通过 `app/appState.ts` 和 `ipc/` 编排 core。 |
-| **preload** | `app/src/preload/` | 仅 `contextBridge`；通道名从 `shared/ipc.ts` 引入。 |
-| **renderer** | `app/src/renderer/` | React UI 通过 `window.tbh` 访问 IPC。过滤/排序在 `renderer/lib/` 或 `core/` 纯函数。 |
+| 层           | 路径                | 规则                                                                                             |
+| ------------ | ------------------- | ------------------------------------------------------------------------------------------------ |
+| **shared**   | `app/shared/`       | `types.ts` + `ipc.ts`（IPC 通道名）+ `notificationCatalog.ts`。无运行时逻辑。                    |
+| **core**     | `app/src/core/`     | 纯领域逻辑。**无** `electron`、**无** `node:fs`、**无** `fetch`、**无** React。Vitest 单测覆盖。 |
+| **main**     | `app/src/main/`     | 文件 I/O、网络、窗口、IPC。通过 `app/appState.ts` 和 `ipc/` 编排 core。                          |
+| **preload**  | `app/src/preload/`  | 仅 `contextBridge`；通道名从 `shared/ipc.ts` 引入。                                              |
+| **renderer** | `app/src/renderer/` | React UI 通过 `window.tbh` 访问 IPC。过滤/排序在 `renderer/lib/` 或 `core/` 纯函数。             |
 
 ### 三个窗口（共享同一 bundle）
 
@@ -187,20 +187,20 @@ flowchart TD
 
 模块级单例按顺序构造（构造时即执行）：
 
-| 顺序 | 服务 | 关键依赖 |
-|------|------|----------|
-| 1 | `SessionStateService` | 无 |
-| 2 | `InventoryService` | 无 |
-| 3 | `ChestService` | 构造时加载 `boxType`/`runeCap`/`runeAutoOpen` 三份 catalog |
-| 4 | `PetService` | 构造时加载 `petCatalog` |
-| 5 | `BoxTimerService` | 构造时加载 `stageBox` catalog + tracker routes，调 `load()` 读 `box_timers.json`，调 `seedWasOnCooldown()` |
-| 6 | `StageRunService` | 构造时 `load()` 读 `stage_run_history.json` |
-| 7 | `LookupService` / `LookupPriceService` | 无 |
-| 8 | `LookupPricePollingService` | 依赖 `lookupPrices`、`config.lookupPricePolling.watchedHashes`、`config.currency`、共享 `nameIdService`、`broadcast` |
-| 9 | `LiveMemoryService` | 构造后 `setOnGameVersionChanged` 钩子接 `catalogRefresh.onGameVersionChanged` |
-| 10 | `CatalogRefreshService` | 依赖 `inventory.getGameData()`、`liveMemory`、`resolveUserDataDir()`、`broadcast`、`config.gameInstallDir` |
-| 11 | `NotificationService` | `getConfig`、`focusMainWindow`、`t`（i18n） |
-| 12 | `UpdateService` | `getConfig`、`onUpdateAvailable: (v) => notifications.showUpdateAvailable(v)` |
+| 顺序 | 服务                                   | 关键依赖                                                                                                             |
+| ---- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 1    | `SessionStateService`                  | 无                                                                                                                   |
+| 2    | `InventoryService`                     | 无                                                                                                                   |
+| 3    | `ChestService`                         | 构造时加载 `boxType`/`runeCap`/`runeAutoOpen` 三份 catalog                                                           |
+| 4    | `PetService`                           | 构造时加载 `petCatalog`                                                                                              |
+| 5    | `BoxTimerService`                      | 构造时加载 `stageBox` catalog + tracker routes，调 `load()` 读 `box_timers.json`，调 `seedWasOnCooldown()`           |
+| 6    | `StageRunService`                      | 构造时 `load()` 读 `stage_run_history.json`                                                                          |
+| 7    | `LookupService` / `LookupPriceService` | 无                                                                                                                   |
+| 8    | `LookupPricePollingService`            | 依赖 `lookupPrices`、`config.lookupPricePolling.watchedHashes`、`config.currency`、共享 `nameIdService`、`broadcast` |
+| 9    | `LiveMemoryService`                    | 构造后 `setOnGameVersionChanged` 钩子接 `catalogRefresh.onGameVersionChanged`                                        |
+| 10   | `CatalogRefreshService`                | 依赖 `inventory.getGameData()`、`liveMemory`、`resolveUserDataDir()`、`broadcast`、`config.gameInstallDir`           |
+| 11   | `NotificationService`                  | `getConfig`、`focusMainWindow`、`t`（i18n）                                                                          |
+| 12   | `UpdateService`                        | `getConfig`、`onUpdateAvailable: (v) => notifications.showUpdateAvailable(v)`                                        |
 
 构造后立即装配跨服务回调：
 
@@ -435,16 +435,16 @@ flowchart TD
 
 ### 3.5 SaveSnapshot 字段含义（`app/shared/types.ts`）
 
-| 字段 | 类型 | 含义 |
-|------|------|------|
-| `heroes` | `HeroSnapshot[]` | 每个英雄的 key/level/exp/unlocked |
-| `totalHeroExp` | number | 所有英雄 exp 之和（用于会话级 XP 增量） |
-| `playTime` | number | 游戏内 playTime |
-| `saveMtime` | number | save 文件 mtime（epoch 秒）— 用作所有速率计算的时间基准 |
-| `stageKey` | number | 当前关卡 4 位编码（难度×1000+act×100+stage） |
-| `stageWave` | number | 当前 wave |
-| `maxStage` | number | 历史最高已完成关卡 |
-| `gold` | number | 当前金币 |
+| 字段           | 类型             | 含义                                                    |
+| -------------- | ---------------- | ------------------------------------------------------- |
+| `heroes`       | `HeroSnapshot[]` | 每个英雄的 key/level/exp/unlocked                       |
+| `totalHeroExp` | number           | 所有英雄 exp 之和（用于会话级 XP 增量）                 |
+| `playTime`     | number           | 游戏内 playTime                                         |
+| `saveMtime`    | number           | save 文件 mtime（epoch 秒）— 用作所有速率计算的时间基准 |
+| `stageKey`     | number           | 当前关卡 4 位编码（难度×1000+act×100+stage）            |
+| `stageWave`    | number           | 当前 wave                                               |
+| `maxStage`     | number           | 历史最高已完成关卡                                      |
+| `gold`         | number           | 当前金币                                                |
 
 ---
 
@@ -491,6 +491,7 @@ flowchart TD
 ```
 
 `TrackingService`（`app/src/main/services/TrackingService.ts`）持有：
+
 - `XpTracker`（XP/金币会话与速率）
 - `ChestDropTracker` + `LiveChestDropAggregator`（宝箱掉落计数）
 - `BoxOpenTracker`（宝箱开启结果）
@@ -675,11 +676,13 @@ flowchart TD
 `appState.ts`：
 
 ```ts
-if (config.liveMemory.enabled && config.liveMemory.consentAccepted) liveMemory.start();
+if (config.liveMemory.enabled && config.liveMemory.consentAccepted)
+  liveMemory.start();
 liveMemory.setOnSnapshot((snap) => tracking.ingestLiveFrame(snap));
 ```
 
 三个前置条件：
+
 1. `config.liveMemory.enabled` — 用户在 Settings 勾选开启 Live Memory。
 2. `config.liveMemory.consentAccepted` — 用户确认"我知道这会读取游戏进程内存"同意弹窗。
 3. **进程检测延后到 worker 内部** — `LiveMemoryService.start()` 不主动检测游戏进程；它只 fork worker，由 worker 的 `loop()` 在 `reader.attach()` 内通过 `WinProcess.findByNames(["TaskBarHero.exe", "TaskbarHero.exe"])` 寻找游戏。游戏未启动时 worker 进入 1500ms 重试轮询（`POLL_DETACHED_MS`）。
@@ -717,6 +720,7 @@ type WorkerMessage =
 ```
 
 主进程接收端：
+
 - **`snapshot`** — 后处理（注入本地化英雄名 `localizeHeroes`）→ 缓存为 `lastSnapshot` → 节流 200ms 广播给 renderer（`IPC.LIVE_MEMORY`）→ **不节流**地调用 `snapshotCb`（即 `tracking.ingestLiveFrame`）。tracker 拿到全 25Hz 数据用于精确采样，UI 只刷 5Hz。
 - **`status`** — 缓存为 `lastStatus` → 立即广播给 renderer（`IPC.LIVE_MEMORY_STATUS`）→ 若 `gameVersion` 变化，触发 `onGameVersionChanged` 回调（被 `CatalogRefreshService` 接住）。
 - **`log`** — 转发到 main logger。
@@ -752,6 +756,7 @@ type WorkerMessage =
 `LiveMemoryReader.resolveOffsets()`（`liveReader.ts:566-807`）：
 
 **Step 1 — Bundled 表**（`liveReader.ts:590-599`）：
+
 - `offsetsForVersionMeta(version)` 返回 `{ table, fallback }`。
 - 精确命中：`fallback=false`，`source="bundled"`。
 - 同 major.minor 邻近版本命中：`fallback=true`，table 上贴 `_fallbackFromVersion: <bestVersion>`，`source="bundled"`。
@@ -759,6 +764,7 @@ type WorkerMessage =
 - **版本表现状（2026-09-17）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / 1.2.2 / **1.2.4**。**v1.2.4 表（2026-09-17 补录）**：游戏 12:28 更新 v1.2.4 后，缺表期间按同 major.minor 规则 fallback 到 1.2.2 RVA 基线——但 v1.2.4 重编译使**全部 5 个静态 TypeInfo RVA 漂移**（currencyManager 0x5f4b8c8→0x5f4a068、stageCacheManager→0x5f4adf8、stageManager→0x5f75838、logManager→0x5f43a78、monsterSpawnManager→0x5f23148），错误的 currencyManager 使 `readRuntimeGold` 每 tick 失败 → live 金币静默降级为 5s save 轮询（用户感知为"实时数据回退成 save 数据"；结构布局本身未变，`unit.cache`/`heroRuntime` 等沿用 1.2.2 值）。表由 `scripts/capture-live-offsets.ts` 从运行中的 v1.2.4 游戏（critical path，gold probe 通过）捕获补录。**fallback 日志措辞修正（2026-09-17）**：旧日志把 `meta.table.gameVersion`（=1.2.4）当来源显示 "fallback from v1.2.4" 自相矛盾；已改为 `meta.table._fallbackFromVersion ?? meta.table.gameVersion`。跨 major.minor 版本（如 1.3.x）不会 fallback 到旧表，只能走纯 extractor / 磁盘 cache 路径。**v1.2.4 已知差距（英雄运行时经验）**：`heroRuntime.expHidden/expKey`（0x658/0x660，继承自 1.2.2）在 v1.2.4 上读数**冻结不更新**（实测探针三次读数 bit 级一致，且与骑士的存档本级经验逐位相同），0x1000 范围差分扫描未找到任何像实时经验的字段（唯一变化的 qword 是跨英雄共享的指针缓存）。即 v1.2.4 的 live 英雄经验/每英雄速率暂不可用——等级显示不受影响（信任闸门整帧回退 save 真值），满级（101）下速率 0 本就是设计行为；诊断页"英雄（实时经验）"显示的是**原始 live 读数**（设计如此，不做闸门修正），其中占位壳槽位显示 L1/0、经验列可能是过期值。恢复实时英雄经验需要专门的偏移再派生（extractor 无法按形状派生 heroRuntime 字段，需配合游戏内可对照的等级/经验变化做实测捕获）。
 
 **Step 2 — Disk cache**（`liveReader.ts:612-635`）：
+
 - `loadCachedOffsets(cacheDir, version, EXTRACTOR_REVISION)`：
   - 文件不存在/JSON 解析失败/version 不匹配 → 返回 null。
   - envelope 的 `extractorRevision < EXTRACTOR_REVISION` → 返回 null（强制重跑，避免旧 bug 的缓存留存）。
@@ -766,10 +772,12 @@ type WorkerMessage =
 - 当 cache 比 bundled 更完整（或等完整但 cache 是 extractor-validated 的）→ 用 cache，`source="cache"`。保留 `_fallbackFromVersion` 标记。
 
 **Step 3 — Complete short-circuit**（`liveReader.ts:637-657`）：
+
 - `isOffsetTableComplete(base)` 为 true 且无强制重跑信号 → 直接返回 base，跳过 extractor。
 - 两个强制重跑信号：`forceExtractForCatalogDump`（`TBH_DUMP_CATALOG_CANDIDATES=1`，仅诊断）和 `forceReextract`（cache pollution 检测到，见 5.9）。
 
 **Step 4 — Extractor 决策**（`liveReader.ts:670-801`）：
+
 - 计算两个布尔：
   - `forceCriticalPath = isFallbackTable && isCriticalStaleOnBaseline(base)` — 同版本 fallback 且 critical RVAs 还在 baseline 状态。
   - `useCriticalBudget = !isSupported || forceCriticalPath` — 决定消耗哪个预算。
@@ -789,18 +797,19 @@ type WorkerMessage =
 - `source = base ? "merged" : "extracted"`。
 
 **Step 5 — Degraded fallback**（`liveReader.ts:802-806`）：
+
 - 全部失败 → 返回 `{ table: base, source, classIndex: null }`，base 可能仍为 null（完全降级到 save-only）。
 
 ### 5.4 防死循环机制
 
 #### 5.4.1 四种"标记字段"
 
-| 字段 | 位置 | 作用 |
-|------|------|------|
-| `EXTRACTOR_REVISION` | `offsetExtractor.ts` 常量 = **16** | 提取器策略版本；bump 后所有旧 cache 自动失效。Rev 13 引入 `_criticalRvasValidated`、LogManager name-scan fallback、cache-pollution 检测器扩展、`findBoxDataFields` 结构化派生、StageManager-availability transition（Path 1.6）；Rev 15 引入 `findBoxDataStructurally`；**Rev 16（2026-09-17）**：`_criticalRvasValidated` 增加"本次运行成功派生 currencyManager"前置条件（见 Step 4），bump 使被毒化的 v1.2.4 rev-15 缓存（currencyManager 锁定在 1.2.2 基线）自动失效 |
-| `_extractorRev` | `LiveOffsets._extractorRev?` | 单表上的标记：本次表的产出 revision。envelope 里也存一份 `extractorRevision`。**Rev 13 起 `isCriticalStaleOnBaseline` 不再读它**（旧的 `_extractorRev`-based 检查有死锁：extractor 跑过一次即使是失败也会设此标记 → 永远不重试）。仍用于 `enrichmentAlreadyAttempted` 判断（决定 Path 2 是否重置 enrichment 预算） |
-| `_fallbackFromVersion` | `LiveOffsets._fallbackFromVersion?` | provenance 标记：当前表是同 major.minor 邻居 fallback 而来；`mergeOffsets` 保留它跨 cache |
-| `_criticalRvasValidated` | `LiveOffsets._criticalRvasValidated?`（Rev 13 新增） | **liveness 标记**：extractor 在 critical 模式下成功派生（或确认）了 `stageManager` + `stageCacheManager` RVAs。仅当 `useCriticalBudget=true` 且两个 RVA 都非零时设为 true。`isCriticalStaleOnBaseline` 用此字段替代 `_extractorRev` 判断 baseline 是否可信。失败/未跑过 critical 路径都不设 → reader 会重试，但重试由 `consumeSmTransition`（Path 1.6）触发，不是 30s 定时器，避免无限循环 |
+| 字段                     | 位置                                                 | 作用                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXTRACTOR_REVISION`     | `offsetExtractor.ts` 常量 = **16**                   | 提取器策略版本；bump 后所有旧 cache 自动失效。Rev 13 引入 `_criticalRvasValidated`、LogManager name-scan fallback、cache-pollution 检测器扩展、`findBoxDataFields` 结构化派生、StageManager-availability transition（Path 1.6）；Rev 15 引入 `findBoxDataStructurally`；**Rev 16（2026-09-17）**：`_criticalRvasValidated` 增加"本次运行成功派生 currencyManager"前置条件（见 Step 4），bump 使被毒化的 v1.2.4 rev-15 缓存（currencyManager 锁定在 1.2.2 基线）自动失效 |
+| `_extractorRev`          | `LiveOffsets._extractorRev?`                         | 单表上的标记：本次表的产出 revision。envelope 里也存一份 `extractorRevision`。**Rev 13 起 `isCriticalStaleOnBaseline` 不再读它**（旧的 `_extractorRev`-based 检查有死锁：extractor 跑过一次即使是失败也会设此标记 → 永远不重试）。仍用于 `enrichmentAlreadyAttempted` 判断（决定 Path 2 是否重置 enrichment 预算）                                                                                                                                                      |
+| `_fallbackFromVersion`   | `LiveOffsets._fallbackFromVersion?`                  | provenance 标记：当前表是同 major.minor 邻居 fallback 而来；`mergeOffsets` 保留它跨 cache                                                                                                                                                                                                                                                                                                                                                                               |
+| `_criticalRvasValidated` | `LiveOffsets._criticalRvasValidated?`（Rev 13 新增） | **liveness 标记**：extractor 在 critical 模式下成功派生（或确认）了 `stageManager` + `stageCacheManager` RVAs。仅当 `useCriticalBudget=true` 且两个 RVA 都非零时设为 true。`isCriticalStaleOnBaseline` 用此字段替代 `_extractorRev` 判断 baseline 是否可信。失败/未跑过 critical 路径都不设 → reader 会重试，但重试由 `consumeSmTransition`（Path 1.6）触发，不是 30s 定时器，避免无限循环                                                                              |
 
 #### 5.4.2 两个独立预算（`offsetHealing.ts`）
 
@@ -811,6 +820,7 @@ type WorkerMessage =
 #### 5.4.3 `isCriticalStaleOnBaseline`（`liveReader.ts:163-173`）
 
 判断当前 offset 表是不是"还在 baseline 状态的 fallback 表"（即 extractor 尚未成功派生 fresh critical RVAs）：
+
 1. `_fallbackFromVersion` 必须存在（同 major.minor 邻居 fallback 而来）。
 2. `_criticalRvasValidated` 必须为 falsy（Rev 13 用此字段替代旧的 `_extractorRev` 检查）。
 3. 当前表的 `stageManager` / `stageCacheManager` RVA 必须与 bundled fallback 表的 RVA 完全相等。
@@ -825,13 +835,13 @@ type WorkerMessage =
 
 #### 5.4.5 worker maybeHealEnrichment 5 条路径
 
-| 路径 | 触发条件 | 是否重置预算 | 是否受预算 cap | 防死循环依据 |
-|------|----------|--------------|------------------|----------------|
-| **Path 1** box-open event | `consumeBoxOpenEvent()` 返回 true（0→>0 转换） | 是（`resetEnrichmentBudget`） | 否 | 一次性 flag，被 consume 后清零，不会重复触发 |
-| **Path 1.5** cache pollution | `needsForcedReextract === true` | 是（同时重置 critical + enrichment，见 5.8.3） | 否（绕过 cap） | `forceExtractorNextHeal` 是 one-shot，extractor 跑完即清零 |
-| **Path 1.6** StageManager transition（Rev 13 新增） | `consumeSmTransition()` 返回 true（玩家进入关卡，StageManager 单例从无到有） | **是（仅重置 critical 预算，不动 enrichment）** | 否 | `smTransitionPending` 是一次性 flag，consume 后清零；玩家进关卡的 transition 是离散事件不会重复触发 |
-| **Path 2** enrichment fallback timer | `!enrichmentComplete` && 30s 到期 | **仅当 `!enrichmentAlreadyAttempted` 时重置 enrichment** | 是 | 一旦 extractor 跑过（`_extractorRev` 存在），不再重置预算；预算耗尽 → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回 |
-| **Path 3** critical-stale-on-fallback timer | `isCriticalStaleOnFallback` && 30s 到期 | **否（Rev 13 起 critical 预算不在此重置，仅 Path 1.6 重置）** | 是 | Rev 13 前 `healOffsets` 内会无条件 `resetCriticalExtractionBudget()` → 每 30s 跑一次 ~9s extractor 的无限循环；Rev 13 改为 Path 3 只让 extractor 跑完初始 3 次尝试，真正的恢复信号由 Path 1.6（玩家进入关卡）提供 |
+| 路径                                                | 触发条件                                                                     | 是否重置预算                                                  | 是否受预算 cap | 防死循环依据                                                                                                                                                                                                      |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Path 1** box-open event                           | `consumeBoxOpenEvent()` 返回 true（0→>0 转换）                               | 是（`resetEnrichmentBudget`）                                 | 否             | 一次性 flag，被 consume 后清零，不会重复触发                                                                                                                                                                      |
+| **Path 1.5** cache pollution                        | `needsForcedReextract === true`                                              | 是（同时重置 critical + enrichment，见 5.8.3）                | 否（绕过 cap） | `forceExtractorNextHeal` 是 one-shot，extractor 跑完即清零                                                                                                                                                        |
+| **Path 1.6** StageManager transition（Rev 13 新增） | `consumeSmTransition()` 返回 true（玩家进入关卡，StageManager 单例从无到有） | **是（仅重置 critical 预算，不动 enrichment）**               | 否             | `smTransitionPending` 是一次性 flag，consume 后清零；玩家进关卡的 transition 是离散事件不会重复触发                                                                                                               |
+| **Path 2** enrichment fallback timer                | `!enrichmentComplete` && 30s 到期                                            | **仅当 `!enrichmentAlreadyAttempted` 时重置 enrichment**      | 是             | 一旦 extractor 跑过（`_extractorRev` 存在），不再重置预算；预算耗尽 → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回                                                                                            |
+| **Path 3** critical-stale-on-fallback timer         | `isCriticalStaleOnFallback` && 30s 到期                                      | **否（Rev 13 起 critical 预算不在此重置，仅 Path 1.6 重置）** | 是             | Rev 13 前 `healOffsets` 内会无条件 `resetCriticalExtractionBudget()` → 每 30s 跑一次 ~9s extractor 的无限循环；Rev 13 改为 Path 3 只让 extractor 跑完初始 3 次尝试，真正的恢复信号由 Path 1.6（玩家进入关卡）提供 |
 
 **关键死循环场景与防御**：
 
@@ -865,21 +875,21 @@ loop():
 
 #### 5.5.1 每 tick 读取的字段（`LiveMemoryReader.read()`，`liveReader.ts:866-1033`）
 
-| 字段 | 函数 | 频率 | Pin 状态 |
-|------|------|------|----------|
-| StageManager 单例 | `resolveStageManager` (`runtime.ts:515`) | 25Hz | `smPin` — 缓存指针 + 每次重新 `isLiveStageManager` 验证 |
-| Stage | `readRuntimeStage` (`runtime.ts:40`) | 25Hz | 复用 smPin；读 `StageCacheManager → StageCache → StageInfoData` |
-| Monster HP | `readRuntimeMonsterHp` (`runtime.ts:1718`) | 25Hz | `monsterPin` — 缓存 MonsterSpawnManager 指针 + cachedHpOffsets |
-| Heroes | `readRuntimeHeroes` (`runtime.ts:473`) | 25Hz | 复用 smPin；读 `StageManager.HeroList → Unit.cache → HeroRuntime`，回传后经 `liveReader.heroStable` 单调去抖（见 5.5.2） |
-| Chest drops | `readRuntimeChestLog` (`runtime.ts:721`) | 25Hz | `chestPin` — 缓存 LogManager 指针 + tail 位置 + primed 标志 + 失败重试状态 + 跨 tick settle 状态；entry 读取带 `CHEST_LOG_SAMPLES=3` 单次 tick 内采样重试，**且当某 entry 3 次采样仍解码失败时（BOSS 死亡/stage transition 的 mid-write race），tail 不再像旧版那样直接推进到 `count` 而永久丢弃该掉落；而是把 `retryFrom` 停在失败 index，下个 tick 重读该 entry**（`MAX_CHEST_LOG_RETRIES=3` 连续失败则强制跳过，防永久损坏槽位卡死 tail）。**此外 2026-08-27 起新增「跨 tick settle」：BOSS 掉落 entry 的 `monsterType` 是分段写入的（先写 0=common 再提交 1=rare），同一 tick 内的采样全都在提交前 → 会误把 rare/act 判成 common；因此每次读取的**最新一条被 hold 一 tick**（`pendingIdx/pendingCat`），下一 tick 按绝对 index 重读，以提交后的 `monsterType` 为准（common→rare 收敛），彻底解决「关卡/Lv80 BOSS 宝箱偶发被记成普通宝箱」的漏识别（实现见 `app/src/core/liveMemory/runtime.ts:readRuntimeChestLog`；回归测试见 `app/test/core/liveMemoryRuntime.test.ts:corrects a provisional common → settled rare cross-tick`）。**再补「连续高频 tail 抢读」**：诊断证实 BOSS 掉落的 GetBoxLog 条目也可能是「先写入、随即被日志伸缩/清场立即吞掉」的亚 tick 瞬时条目——单帧 25Hz 扫描会整条错过（日志零痕迹、完全没记录，用户反馈「关卡宝箱完全没有任何新条目」）；且**这种瞬时大概率不留下任何可观测的 count 变化/shrink**，所以「检测到活动才 burst」仍漏（16:30 实例）。因此改为 `liveReader.pollChestTailFast()` + worker `FAST_CHEST_POLL_MS=5` 的**非阻塞 setInterval 高频 tail 监测**（attached+supported 时每 ~5ms 扫一次 GetBox tail，读到的新掉落存入 `pendingChestDrops`，由下一次 `read()` 折叠进 `snap.chestDrops`），把瞬时 rare/act 记录进下一帧；`consumePendingChestDrops` 负责合并 + 清空，`readRuntimeChestLog` 按 index 追尾保证 fast 轮询与主 read 永不重复。**2026-09-04 起 fastpoll 加 count 短路**：为避免平静期每 5ms 都做一次完整 tail 解码（数组/对象分配 + 可能的条目采样），fastpoll 先用 `runtime.ts:peekGetBoxLogCount` 轻量探测——只读取 GetBox 当前 `count`（少量内存读、零分配）；仅当 `count ≠ chestPin.lastCount`（有新掉落或 shrink）或 `pendingIdx != null`（有待跨 tick settle）时，才调用全量 `readRuntimeChestLog` 合并进 `pendingChestDrops`，否则直接 return。5ms 高频语义不变（瞬时条目覆盖不缩水），平静 tick 的 worker CPU 从「每 5ms 完整扫描」降到「每 5ms 一次 count 读」。quiet/未 attached 时定时器不启动，零开销。LogManager liveness 校验为 dict 结构校验（`logByType` 指针非 null + count > 0 且 < 1000 + entries array 非空）——比"dict 指针非 null"严格（防止非 LogManager 对象误通过），比"GetBox bucket 可 walk"宽松（避免战斗中 bucket 暂时不可读时 LogManager 被误判失效） |
-| Box opens | `readRuntimeBoxOpenLog` (`runtime.ts:1006`) | 25Hz | `boxOpenPin` — 同 chest pin 结构；entry 读取带 `BOX_OPEN_LOG_SAMPLES=3` 单 tick 内采样重试，**且 2026-09-02 起新增跨 tick retry**：当某 entry 3 次采样仍解码失败（连开多个宝箱时第一个物品 entry 先 bump list size、itemKey 后提交的 mid-write race 会命中），tail 不再推进到 `count` 而永久丢弃；而是把 `retryFrom` 停在失败 index，下 tick 重读（`MAX_BOX_OPEN_LOG_RETRIES=3` 连续失败则强制跳过，防损坏槽位卡死 tail）。shrink 时重置 retry 状态（旧 index 失效） |
-| Box-open event 探测 | `peekBoxOpenLogCount` (`runtime.ts:973`) | 25Hz（仅当 enrichment 未完成） | 复用 boxOpenPin 但不动 tail |
-| Inventory | `readRuntimeInventory` (`runtime.ts:1229`) | 0.5Hz（每 50 tick 重读；**仅该帧携带到快照**，其余 49 帧置 `null`） | `cachedInventory` — tick 间复用 |
-| Pets | `readRuntimePets` (`runtime.ts:1360`) | 0.5Hz（每 50 tick 重读；**仅该帧携带到快照**，其余 49 帧置 `null`） | `cachedPets` |
-| Chest slots | `readRuntimeChestSlots` (`chestSlots.ts:91`) | 25Hz | 无 pin（廉价） |
-| Combat gold | `readRuntimeCombatGold` (`runtime.ts:210`) | 25Hz | `combatGoldPin` — 缓存 list/arr/entryIndex |
-| Wallet gold | `readRuntimeGold` (`runtime.ts:144`) | 25Hz（仅当 combat gold 返回 null） | `goldPin` — 缓存 entry pointer |
-| Stage clears | `readRuntimeStageClears` (`runtime.ts:856`) | 25Hz | `stageClearPin`；entry 读取带 `STAGE_CLEAR_LOG_SAMPLES=3` 重试（防 stage clear 时的 mid-write race 静默丢条目，保留 `valid=false` 语义处理持续损坏的条目） |
+| 字段                | 函数                                         | 频率                                                                | Pin 状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------- | -------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| StageManager 单例   | `resolveStageManager` (`runtime.ts:515`)     | 25Hz                                                                | `smPin` — 缓存指针 + 每次重新 `isLiveStageManager` 验证                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Stage               | `readRuntimeStage` (`runtime.ts:40`)         | 25Hz                                                                | 复用 smPin；读 `StageCacheManager → StageCache → StageInfoData`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Monster HP          | `readRuntimeMonsterHp` (`runtime.ts:1718`)   | 25Hz                                                                | `monsterPin` — 缓存 MonsterSpawnManager 指针 + cachedHpOffsets                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Heroes              | `readRuntimeHeroes` (`runtime.ts:473`)       | 25Hz                                                                | 复用 smPin；读 `StageManager.HeroList → Unit.cache → HeroRuntime`，回传后经 `liveReader.heroStable` 单调去抖（见 5.5.2）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Chest drops         | `readRuntimeChestLog` (`runtime.ts:721`)     | 25Hz                                                                | `chestPin` — 缓存 LogManager 指针 + tail 位置 + primed 标志 + 失败重试状态 + 跨 tick settle 状态；entry 读取带 `CHEST_LOG_SAMPLES=3` 单次 tick 内采样重试，**且当某 entry 3 次采样仍解码失败时（BOSS 死亡/stage transition 的 mid-write race），tail 不再像旧版那样直接推进到 `count` 而永久丢弃该掉落；而是把 `retryFrom` 停在失败 index，下个 tick 重读该 entry**（`MAX_CHEST_LOG_RETRIES=3` 连续失败则强制跳过，防永久损坏槽位卡死 tail）。**此外 2026-08-27 起新增「跨 tick settle」：BOSS 掉落 entry 的 `monsterType` 是分段写入的（先写 0=common 再提交 1=rare），同一 tick 内的采样全都在提交前 → 会误把 rare/act 判成 common；因此每次读取的**最新一条被 hold 一 tick**（`pendingIdx/pendingCat`），下一 tick 按绝对 index 重读，以提交后的 `monsterType` 为准（common→rare 收敛），彻底解决「关卡/Lv80 BOSS 宝箱偶发被记成普通宝箱」的漏识别（实现见 `app/src/core/liveMemory/runtime.ts:readRuntimeChestLog`；回归测试见 `app/test/core/liveMemoryRuntime.test.ts:corrects a provisional common → settled rare cross-tick`）。**再补「连续高频 tail 抢读」**：诊断证实 BOSS 掉落的 GetBoxLog 条目也可能是「先写入、随即被日志伸缩/清场立即吞掉」的亚 tick 瞬时条目——单帧 25Hz 扫描会整条错过（日志零痕迹、完全没记录，用户反馈「关卡宝箱完全没有任何新条目」）；且**这种瞬时大概率不留下任何可观测的 count 变化/shrink**，所以「检测到活动才 burst」仍漏（16:30 实例）。因此改为 `liveReader.pollChestTailFast()` + worker `FAST_CHEST_POLL_MS=5` 的**非阻塞 setInterval 高频 tail 监测**（attached+supported 时每 ~5ms 扫一次 GetBox tail，读到的新掉落存入 `pendingChestDrops`，由下一次 `read()` 折叠进 `snap.chestDrops`），把瞬时 rare/act 记录进下一帧；`consumePendingChestDrops` 负责合并 + 清空，`readRuntimeChestLog` 按 index 追尾保证 fast 轮询与主 read 永不重复。**2026-09-04 起 fastpoll 加 count 短路\*\*：为避免平静期每 5ms 都做一次完整 tail 解码（数组/对象分配 + 可能的条目采样），fastpoll 先用 `runtime.ts:peekGetBoxLogCount` 轻量探测——只读取 GetBox 当前 `count`（少量内存读、零分配）；仅当 `count ≠ chestPin.lastCount`（有新掉落或 shrink）或 `pendingIdx != null`（有待跨 tick settle）时，才调用全量 `readRuntimeChestLog` 合并进 `pendingChestDrops`，否则直接 return。5ms 高频语义不变（瞬时条目覆盖不缩水），平静 tick 的 worker CPU 从「每 5ms 完整扫描」降到「每 5ms 一次 count 读」。quiet/未 attached 时定时器不启动，零开销。LogManager liveness 校验为 dict 结构校验（`logByType` 指针非 null + count > 0 且 < 1000 + entries array 非空）——比"dict 指针非 null"严格（防止非 LogManager 对象误通过），比"GetBox bucket 可 walk"宽松（避免战斗中 bucket 暂时不可读时 LogManager 被误判失效） |
+| Box opens           | `readRuntimeBoxOpenLog` (`runtime.ts:1006`)  | 25Hz                                                                | `boxOpenPin` — 同 chest pin 结构；entry 读取带 `BOX_OPEN_LOG_SAMPLES=3` 单 tick 内采样重试，**且 2026-09-02 起新增跨 tick retry**：当某 entry 3 次采样仍解码失败（连开多个宝箱时第一个物品 entry 先 bump list size、itemKey 后提交的 mid-write race 会命中），tail 不再推进到 `count` 而永久丢弃；而是把 `retryFrom` 停在失败 index，下 tick 重读（`MAX_BOX_OPEN_LOG_RETRIES=3` 连续失败则强制跳过，防损坏槽位卡死 tail）。shrink 时重置 retry 状态（旧 index 失效）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Box-open event 探测 | `peekBoxOpenLogCount` (`runtime.ts:973`)     | 25Hz（仅当 enrichment 未完成）                                      | 复用 boxOpenPin 但不动 tail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Inventory           | `readRuntimeInventory` (`runtime.ts:1229`)   | 0.5Hz（每 50 tick 重读；**仅该帧携带到快照**，其余 49 帧置 `null`） | `cachedInventory` — tick 间复用                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Pets                | `readRuntimePets` (`runtime.ts:1360`)        | 0.5Hz（每 50 tick 重读；**仅该帧携带到快照**，其余 49 帧置 `null`） | `cachedPets`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Chest slots         | `readRuntimeChestSlots` (`chestSlots.ts:91`) | 25Hz                                                                | 无 pin（廉价）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Combat gold         | `readRuntimeCombatGold` (`runtime.ts:210`)   | 25Hz                                                                | `combatGoldPin` — 缓存 list/arr/entryIndex                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Wallet gold         | `readRuntimeGold` (`runtime.ts:144`)         | 25Hz（仅当 combat gold 返回 null）                                  | `goldPin` — 缓存 entry pointer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Stage clears        | `readRuntimeStageClears` (`runtime.ts:856`)  | 25Hz                                                                | `stageClearPin`；entry 读取带 `STAGE_CLEAR_LOG_SAMPLES=3` 重试（防 stage clear 时的 mid-write race 静默丢条目，保留 `valid=false` 语义处理持续损坏的条目）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 低频字段（inventory/pets）的原因：库存最多 100k 条目、宠物最多 500 条，25Hz 全读会爆 V8 GC。50 tick 缓存（~2s）够用因为这些字段只在 save 事件变化。**2026-09-04 起新增「仅低频帧携带 + 主进程回填」**：worker 只在每 50 tick 的重读帧把 `inventoryItems`/`petData` 放进 snapshot，其余 49 帧置 `null`（=「未变化」，见上表）；`LiveMemoryService.backfillLowFrequencyFields`（`app/src/main/services/LiveMemoryService.ts`）收到 snapshot 后，若字段为 `null` 则用其上次缓存（`lastInventoryItems`/`lastPetData`）回填，再赋给 `lastSnapshot` 并广播。这样对 TrackingService / renderer 完全透明，但 `inventoryItems`/`petData` 的跨进程结构化克隆从「每 40ms 一次（25Hz）」降到「每 ~2s 一次」——消除了高档位库存下每秒数十 MB 的重复 IPC 克隆与随之而来的 V8 GC 压力（内存上涨与 CPU 高的重要来源之一）。
 
@@ -919,6 +929,7 @@ worker.read() → LiveMemorySnapshot 对象（Inventory/Pets 仅在低频重读�
 ```
 
 `BufferPool`（`winProcess.ts:8`）是 `WinProcess.readBytes` 内的 per-process buffer 池：
+
 - 25Hz tick × 多次 readBytes × 每次 `Buffer.alloc` 会产生百万级零填充分配/秒，淹没 V8 GC。
 - `bufPool.acquire(size)` 优先复用之前 `release` 的同尺寸 buffer；用 `allocUnsafe`（不零填充）。
 - 失败的 read（`ReadProcessMemory` 返回 false 或 0 字节）→ `release(buf)` 归还。
@@ -991,11 +1002,11 @@ flowchart TD
 
 #### 5.8.1 三个周期
 
-| 周期 | 常量 | 路径 | 调用条件 |
-|------|------|------|----------|
-| 10s | `HEAL_UNSUPPORTED_MS` | `maybeHealUnsupported` (`worker.ts:89-101`) | `attached && !supported` |
-| 30s | `HEAL_ENRICHMENT_FALLBACK_MS` | `maybeHealEnrichment` Path 2/3 (`worker.ts:136-200`) | `attached && supported && (!enrichmentComplete \|\| isCriticalStaleOnFallback)` |
-| 即时 | event-driven | `maybeHealEnrichment` Path 1 / 1.5 / 1.6 | box-open event / cache pollution / StageManager transition |
+| 周期 | 常量                          | 路径                                                 | 调用条件                                                                        |
+| ---- | ----------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 10s  | `HEAL_UNSUPPORTED_MS`         | `maybeHealUnsupported` (`worker.ts:89-101`)          | `attached && !supported`                                                        |
+| 30s  | `HEAL_ENRICHMENT_FALLBACK_MS` | `maybeHealEnrichment` Path 2/3 (`worker.ts:136-200`) | `attached && supported && (!enrichmentComplete \|\| isCriticalStaleOnFallback)` |
+| 即时 | event-driven                  | `maybeHealEnrichment` Path 1 / 1.5 / 1.6             | box-open event / cache pollution / StageManager transition                      |
 
 #### 5.8.2 critical path vs enrichment path
 
@@ -1017,7 +1028,9 @@ flowchart TD
 
 ```typescript
 const isDictLookupFail = (s: string) =>
-  /LogManager singleton unresolved|dict lookup failed|list not walkable/i.test(s);
+  /LogManager singleton unresolved|dict lookup failed|list not walkable/i.test(
+    s,
+  );
 ```
 
 - **boxOpen dict-fail**：`readRuntimeBoxOpenLog.opens == null` 且 `boxOpenResult.status` 匹配 `isDictLookupFail`。表示 `getItemWithBoxOpenTypeKey` / `boxOpenLog.itemStringKey` 是未验证的 baseline 副本。
@@ -1026,6 +1039,7 @@ const isDictLookupFail = (s: string) =>
 - 当 boxOpen 和 chest drops **同时** dict-fail 时，LogManager 本身就是问题所在 —— `_criticalRvasValidated` 因上次 extractor 跑过（即使失败）而不被信任校验，cache-pollution 路径是唯一剩余的触发器。
 
 **触发流程**：
+
 1. 首次检测到任一 dict-fail → 记录 `dictFailSince = Date.now()`，本 tick 不动作。
 2. 持续 60s（`BOX_OPEN_FAIL_HEAL_MS`）→ 设置 `forceExtractorNextHeal = true` + **同时 `resetCriticalExtractionBudget()` + `resetEnrichmentBudget()`**（Rev 13 新增 critical 重置，因为污染的 cache 也可能让 critical 路径的尝试次数耗尽）。
 3. worker 下一 tick 的 `maybeHealEnrichment` Path 1.5 检测到 `needsForcedReextract` → 立即 `healOffsets()`。
@@ -1051,6 +1065,7 @@ resolveClassByName(p, ga, "LogManager")  // 类名不被混淆
 **与 cache-pollution 的关系**：name-scan 是**即时**恢复路径（一发现就 pin 实例，绕过 stale RVA），cache-pollution 是**异步**根因修复（60s 后让 extractor 重新派生 RVA 写入 cache）。两者互补：name-scan 让日志读取在 25Hz 内立即恢复，cache-pollution 保证下次启动加载到正确的 cache。name-scan 失败不重试（class 找不到或 singleton 字段无法解析属于真正的"LogManager 类未实例化"场景，等 extractor 通过 Path 1.6 派生新 RVA）。
 
 **关键文件路径**：
+
 - `app/src/main/liveMemory/liveReader.ts` — `runLogManagerNameScan()` 实现
 - `app/src/main/liveMemory/winProcess.ts` — `resolveClassByName` / `singletonFromClass`
 - `app/src/core/liveMemory/runtime.ts` — `isLiveLogManager` 校验函数（Rev 13 新导出）
@@ -1093,6 +1108,7 @@ BoxData 实例 +0x10..INSTANCE_SCAN_MAX，每 8 字节扫一次
 **捕获工具**（`app/scripts/capture-live-offsets.ts`，dev 工具）：attach 到运行中的游戏 → 检测版本/GA → 跑完整 critical extractor（含 Rev 15 结构捕获）→ 输出 offsets.ts 风格的 TS 常量，用于把新版本固化为 bundled baseline。用法：`pnpm exec tsx scripts/capture-live-offsets.ts`（tsx 在受限 shell 下需先 `pnpm exec esbuild scripts/capture-live-offsets.ts --bundle --platform=node --format=cjs --outfile=.tmp.cjs --external:koffi && node .tmp.cjs`）。
 
 **关键文件路径**：
+
 - `app/src/core/liveMemory/il2cppScanner.ts` — `findBoxDataFields` / `findBoxDataStructurally` / `PlayerAnchor` 接口 / `findInstanceViaHeaderScan`
 - `app/src/core/liveMemory/offsetCompleteness.ts` — `ENRICHMENT_FIELDS` 包含 `boxData.boxTypes` / `boxData.boxQuantity`
 - `app/src/core/liveMemory/offsets.ts` — `LiveOffsets.boxData` 类型定义、`V1_01_05` bundled 表
@@ -1127,6 +1143,7 @@ worker 下一 tick maybeHealEnrichment()
 **为什么不用 30s 定时器**：StageManager 单例是否实例化取决于玩家行为（在主菜单 vs 在关卡），与时间无关。30s 定时器要么过频（玩家一直在主菜单，每 30s 跑一次 9s 浪费 CPU），要么过慢（玩家进入关卡后还要等下次 30s tick 才恢复）。事件驱动的 Path 1.6 在玩家进入关卡的**下一 tick（40ms 内）**就触发恢复，延迟最低。
 
 **关键文件路径**：
+
 - `app/src/main/liveMemory/liveReader.ts:461-468` — `consumeSmTransition()` 实现
 - `app/src/main/liveMemory/liveReader.ts:261-274` — `smWasAvailable` / `smTransitionPending` 字段
 - `app/src/main/liveMemory/worker.ts:179-189` — Path 1.6 worker 端入口
@@ -1136,11 +1153,13 @@ worker 下一 tick maybeHealEnrichment()
 `WinProcess.listModules()`（`winProcess.ts:479-508`）的三级链：
 
 #### Path 1: ToolHelp（`listModulesViaToolhelp`，`winProcess.ts:510-532`）
+
 - `CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid)`。
 - `Module32FirstW` / `Module32NextW` 遍历。
 - **Sandboxie-Plus 拦截**：即使 companion 与 game 都在同一个沙箱内，CreateToolhelp32Snapshot 也可能返回空快照。
 
 #### Path 2: PSAPI（`listModulesViaPsapi`，`winProcess.ts:544-577`）
+
 - `EnumProcessModulesEx(handle, null, 0, &needed, LIST_MODULES_ALL)` 询问所需 buffer 大小。
 - 分配 buffer → 第二次调用填充 HMODULE 数组。
 - 对每个 HMODULE：`GetModuleFileNameExW` 拿路径 + `GetModuleInformation` 拿 base/size。
@@ -1148,6 +1167,7 @@ worker 下一 tick maybeHealEnrichment()
 - **缺点**：返回的是 HMODULE 数组（8 字节指针），需要二次调用拿名字和尺寸 —— 比 ToolHelp 慢但可靠。
 
 #### Path 3: PowerShell（`listModulesViaPowerShell`，`winprocess.ts:579-621`）
+
 - `Get-Process -Id <pid>` → `$p.Modules | Select ModuleName, FileName, BaseAddress, ModuleMemorySize | ConvertTo-Json`。
 - **最慢**：fork 子进程 + PowerShell 启动开销 ~100-300ms。
 - 仅在前两条都返回空时触发，并通过 `winProcessLogger` 记录原因。
@@ -1155,6 +1175,7 @@ worker 下一 tick maybeHealEnrichment()
 **多实例沙箱隔离**（`winProcess.ts:330-390`）：
 
 当 ToolHelp 返回多个 TBH 进程时（host + sandboxed）：
+
 1. `isCurrentProcessInSandbox()` — 自检：`process.env.sandbox` 或 `GetModuleHandleW("sbiedll.dll")`。
 2. 对每个候选 TBH 进程：`isProcessInSandbox(pid)` — OpenProcess + EnumProcessModulesEx 找 `sbiedll.dll`。
 3. `selectProcessBySandbox(candidates, companionInSandbox)`：优先选 sandbox 状态一致的候选；同状态多个时取最高 PID；全部不一致时退化为最高 PID（永不返回 null）。
@@ -1163,11 +1184,13 @@ worker 下一 tick maybeHealEnrichment()
 ### 5.10 进程分离 / 重连 / 退出时的清理流程
 
 #### 5.10.1 游戏退出（reader 仍 attached）
+
 - `LiveMemoryReader.read()` 开头检查 `p.isAlive()`（`GetExitCodeProcess` 返回非 `STILL_ACTIVE=259`）。
 - 失活 → `this.detach()` → 返回 null。
 - worker 下一 tick `loop()` 看到 `!reader.attached` → `reader.attach()` → `WinProcess.findByNames` 找不到游戏 → `attach` 返回 false → worker 切到 `POLL_DETACHED_MS=1500ms` 重试。
 
 #### 5.10.2 worker 崩溃
+
 - `LiveMemoryService.ts:150-165` 的 `child.on("exit")` 触发：
   - stderr 拼接（最多 64KB）写入 log。
   - 构造 `running:false, attached:false, supported:false, note:"live reader stopped unexpectedly"` status 广播给 renderer。
@@ -1176,6 +1199,7 @@ worker 下一 tick maybeHealEnrichment()
 - **不自动重启** —— `LiveMemoryService` 没有 restart 逻辑。用户需要重新 toggle Live Memory 开关或重启 companion。
 
 #### 5.10.3 用户关闭 Live Memory（`LiveMemoryService.stop()`）
+
 1. `child.removeAllListeners()` — 防止 exit/message 事件触发后续广播。
 2. `child.postMessage("stop")` — 通知 worker 进入优雅关闭。
 3. `child.kill()`。
@@ -1183,11 +1207,13 @@ worker 下一 tick maybeHealEnrichment()
 5. 构造 terminal status（`running:false`）广播给 renderer。
 
 worker 端（`worker.ts:252-269`）：
+
 - 收到 `"stop"` → `clearTimeout(timer)` 停止调度。
 - `reader.detach()` 关闭 game handle。
 - `process.exit(0)` — 显式退出 utilityProcess 释放 native FFI 资源。
 
 #### 5.10.4 `LiveMemoryReader.detach()`
+
 - `proc.close()` — `CloseHandle` 关闭游戏进程 handle。
 - 所有指针/状态字段重置为初始值。
 - 所有 pin state 重新构造（`makeGoldPinState()` 等）。
@@ -1323,6 +1349,7 @@ flowchart LR
 ### 6.4 inventoryWorker（utility process）
 
 文件：
+
 - `app/src/main/services/inventoryWorker.ts`：host 端 wrapper（`InventoryWorker` 类）。
 - `app/src/main/services/inventoryWorkerEntry.ts`：worker 进程入口（被 `utilityProcess.fork` 加载）。
 - `app/src/main/services/inventoryWorkerProtocol.ts`：纯协议处理器（`handleInit` / `handleResolve`），无 Electron 依赖，可单测。
@@ -1330,11 +1357,13 @@ flowchart LR
 **为什么用 worker**：解析 10 万件 items 的 map/filter/price-lookup 会阻塞 main thread，影响 IPC + 窗口管理。
 
 **生命周期**：
+
 - `init(gameDataLookup, feeRates)`：首次调用 `utilityProcess.fork`；已有 child 时只 postMessage 一条 `init`（不重新 fork），用于 gameData reload 或 fee rates 变更。
 - `resolve(snapshot, priceLookup, excludeItemKeys?)`：未 ready → 直接返回 `resolveSync(...)` 的 Promise；否则分配 `id = nextId++`，存入 `pending: Map<id, ...>`，5s 超时自动 reject；postMessage `{type:"resolve", id, snapshot, priceLookupEntries, excludeItemKeys}`。
 - `stop()`：发送 `stop`、`child.kill()`、reject 所有 pending、清空状态。
 
 **消息协议**：
+
 - Inbound（host → worker）：`init`、`resolve`、`stop`。
 - Outbound（worker → host）：`ready`、`resolve`、`log`。
 
@@ -1345,21 +1374,25 @@ flowchart LR
 文件：`app/src/main/services/priceCache.ts` + `steamMarketProvider.ts`。
 
 #### 持久化结构
+
 - `PriceEntry`：`{ lowest, median, volume, rawLowest, rawMedian, fetchedUtc, buyOrder, rawBuyOrder, buyOrderQuantity?, buyOrderLevels?, buyOrderFetched?, buyOrderCheckUtc? }`。
 - `PriceCache`：`{ currency, fetchedUtc, prices: Record<hash, PriceEntry> }`。
 - 文件路径：`app.getPath("userData")/prices.<CUR>.json`。`priceCacheSeedPath` 在 app bundle 旁边找 seed 文件，作为冷启动 fallback。
 
 #### TTL 与新鲜度
+
 - `FRESH_TTL_MS = 24h`。
 - `isFresh(name, now)`：要求 entry 有 sell price 或 buy order；sell 端 `now - fetchedUtc < 24h`；buy 端 `now - buyOrderCheckUtc < 24h`。
 - `pendingTargets(targets, force, now)`：force=true 全返；否则只返非 fresh 的。
 
 #### 持久化时机
+
 - 每次 `market.refresh()` 完成后 `persistPriceCache(cache)`。
 - 流式持久化：`fetchAllTargets` 中每 `PERSIST_EVERY_PRICED = 5` 个新价格落盘一次（防长任务中断丢失进度）。
 - `pruneCache(ownedHashes)`：删除 cache 中不在 owned 集合的 hash，落盘。
 
 #### Steam API 限流处理
+
 - `DEFAULT_DELAY_MS = 3000`（20 req/min）。
 - `MAX_DELAY_MS = 60000`；退避乘子 2。
 - `MAX_RETRIES_PER_TARGET = 2`。
@@ -1564,11 +1597,14 @@ flowchart LR
 ### 8.1 Steam Market price 请求链路
 
 #### marketHashName 构造（`app/src/core/marketName.ts`）
+
 - `marketHashName(item)`：材料直接用 `sourceName ?? name`；gear 用 `gearMarketHash(name, grade, "A")` = `"<name> (<Grade>) A"`（仅 A 变体，B-E 不探查）；占位符 `ItemName_<id>` → null。
 - `isPriceableItem(type, grade, marketTradable)`：material 总是 priceable；gear 仅 Legendary+ priceable。
 
 #### priceoverview 请求（`app/src/main/services/steamPriceApi.ts`）
+
 `fetchSteamPrice(name, currency)`：
+
 - URL：`https://steamcommunity.com/market/priceoverview/?appid=3678970&currency=<code>&market_hash_name=<encoded>`
 - `currencyCode(iso)` 把 ISO 代码转 Steam 数字 id（`app/src/core/steamPrice.ts` 的 `STEAM_CURRENCIES` 表，覆盖 41 种货币）。
 - headers: `User-Agent: Mozilla/5.0 (TBH Companion)`。
@@ -1579,6 +1615,7 @@ flowchart LR
 - 429 → `reason: "http"` + `retryAfterMs: parseRetryAfterMs(res)`。
 
 #### price cache 写入
+
 - `SteamMarketProvider.priceOneHash(name, counters, opts)` 调 `fetchSteamPrice`，成功时 `cache.prices[name] = entry`，再调 `attachBuyOrder`。
 - 每 5 个新价格 `persistPriceCache`。
 - cycle 结束 `cache.fetchedUtc = new Date().toISOString()` + `persistPriceCache`。
@@ -1598,6 +1635,7 @@ flowchart LR
 ### 8.3 steamBuyOrderApi（买单价，`app/src/main/services/steamBuyOrderApi.ts`）
 
 `fetchSteamBuyOrder(itemNameId, marketHashName, currency)`：
+
 - URL：`https://steamcommunity.com/market/itemordershistogram?norender=1&country=US&language=english&currency=<code>&item_nameid=<id>&two_factor=0`
 - headers: `User-Agent` + `Referer: https://steamcommunity.com/market/listings/<appId>/<hash>`（Steam 反爬要求 Referer）。
 - 30s 超时 + 代理。
@@ -1609,6 +1647,7 @@ flowchart LR
 `item_nameid` 是 Steam 内部 ID（不是 market_hash_name），histogram 接口必需。Steam 不提供直接 API，只能从 listing HTML 抓。
 
 `SteamItemNameIdService`：
+
 - **两层缓存**：`bundled: Record<hash, nameId>`（CI 预生成）+ `userCache`（`userData/steam_item_nameids.json`，运行时新解析的写入）。
 - `getSync(hash)`：先查 userCache，再查 bundled。
 - `resolve(hash)`：缓存命中直接返回；否则 fetch listing HTML，正则 `Market_LoadOrderSpread\(\s*(\d+)` 抓 nameId；429 → `{ ok: false, status: 429, retryAfterMs }`；其他失败不写缓存。
@@ -1627,6 +1666,7 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
 ### 8.6 retryAfter（429 限流处理，`app/src/main/services/retryAfter.ts`）
 
 `parseRetryAfterMs(res)`：解析 `Retry-After` header
+
 - 整数秒：`seconds * 1000`，cap 5 分钟。
 - HTTP-date（RFC 7231）：`dateMs - Date.now()`，cap 5 分钟；负值返回 undefined。
 - 缺失/不可解析 → undefined。
@@ -1682,7 +1722,7 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
   - 每物品失败/空：`refreshHistory: <hash> no data (status=<HTTP状态码，0=网络错误>, reason=<network|http|unauthorized|parse|no_listing|no_data|failed>, retryAfter=<ms>)`——**未登录访问 pricehistory 通常返回 400（reason=unauthorized，触发整次刷新终止并提示用户更新 Cookie），但只带 `sessionid` 或只带 `steamLoginSecure` 其中一个字段也会返回 400（同样 reason=unauthorized，Steam 认为未登录），必须两个字段同时具备；限流返回 429（reason=http + retryAfter）**；
   - 单个物品抛错：`refreshHistory: <hash> threw: <message>`；
   - 刷新结束：`refreshHistory end: fetched=<成功数>/<总数>, hourlyBuckets=<小时桶数>`（`fetched=0` 即整体无数据，可据此判断是否 Cookie 失效而非单物品问题）。
-  用户反馈「拉取完成仍无数据」时，导出发行版日志（见 `docs/DIAGNOSTIC_LOGGING.md`）找 `refreshHistory` 行即可定位是未配置 Cookie（`cookieConfigured=0`）、Cookie 失效（400/no_data）还是限流（429/retryAfter）。
+    用户反馈「拉取完成仍无数据」时，导出发行版日志（见 `docs/DIAGNOSTIC_LOGGING.md`）找 `refreshHistory` 行即可定位是未配置 Cookie（`cookieConfigured=0`）、Cookie 失效（400/no_data）还是限流（429/retryAfter）。
 
 #### 8.7.4 IPC 与渲染
 
@@ -1695,6 +1735,7 @@ undici 的 `fetch` 不读 Windows 系统代理（只读 `HTTPS_PROXY`/`HTTP_PROX
   - **刷新期间目标合并进单一网格、不重复**：`useMarketVolumeItems` 中基础 `stats` 仅由 `MARKET_VOLUME_ITEMS` 广播回全量最新数据（`refresh()` 返回的 `result.stats` 仅用于批次开始兜底）。刷新进行中不再单开占位网格——`Trading.tsx` 将 `pending`（待刷新目标）与主列表合并成 `displayItems`（按 hash 去重：**已存在的目标卡片优先复用 `pending` 中的最新版本**——批量刷新时 main 通过进度通道逐物品推送 `updatedItem`（含拉取到的最近小时走势）就地替换占位卡片，若沿用 `stats.items` 里的旧版本则卡片时间轴在整次（可能很长，受批间 2min 间隔影响）刷新期间不会跟随实时更新，出现「今天」部分为空/为零；单卡片手动刷新因即时广播 `MARKET_VOLUME_ITEMS` 更新 `stats.items` 而正常。因此合并时以 `pendingByHash` 覆盖已存在 hash，未命中再回退 `stats.items`，首次刷新尚无数据的 `total=0` 占位卡片保留），同一物品只出现一次，从根本上避免两处展示造成视觉重复；合并后的卡片统一带 `refreshStatusByHash` 亮环（见下）。刷新结束（`progress.running=false`）`TbhProvider` 清空 `pending` 后 `displayItems` 自然收敛回全量单列表。
   - **刷新亮环状态**：刷新期间每张待刷新卡片由 `Trading.tsx` 的 `refreshStatusByHash`（据 `pending` 顺序与 `progress.done` 计算）标注 `RefreshStatus`——`pending`=灰（待刷新）、`refreshing`=黄（当前批次，`animate-ring-glow` 呼吸动画）、`refreshed`=绿（已刷新）。**该映射不依赖 `refreshing` 时序**：只要 `pending` 有值就构建，避免 `pending` 与 `progress` 状态更新先后导致 `refreshStatusByHash[hash]` 为 `undefined` 而卡片无环；刷新结束（`progress.running=false`）时 `useMarketVolumeItems` 会清空 `pending`，防止主列表卡片残留旧亮环。`ItemVolumeCard` 据 `refreshStatus` 在卡片外包裹发光描边（配色见 `RING_COLOR`，其中灰/黄已提亮以保证深色卡片上可见；动画关键帧 `ring-glow` 定义于 `styles.css`）；非刷新批次的卡片不显示亮环。**亮环可见性**：所有状态都先给静态 box-shadow（3px 描边 + 18px 发光、高不透明），保证即使呼吸动画类未生成，「当前批次」也有兜底亮环；外层容器加 `p-0.5` 为描边留空隙，避免与卡片内容重叠。
   - **刷新目标空兜底**：`refreshMarketVolumeItems`（`appState.ts`）计算目标集 = 星标 ∪ 快照价格 ≥ 阈值（`selectHistoryRefreshTargets`）。**当该目标集为空**（无星标物品、快照价格也无达标物品）时，**兜底为交易页主列表展示的全部物品**（`getVolumeItems().items` 的 hash 列表），保证点「刷新」必有实际目标——进而有进度条、占位卡片与刷新亮环反馈，避免目标为空时 `refreshHistory` 循环直接跳过、仅推送 `running:false` 导致页面毫无反应。
+
 #### 8.7.5 历史数据导出 / 导入
 
 交易页历史数据（`userData/market_volume_history.json`）支持 JSON 完整备份与恢复，入口为交易页工具栏「导出历史数据」「导入历史数据」按钮。
@@ -1751,12 +1792,14 @@ flowchart LR
 ### 9.2 resolveAssetPaths 扫描游戏目录
 
 `resolveGameInstallDir(configGameInstallDir)`：优先级
+
 1. `config.gameInstallDir`（用户 Settings 设置）。
 2. `TBH_GAME_INSTALL_DATA_DIR` env（dev/test override）。
 3. `DEFAULT_GAME_INSTALL = "D:\SteamLibrary\steamapps\common\TaskbarHero\TaskBarHero_Data"`。
 4. null。
 
 `resolveAssetPaths(installDir)`：
+
 - `sharedassets0` = `<installDir>/sharedassets0.assets`：物品 CSV（ItemInfoData TextAsset）。
 - `sharedBundle` = `<installDir>/StreamingAssets/aa/StandaloneWindows64/localization-assets-shared_assets_all.bundle`：SharedTableData（hash → key 映射）。
 - `enBundle` = `<installDir>/StreamingAssets/aa/StandaloneWindows64/localization-string-tables-english(unitedstates)(en-us)_assets_all.bundle`：英文字符串表。
@@ -1769,16 +1812,19 @@ flowchart LR
 `extractCatalog({ sharedassets0, sharedBundle, enBundle }) → ExtractedCatalog`：
 
 #### 步骤 1：构造 nameMap（`loadNameMap`）
+
 1. `parseBundle(sharedBundle)` → `parseSerializedFile` → 找 classID=114 (MonoBehaviour) 对象 → 取 raw bytes → `scanMarkerEntries(raw)` 得到 `[{ keyId, hash, str }]`（shared 表的 hash → key 映射）。
 2. 同样处理 `enBundle` → 英文 hash → string 映射。
 3. 以 hash 为 linker，匹配 shared 的 key（仅 `ItemName_` 前缀）与 en 的 value，得到 `Map<ItemName_xxx, EnglishName>`。
 
 #### 步骤 2：读 CSV（`loadCsvText`）
+
 1. `sharedassets0` 可能是 raw SerializedFile 或 UnityFS bundle（按 magic bytes `UnityFS` 检测）。
 2. `parseSerializedFile(sfData)` → 找 classID=49 (TextAsset) 对象 → `parseTextAssetRaw(raw)` 拿 name + script。
 3. 找 name 为 `"ItemInfoData"` 的 TextAsset，返回其 script（CSV 文本）。
 
 #### 步骤 3：解析 CSV
+
 - 去除 BOM，按行 split，header 含 `ItemKey, NameKey, GRADE, ITEMTYPE, Level, IsCanExchangeMarketable, IsDeletedInServer` 等列。
 - 每行：`ItemKey` 非数字 skip；`NameKey` 以 `ItemName_` 开头从 nameMap 查找；字面量直接用；空则 `#${itemKey}` 占位。
 - **服务器已删除过滤**：`IsDeletedInServer=True` 的行（不可获取物品，如 v1.2.2 全部 Lv85 装备）**跳过**，其 id 记入 `deletedIds`。这些行仍在游戏 CSV 中（官方仅打标记未删除行记录），不过滤会导致图鉴列出游戏内不存在的物品。
@@ -1796,6 +1842,7 @@ flowchart LR
 文件：`app/src/core/unityAssets/localeExtractor.ts`。
 
 `extractLocales({ sharedBundle, locales: Record<code, Buffer> }) → ExtractedLocales | null`：
+
 - `scanLocaleEntries(bundleBuffer)`：扫描所有 MonoBehaviour（locale bundle 含多个 StringTables：items/stats/grades/gearTypes/UI 等），append-only 聚合所有 entries。
 - sharedBundle 提供 `hash → key`，每个 locale bundle 提供 `hash → translated string`。
 - 用 hash join 得到 `Record<lang, Record<key, translated>>`。
@@ -1887,6 +1934,7 @@ flowchart TD
 `saveTimer = setInterval(() => persist(ctx.tracker, ctx.chestDropTracker, ctx.boxOpenTracker, ctx.lastSnap, ctx.config), 15000)`
 
 `persist` 流程：
+
 1. `mtime = lastSnap?.saveMtime ?? lastSaveMtime`。
 2. 若 `mtime === null && !tracker.isInitialized && pendingTracker === null` → 直接 return（无可持久化内容）。
 3. `savePath = expandPath(config.savePath)`。
@@ -1911,6 +1959,7 @@ flowchart TD
 ### 10.5 clearSession
 
 `clearSession(tracker, chestDropTracker, boxOpenTracker, config)`：
+
 - 清空所有 pending。
 - `tracker.reset()`、`chestDropTracker.reset()`、`boxOpenTracker.resetAll()`。
 - `persist(tracker, chestDropTracker, boxOpenTracker, null, config)` — 立即落盘一份空 session（覆盖旧文件）。
@@ -2033,6 +2082,7 @@ flowchart TD
 ### 11.6 box_timers.json 持久化
 
 **load()**：构造时调用。文件不存在 → 用 `defaultEnabledIds()` 填充 `enabledBoxIds`（DEFAULT_ENABLED_BOX_IDS = `[920151, 920201, 920301, 920401]`，过滤掉 catalog 中不存在的；fallback 取 routeBoxIds 前 4 个）。文件存在 → 解析 `PersistedFile`：
+
 - `timers`：过滤有效 boxId + droppedAtMs。
 - `cooldownSecondsByBoxId`：过滤 Number.isFinite + >0 + routeById 中存在的。
 - `idealStageKeyByBoxId`：过滤 route.dropStageKeys 包含 stageKey，且不等于 route.idealStageKey。
@@ -2098,6 +2148,7 @@ flowchart LR
 - **判定失败**：当英雄**确认撤离**（run 结束）且本场**无 clear 事件**（`runHadClear === false`）且 run 峰值波次 **≥ `MIN_WAVES(2)`**（过滤"进图即退"）时，调用一次 `onLiveStageFail(stageKey, failedWave)`。`update` 现返回 `{ fail, runEnded }`（`StageRunFailJudgement`）：`fail` 仅在失败时非空、`runEnded` 在确认撤场（胜或败）时恒 true。**失败判定与撤场处理都排在该确认 tick 上、先 fail 后 `runEnded`**：`fail` 先读**峰值波次（`runMaxWaves`）**——团灭时「怪物清空 → 波次达到关卡总波数的强制重置（R4）」会在撤离前几个 tick 把 `DpsTracker` 波次清零，读瞬时值会因 `< MIN_WAVES` 静默丢弃真实关底失败（2026-09-02 修复）；随后用 `runEnded` 调 `DpsTracker.onRunEnd()` 把波次归零，使失败/通关后快速自动重开时 UI 波次回落到第 1 波。判后状态复位，下一场独立判定。从未部署过英雄（菜单/大厅）不触发。
 
   > 旧签名返回单一 `StageRunFailResult | null` 不再成立：`onRunEnd` 必须在**任意**确认撤场（含成功通关）时触发，而不仅是失败，故拆为 `{ fail, runEnded }`。
+
 - **成功通关不误判**：有 clear 事件的 run 会置 `runHadClear=true`，确认撤场时不会判失败；且通关后结算同样会让英雄撤下，但因已记成功记录（首次 clear 因基线差分取 0 增益也照常记录）不会重复失败。额外防御：TrackingService 在任何有效 clear 的 tick 先 `failDetector.reset()`，且去抖窗口内若读到 clear 同样置 `runHadClear=true`，杜绝 clear/撤离时序抖动带来的误判。阈值 `MIN_WAVES` 与 `WITHDRAW_CONFIRM_MS` 为启发式可调常量，仍存在极有限误判风险（如无需 clear 就撤离的换图/退出场景）。
 
 ### 12.4 独立持久化
@@ -2173,6 +2224,7 @@ flowchart TD
 v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除，但**未开箱子仍以 STAGEBOX 普通物品形式存在于 `itemSaveDatas`**。其中 `BoxBucketGetBoxList`（未开）/`BoxBucketUseBoxList`（已开）记录部分箱子的 `UniqueId`，但**并不覆盖全部**——详见下方第 3 步的判定规则。
 
 **解析**（`app/src/core/inventory/parse.ts → parseChests`）：
+
 1. `player.BoxData` 存在 → 走旧路径（BoxTypes × BoxQuantity）。
 2. 否则从 `playerStr` 按原始文本遍历 `itemSaveDatas` 物品对象（`UniqueId` 超 `Number.MAX_SAFE_INTEGER`，**必须字符串比较**，禁止 JSON.parse 后转 number），`type` 携带 gamedata 物品 id。
 3. **持有的判定（2026-09-13 修复）**：凡 `classifyBoxItemKey(itemKey)` 返回已知 STAGEBOX 分类（`Normal Monster Box*`→common、`Stage Boss Box*`→rare、`Act Boss Box*`→act，`categoryFromBoxItemName` 在 `core/liveMemory/chestSlots.ts`）且该 item 的 `UniqueId` **不在 `BoxBucketUseBoxList`（已开桶）** 即计入持有。
@@ -2215,6 +2267,7 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 **问题**：v1.24.1 用「存档 mtime 间隔 > 30 分钟」判定游戏重启，实测漏判——游戏**启动后数秒即写档**，可观测间隔只剩停机时长。2026-09-19 现场：01:47:53 最后一次存档 → 02:09:22 游戏重启（Player.log 轮转、steam_autocloud.vdf/backend.dat 同步改写）→ 02:13 首档，间隔约 25 分钟 < 阈值 ⇒ 边界未判定，重启前掉落的 10 个 act 条目继续带着旧会话标签计入（游戏侧已丢失 ⇒ 显示 0）⇒ act 卡再次多算 10。
 
 **修复**：新增**游戏会话锚点**（`ChestService.gameAnchorMtimeSec()`）——游戏只在**启动时**改写的兄弟文件，按优先级取 mtime：
+
 1. `Player-prev.log`（Unity 每次启动把 Player.log 轮转为它，mtime = 本次会话启动时刻；结构性保证）
 2. `backend.dat`（兜底，实测同样在启动时改写）
 
@@ -2228,11 +2281,11 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 
 游戏 v1.02.00（瘟疫之地/Plaguelands）新增**污染宝箱**（Contaminated Box，CONTENTTYPE=PLAGUE），与普通宝箱**分开保管**（wiki 确认「通常エリアの宝箱とは別に保管」，容量/自动开箱由专用符文节点控制）：
 
-| 物品 | 前缀 | 类别 | 容量符文链 | 自动开箱 |
-|------|------|------|------------|----------|
-| `915xxx` Contaminated Normal Box | `Contaminated Normal Box` | `plagueCommon` | `MaxAmountPlagueNormalChest` (1162, 11621-11624) | `UnlockAutoOpenPlagueNormalChest` 600s + `ReduceAutoOpenPlagueNormalChestTime` 4s/级 |
-| `925xxx` Contaminated Stage Box | `Contaminated Stage Box` | `plagueRare` | `MaxAmountPlagueStageBossChest` (1164, 11641-11644) | `UnlockAutoOpenPlagueStageBossChest` 1200s + `ReduceAutoOpenPlagueStageBossChestTime` 8s/级 |
-| `935xxx` Contaminated ActBoss Box | `Contaminated ActBoss Box` | `plagueAct` | `MaxAmountPlagueActBossChest` (1166, 11661-11664) | `UnlockAutoOpenPlagueActBossChest` 120s + `ReduceAutoOpenPlagueActBossChestTime` 1s/级 |
+| 物品                              | 前缀                       | 类别           | 容量符文链                                          | 自动开箱                                                                                    |
+| --------------------------------- | -------------------------- | -------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `915xxx` Contaminated Normal Box  | `Contaminated Normal Box`  | `plagueCommon` | `MaxAmountPlagueNormalChest` (1162, 11621-11624)    | `UnlockAutoOpenPlagueNormalChest` 600s + `ReduceAutoOpenPlagueNormalChestTime` 4s/级        |
+| `925xxx` Contaminated Stage Box   | `Contaminated Stage Box`   | `plagueRare`   | `MaxAmountPlagueStageBossChest` (1164, 11641-11644) | `UnlockAutoOpenPlagueStageBossChest` 1200s + `ReduceAutoOpenPlagueStageBossChestTime` 8s/级 |
+| `935xxx` Contaminated ActBoss Box | `Contaminated ActBoss Box` | `plagueAct`    | `MaxAmountPlagueActBossChest` (1166, 11661-11664)   | `UnlockAutoOpenPlagueActBossChest` 120s + `ReduceAutoOpenPlagueActBossChestTime` 1s/级      |
 
 **companion 适配（2026-09-10）**：
 
@@ -2240,7 +2293,7 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 - **容量/自动开箱**：`data/rune_box_cap.json` / `rune_auto_open.json` 新增 `plagueCommon/plagueRare/plagueAct` 三组（boxType 3/4/5）；`resolve.ts buildChestState` 与 `capacity.ts` 新增对应容量函数；`ChestState` 接口新增三个槽位。
 - **box_types.json**：新增 3/4/5 三个 boxType（绿色），供 live 路径 `readRuntimeChestSlots` 与 `boxCategoryFromType`（`boxOpenLog.ts`）映射。
 - **AutoClassify**：`reconcileWithChestSlots` / `getQueueSnapshot` 的类别遍历扩展为 6 类；`autoOpenForBoxKey` 支持 plague 类别；FALLBACK_AUTO_OPEN 增加 plague 值。
-- **UI（2026-09-11 更新）**：Chests 页新增三张 Plague 槽位卡（`CapacityBar` 新增 green variant）；Loot 页类别标签同步；`LootQueueSlots` 槽位卡渲染 6 行（瘟疫行绿色进度条）；**手动分类弹窗 `ClassifyPromptDialog` 与未分类物品重分类下拉 `LootBoxSection.reclassifyCategoryOptions` 均提供 6 个类别选项**（瘟疫类别 resolve 后走 `category.plague*` boxKey）。**掉落计时圈（LootRing）瘟疫独立三档**：`LootRingSeconds` 扩展为 6 键，`ringKeyForCategory` 将 plague* 映射到独立档位；默认圈时长 plagueCommon=5min / plagueRare=7min / plagueAct=1h（主进程 `config.ts` 默认值与 sanitize 同步扩展，老 config 缺键自动回落默认）。
+- **UI（2026-09-11 更新）**：Chests 页新增三张 Plague 槽位卡（`CapacityBar` 新增 green variant）；Loot 页类别标签同步；`LootQueueSlots` 槽位卡渲染 6 行（瘟疫行绿色进度条）；**手动分类弹窗 `ClassifyPromptDialog` 与未分类物品重分类下拉 `LootBoxSection.reclassifyCategoryOptions` 均提供 6 个类别选项**（瘟疫类别 resolve 后走 `category.plague*` boxKey）。**掉落计时圈（LootRing）瘟疫独立三档**：`LootRingSeconds` 扩展为 6 键，`ringKeyForCategory` 将 plague\* 映射到独立档位；默认圈时长 plagueCommon=5min / plagueRare=7min / plagueAct=1h（主进程 `config.ts` 默认值与 sanitize 同步扩展，老 config 缺键自动回落默认）。
 - **行为边界**：污染宝箱 save 侧解析与普通宝箱一致（BoxBucketGetBoxList + itemSaveDatas 前缀分类）。
 - **掉落追踪（2026-09-11 更新）**：`ChestDropTracker` 已支持 6 类（common/rare/act/plagueCommon/plagueRare/plagueAct）。live 掉落依据**当前地图判定瘟疫**——瘟疫箱子只在瘟疫之地掉落，`isPlagueStage(stageKey)` 聚合瘟疫箱（915/925/935）的 `tracker.dropStageKeys`/`idealStageKey` 成 Set，`resolveLiveDropCategory` 在瘟疫地图把 base category 升级为 `plague*`（详见 14.4 Step 5）。AutoClassify 的 reconcile 补偿类别已扩至 6 类；Live/Loot 掉落面板均渲染 6 类。
 
@@ -2288,6 +2341,7 @@ flowchart TD
 ### 14.1 核心模型：串行队列（per-category shared timer）
 
 每个 category（common/rare/act）有独立的 shared timer。新掉落进入队列时：
+
 - 队列为空 → `autoOpenAtMs = droppedAtMs + autoOpenSec*1000`。
 - 队列非空 → `autoOpenAtMs = prevTail.autoOpenAtMs + autoOpenSec*1000`（必须等前面所有同类 chest 开完）。
 
@@ -2380,11 +2434,11 @@ flowchart TD
    - 0 category decreased → 用两个**无竞态的第二信号**（save 派生）兜底，二者指向**恰一个**类别才归类（多类别点亮=真歧义→等待 TTL prune）：
      - **信号 A（excess-prune 计数）**：Step 1 中 `prunedByCategory[cat] > 0` 即"队列数 > 槽位数 **且存在已到自动开启时刻的条目**"，证明有宝箱被打开但未被 burst 消耗；
      - **信号 B（save 槽位绝对值减少）**：`prevSlots[cat] > slots[cat]`（上次 save vs 本次 save）。
-     两者覆盖"堆积宝箱手动全开、autoOpenAtMs 早已过、1Hz tick 抢先把 liveSlots 减掉导致 delta 为 0"的场景（2026-09-02 修复：原来 delta=0 时无脑等待，burst 5 分钟 TTL prune 后物品滞留未分类）。
+       两者覆盖"堆积宝箱手动全开、autoOpenAtMs 早已过、1Hz tick 抢先把 liveSlots 减掉导致 delta 为 0"的场景（2026-09-02 修复：原来 delta=0 时无脑等待，burst 5 分钟 TTL prune 后物品滞留未分类）。
    - 多 category decreased（真正歧义）→ 不 reclassify，所有 category 用 earliestBurstMs + per-cat autoOpenSec 重置 timer。
 4. **Step 3: liveSlots = {...slots}** — save 是 ground truth，覆盖实时调整。
 5. **Step 4: backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
-6. **Step 5: 漏掉掉落补偿（rare/act/plague*，延迟宽限）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act/plagueCommon/plagueRare/plagueAct）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。把 `count = min(increase, deficit)` 存为待定恢复、延迟 `RECOVERY_GRACE_MS=5s` 后由 `flushDueDropRecoveries` 先 claim 信用再对差额补偿（`recordLiveChestDrop` 补偿，不触发 BoxTimer）：
+6. **Step 5: 漏掉掉落补偿（rare/act/plague\*，延迟宽限）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act/plagueCommon/plagueRare/plagueAct）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。把 `count = min(increase, deficit)` 存为待定恢复、延迟 `RECOVERY_GRACE_MS=5s` 后由 `flushDueDropRecoveries` 先 claim 信用再对差额补偿（`recordLiveChestDrop` 补偿，不触发 BoxTimer）：
    - **打开反推获得（auto-open 兜底，2026-09-11）**：Step5 依赖"存档未开槽位净增"，对"掉落即被自动打开"（save 净变 0）失效。补一条不依赖槽位的来源——**打开事件**。`classifyAllPendingBursts` 把"被打开但未匹配到活获得记录"的 `pendingBursts` 归入某类别后，用守恒补记：若该类别最近 `OPEN_BACKFILL_WINDOW_SEC`(=120s) 内的获得记录数（`ChestDropTracker.dropCountWithin`）不足本次打开数，差额即被 live miss 且 save 补不到的"获得"，以 `"reconcile"` 来源补记（不污染 live 学分）。去重由近窗计数承担，避免把窗口内正常获得重复补记。
    - **去重护栏（live credit 模型，2026-09-10）**：`ChestDropTracker` 按来源区分 live/reconcile，每次 `recordLiveChestDrop(cat, wallTime, "live")` 压入一个**带时间戳的信用**（`liveCreditsByCategory[cat]`）。对账补偿用 `coveredLive = chestDropTracker.claimLiveDropCredits(cat, count)` —— 用 save 的槽位增量去**消耗**这些信用：被消耗的部分是 live 已记录过的掉落，不重复补偿。
      - **为何不能用"每周期 delta/mark"**：save 槽位增量相对 live 检测存在**滞后**（存档写入时机晚于内存中的掉落事件），一个真实的 live 掉落可能要跨若干次 save 对账才能在槽位增量里体现。"每周期标记"会在增量出现前被中间的对账清零 → 仍会重复补偿（即上一版修复失效的原因）。（注：2026-09-10 起 `setLiveSlots(null)` 不再每帧触发 reconcile，对账改由 save 解析驱动，但跨 save 周期的滞后依然存在，故时间上界信用仍必要。）
@@ -2393,7 +2447,7 @@ flowchart TD
      - 信用有时间上限 `LIVE_CREDIT_TTL_SEC = 180s`（`claimLiveDropCredits` 先丢弃过期信用），避免陈旧信用永久压制真正的漏检补偿。
    - 对 `toRecover` 个调 `chestDropTracker.recordLiveChestDrop(cat, nowSec(), "reconcile")` 写入掉落历史 → 修复「掉落统计缺 +1」（`"reconcile"` 不压信用）。用 `suppressingHandleChestDrop` 标志让 `recordLiveChestDrop` 的 `onDrop → handleChestDrop` 入队被抑制，避免与 backfill 本身重复入队。
    - **不再触发 BoxTimer 倒计时**（2026-09-10 变更）：对账只补记掉落历史，不再调用已移除的 `onLiveStageBossDrop`。原因：live 路径（GetBox 日志）与 reconcile 路径（save 槽位增量）各自用自己的 stage 快照反查 boxId，当两条快照跨越等级边界（如 Torment 2-8=Lv80 / 2-9=Lv90 相邻）时，同一次掉落会解析出两个箱子并启动两个倒计时。改为由 **live GetBox 路径独占**倒计时触发（另加 `BoxTimerService` 内的 15s 同次掉落去重护栏兜底），单次掉落只会 arm 一个箱子。
-   - **门控**：`prev != null` 排除 app 首次对账（前代既有宝箱不算掉落）；`min(missedLive, deficit)` 确保不超过 save 实际增量（掉落+开启同窗口抵消的案例因 save 数据固有歧义而不记录，比 live 漏检少见得多）。补偿类别为 rare/act/plague*（2026-09-11 扩展）：`plague*` 的 save 槽位增量同 rare/act 一样代表真实掉落（live GetBox 路径与 save 路径 stage 快照各自独立，尾部仍旧 same），且 `plague*` 也有 live credit 去重；不记录 common（common live 检测可靠且掉落频繁）。
+   - **门控**：`prev != null` 排除 app 首次对账（前代既有宝箱不算掉落）；`min(missedLive, deficit)` 确保不超过 save 实际增量（掉落+开启同窗口抵消的案例因 save 数据固有歧义而不记录，比 live 漏检少见得多）。补偿类别为 rare/act/plague*（2026-09-11 扩展）：`plague*`的 save 槽位增量同 rare/act 一样代表真实掉落（live GetBox 路径与 save 路径 stage 快照各自独立，尾部仍旧 same），且`plague\*` 也有 live credit 去重；不记录 common（common live 检测可靠且掉落频繁）。
    - **live 瘟疫地图判定（2026-09-11 新增）**：GetBox 日志只含 `monsterType`（0/1/2 → common/rare/act），无法直接区分瘟疫/普通箱子。但**瘟疫箱子只在瘟疫地图掉落**（`data/stage_boxes.json`：瘟疫箱 id 前缀 915/925/935 的 `tracker.dropStageKeys`/`idealStageKey` 全部落在 act 21+ 的瘟疫之地，普通箱最高到 act 20）。`ChestDropTracker.isPlagueStage(stageKey)` 惰性聚合瘟疫箱掉落关卡成 Set，`resolveLiveDropCategory(stageKey, base)` 据此把 live 掉落的 base category 升级为 `plague*`（TrackingService 调用）。live 升出的 `plague*` 掉落同样压 `plague*` credit，供 Step 5 对账去重。
    - 新日志：`reconcile: deferred N {cat} drop recovery(s) from save slot increase (prev→slots, deficit D) by 5000ms grace`（stash 时）；宽限期满 flush 时：`reconcile: recorded N missed {cat} drop(s) (deferred save slot increase, grace 5000ms, covered-live C)`；信用生效时：`reconcile: {cat} discount C already-live drop(s) (deferred recovery) to avoid duplicate history`。
 
@@ -2461,13 +2515,13 @@ flowchart LR
 
 ### 15.1 触发源
 
-| 触发源 | 方法 | 触发条件 |
-|--------|------|----------|
-| `boxTimers.onChestDropped` | `showChestDrop(payload)` | live 检测 rare 掉落或 UI 手动 mark |
-| `boxTimers.onChestReady` | `showChestReady(payload)` | buildState 检测 `prev=true → active=false` |
-| `tracking.onHeroLevelUp` | `showHeroLevelUp(events)` | save 解析时 detectHeroLevelUps 检测到升级 |
-| `inventory.onAlmostFull` | `showInventoryAlmostFull(payload)` | 库存 used/capacity 超过阈值 |
-| `updates.onUpdateAvailable` | `showUpdateAvailable(version)` | GitHub release 检测到新版本 |
+| 触发源                      | 方法                               | 触发条件                                   |
+| --------------------------- | ---------------------------------- | ------------------------------------------ |
+| `boxTimers.onChestDropped`  | `showChestDrop(payload)`           | live 检测 rare 掉落或 UI 手动 mark         |
+| `boxTimers.onChestReady`    | `showChestReady(payload)`          | buildState 检测 `prev=true → active=false` |
+| `tracking.onHeroLevelUp`    | `showHeroLevelUp(events)`          | save 解析时 detectHeroLevelUps 检测到升级  |
+| `inventory.onAlmostFull`    | `showInventoryAlmostFull(payload)` | 库存 used/capacity 超过阈值                |
+| `updates.onUpdateAvailable` | `showUpdateAvailable(version)`     | GitHub release 检测到新版本                |
 
 ### 15.2 路由到 renderer
 
@@ -2524,6 +2578,7 @@ flowchart LR
 `start()`：幂等。`!app.isPackaged` → 设 phase="disabled" + log + return。
 
 packaged 模式：
+
 - `autoUpdater.autoDownload = false`、`autoUpdater.autoInstallOnAppQuit = false`。
 - 注册 6 个事件：`checking-for-update` → phase="checking"；`update-available` → phase="available" + `onUpdateAvailable?.(info.version)`；`update-not-available` → phase="not-available"；`download-progress` → phase="downloading" + percent；`update-downloaded` → phase="ready"；`error` → phase="error" + friendlyUpdateError。
 - `backgroundTimer = setTimeout(() => checkForUpdates(), 30000)` — 30s 后台检查。
@@ -2637,136 +2692,136 @@ flowchart LR
 
 ## 19. 关键错误处理路径汇总
 
-| 场景 | 行为 |
-|------|------|
-| Save 文件不存在 | `SaveReadError` → SaveWatcher `onError` → `lastError` 显示在 stats.status |
-| mid-write sharing violation | `readBytesShared` 4 次重试 50ms；AES 块大小不符 → `Es3Error` → 不前进 mtime → 下次 poll 重试 |
-| 错误密码 | `Es3Error(WRONG_PASSWORD)` → 持续失败需要用户更新 `es3Password` 配置 |
-| parseInventory 抛错 | `log.error`，不影响 save snapshot 推送 |
-| Session restore 文件 corrupt | `isPersistedSessionState` 失败 → 忽略，返回默认 ui |
-| Session restore mtime 不连续 | discard + deleteFile |
-| Session restore 数值不合理 | discard + deleteFile（防 live/save baseline 混合污染） |
-| applySnapshot 抛错（schema drift） | discard + deleteFile |
-| Live memory worker 崩溃 | `lastLiveFrame` 超过 5s 未更新 → TrackingService tickTimer 清空 `lastLiveFrame`/`lastLiveStage`，stats 回退到 save 值 |
-| Live hero exp 异常（>1e12） | `plausibleHeroRuntimeExp` 拒绝 |
-| Live 单 tick gain 异常（>1e7） | `plausibleLiveHeroGain` 拒绝 |
-| Live level-drop（dirty read） | 跳过该 hero 不计数 |
-| Live same-level dip | 跳过计数但 refreshRolling |
-| LiveMemory worker exit (code 非 0) | 构造 `"live reader stopped unexpectedly"` status 广播；不自动重启 |
-| inventoryWorker fork 失败 | log.error，`ready=false`，走 sync fallback |
-| inventoryWorker resolve 超时（5s） | reject pending promise，host 走 sync fallback |
-| inventoryWorker crash | `handleExit` reject 所有 pending，`ready=false`，host 后续走 sync fallback |
-| Steam 429 | `parseRetryAfterMs` 取 Retry-After，与指数退避取较大值；连续 3 次熔断 |
-| Steam 网络错误 | cache 有该 hash 的 market data → 刷新时间戳使其 fresh；否则 `counters.failed++` |
-| nameid 解析失败 | 跳过 buyOrder，不影响 sell price 写入 |
-| LookupPriceService fetch 失败 | log warn，保留旧 snapshot |
-| LookupPriceService 校验失败 | log warn，保留旧 snapshot |
-| LookupPricePolling cycle 中 429 | `consecutiveRateLimits++`，达 3 中止本轮（`aborted: true`） |
-| CatalogRefresh asset 文件缺失 | 抛错，`lastError` 记录，broadcast stale 状态，返回 `{ ok: false }` |
-| CatalogRefresh locale 提取失败 | `extractLocales` 返回 null 时 per-locale 诊断，不阻塞 gamedata 写入 |
-| proxy 创建失败 | log warn，`cachedDispatcher = {}`（直连） |
-| priceCache 文件损坏 | `tryLoadCache` catch，返回空 cache |
-| AutoClassify queue item 过期 | pruneExpired 移除 |
-| AutoClassify pending burst 5 分钟无 save reconcile | TTL prune（items 留在 unclassified） |
-| AutoClassify ambiguous classification | 不 reclassify，全部 reset timer |
-| BoxTimer persist 失败 | `writeFileSync` 失败 → 仅 warn，不破坏 in-memory state + broadcast；下次 tick 重试 |
-| Update 检查网络错误 | friendlyUpdateError 显示友好提示 |
-| Update GitHub rate limit | 提示用户等待 |
-| Update 404 | "No release found" |
-| Update 开发模式 | phase="disabled"，所有操作 noop |
+| 场景                                               | 行为                                                                                                                  |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Save 文件不存在                                    | `SaveReadError` → SaveWatcher `onError` → `lastError` 显示在 stats.status                                             |
+| mid-write sharing violation                        | `readBytesShared` 4 次重试 50ms；AES 块大小不符 → `Es3Error` → 不前进 mtime → 下次 poll 重试                          |
+| 错误密码                                           | `Es3Error(WRONG_PASSWORD)` → 持续失败需要用户更新 `es3Password` 配置                                                  |
+| parseInventory 抛错                                | `log.error`，不影响 save snapshot 推送                                                                                |
+| Session restore 文件 corrupt                       | `isPersistedSessionState` 失败 → 忽略，返回默认 ui                                                                    |
+| Session restore mtime 不连续                       | discard + deleteFile                                                                                                  |
+| Session restore 数值不合理                         | discard + deleteFile（防 live/save baseline 混合污染）                                                                |
+| applySnapshot 抛错（schema drift）                 | discard + deleteFile                                                                                                  |
+| Live memory worker 崩溃                            | `lastLiveFrame` 超过 5s 未更新 → TrackingService tickTimer 清空 `lastLiveFrame`/`lastLiveStage`，stats 回退到 save 值 |
+| Live hero exp 异常（>1e12）                        | `plausibleHeroRuntimeExp` 拒绝                                                                                        |
+| Live 单 tick gain 异常（>1e7）                     | `plausibleLiveHeroGain` 拒绝                                                                                          |
+| Live level-drop（dirty read）                      | 跳过该 hero 不计数                                                                                                    |
+| Live same-level dip                                | 跳过计数但 refreshRolling                                                                                             |
+| LiveMemory worker exit (code 非 0)                 | 构造 `"live reader stopped unexpectedly"` status 广播；不自动重启                                                     |
+| inventoryWorker fork 失败                          | log.error，`ready=false`，走 sync fallback                                                                            |
+| inventoryWorker resolve 超时（5s）                 | reject pending promise，host 走 sync fallback                                                                         |
+| inventoryWorker crash                              | `handleExit` reject 所有 pending，`ready=false`，host 后续走 sync fallback                                            |
+| Steam 429                                          | `parseRetryAfterMs` 取 Retry-After，与指数退避取较大值；连续 3 次熔断                                                 |
+| Steam 网络错误                                     | cache 有该 hash 的 market data → 刷新时间戳使其 fresh；否则 `counters.failed++`                                       |
+| nameid 解析失败                                    | 跳过 buyOrder，不影响 sell price 写入                                                                                 |
+| LookupPriceService fetch 失败                      | log warn，保留旧 snapshot                                                                                             |
+| LookupPriceService 校验失败                        | log warn，保留旧 snapshot                                                                                             |
+| LookupPricePolling cycle 中 429                    | `consecutiveRateLimits++`，达 3 中止本轮（`aborted: true`）                                                           |
+| CatalogRefresh asset 文件缺失                      | 抛错，`lastError` 记录，broadcast stale 状态，返回 `{ ok: false }`                                                    |
+| CatalogRefresh locale 提取失败                     | `extractLocales` 返回 null 时 per-locale 诊断，不阻塞 gamedata 写入                                                   |
+| proxy 创建失败                                     | log warn，`cachedDispatcher = {}`（直连）                                                                             |
+| priceCache 文件损坏                                | `tryLoadCache` catch，返回空 cache                                                                                    |
+| AutoClassify queue item 过期                       | pruneExpired 移除                                                                                                     |
+| AutoClassify pending burst 5 分钟无 save reconcile | TTL prune（items 留在 unclassified）                                                                                  |
+| AutoClassify ambiguous classification              | 不 reclassify，全部 reset timer                                                                                       |
+| BoxTimer persist 失败                              | `writeFileSync` 失败 → 仅 warn，不破坏 in-memory state + broadcast；下次 tick 重试                                    |
+| Update 检查网络错误                                | friendlyUpdateError 显示友好提示                                                                                      |
+| Update GitHub rate limit                           | 提示用户等待                                                                                                          |
+| Update 404                                         | "No release found"                                                                                                    |
+| Update 开发模式                                    | phase="disabled"，所有操作 noop                                                                                       |
 
 ---
 
 ## 20. 关键文件路径速查
 
-| 模块 | 文件 |
-|------|------|
-| 入口 | `app/src/main/index.ts` |
-| appState | `app/src/main/app/appState.ts` |
-| 单实例 | `app/src/main/app/singleInstance.ts` |
-| lifecycle | `app/src/main/app/lifecycle.ts` |
-| config | `app/src/main/config.ts` |
-| configPatch | `app/src/main/ipc/configPatch.ts` |
-| registerIpc | `app/src/main/ipc/registerIpc.ts` |
-| broadcast | `app/src/main/services/broadcast.ts` |
-| SaveWatcher | `app/src/main/saveWatcher.ts` |
-| saveFile I/O | `app/src/main/io/saveFile.ts` |
-| ES3 解密 | `app/src/core/es3.ts` |
-| save snapshot 解析 | `app/src/core/save/snapshot.ts` |
-| TrackingService | `app/src/main/services/TrackingService.ts` |
-| stats 构建 | `app/src/main/stats.ts` |
-| blend 纯函数 | `app/src/core/liveMemory/blend.ts` |
-| tracker 核心 | `app/src/core/tracker.ts` |
-| trackerLimits | `app/src/core/trackerLimits.ts` |
-| levelCurve | `app/src/core/levelCurve.ts` |
-| detectLevelUps | `app/src/core/heroes/detectLevelUps.ts` |
-| SaveWatcher | `app/src/main/saveWatcher.ts` |
-| LiveMemoryService | `app/src/main/services/LiveMemoryService.ts` |
-| liveMemoryWorker | `app/src/main/services/liveMemoryWorker.ts` |
-| LiveMemoryReader | `app/src/main/liveMemory/liveReader.ts` |
-| offsetExtractor | `app/src/main/liveMemory/offsetExtractor.ts` |
-| offsetHealing | `app/src/main/liveMemory/offsetHealing.ts` |
-| offsetCache | `app/src/main/liveMemory/offsetCache.ts` |
-| WinProcess + FFI | `app/src/main/liveMemory/winProcess.ts` |
-| runtime 字段读取 | `app/src/core/liveMemory/runtime.ts` |
-| chestSlots 读取 | `app/src/core/liveMemory/chestSlots.ts` |
-| il2cppScanner | `app/src/core/liveMemory/il2cppScanner.ts` — Rev 13 `findBoxDataFields` 结构化派生 boxTypes/boxQuantity |
-| offsets 类型 + 内置表 | `app/src/core/liveMemory/offsets.ts` — `LiveOffsets` 接口、`offsetsForVersion` / `offsetsForVersionMeta`、`_criticalRvasValidated` / `_fallbackFromVersion` / `_extractorRev` 字段定义 |
-| offsetCompleteness | `app/src/core/liveMemory/offsetCompleteness.ts` — `isOffsetTableComplete` / `mergeOffsets` / `ENRICHMENT_FIELDS`（Rev 13 加入 `boxData.boxTypes` / `boxData.boxQuantity`） |
-| InventoryService | `app/src/main/services/InventoryService.ts` |
-| inventory parse | `app/src/core/inventory/parse.ts` |
-| inventory composition | `app/src/core/inventory/composition.ts` |
-| inventory buyOrder | `app/src/core/inventory/buyOrder.ts` |
-| inventory predictFill | `app/src/core/inventory/predictFillTime.ts` |
-| inventoryWorker | `app/src/main/services/inventoryWorker.ts` / `inventoryWorkerEntry.ts` / `inventoryWorkerProtocol.ts` |
-| priceCache | `app/src/main/services/priceCache.ts` |
-| steamMarketProvider | `app/src/main/services/steamMarketProvider.ts` |
-| steamPriceApi | `app/src/main/services/steamPriceApi.ts` |
-| steamBuyOrderApi | `app/src/main/services/steamBuyOrderApi.ts` |
-| steamItemNameId | `app/src/main/services/steamItemNameId.ts` |
-| proxyResolver | `app/src/main/services/proxyResolver.ts` |
-| retryAfter | `app/src/main/services/retryAfter.ts` |
-| marketName | `app/src/core/marketName.ts` |
-| steamMarketFee | `app/src/core/steamMarketFee.ts` / `steamMarketFeeBundled.ts` |
-| steamPrice 表 | `app/src/core/steamPrice.ts` |
-| LookupService | `app/src/main/services/LookupService.ts` |
-| LookupPriceService | `app/src/main/services/LookupPriceService.ts` |
-| LookupPricePollingService | `app/src/main/services/LookupPricePollingService.ts` |
-| lookup core | `app/src/core/lookup/*.ts` |
-| lookupPrice core | `app/src/core/lookupPrice/*.ts` |
-| CatalogRefreshService | `app/src/main/catalogRefreshService.ts` |
-| catalogExtractor | `app/src/core/unityAssets/catalogExtractor.ts` |
-| localeExtractor | `app/src/core/unityAssets/localeExtractor.ts` |
-| SessionStateService | `app/src/main/services/SessionStateService.ts` |
-| sessionState core | `app/src/core/sessionState.ts` |
-| BoxTimerService | `app/src/main/services/BoxTimerService.ts` |
-| stageBoxTracker | `app/src/core/stageBoxTracker.ts` |
-| boxTrackerSort | `app/src/core/boxTrackerSort.ts` |
-| boxTrackerWindow | `app/src/main/windows/boxTrackerWindow.ts` |
-| StageRunService | `app/src/main/services/StageRunService.ts` |
-| stageRunTracker | `app/src/core/stageRunTracker.ts` |
-| ChestService | `app/src/main/services/ChestService.ts` |
-| boxes resolve | `app/src/core/boxes/resolve.ts` |
-| boxes capacity | `app/src/core/boxes/capacity.ts` |
-| AutoClassifyService | `app/src/main/services/AutoClassifyService.ts` |
-| AutoClassify 规约 | `docs/findings/auto-classify-business-logic.md` |
-| chestDropTracker | `app/src/core/chestDropTracker.ts` |
-| boxOpenTracker | `app/src/core/boxOpenTracker.ts` |
-| boxOpenBackfill | `app/src/core/boxOpenBackfill.ts` |
-| acquireLog（含色值→品质） | `app/src/core/acquireLog.ts` |
-| recordLogFit | `app/src/core/recordLogFit.ts` |
-| recordLogTracker | `app/src/core/recordLogTracker.ts` |
-| RecordLogService | `app/src/main/services/RecordLogService.ts` |
-| dpsTracker | `app/src/core/liveMemory/dpsTracker.ts` |
-| NotificationService | `app/src/main/services/NotificationService.ts` |
-| notificationCatalog | `app/shared/notificationCatalog.ts` |
-| UpdateService | `app/src/main/services/UpdateService.ts` |
-| PetService | `app/src/main/services/PetService.ts` |
-| pets core | `app/src/core/pets/*.ts` |
-| shared types | `app/shared/types.ts` |
-| IPC 通道名 | `app/shared/ipc.ts` |
-| preload bridge | `app/src/preload/index.ts` |
-| TbhProvider | `app/src/renderer/context/TbhProvider.tsx` |
+| 模块                      | 文件                                                                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 入口                      | `app/src/main/index.ts`                                                                                                                                                                |
+| appState                  | `app/src/main/app/appState.ts`                                                                                                                                                         |
+| 单实例                    | `app/src/main/app/singleInstance.ts`                                                                                                                                                   |
+| lifecycle                 | `app/src/main/app/lifecycle.ts`                                                                                                                                                        |
+| config                    | `app/src/main/config.ts`                                                                                                                                                               |
+| configPatch               | `app/src/main/ipc/configPatch.ts`                                                                                                                                                      |
+| registerIpc               | `app/src/main/ipc/registerIpc.ts`                                                                                                                                                      |
+| broadcast                 | `app/src/main/services/broadcast.ts`                                                                                                                                                   |
+| SaveWatcher               | `app/src/main/saveWatcher.ts`                                                                                                                                                          |
+| saveFile I/O              | `app/src/main/io/saveFile.ts`                                                                                                                                                          |
+| ES3 解密                  | `app/src/core/es3.ts`                                                                                                                                                                  |
+| save snapshot 解析        | `app/src/core/save/snapshot.ts`                                                                                                                                                        |
+| TrackingService           | `app/src/main/services/TrackingService.ts`                                                                                                                                             |
+| stats 构建                | `app/src/main/stats.ts`                                                                                                                                                                |
+| blend 纯函数              | `app/src/core/liveMemory/blend.ts`                                                                                                                                                     |
+| tracker 核心              | `app/src/core/tracker.ts`                                                                                                                                                              |
+| trackerLimits             | `app/src/core/trackerLimits.ts`                                                                                                                                                        |
+| levelCurve                | `app/src/core/levelCurve.ts`                                                                                                                                                           |
+| detectLevelUps            | `app/src/core/heroes/detectLevelUps.ts`                                                                                                                                                |
+| SaveWatcher               | `app/src/main/saveWatcher.ts`                                                                                                                                                          |
+| LiveMemoryService         | `app/src/main/services/LiveMemoryService.ts`                                                                                                                                           |
+| liveMemoryWorker          | `app/src/main/services/liveMemoryWorker.ts`                                                                                                                                            |
+| LiveMemoryReader          | `app/src/main/liveMemory/liveReader.ts`                                                                                                                                                |
+| offsetExtractor           | `app/src/main/liveMemory/offsetExtractor.ts`                                                                                                                                           |
+| offsetHealing             | `app/src/main/liveMemory/offsetHealing.ts`                                                                                                                                             |
+| offsetCache               | `app/src/main/liveMemory/offsetCache.ts`                                                                                                                                               |
+| WinProcess + FFI          | `app/src/main/liveMemory/winProcess.ts`                                                                                                                                                |
+| runtime 字段读取          | `app/src/core/liveMemory/runtime.ts`                                                                                                                                                   |
+| chestSlots 读取           | `app/src/core/liveMemory/chestSlots.ts`                                                                                                                                                |
+| il2cppScanner             | `app/src/core/liveMemory/il2cppScanner.ts` — Rev 13 `findBoxDataFields` 结构化派生 boxTypes/boxQuantity                                                                                |
+| offsets 类型 + 内置表     | `app/src/core/liveMemory/offsets.ts` — `LiveOffsets` 接口、`offsetsForVersion` / `offsetsForVersionMeta`、`_criticalRvasValidated` / `_fallbackFromVersion` / `_extractorRev` 字段定义 |
+| offsetCompleteness        | `app/src/core/liveMemory/offsetCompleteness.ts` — `isOffsetTableComplete` / `mergeOffsets` / `ENRICHMENT_FIELDS`（Rev 13 加入 `boxData.boxTypes` / `boxData.boxQuantity`）             |
+| InventoryService          | `app/src/main/services/InventoryService.ts`                                                                                                                                            |
+| inventory parse           | `app/src/core/inventory/parse.ts`                                                                                                                                                      |
+| inventory composition     | `app/src/core/inventory/composition.ts`                                                                                                                                                |
+| inventory buyOrder        | `app/src/core/inventory/buyOrder.ts`                                                                                                                                                   |
+| inventory predictFill     | `app/src/core/inventory/predictFillTime.ts`                                                                                                                                            |
+| inventoryWorker           | `app/src/main/services/inventoryWorker.ts` / `inventoryWorkerEntry.ts` / `inventoryWorkerProtocol.ts`                                                                                  |
+| priceCache                | `app/src/main/services/priceCache.ts`                                                                                                                                                  |
+| steamMarketProvider       | `app/src/main/services/steamMarketProvider.ts`                                                                                                                                         |
+| steamPriceApi             | `app/src/main/services/steamPriceApi.ts`                                                                                                                                               |
+| steamBuyOrderApi          | `app/src/main/services/steamBuyOrderApi.ts`                                                                                                                                            |
+| steamItemNameId           | `app/src/main/services/steamItemNameId.ts`                                                                                                                                             |
+| proxyResolver             | `app/src/main/services/proxyResolver.ts`                                                                                                                                               |
+| retryAfter                | `app/src/main/services/retryAfter.ts`                                                                                                                                                  |
+| marketName                | `app/src/core/marketName.ts`                                                                                                                                                           |
+| steamMarketFee            | `app/src/core/steamMarketFee.ts` / `steamMarketFeeBundled.ts`                                                                                                                          |
+| steamPrice 表             | `app/src/core/steamPrice.ts`                                                                                                                                                           |
+| LookupService             | `app/src/main/services/LookupService.ts`                                                                                                                                               |
+| LookupPriceService        | `app/src/main/services/LookupPriceService.ts`                                                                                                                                          |
+| LookupPricePollingService | `app/src/main/services/LookupPricePollingService.ts`                                                                                                                                   |
+| lookup core               | `app/src/core/lookup/*.ts`                                                                                                                                                             |
+| lookupPrice core          | `app/src/core/lookupPrice/*.ts`                                                                                                                                                        |
+| CatalogRefreshService     | `app/src/main/catalogRefreshService.ts`                                                                                                                                                |
+| catalogExtractor          | `app/src/core/unityAssets/catalogExtractor.ts`                                                                                                                                         |
+| localeExtractor           | `app/src/core/unityAssets/localeExtractor.ts`                                                                                                                                          |
+| SessionStateService       | `app/src/main/services/SessionStateService.ts`                                                                                                                                         |
+| sessionState core         | `app/src/core/sessionState.ts`                                                                                                                                                         |
+| BoxTimerService           | `app/src/main/services/BoxTimerService.ts`                                                                                                                                             |
+| stageBoxTracker           | `app/src/core/stageBoxTracker.ts`                                                                                                                                                      |
+| boxTrackerSort            | `app/src/core/boxTrackerSort.ts`                                                                                                                                                       |
+| boxTrackerWindow          | `app/src/main/windows/boxTrackerWindow.ts`                                                                                                                                             |
+| StageRunService           | `app/src/main/services/StageRunService.ts`                                                                                                                                             |
+| stageRunTracker           | `app/src/core/stageRunTracker.ts`                                                                                                                                                      |
+| ChestService              | `app/src/main/services/ChestService.ts`                                                                                                                                                |
+| boxes resolve             | `app/src/core/boxes/resolve.ts`                                                                                                                                                        |
+| boxes capacity            | `app/src/core/boxes/capacity.ts`                                                                                                                                                       |
+| AutoClassifyService       | `app/src/main/services/AutoClassifyService.ts`                                                                                                                                         |
+| AutoClassify 规约         | `docs/findings/auto-classify-business-logic.md`                                                                                                                                        |
+| chestDropTracker          | `app/src/core/chestDropTracker.ts`                                                                                                                                                     |
+| boxOpenTracker            | `app/src/core/boxOpenTracker.ts`                                                                                                                                                       |
+| boxOpenBackfill           | `app/src/core/boxOpenBackfill.ts`                                                                                                                                                      |
+| acquireLog（含色值→品质） | `app/src/core/acquireLog.ts`                                                                                                                                                           |
+| recordLogFit              | `app/src/core/recordLogFit.ts`                                                                                                                                                         |
+| recordLogTracker          | `app/src/core/recordLogTracker.ts`                                                                                                                                                     |
+| RecordLogService          | `app/src/main/services/RecordLogService.ts`                                                                                                                                            |
+| dpsTracker                | `app/src/core/liveMemory/dpsTracker.ts`                                                                                                                                                |
+| NotificationService       | `app/src/main/services/NotificationService.ts`                                                                                                                                         |
+| notificationCatalog       | `app/shared/notificationCatalog.ts`                                                                                                                                                    |
+| UpdateService             | `app/src/main/services/UpdateService.ts`                                                                                                                                               |
+| PetService                | `app/src/main/services/PetService.ts`                                                                                                                                                  |
+| pets core                 | `app/src/core/pets/*.ts`                                                                                                                                                               |
+| shared types              | `app/shared/types.ts`                                                                                                                                                                  |
+| IPC 通道名                | `app/shared/ipc.ts`                                                                                                                                                                    |
+| preload bridge            | `app/src/preload/index.ts`                                                                                                                                                             |
+| TbhProvider               | `app/src/renderer/context/TbhProvider.tsx`                                                                                                                                             |
 
 ---
 
@@ -2781,7 +2836,7 @@ flowchart LR
 5. **跨文档链接**：引用其他文档时使用相对路径（如 `[auto-classify-business-logic](./findings/auto-classify-business-logic.md)`），便于离线阅读。
 6. **审计/调研文档独立**：专项审计报告（如 `docs/findings/*.md`）作为本文档的细化补充，不在本文档内重复其细节，仅给出摘要 + 链接。
 7. **`docs/agent/generated/`** 是 code-derived 自动生成清单，不手编辑；本文档是 hand-curated 业务流程单一真理源，不与 generated 重复。
-8. **mermaid 图随正文同步**：各章节的 ```` ```mermaid ```` 流程图与正文是同一流程的两种呈现，业务改动落地时必须**同步更新对应章节的图**（含节点、流向、分支），不允许只改文字。
+8. **mermaid 图随正文同步**：各章节的 ` ```mermaid ` 流程图与正文是同一流程的两种呈现，业务改动落地时必须**同步更新对应章节的图**（含节点、流向、分支），不允许只改文字。
 9. **共享服务命名契约**：跨图引用共享服务时，节点 label 必须**以 `docs/agent/scripts/build-flow-viz.mjs` 顶部 `SVC_NAMES` 注册表中的服务名开头**（如 `TrackingService.onSnapshot`），以便可视化工具据此聚合"服务参与的流程"与"跨服务关联"。**修改注册表需在同 PR 内同步所有相关图的 label，并重新生成 `docs/flow-viz/flow-viz-data.js`**（`node docs/agent/scripts/build-flow-viz.mjs`）。
 
 ---
@@ -2802,6 +2857,7 @@ flowchart LR
 **数据源核查结论**：磁盘上无任何持久化的掉落/开箱/通关记录文件（存档 `PlayerSaveData` 无 record 字段、`Player.log` 仅异常栈回溯、游戏 Data 目录无日志文件），"游戏自带记录"本体即内存 `LogManager`。因此记录页 = 实时读取"获得记录"环形区并归档。
 
 ### 23.1 数据流
+
 ```
 游戏进程 LogManager@0x20（获得记录环形区：会话级、容量 ~2000、单调 total 计数）
   → worker 独立"获得记录"通道（~10ms，不经过 snapshot / read() 帧）
@@ -2816,21 +2872,24 @@ flowchart LR
   → buildStats 输出 Stats.recordLog（最新窗口 200 条 + total + byKind）
   → onStats(IPC.STATS) → StatsContext → RecordLog tab（倒序、复刻游戏「获得记录」界面）
 ```
+
 > 注：`获得记录` 由 worker 的**独立高频轮询**（`fastAcquirePollTimer` → `pollAcquireTailFast`，~10ms）直接 post 给 main，**不经过 snapshot / `read()` 帧**——不受 stage 为 null、name-scan 等 `read()` 提前返回影响，不堆积、不丢失。获取模型为**初次全量 + 定期增量**：attach 后首次成功读取把环形区最新窗口作为 `initial` 批下发，之后每轮从 `acquirePin.total`（读取端位置）向前续读。**读取位置只由读取端自身推进，绝不以环形区计数器 `ring+0x1C` 为锚**——该计数器实测会跑到槽位实际写入之前（2026-09-15 现场：attach 全量窗口尾部仍留着上一圈的条目，时间戳落后 6~7 小时），以它为锚会让后续每次增量读到「同槽 = 上一圈」的旧条目，真正最新行永不投递（记录页恒定滞后一整圈）。UI 侧只渲染 `kind === "acquire"` 条目（兼容旧版 record_log.json 里遗留的 drop/open/clear 历史数据），每条显示游戏内时间 + 原始消息（`<color=#RRGGBB>` 保持品质色渲染），完全复刻游戏内「获得记录」界面。
 
 ### 23.2 关键文件
-| 职责 | 路径 |
-|------|------|
-| 统一记录器（纯逻辑） | `app/src/core/recordLogTracker.ts`（`RecordLogTracker`：`feed/getStats/snapshot/applySnapshot`） |
-| 持久化载体 | `app/src/main/services/RecordLogService.ts`（load-once / 防抖 persist / stop flush） |
-| 事件接入 | `app/src/main/services/TrackingService.ts`（`ingestAcquireBatch`——记录日志**唯一喂入口**；`resetRecordLog()`） |
+
+| 职责                 | 路径                                                                                                                                                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 统一记录器（纯逻辑） | `app/src/core/recordLogTracker.ts`（`RecordLogTracker`：`feed/getStats/snapshot/applySnapshot`）                                                                                                                      |
+| 持久化载体           | `app/src/main/services/RecordLogService.ts`（load-once / 防抖 persist / stop flush）                                                                                                                                  |
+| 事件接入             | `app/src/main/services/TrackingService.ts`（`ingestAcquireBatch`——记录日志**唯一喂入口**；`resetRecordLog()`）                                                                                                        |
 | "获得记录"环形区读取 | `app/src/core/liveMemory/runtime.ts`(`readRuntimeAcquireLogs`) + `app/src/main/liveMemory/liveReader.ts`(`pollAcquireTailFast` 初次全量+增量) + `app/src/main/liveMemory/worker.ts`(`fastAcquirePollTimer` 直接 post) |
-| 富文本→结构化解析 | `app/src/core/acquireLog.ts`（`parseAcquireMessage`：提取名称/数量/品质色/种类） |
-| 统计输出 | `app/src/main/stats.ts`（`buildStats` 增参 `recordLogTracker`，输出 `Stats.recordLog`） |
-| 文件注册/清除 | `app/src/main/services/appData.ts`（`RECORD_LOG_FILE`＝`record_log.json`；入 paths 清单与 `all-except-config`） |
-| UI | `app/src/renderer/tabs/RecordLog.tsx`（新 tab id = `log`） |
+| 富文本→结构化解析    | `app/src/core/acquireLog.ts`（`parseAcquireMessage`：提取名称/数量/品质色/种类）                                                                                                                                      |
+| 统计输出             | `app/src/main/stats.ts`（`buildStats` 增参 `recordLogTracker`，输出 `Stats.recordLog`）                                                                                                                               |
+| 文件注册/清除        | `app/src/main/services/appData.ts`（`RECORD_LOG_FILE`＝`record_log.json`；入 paths 清单与 `all-except-config`）                                                                                                       |
+| UI                   | `app/src/renderer/tabs/RecordLog.tsx`（新 tab id = `log`）                                                                                                                                                            |
 
 ### 23.3 持久化与去重
+
 - **文件**：`record_log.json`＝`{nextSeq, entries: RecordLogEntry[]}`。
 - **写入**：事件批量后防抖 ~2s；`TrackingService.stop()` 强制 `flush()`。`<2s` 尾部窗在崩溃时丢失（可接受，不产生重复）。
 - **容量**：内存与文件均裁剪至 10000 条（`capacity`），展示窗口取最新 200 条（`recentWindow`）。
@@ -2840,6 +2899,7 @@ flowchart LR
 - **生命周期**：**不随"重置会话"清空**（长期保留）；仅 Settings → Data 清除的 `record-log` / `all-except-config` 会删文件并同步 `TrackingService.resetRecordLog()` 清内存。
 
 ### 23.4 错误处理
+
 - 读文件失败/损坏 → `RecordLogService.load()` 记 warn，从空态继续。
 - 写盘失败（只读/满盘）→ `persist()` 记 warn，不回滚内存，下次调度再试。
 - `record_log.json` 被 Settings 删除 → `clearAppData(record-log)` 删除文件后 `tracking.resetRecordLog()` 清内存态。
@@ -2854,24 +2914,91 @@ flowchart LR
 - **"获得记录"解码（`readRuntimeAcquireLogs`，`runtime.ts`）**：游戏自带"获得记录"界面数据源为 `LogManager@0x20` 的**会话级环形区**（容量约 2000，单调 total 计数，重启即清空；内存中完整、不被分桶覆盖）。worker 的独立轮询（`fastAcquirePollTimer` → `pollAcquireTailFast`，~10ms）按 `acquirePin.total` 增量读取并**直接 post 给 main**（`{type:"acquire", entries, initial}`），**不经过 snapshot / `read()` 帧**（stage 为 null、name-scan 等 `read()` 提前返回不影响其下发，也不堆积、不丢失）。获取模型为**初次全量 + 定期增量**：attach 后首次成功读取以 `initial=true` 下发整个会话存量，之后每轮只读新增条目。**mid-write 防漏**：游戏追加条目时"先写 slot 指针、再提交字符串"，worker 读到未提交条目（`message` 解码为空或 slot 指针未写）时**停在失败条目、不推进 `pin.total`**（此前为 continue + 无条件推进，导致"打开箱子后新记录永久丢失"），下一轮 poll 重读该尾段；环形区按序追加，未提交条目必为最新一条。
 - **detach/re-attach 续读（2026-09-15 新增）**：`detach()` **不再重置** `acquirePin`/`acquireInitialDone`/`lastAcquireTotal`——同一游戏会话内的 detach→re-attach（游戏卡顿/进程句柄抖动触发的 worker 重连）会**继续按 pin 增量读**，不再把整个环形区存量重新作为 `initial` 批下发（此前每次 re-attach 都重新全量，旧记录以新 seq 重新排到记录页顶部，表现为"打开箱子后新增的不是最新的"）。真正的**新游戏会话**由环形区计数器重启识别：`readRuntimeAcquireLogs` 检测 `total < pin.total` 时把 pin 回退到 0 并清空槽位指纹/末段时间戳重新全量，`pollAcquireTailFast` 检测 `res.total < lastAcquireTotal` 时重置 `acquireInitialDone` 使该批标记为 `initial`（companion 重启后仍会初次全量展示存量）。
 - **陈旧槽位守卫（2026-09-15 修复：记录页恒定滞后一整圈）**：实测环形区计数器 `ring+0x1C` **跑在槽位实际写入之前**——attach 全量窗口 `[total-2000, total)` 的尾部仍持有**上一圈**条目（同一槽位 2000 次追加前的内容，游戏内时间戳落后 6~7 小时），此前的半写保护只挡 `entryPtr == null` / 消息解不出，**挡不住这种"完整可解码的旧条目"**：它被当作新记录投递且 pin 无条件推进，导致此后每次增量都命中「同槽 = 上一圈」内容、真正最新行永不投递（现场证据：`app.log` 的 attach 批尾部出现 02:32/03:54/…/07:15，紧随其后的增量批是 attach 批开头区域的顺序回放；`record_log.json` 最新条目时间戳落后真实最新约 2000 条 / 6~7 小时）。修复（`readRuntimeAcquireLogs` + `acquireHoldReason`）：
-  1. **读取锚点改为读取端位置**：稳态下 `from = acquirePin.total`，只在 pin 为 0（真正首次读取）时才锚定 `total - CAPACITY` 取最新窗口；单轮最多续读一整圈（`limit = from + CAPACITY`），落后多时用连续几轮（10ms/轮）追平，而不是把 pin 一步跳过未读条目。
-  2. **陈旧判定改用「指针 + 消息」指纹**（`acquireIdentity` = `entryPtr|msgPtr|message`）：同槽指纹与上一圈读到的完全相同 → 该槽未被本圈覆盖 → **break**（不投递、不推进 pin，下一轮重试）。被停住的槽位正是下一次写入的目标，因此游戏一追加就自然解除，无需额外自愈逻辑。**指纹里故意不含时间串**：实测（2026-09-15）游戏会复用/改写 `entry+0x28` 指向的时间字符串对象，同一条未重写的条目 45 分钟后重读时间戳会变（14:07 → 14:40），所以「时间戳回退」判据**已整体删除**（它既是漏检原因，也会在跨天回绕时误判）。
-  3. **释放阀（`ACQUIRE_HOLD_RELEASE_MS=5s`）**：若同一槽位在**计数器持续前进**（= 游戏确实在产出行）的情况下被停住超过 5 s，说明新鲜度模型不成立 → 直接交付并输出 `acquire hold (RELEASED)` 日志（响亮兜底，避免永久停顿）；计数器静止（游戏空闲）时 hold 永不过期——此时本来也没有新行可交付。
-  4. **容量探针（不再"假设 2000"）**：记录 0 号槽位内容最近一次变化的索引，两次变化之间正好一个环长 → `pin.capacityEstimate`；`liveReader` 在变化时输出 `acquire ring capacity MEASURED: N entries per slot cycle (assumed 2000 — matches|MISMATCH!)`。
-  5. **可观测**：`liveReader.logAcquireHold`（节流 5 s / 槽位变化立即记）输出 `acquire hold: seq=… reason=stale-slot|released total=… pin=…`；环形区 dump **由主进程按策略下发**（不再依赖环境变量是否传到 worker——实测 `TBH_ACQUIRE_DUMP=1` 重启后一条 dump 都没有）：`LiveMemoryService.start()` fork 后 postMessage `{type:"acquireDump", enabled, maxDumps, windowSize}`，未打包（dev）构建默认开启且限量（200 条 dump × 8 槽位，只在环形区"动过"或每 10 s 基线时落盘），`TBH_ACQUIRE_DUMP=1` 全量窗口（24 槽位、不限量）、`=0` 关闭；启动日志会打 `acquire dump policy: enabled=… (TBH_ACQUIRE_DUMP=…, packaged=…)` 便于核对。`dumpRuntimeAcquireRing` 输出计数器、ring/buf/elemBase、长度探针（`buf+0x18`/`buf+0x1C`/`ring+0x18`、内层数组指针与 `innerLen`）与尾部槽位的 entryPtr + 时间戳 + 消息，相邻两次 dump 即可确认计数器超前量、槽位指针是否随覆写变化、以及真实容量。
-  6. **写入头扫描 + 锚定仲裁（2026-09-19：让程序自己找到"最新日志"的真实位置）**：环形区计数器 `+0x1C` 实测会**领先槽位实际写入最多一整圈**（2026-09-18/19 现场：`total=4935 pin=4935 base=-`，即读取器已到计数器边缘，但该位置的槽位内容时间戳落后墙钟 8~15 h；缺口随积压消费而收窄，内容与标签同步前进、零 hold、零重复）。因此「计数器边缘」**不是**"最新内容"的可靠参照。新增两条机制：
-     - **`scanAcquireHead(reader, elemBase, slots)`（全环写入头扫描）**：遍历槽位——扫描范围**取 backing array 的声明长度**（`buf + 0x18`，.NET 数组头；线上 2048）并下限到假定容量、上限 `ACQUIRE_SCAN_MAX=8192`——**不再假定 2000**（2026-09-20 用户报告环可能约 5000 槽：改为"测量而非假定"）。按游戏内 `[HH:MM]` 时间戳在**环形分钟钟面**上取最新者（同分钟取槽号较大者——顺序写入 PASS 内槽号递增）→ 返回 `{slot, stampMin, stamp, decoded}`。这是唯一不信任计数器的位置参照。dump 每次扫描并输出 `head: slot=… stamp=… lag=…min decoded=… swept=… capacity=… (pin maps to slot …)`，让"最新内容在哪、落后多少、扫了多大范围"一眼可见。
-     - **容量自适应（2026-09-20）**：若扫出的写入头**位于假定容量（2000）之外**，即为"环模数比假定的大"的实证 → `pin.ringCapacity` 采纳实测跨度、`slotIdentity` 重建为新尺寸、slot 数学（映射 / `from` / `limit` / 探针 / 锚定）全部按新容量重映射，并输出 `acquire ring capacity MEASURED-BY-SWEEP: … slot math remapped to N slots`。旧行为永远按 2000 取模——模数若真错，读取会系统性错位且无从发现。
-     - **挂载时纠偏（2026-09-20）**：初次全量批（`start === 0`）原本完全不设防（其存量合法地是数小时前的时间戳），现在额外做一次**偏差检查 + 仲裁**：批次最新时间戳偏离墙钟 > 180 min 立即扫描裁决——锚错则**丢弃整批并重锚定**（先把 pin 推到批次末尾再锚定，确保 `slot(pin) == head`，下一次写入即投递最新内容）、环滞后则仅报告。启动瞬间即给出判定，不必等稳态批次。
-     - **`arbitrateAcquireAnchor`（锚定仲裁）**：stamp 护栏怀疑异常时不再盲目"判损坏 + 丢弃"，而是先做一次全环扫描裁决：
-       - head **相对墙钟新鲜**（≤ `ACQUIRE_STAMP_WALL_TOL_MIN=180` min；游戏时间戳与墙钟 1:1）**且**与正在投递的内容相差 ≥ `ACQUIRE_HEAD_NEWER_MIN=30` min → **读取器锚错了**（映射漂移）→ `anchorPinToHead`：`sessionBase = (pin.total - headSlot) mod 2000`（**pin 的标签空间不动**，只移动映射；避免回退标签导致重复归档），`recoverAcquireMapping` 重建全部槽位指纹并**清空 head 槽的指纹**（让最新那条被投递而非被 hold 挡住），每会话最多 `ACQUIRE_RECOVERY_MAX=3` 次，超限后 `mappingSuspect`（放行 + 响亮告警，避免死锁数据流）。
-       - head **自身就旧** → **读取器已在最新内容上、是环形区自己落后游戏**（游戏侧积压/欠写）→ **不恢复**，投递照旧（把忠实读取当损坏丢弃才是真错误），输出 `ringLagMin`/`headSlot` 并由 liveReader 打 `acquire ring lag: newest ring content is N min behind the wall clock … the GAME has not written newer records`（60 s 节流），同时设 `headRecheckAt = now + ACQUIRE_HEAD_RECHECK_MS(10 min)` 抑制重复全环扫描（一次扫描 = 2000 槽读，10 ms poll 下不可每批做）。
-     - **配套修复（2026-09-19/20，测试实测暴露）**：①`acquireHoldReason` 的 `sameAsPreviousPass` 原要求 `k >= ACQUIRE_RING_CAPACITY` 才允许 hold——重锚定/容量自适应后 pin 标签空间与容量都可能变化，该绝对索引门控会在整趟读取中**静默禁用 hold**，让读取器直接走进未重写的旧槽（表现为反复重锚定）；门控与 `slotIdentity != null` 判定重复（指纹只在投递时写入，且单趟读取绝不重复访问同一槽：`limit ≤ from + capacity`），故整体删除。②`recoverAcquireMapping` 清空 head 指纹的边界曾硬写 `ACQUIRE_RING_CAPACITY`，容量 > 2000 时清空被跳过 → 最新条目被 hold 挡住永不下发；改为按 `slotIdentity.length` 判定。③重锚定路径**保留 pin 位置**（只移动映射），回退 pin 会重新进入已消费槽并被 hold 挡住。
-     - 已知残余盲区（可接受，注释明示）：< 30 game-min 的小幅漂移会被偏移跟踪吸收而漏检（危害限于页面小幅滞后 + 短窗重复）；游戏时钟与墙钟合法漂移 > 3 h 且持续产记录的场景未观测到。
-  7. **base 采纳探针（2026-09-19）**：`counter - fill` 推导出的 base 候选此前**两 poll 确认后静默采纳**（`pin.total >= newBase` 时无任何日志——adoption 的观测盲区）。现在候选即使通过两 poll 确认，还必须赢下 **live-edge 新鲜度探针**才允许移动映射：`probeBaseCandidate` 比较 `slot(total-1-oldBase)` 与 `slot(total-1-newBase)` 两个槽位的内容——incumbent 槽位为空（= ring 被 wipe 清空，live-verified 2026-09-16）→ 采纳；候选槽位为空 / 双空 / 任一 stamp 不可解码 → 保守拒绝（清除 pending，等下一次两 poll 重新提议）；双方可读 → **stamp 离墙钟更近者胜**（游戏时间戳与墙钟 1:1），平局保 incumbent。**与 incumbent 等价的候选**（`(newBase - effectiveBase) mod capacity === 0`，典型是 base-0 会话的候选 0 对上 null 回退——同一映射）**不移动映射，直接落定、不探针、不报拒绝**（2026-09-19 线上实测：否则每 60 s 刷一条 `session base candidate REJECTED` 噪音）。映射移动型采纳/拒绝分别经 `baseAdopted` / `baseRejected`（liveReader 60 s 节流）落日志，消除盲区；附带收益：attach 到「已 wipe 且重新打满」ring 的 17 h 边界场景（原注释标记不可覆盖）也能经探针正确标定。
-  回归测试见 `app/test/core/liveMemoryRuntime.test.ts`：计数器超前 10 但只写 5 槽时只交付 5 条并把 pin 停在 2505、**改写时间串不影响 hold**、被覆写后自然解除、容量探针测出 2000 步长、活跃停顿 5 s 触发 RELEASED、计数器静止时永不过期；**stamp 护栏 + 写入头扫描（2026-09-19/20）**：锚错时全环扫描裁决后**重锚定映射至 head 并投出最新一条**（pin 标签空间不动、旧内容批丢弃、随后由 hold 接管 pacing）、带错位 base 的 resume 首批被丢并重锚定、**环自身滞后（游戏侧积压）时不误判为损坏**（首次读取即给出 `ringLagMin` 判定 + 照常投递 + 10 min 内不再重扫）、午夜回绕/正向漂移不误报、3 次重锚定后进入 suspect 模式放行、live-edge 探针拒绝「live-edge 更旧」的 fill 候选、探针放行真实 wipe 候选、等价 base 候选静默落定、**全数组扫描在容量之外找到写入头时自适应容量并重映射**（数组 4096 / 环 3000 的合成用例：扫 4096 槽、`capacityAdopted=4096`、重锚定后投出 head 与后续写入）；`app/test/main/trackingService.test.ts` 覆盖「时间戳变化的重复行被跳过」与「ringRestarted 批不被吞」。
+  1.  **读取锚点改为读取端位置**：稳态下 `from = acquirePin.total`，只在 pin 为 0（真正首次读取）时才锚定 `total - CAPACITY` 取最新窗口；单轮最多续读一整圈（`limit = from + CAPACITY`），落后多时用连续几轮（10ms/轮）追平，而不是把 pin 一步跳过未读条目。
+  2.  **陈旧判定改用「指针 + 消息」指纹**（`acquireIdentity` = `entryPtr|msgPtr|message`）：同槽指纹与上一圈读到的完全相同 → 该槽未被本圈覆盖 → **break**（不投递、不推进 pin，下一轮重试）。被停住的槽位正是下一次写入的目标，因此游戏一追加就自然解除，无需额外自愈逻辑。**指纹里故意不含时间串**：实测（2026-09-15）游戏会复用/改写 `entry+0x28` 指向的时间字符串对象，同一条未重写的条目 45 分钟后重读时间戳会变（14:07 → 14:40），所以「时间戳回退」判据**已整体删除**（它既是漏检原因，也会在跨天回绕时误判）。
+  3.  **释放阀（`ACQUIRE_HOLD_RELEASE_MS=5s`）**：若同一槽位在**计数器持续前进**（= 游戏确实在产出行）的情况下被停住超过 5 s，说明新鲜度模型不成立 → 直接交付并输出 `acquire hold (RELEASED)` 日志（响亮兜底，避免永久停顿）；计数器静止（游戏空闲）时 hold 永不过期——此时本来也没有新行可交付。
+  4.  **容量探针（不再"假设 2000"）**：记录 0 号槽位内容最近一次变化的索引，两次变化之间正好一个环长 → `pin.capacityEstimate`；`liveReader` 在变化时输出 `acquire ring capacity MEASURED: N entries per slot cycle (assumed 2000 — matches|MISMATCH!)`。
+  5.  **可观测**：`liveReader.logAcquireHold`（节流 5 s / 槽位变化立即记）输出 `acquire hold: seq=… reason=stale-slot|released total=… pin=…`；环形区 dump **由主进程按策略下发**（不再依赖环境变量是否传到 worker——实测 `TBH_ACQUIRE_DUMP=1` 重启后一条 dump 都没有）：`LiveMemoryService.start()` fork 后 postMessage `{type:"acquireDump", enabled, maxDumps, windowSize}`，未打包（dev）构建默认开启且限量（200 条 dump × 8 槽位，只在环形区"动过"或每 10 s 基线时落盘），`TBH_ACQUIRE_DUMP=1` 全量窗口（24 槽位、不限量）、`=0` 关闭；启动日志会打 `acquire dump policy: enabled=… (TBH_ACQUIRE_DUMP=…, packaged=…)` 便于核对。`dumpRuntimeAcquireRing` 输出计数器、ring/buf/elemBase、长度探针（`buf+0x18`/`buf+0x1C`/`ring+0x18`、内层数组指针与 `innerLen`）与尾部槽位的 entryPtr + 时间戳 + 消息，相邻两次 dump 即可确认计数器超前量、槽位指针是否随覆写变化、以及真实容量。
+  6.  **写入头扫描 + 锚定仲裁（2026-09-19：让程序自己找到"最新日志"的真实位置）**：环形区计数器 `+0x1C` 实测会**领先槽位实际写入最多一整圈**（2026-09-18/19 现场：`total=4935 pin=4935 base=-`，即读取器已到计数器边缘，但该位置的槽位内容时间戳落后墙钟 8~15 h；缺口随积压消费而收窄，内容与标签同步前进、零 hold、零重复）。因此「计数器边缘」**不是**"最新内容"的可靠参照。新增两条机制：
+      - **`scanAcquireHead(reader, elemBase, slots)`（全环写入头扫描）**：遍历槽位——扫描范围**取 backing array 的声明长度**（`buf + 0x18`，.NET 数组头；线上 2048）并下限到假定容量、上限 `ACQUIRE_SCAN_MAX=8192`——**不再假定 2000**（2026-09-20 用户报告环可能约 5000 槽：改为"测量而非假定"）。按游戏内 `[HH:MM]` 时间戳在**环形分钟钟面**上取最新者（同分钟取槽号较大者——顺序写入 PASS 内槽号递增）→ 返回 `{slot, stampMin, stamp, decoded}`。这是唯一不信任计数器的位置参照。dump 每次扫描并输出 `head: slot=… stamp=… lag=…min decoded=… swept=… capacity=… (pin maps to slot …)`，让"最新内容在哪、落后多少、扫了多大范围"一眼可见。
+      - **容量自适应（2026-09-20）**：若扫出的写入头**位于假定容量（2000）之外**，即为"环模数比假定的大"的实证 → `pin.ringCapacity` 采纳实测跨度、`slotIdentity` 重建为新尺寸、slot 数学（映射 / `from` / `limit` / 探针 / 锚定）全部按新容量重映射，并输出 `acquire ring capacity MEASURED-BY-SWEEP: … slot math remapped to N slots`。旧行为永远按 2000 取模——模数若真错，读取会系统性错位且无从发现。
+      - **挂载时纠偏（2026-09-20）**：初次全量批（`start === 0`）原本完全不设防（其存量合法地是数小时前的时间戳），现在额外做一次**偏差检查 + 仲裁**：批次最新时间戳偏离墙钟 > 180 min 立即扫描裁决——锚错则**丢弃整批并重锚定**（先把 pin 推到批次末尾再锚定，确保 `slot(pin) == head`，下一次写入即投递最新内容）、环滞后则仅报告。启动瞬间即给出判定，不必等稳态批次。
+      - **`arbitrateAcquireAnchor`（锚定仲裁）**：stamp 护栏怀疑异常时不再盲目"判损坏 + 丢弃"，而是先做一次全环扫描裁决：
+        - head **相对墙钟新鲜**（≤ `ACQUIRE_STAMP_WALL_TOL_MIN=180` min；游戏时间戳与墙钟 1:1）**且**与正在投递的内容相差 ≥ `ACQUIRE_HEAD_NEWER_MIN=30` min → **读取器锚错了**（映射漂移）→ `anchorPinToHead`：`sessionBase = (pin.total - headSlot) mod 2000`（**pin 的标签空间不动**，只移动映射；避免回退标签导致重复归档），`recoverAcquireMapping` 重建全部槽位指纹并**清空 head 槽的指纹**（让最新那条被投递而非被 hold 挡住），每会话最多 `ACQUIRE_RECOVERY_MAX=3` 次，超限后 `mappingSuspect`（放行 + 响亮告警，避免死锁数据流）。
+        - head **自身就旧** → **读取器已在最新内容上、是环形区自己落后游戏**（游戏侧积压/欠写）→ **不恢复**，投递照旧（把忠实读取当损坏丢弃才是真错误），输出 `ringLagMin`/`headSlot` 并由 liveReader 打 `acquire ring lag: newest ring content is N min behind the wall clock … the GAME has not written newer records`（60 s 节流），同时设 `headRecheckAt = now + ACQUIRE_HEAD_RECHECK_MS(10 min)` 抑制重复全环扫描（一次扫描 = 2000 槽读，10 ms poll 下不可每批做）。
+      - **配套修复（2026-09-19/20，测试实测暴露）**：①`acquireHoldReason` 的 `sameAsPreviousPass` 原要求 `k >= ACQUIRE_RING_CAPACITY` 才允许 hold——重锚定/容量自适应后 pin 标签空间与容量都可能变化，该绝对索引门控会在整趟读取中**静默禁用 hold**，让读取器直接走进未重写的旧槽（表现为反复重锚定）；门控与 `slotIdentity != null` 判定重复（指纹只在投递时写入，且单趟读取绝不重复访问同一槽：`limit ≤ from + capacity`），故整体删除。②`recoverAcquireMapping` 清空 head 指纹的边界曾硬写 `ACQUIRE_RING_CAPACITY`，容量 > 2000 时清空被跳过 → 最新条目被 hold 挡住永不下发；改为按 `slotIdentity.length` 判定。③重锚定路径**保留 pin 位置**（只移动映射），回退 pin 会重新进入已消费槽并被 hold 挡住。
+      - 已知残余盲区（可接受，注释明示）：< 30 game-min 的小幅漂移会被偏移跟踪吸收而漏检（危害限于页面小幅滞后 + 短窗重复）；游戏时钟与墙钟合法漂移 > 3 h 且持续产记录的场景未观测到。
+  7.  **base 采纳探针（2026-09-19）**：`counter - fill` 推导出的 base 候选此前**两 poll 确认后静默采纳**（`pin.total >= newBase` 时无任何日志——adoption 的观测盲区）。现在候选即使通过两 poll 确认，还必须赢下 **live-edge 新鲜度探针**才允许移动映射：`probeBaseCandidate` 比较 `slot(total-1-oldBase)` 与 `slot(total-1-newBase)` 两个槽位的内容——incumbent 槽位为空（= ring 被 wipe 清空，live-verified 2026-09-16）→ 采纳；候选槽位为空 / 双空 / 任一 stamp 不可解码 → 保守拒绝（清除 pending，等下一次两 poll 重新提议）；双方可读 → **stamp 离墙钟更近者胜**（游戏时间戳与墙钟 1:1），平局保 incumbent。**与 incumbent 等价的候选**（`(newBase - effectiveBase) mod capacity === 0`，典型是 base-0 会话的候选 0 对上 null 回退——同一映射）**不移动映射，直接落定、不探针、不报拒绝**（2026-09-19 线上实测：否则每 60 s 刷一条 `session base candidate REJECTED` 噪音）。映射移动型采纳/拒绝分别经 `baseAdopted` / `baseRejected`（liveReader 60 s 节流）落日志，消除盲区；附带收益：attach 到「已 wipe 且重新打满」ring 的 17 h 边界场景（原注释标记不可覆盖）也能经探针正确标定。
+  8.  **写入头参照 + 上一圈保护（2026-09-20，修「重启后 2 条正确、之后全是旧记录」）**：`pin.headRefSlot` / `pin.headRefStampMin` 记录最后一次全环扫描找到的**最新内容**所在槽位与 stamp（`noteHeadRef`，稳态仲裁与 attach 时仲裁两处写入；`headRefStampMin` 距墙钟 ≤ `ACQUIRE_STAMP_WALL_TOL_MIN` 才视为可用）。`acquireParkedOnHead`（写入顺序上 head 本身或后一格）/ `acquireNearHead`（后 `ACQUIRE_HEAD_WINDOW=32` 格内）据此判定「读取器就在写入头旁边」。
+
+      **线上诊断（09:53 重启后 dump 行）**：`head: slot=1999 stamp=09:53 lag=0min … (pin maps to slot 0)`、后续 `(pin maps to slot 6/8/14…)` —— **写入头在槽 1999 且 stamp 等于墙钟（新鲜），而 pin 在槽 0/4/6/8… 走，那里是上一圈的 `@15:xx` 旧行**。完整链条：① restart → attach 时仲裁重锚定（#1）→ 投出 1 条正确的 `@09:53`；② pin 移到下一写入格，该格仍是上一圈旧行 → stamp 护栏判「错锚定」→ 重锚定（#2）；③ 游戏 append 一条正确记录后被投出，紧接着又撞上旧行 → 重锚定（#3）；④ **40 秒内烧完 3 次 recovery 预算** → `SUSPECT` → 旧策略「deliver UNVERIFIED」开始每次 2 条把 `@15:12` 起的旧行当最新投出；⑤ **关键**：`limit = min(total, from + cap)` 把单次读取跨度**卡在计数器上**，每次只能前进 1-2 条，所以读取器**永远走不回写入头**——一整个旧圈（~2000 条）按每 poll 2 条要十几个小时。这就是用户看到的「重启后拿到 2 条正确日志，然后又错了」。
+
+      **修复**：新增**独立的「上一圈」守卫**，位于 hold 检查之后、stamp 护栏之前：`acquireNearHead` 为真（写入顺序上在 head 之后 `ACQUIRE_HEAD_WINDOW=32` 格内、且 head 参照仍新鲜）**且**该行 stamp 距墙钟 > `ACQUIRE_STAMP_WALL_TOL_MIN` ⇒ `heldReason="stale-lap"` 停住，等游戏覆写该格（那一刻该行 stamp 就是新鲜的，等待自然解除）。
+
+      **为什么必须独立于 stamp 护栏**：本修复第一版写进了「recovery 预算耗尽」分支，结果**只挡住了一次** —— 那次 poll 本身又通过 `pin.headRecheckAt` 把护栏重扫抑制了 10 分钟，于是**下一次 poll 整个仲裁 `if` 被跳过、直接投递了 28 条上一圈旧行**（2026-09-20 10:07:43 线上实测）。守卫不能依赖任何会被自己关闭的计时器。**释放阀**同步收紧：`acquireHoldReason` 在 `parkedOnHead`（head 本身/后一格）为真时把 `holdActiveMs` 归零、永不释放（释放阀的前提「计数器前进 ⟹ 新鲜度模型错」在停放位置不成立，释放只会吐出上一圈旧行）。**自愈**：停放/上一圈等待期间不投递 ⇒ stamp 护栏不会运行，故 `followHeadIfDue()`（由 `pin.headParkRecheckAt` 独立计时器驱动——**不能**复用 `headRecheckAt`，后者抑制护栏重扫，共用会静音护栏一整个周期）到期时做一次全环扫描，head 已在别处则重锚定并投出。远离写入头时保留原「deliver UNVERIFIED」逃生路径，避免未知映射把数据流永久卡死。
+
+      **另一个必须记住的实现陷阱**：`followHeadIfDue` 里 `noteHeadRef` **会覆盖** `pin.headRefSlot`，所以「head 是否移动」的判断必须在调用它**之前**取出，否则永远比不出差异、自愈永不触发（第一版即如此，被既有用例当场抓住）。
+
+      **为何所有判据都比较「与墙钟」而不是「与 head stamp」**：`[HH:MM]` 不含日期，昨天 15:12 在字符串上"大于"今天 09:53，`circDistMin` 无法区分「18 小时前」与「6 小时后」。曾据此写「stamp 落后 head 即跳过旧圈」的判据并**已废弃**（会把比 head 更新的正常条目一起跳过，当场打挂 5 个既有用例）。「这一行是不是当前时刻的」是这些 stamp 唯一能无歧义回答的问题。
+
+      **未决**：`[HH:MM]` 与本地墙钟存在约 +6.5h 的稳定偏移（09:30 墙钟 ↔ `@16:00`），且随墙钟同步增长；08:57:13 曾出现恰好等于墙钟的 `@08:57`。**仍需对比游戏内「获得记录」面板最新一条的时间戳**才能判定是「companion 忠实但时间字段语义不同」还是「读错了时间字段」——本修复不依赖该结论。9. **【根因｜数组不是环形缓冲区，是「向下平移的定长列表」】**（2026-09-20，`scripts/dump-acquire-ring.ts` 两次整圈 dump 相隔 45 秒对比，**决定性证据**）：
+
+      ```
+      dump1 slot0=16:11 通关72秒   dump2 slot0=16:11 关卡宝箱   ← 正是 dump1 的 slot1
+      dump1 slot1=16:11 关卡宝箱   dump2 slot1=16:13 普通宝箱
+      dump1 slot2=16:13 普通宝箱   dump2 slot2=16:13 通关73秒
+      dump1 slot3=16:13 通关73秒   dump2 slot3=16:14 通关72秒
+      ```
+
+      **`dump2[N] == dump1[N+1]`**：每次 append 后整个数组**整体向下平移一格**，新记录落在末尾（index 1999）。1680 个已提交槽中 **1515 个在 45 秒内改变了内容** —— 环形缓冲区只会变 3~4 个槽。旁证：写入头**永远**在槽 1999（`head: slot=1999 stamp=<墙钟>`）、`fill` 恒为 2000、counter 单增而 head 槽不变。
+
+      **这解释了此前所有互相矛盾的现象**：
+      - `slot = (k - sessionBase) % cap` 这个映射**在模型层面就是错的**（环形假设），所以读取器必然反复「错锚定」→ 重锚定 → 烧预算 → 灌旧数据或死等；`counter - fill` 推 base 也随之无意义（实测 `(4492-2000)%2000=492`，而 head 恒在 1999）。
+      - 09-19 记的「环自身滞后 8h」不是滞后：那只是列表最旧的一端，head 一直是当前时刻（`lag=0`）。
+      - 「拿到 2 条正确然后全错」：刚重锚定到 head 时读到的正是最新一条；随后 pin 前进一格就落到列表最旧的那端（数组另一端），于是要么灌旧数据、要么按「上一圈保护」死等 —— 而游戏**永远不会**如环形模型预期那样绕回来覆盖它。
+      - `limit = min(total, from + cap)` 让每次只能前进 1~2 条，与游戏产出同步，所以卡住后**不可能自愈**。
+
+      **已落地的读取模型（2026-09-20 重写 `readRuntimeAcquireLogs`）**：把数组当**按时间升序、最新在末尾**的定长列表。
+      - **最新下标**：优先用列表长度 `fill`（`ring + 0x18`）⇒ `fill - 1`；该字段不可用时退回全数组 stamp 扫描（`scanAcquireHead`）。两种方法在线上互相印证（`fill=93` 时扫描同样给出 slot 92）。
+      - **投递**：从最新下标**往回**逐格读取，收集「身份未投递」的条目，遇首个已投递身份即停（列表只在末尾增长，故首次重复即边界），再 `reverse()` 成时间升序投出。
+      - **去重**：`pin.delivered: Map<identity, seq>`（容量 `ACQUIRE_DELIVERED_MAX=4096`，FIFO 淘汰）。**这是关键**：平移会改变条目下标但不改变身份，所以「按身份」去重天然跨平移成立，而「按下标」记账在平移下必然失效。
+      - **`seq` 语义变更**：不再是「槽号」，而是**投递序号**（`pin.deliveredSeq` 单调递增）。因为下标每 append 都会平移，用它当 id 会让下游把同一条当成新条目。下游（record log / trackingService）用 seq 做 `initial` 批去重，语义仍然成立。
+      - **边界/回绕**：pin 不再有「下一格」概念，也就没有回绕；末尾之后没有可读内容时当轮返回空批。
+      - **`counter` 唯一剩余用途**：resume watermark 与「新游戏会话」判定（counter < resumeTotal ⇒ 重启 ⇒ 清空身份集合、按首次全量同步）。
+      - **扫描预算**：首次/恢复同步为 `ACQUIRE_LIST_MAX=2000`（整表）；稳态为 `ACQUIRE_LIST_CATCHUP_MAX=256`（实际只需读 1~2 格就撞到边界）。
+      - **已删除**：会话 base 标定、槽位取模映射、hold/释放阀、stamp 护栏、锚定仲裁、容量探针 —— 这些机制全部只为绕过错误的环形模型而存在。
+
+      **线上端到端验证（2026-09-20 11:24，游戏恰为新会话）**：`scripts/dump-acquire-ring.ts --read` → `read#1: entries=93 newestIndex=92 fill=93 counter=93 seq=[1..93]`，首条 `11:07`、**末条 `11:24` = 当前墙钟**；紧接着 `read#2: entries=0`（身份边界守住、零重复）。同一时刻 `committed entries=735` 而 `fill=93`，印证「定长数组 + 长度计数，尾部残留上一会话内容」。
+
+      **容量语义更正（2026-09-21，调试页现场反证）**：`ring+0x18` 是**定长数组的声明长度**（2048，.NET 按 2 的幂分配），**不是"游戏写入到哪里的填充计数"、也不会在新游戏会话归零**；`ACQUIRE_RING_CAPACITY=2000` 是列表满表后的**最大保留条数**。`runtime fill` 恒等于当前已提交条数（列表未满时 = counter；满表后 = 2000/2048）。早期注释里"fill 是会话内追加计数、新会话归零、base = counter - fill"的读法**已被现场推翻**（counter 36181 / fill 2048 只是"满表 + 会话级列表"）。调试页现有的两个 label（`列表长度 fill（+0x18）` = `snap.fill`、`数组声明长度` = `readI32(bufPtr + 0x18)`）**实际读的是同一字段的两次读取**，易被误读为不一致，后续应改为「已提交条数」与「底层数组容量（声明长度）」。
+
+      **调试页（`LiveMemoryDiagnostics` → `AcquireRingViewer`）字段语义速查**：`计数器（+0x1C）` = 游戏侧单调投递计数（跨会话累计，**不是已提交条数**）；`列表长度 fill（+0x18）` = 当前已提交条数；`最新条目下标` = `fill - 1`；`已投递身份数` = worker 本次 attach 内已投递的**身份集合**大小（容量 `ACQUIRE_DELIVERED_MAX=4096`，FIFO 淘汰；**不落盘**，companion 重启或游戏开新会话（`pin.delivered.clear()`）后归零并重新全量投递）；`写入头` = 全表 stamp 扫描出的最接近墙钟的槽位（`滞后 N 分` = 它与墙钟的环形分钟距离）；`墙钟（比较基准）` = 扫描时刻的本地分钟数。
+
+      已知未决：`+0x1C` 的 counter 与列表平移同步但槽位不自增的确切机制，以及列表满后的搬移策略（实测声明长度 2048、满时长度 2000）—— 需要更长时间序列确认。
+      **测试已按列表模型重写**（`app/test/core/liveMemoryRuntime.test.ts` 的 `describe("readRuntimeAcquireLogs (shifting list)")`，12 例，替换掉原先 34 个环形模型用例）：首次全量按时间升序投出且 `seq` 从 1 起、**append 后只投递新增那一条（平移不得导致下方行被重投 —— 旧模型正是在这里重放历史）**、连续 6 次 append 每条恰好一次且不重复、满表 append 触发淘汰后仍正确、watermark 恢复只投新增尾部、watermark 高于 counter 判为新会话并做全量首同步、长度字段不可用时退回 stamp 扫描、**最新一条处于半写状态时跳过、提交后补投且只投一次**、全空数组返回空批不抛错、身份集合被清空后重新全量同步。测试夹具 `appendLine` 按真实语义实现平移（满表时整体下移一格、最旧一条被挤出）。
+
+      `app/test/main/trackingService.test.ts` 覆盖「时间戳变化的重复行被跳过」与「ringRestarted 批不被吞」。
+
+      **实现与游戏行为一致性核验（2026-09-21，对运行中的 v1.2.4 实测）**：用户报告「没问题了」后，对列表模型逐条做了线上复核，结论为**一致**，证据如下（`scripts/dump-acquire-ring.ts` + `%APPDATA%/tbh-companion/record_log.json`）。
+
+      | 待核验的假设                                        | 实测证据                                                                                                                                                                                                                       | 结论                                  |
+      | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+      | 「最新条目在下标 `fill-1`」                         | 满表会话 `fill=2000` → `newestIndex=1999`；另一会话 `fill=93` → `newestIndex=92`（两者均由 `scanAcquireHead` 独立扫描互相印证）                                                                                                | ✅ 一致                               |
+      | 「下标顺序 = 时间顺序（0 最旧 → 末尾最新）」        | dump 全表 2000 行：slot0 `11:09` 递增至 slot1999 `02:35`；`head` 扫描独立给出 `slot=1999 stamp=02:35`                                                                                                                          | ✅ 一致                               |
+      | 「写入头恒在列表末尾、游戏不会绕回覆写它」          | 间隔 45 s 两次 dump：`counter=2046` 完全不变、`head slot=1999`，`lag` 由 0→1 min；而 `record_log.json` 同期仍在持续增长                                                                                                        | ✅ 一致（列表未满 → 无淘汰 → 无平移） |
+      | 「`fill` 是已提交条数、`buf+0x18` 是数组声明长度」  | `fill=2000` / `arrayLen=2048`（同一时刻），符合「容量 2000、数组按 2 的幂分配 2048」                                                                                                                                           | ✅ 一致                               |
+      | 「`+0x1C` counter 不是已提交条数」                  | `counter=2046` 而 `fill=2000`（仅多 46），远小于既往观测的跨会话累计值（记录归档中可见 `ringSeq` 曾达 4585）                                                                                                                   | ✅ 一致（跨会话累计，非提交水位）     |
+      | 「stamp 与墙钟 1:1（护栏阈值 180 min 有充足余量）」 | 归档 2269 条 acquire 的 `acquireTime` 对 `wallTime` 分钟差：**median = 0**，除两处历史异常外**全部为 0**（`00:00`/`01:00`/`12:00`/`13:00`… 各小时 mean 恒为 0.0）；稳态尾部 20 条 lag 全为 0                                   | ✅ 一致（wall-offset 判据成立）       |
+      | 「`ringSeq` 单调、重置即新游戏会话」                | 归档全程仅 2 次回退，且成对出现在 `seq=242→245`（`4585→1`、`3→1`，同一秒 `11:07:47`）——正是中途重新 attach 触发的一次全量重投；此后 2270 条**零不连续**（仅 09-20 那次已知的重复投递对）                                       | ✅ 一致                               |
+      | 「身份去重跨平移成立」                              | `--read` 连读两次：`read#1 entries=2000 newestIndex=1999`、`read#2 entries=0`（边界守住、零重复）                                                                                                                              | ✅ 一致                               |
+      | 「旧环形模型的具体错法」                            | 归档 `seq=1..14`（09-20 10:07 事件）：`wallTime` 全部挤在同一秒 `10:07:43`，而 `acquireTime` 是 `10:07 → 15:34 → 15:36 → … → 15:42` 的**上一圈残留**——旧模型把列表最旧的一端当成"最新"整批灌出，与 §23.4 第 9 条的诊断完全吻合 | ✅ 已修复                             |
+
+      两点**未决/残留**（均不影响正确性，记录备查）：
+      - 归档 `seq=242..247` 出现 6 条投递（`rs=1,2,3` 各两次）——是**重新 attach 的全量重投**与 `ringSeq` 去重的已知交互：全量批带 `ringRestarted=true` 时 `ringSeqSeen` 被判为新会话而旁路去重（见 23.3）。仅重复 3 条、其后 2270 条零重复，属可接受噪声；若将来要收紧，可只在 `counter` 真正回退时置 `ringRestarted`。
+      - 归档 `seq=3+` 的 `acquireTime` 为 `15:34~15:42`、`wallTime` 为 `10:07:43`：这是 09-20 旧构建残留，**新构建下未再出现**（10:00 一小时 mean lag 的 `-250.5` 全部来自这批历史数据，`11:00` 之后各小时 mean 恒为 0）。
 
 ### 23.5 边界与注意
+
 - **排序规律**：列表按记录**读取/归档顺序（`seq` 降序）**展示，最新在最上。游戏内时间（`acquireTime`，`[HH:MM]`）**不参与排序**——它不含日期，跨会话/跨天时无法区分先后；只有 `seq`（全局递增的归档序号，worker 按环形区读取顺序 feed）能唯一确定先后。展示窗口取最新 200 条（`recentWindow`）。
 - 复用现有 `onStats` 流推送（未新增 IPC channel）；未改动 `onLiveMemory` 语义。
 - "获得记录"环形区**会话级**（重启清空）：`attach` 晚于游戏启动时，attach 时**仍留在环形区（最近 ~2000 条）内的会话记录**由初次全量批以 acquire 记录补全展示；已被环形区覆盖/越界的更早记录读不到（由 record_log.json 的跨会话归档承接）。以此为定位，不做跨重启的连续读取。
@@ -2951,17 +3078,17 @@ flowchart LR
 
 **色值→品质映射**（2026-09-16 实测，每种颜色由 ≥3 条"名字唯一对应一个目录行"的发放行确认；**未测到的一律不填**）：
 
-| 色值 | 品质 | 备注 |
-|---|---|---|
-| `#D7D7D7` | COMMON | |
-| `#7CE937` | UNCOMMON | |
-| `#519FFF` | RARE | |
-| `#EBBB00` | LEGENDARY | |
-| `#E8695A` | IMMORTAL | |
-| `#FB86FF` | ARCANA | |
-| `#00F6FF` | CELESTIAL | 灵魂石系列 |
-| — 未映射 — | BEYOND / DIVINE / COSMIC | 样本中从未出现，不臆造 |
-| `#A4A4A4` `#0070C0` `#A69255` `#7030A5` | **null** | 宝箱提示/通关/英雄的专用色，**必须**保持"未知"，否则宝箱提示会被当成真战利品 |
+| 色值                                    | 品质                     | 备注                                                                         |
+| --------------------------------------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `#D7D7D7`                               | COMMON                   |                                                                              |
+| `#7CE937`                               | UNCOMMON                 |                                                                              |
+| `#519FFF`                               | RARE                     |                                                                              |
+| `#EBBB00`                               | LEGENDARY                |                                                                              |
+| `#E8695A`                               | IMMORTAL                 |                                                                              |
+| `#FB86FF`                               | ARCANA                   |                                                                              |
+| `#00F6FF`                               | CELESTIAL                | 灵魂石系列                                                                   |
+| — 未映射 —                              | BEYOND / DIVINE / COSMIC | 样本中从未出现，不臆造                                                       |
+| `#A4A4A4` `#0070C0` `#A69255` `#7030A5` | **null**                 | 宝箱提示/通关/英雄的专用色，**必须**保持"未知"，否则宝箱提示会被当成真战利品 |
 
 ### 24.6 目录名索引的三种拼写
 
@@ -2975,15 +3102,15 @@ flowchart LR
 
 ### 24.7 错误处理与降级
 
-| 情况 | 处理 |
-|---|---|
-| `recordLog` 为空 / 无 acquire 行 | 直接返回（无输入） |
-| `boxOpenTracker.fitHistory()` 为空 | 直接返回（无归因证据，避免噪音）——见 24.4 |
-| 可判定窗口为空（`newestAt < oldestAt`） | 直接返回 |
-| 候选物品名不在目录 | 跳过，计入 `unresolved`；**不影响统计正确性** |
-| 色值未测到（多变体） | 回退基础变体，`grade` 取该变体等级 |
-| 无归因证据（步骤 5） | 以 `unclassified` 记录 → 进入 AutoClassify 队列（§14），用户本来就会复核；**不污染按箱掉率** |
-| 补齐后写盘 / 推流失败 | 与既有 `sessionState.flush()` / `pushStats()` 同路径，无新增失败模式 |
+| 情况                                    | 处理                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `recordLog` 为空 / 无 acquire 行        | 直接返回（无输入）                                                                           |
+| `boxOpenTracker.fitHistory()` 为空      | 直接返回（无归因证据，避免噪音）——见 24.4                                                    |
+| 可判定窗口为空（`newestAt < oldestAt`） | 直接返回                                                                                     |
+| 候选物品名不在目录                      | 跳过，计入 `unresolved`；**不影响统计正确性**                                                |
+| 色值未测到（多变体）                    | 回退基础变体，`grade` 取该变体等级                                                           |
+| 无归因证据（步骤 5）                    | 以 `unclassified` 记录 → 进入 AutoClassify 队列（§14），用户本来就会复核；**不污染按箱掉率** |
+| 补齐后写盘 / 推流失败                   | 与既有 `sessionState.flush()` / `pushStats()` 同路径，无新增失败模式                         |
 
 **可观测性**：每次有实际补齐时输出 `box-open backfill: recorded N missing opens (scanned=… tracked=… excluded=… unattributed=… unresolved=…)`；即使没补齐，只要 `unattributed`/`unresolved` 非 0 也输出一行（该数字突然变大 = 两条通道漂移/时钟偏斜/读取器停摆，正是本功能要暴露的信号）。
 
@@ -3000,12 +3127,12 @@ flowchart LR
 
 ### 24.9 关键文件
 
-| 职责 | 路径 |
-|---|---|
-| 补齐核心（纯函数，可单测） | `app/src/core/boxOpenBackfill.ts` |
-| 色值→品质 | `app/src/core/acquireLog.ts`（`gradeFromAcquireColor`） |
-| 编排（1Hz 触发、节流、成熟期、目录解析、落库） | `app/src/main/services/TrackingService.ts`（`runBoxOpenBackfill` / `resolveBackfillItem` / `rebuildVariantIndex`） |
-| 补齐落点 | `app/src/core/boxOpenTracker.ts` |
-| 兜底证据（GetBox 掉落） | `app/src/core/chestDropTracker.ts` |
-| 日志源 | `app/src/core/recordLogTracker.ts` + `app/src/main/services/RecordLogService.ts` |
-| 单测 | `app/test/core/boxOpenBackfill.test.ts`（17）、`app/test/core/acquireLog.test.ts`、`app/test/main/trackingService.test.ts`（"box-open backfill" 4 例） |
+| 职责                                           | 路径                                                                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 补齐核心（纯函数，可单测）                     | `app/src/core/boxOpenBackfill.ts`                                                                                                                      |
+| 色值→品质                                      | `app/src/core/acquireLog.ts`（`gradeFromAcquireColor`）                                                                                                |
+| 编排（1Hz 触发、节流、成熟期、目录解析、落库） | `app/src/main/services/TrackingService.ts`（`runBoxOpenBackfill` / `resolveBackfillItem` / `rebuildVariantIndex`）                                     |
+| 补齐落点                                       | `app/src/core/boxOpenTracker.ts`                                                                                                                       |
+| 兜底证据（GetBox 掉落）                        | `app/src/core/chestDropTracker.ts`                                                                                                                     |
+| 日志源                                         | `app/src/core/recordLogTracker.ts` + `app/src/main/services/RecordLogService.ts`                                                                       |
+| 单测                                           | `app/test/core/boxOpenBackfill.test.ts`（17）、`app/test/core/acquireLog.test.ts`、`app/test/main/trackingService.test.ts`（"box-open backfill" 4 例） |
