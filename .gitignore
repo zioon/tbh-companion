@@ -30,6 +30,7 @@ logs/
 # Editor / tool output
 .trae/
 .archify/
+.codegraph/
 
 # Temporary diagnostic dumps (never commit debug scripts / saved data)
 tbh_diag_dump.mjs

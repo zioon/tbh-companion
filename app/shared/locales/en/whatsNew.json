@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.24.4": {
+      "title": "What's new in v1.24.4",
+      "bullets": [
+        "The acquisition log's read model is now correct — it was treated as a ring buffer, but the game actually keeps a shifting list. That underlying mistake was the real cause of the log repeatedly stalling on stale entries.",
+        "New entries are now read straight from the end of the list, so the log keeps up across game restarts, session recovery and long idle periods."
+      ]
+    },
     "1.24.3": {
       "title": "What's new in v1.24.3",
       "bullets": [
