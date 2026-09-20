@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.24.3": {
+      "title": "What's new in v1.24.3",
+      "bullets": [
+        "The acquisition log no longer assumes a fixed 2000-slot ring — it measures the real size and re-maps itself, so long sessions keep showing the newest entries.",
+        "The first batch after launch is checked for skew too: stale content is detected and the reader re-anchors to the true newest record instead of showing hours-old entries."
+      ]
+    },
     "1.24.2": {
       "title": "What's new in v1.24.2",
       "bullets": [
