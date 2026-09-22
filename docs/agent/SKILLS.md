@@ -11,6 +11,7 @@ Read these files **before implementing** under `app/`. Open the file; do not rel
 
 | If you touch… | Also read |
 |---------------|-----------|
+| **Any business flow** (save parsing, tracker, live memory, inventory/lookup/market, boxTimer, autoClassify, notification, session, catalog refresh, update, pet, stageRun, record log, box-open backfill) | [`docs/BUSINESS-FLOWS.md`](../BUSINESS-FLOWS.md) routing table → the owning chapter under [`docs/business-flows/`](../business-flows/) |
 | `app/src/renderer/**` | [layers/RENDERER.md](layers/RENDERER.md), [layers/UX.md](layers/UX.md), [layers/DESIGN-SYSTEM.md](layers/DESIGN-SYSTEM.md), `docs/STYLING.md` |
 | `app/src/main/**`, `app/src/preload/**`, CSP, IPC, network, config | [layers/MAIN.md](layers/MAIN.md) |
 | `app/src/core/**` | [layers/CORE.md](layers/CORE.md) |
@@ -25,7 +26,7 @@ Read these files **before implementing** under `app/`. Open the file; do not rel
 | [layers/UX-PATTERNS.md](layers/UX-PATTERNS.md) | New tab from scratch or large layout refactor |
 | [QA-CHECKLIST.md](QA-CHECKLIST.md) | Debugging QA failures |
 | [WINDOWS.md](WINDOWS.md) | Shell, encoding, path, or Electron install issues |
-| [MAINTENANCE.md](MAINTENANCE.md) | Changing bundled data, IPC, or docs that reference repo paths |
+| [MAINTENANCE.md](MAINTENANCE.md) | Changing bundled data, IPC, business-flow docs, or docs that reference repo paths |
 
 ## Workflow skills (not docs)
 

@@ -175,7 +175,8 @@ npx --yes serve website -p 4173
 ## 更多文档
 
 - [`AGENTS.md`](AGENTS.md) — 供接手此项目的 agent / 贡献者的上手说明。
-- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — 全部业务流程的单一真理源（存档解析、双路径追踪、实时内存、宝箱 / 掉落、市场、通知、更新等 23 章）。
+- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — 全部业务流程的单一真理源（**索引与框架**）：保留项目目标与四层架构、数据流总览、跨服务关联图、错误处理路径汇总、关键文件路径速查与维护约定，并按章节索引跳转到拆分正文。
+- [`docs/business-flows/`](docs/business-flows/) — 业务流程正文（13 个文件，§1–§17 / §23 / §24）：存档解析、双路径追踪、实时内存、背包 / 查询 / 市场、宝箱 / 掉落、自动分类、通知 / 更新 / 宠物、记录日志、开箱补齐等。
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 进程、IPC 边界、窗口、数据流。
 - [`docs/SAVE_FORMAT.md`](docs/SAVE_FORMAT.md) — ES3 解密与存档 JSON 结构。
 - [`docs/DATA-UPDATE.md`](docs/DATA-UPDATE.md) — 游戏版本更新后重新生成 gamedata / lookup / 图标 / 本地化的操作手册。

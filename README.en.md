@@ -249,9 +249,13 @@ GitHub Pages on `main` pushes via `pages.yml`.
 ## Further reading
 
 - [`AGENTS.md`](AGENTS.md) — onboarding brief for contributors/agents.
-- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — single source of truth for
-  every business flow (save parsing, dual-path tracking, live memory, chests/drops,
-  market, notifications, updates; 23 chapters).
+- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — index and framework for the
+  single source of truth on every business flow (goals + layer architecture, data-flow
+  overview, cross-service graph, error-path summary, file map, maintenance contract).
+- [`docs/business-flows/`](docs/business-flows/) — the flow chapters themselves
+  (13 files, §1–§17 / §23 / §24): save parsing, dual-path tracking, live memory,
+  inventory/lookup/market, chests/drops, auto-classify, notifications/updates/pets,
+  record log, box-open backfill.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — processes, IPC boundary, windows, data flow.
 - [`docs/SAVE_FORMAT.md`](docs/SAVE_FORMAT.md) — ES3 decryption and save JSON structure.
 - [`docs/DATA-UPDATE.md`](docs/DATA-UPDATE.md) — how to regenerate gamedata/lookup/icons/locales after a game update.

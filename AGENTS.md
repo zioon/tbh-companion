@@ -50,7 +50,11 @@ pnpm qa                  # typecheck + lint + format + test + build + bundle 守
 pnpm qa:dev              # UI 不可见时的自动化开发冒烟测试 —— 见 docs/agent/QA.md
 pnpm pack                # 压缩数据 + 构建 + electron-builder --dir -> release/win-unpacked
 pnpm dist                # 压缩数据 + 构建 + Windows NSIS 安装包
+pnpm build:web           # 浏览器版（存档解析器）静态构建 -> 仓库根 dist-web/
+pnpm preview:web         # 本地预览 dist-web/（部署前冒烟）
 ```
+
+**网页版（`dist-web/`）**：`pnpm build:web` 用 `vite.web.config.ts` 单独构建一份不依赖 Electron 的静态产物，供落地页托管。它复用同一份 `core/` 源码，构建期做三处替换：`core/es3` → `core/es3Web`（node:crypto → WebCrypto）、`bundledData` → `bundledDataWeb`（磁盘读取 → `src/web/dataSource.ts` 注入的内存目录）、`renderer/lib/iconSrc` → `src/web/iconSrcWeb.ts`（`tbh-asset://` 自定义协议 → 同源静态 PNG；图标由 `scripts/copy-web-icons.mjs` 在 vite 构建后复制到 `dist-web/icons/`）。只支持「手动拖入存档 → 本地解密 → 展示背包/宝箱」，其余能力（实时追踪、内存读取、悬浮窗、Steam 查价）在页面上以导流卡片指向桌面版。改 `core/` 业务逻辑时两份产物自动同步，但**改动 `es3` 的加解密契约必须同时核对 `es3Web`**，`test/web/es3Parity.test.ts` 是这两者的等价性守卫。部署与域名关联见 [`docs/DEPLOY-WEB.md`](docs/DEPLOY-WEB.md)。
 
 **Windows 注意事项**（BOM、PowerShell、路径、Electron 安装）：[`docs/agent/WINDOWS.md`](docs/agent/WINDOWS.md)。
 
@@ -58,9 +62,9 @@ pnpm dist                # 压缩数据 + 构建 + Windows NSIS 安装包
 
 - **文档语言：** 所有说明文件（`docs/` 下的全部 `.md`、根目录 `*.md`、`docs/agent/` 与 `docs/superpowers/` 下的所有文档）必须使用中文撰写。代码注释、commit message、PR 描述保持现有惯例（中英混合/英文）。新增英文文档需在 PR 中说明理由。
 - **业务流程变更（强制）：** 所有针对项目业务逻辑的代码改动（save 解析、tracker 速率计算、live memory 读取、inventory/lookup/market、boxTimer、autoClassify、notification、session 持久化、catalog refresh、update、pet、stageRun 等任意业务流程），**必须**：
-  1. **动手前**：先查阅 [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 对应章节，理解现有数据流、服务边界与不变量，避免重复设计或破坏既有契约。
-  2. **落地后**：在同一个 PR 内**同步更新** [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 对应章节（含数据流图、错误处理路径、关键文件路径速查表）。若新增了业务流程，追加新章节并按现有编号顺序递增。
-  3. **审查时**：PR 审查者需确认 BUSINESS-FLOWS.md 已同步，未同步的 PR 不予合并。
+  1. **动手前**：先查阅 [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 的章节索引，定位并阅读 [`docs/business-flows/`](docs/business-flows/) 中承载该流程正文的子文件，理解现有数据流、服务边界与不变量，避免重复设计或破坏既有契约。
+  2. **落地后**：在同一个 PR 内**同步更新**该流程所在的子文件（含数据流图、错误处理路径、关键文件路径速查表）。若新增了业务流程，在子目录追加新文件并在主索引的章节索引表中登记（章节编号按现有顺序递增，不重排已有编号）。
+  3. **审查时**：PR 审查者需确认对应子文件与主索引已同步，未同步的 PR 不予合并。
 - **代码导航优先用 codegraph：** 涉及代码理解、定位、修改或调试的任务，第一步先通过 MCP 工具 `codegraph_explore` 查询相关符号/文件（`projectPath` 传仓库根 `d:\Project\TBH\tbh-companion`），其返回的源码视为已读；仅当 codegraph 未命中或需要文件级细节时，再回退 Read/Grep。
 - **codegraph 索引自动同步：** 仓库根 `.githooks/post-commit` 会在每次 commit 后自动执行 `codegraph sync -q` 增量更新索引（`core.hooksPath` 已指向 `.githooks`），无需手动维护。
 - `app/` 内全部使用 TypeScript。保持 `core/` 不引入 Electron/React 依赖，以维持其可单元测试性。
@@ -113,7 +117,7 @@ pnpm dist                # 压缩数据 + 构建 + Windows NSIS 安装包
 
 ### 领域知识
 
-- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — **业务流程单一真理源**（必读）：23 个章节覆盖启动、save 解析、tracker 双路径、live memory、inventory/lookup/market、boxTimer、autoClassify、notification、session 持久化、catalog refresh、update、pet、stageRun 等全部业务流程。任何业务逻辑改动**必须**先查阅本文档，落地后**同步更新**。
+- [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) — **业务流程单一真理源（索引与框架）**（必读）。主文件保留 §0 项目目标与四层架构、章节索引、§18 跨服务数据流总览、§19 关键错误处理路径汇总、§20 关键文件路径速查、§21 文档维护约定、§22 历史背景；**各流程正文按主题拆分在 [`docs/business-flows/`](docs/business-flows/)**（13 个文件，覆盖 §1–§17、§23、§24 的启动、save 解析、tracker 双路径、live memory、inventory/lookup/market、boxTimer、autoClassify、notification、session 持久化、catalog refresh、update、pet、stageRun、record log、开箱补齐等全部业务流程）。任何业务逻辑改动**必须**先经主索引查阅、落地后**同步更新**对应子文件。
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - 进程、IPC 边界、窗口、数据流
 - [`docs/STYLING.md`](docs/STYLING.md) - Tailwind + 设计系统 vs 旧版 `styles.css`
 - [`docs/DIAGNOSTIC_LOGGING.md`](docs/DIAGNOSTIC_LOGGING.md) - 支持日志（main/renderer 规则）

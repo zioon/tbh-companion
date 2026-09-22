@@ -273,9 +273,13 @@
     const el = $("#detail");
     el.innerHTML = "";
     const div = document.createElement("div");
+    // Each flow carries its own source file: the index for ch. 0/18-22, a split
+    // file under docs/business-flows/ for the rest. Fall back to the index so
+    // older data files (generated before the split) still link somewhere sane.
+    const docPath = (f.source || "docs/BUSINESS-FLOWS.md").replace(/^docs\//, "../");
     div.innerHTML = `<strong>第 ${f.number} 章 ${escapeHtml(f.title)}</strong>` +
       (f.diagrams.length
-        ? ` <a href="../BUSINESS-FLOWS.md#${encodeURIComponent(f.anchor)}" target="_blank" title="打开文档对应章节">在文档中查看 ↗</a>`
+        ? ` <a href="${docPath}#${encodeURIComponent(f.anchor)}" target="_blank" title="打开文档对应章节">在文档中查看 ↗</a>`
         : " <span class=\"empty\">（暂无流程图）</span>");
     el.appendChild(div);
   }
