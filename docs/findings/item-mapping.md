@@ -33,9 +33,14 @@ Resolution: `inventory/stash slot.ItemUniqueId -> itemSaveDatas[].UniqueId ->
 ItemKey -> gamedata`. Items are **per-instance** (each gear piece is its own
 row with its own enchants), not stacked-with-count.
 
-> Materials appear in both `itemSaveDatas` (instances) and, for stack counts,
-> `aggregateSaveDatas` Type `0` rows when SubKey maps to a catalog ItemKey (see
-> `core/inventory/aggregates.ts`). Many SubKeys (e.g. `10021`) are still undecoded.
+> Materials appear in `itemSaveDatas` as **stack templates** (the same
+> `ItemKey`/`UniqueId` repeats once per holding slot — verified: one id repeated
+> 24×), and the **per-slot stack count** lives on the slot arrays
+> (`inventorySaveDatas` / `stashSaveDatas` / `remakeTradingStashSaveDatas`) as a
+> `Quantity` field (max **5** per slot; multiple slots of the same material sum).
+> See `core/inventory/stacks.ts` and `docs/SAVE_FORMAT.md`. The lifetime
+> `aggregateSaveDatas` Type `0` counters are a **fallback only** (used when the
+> save lacks `Quantity`); many SubKeys (e.g. `10021`) are still undecoded.
 > Gear is per-instance in `itemSaveDatas`; location comes from slot refs only
 > (`equippedItemIds`, inventory/stash/trading slots).
 
@@ -133,7 +138,7 @@ or Node `fs.writeFileSync` (never `Set-Content -Encoding UTF8` on PS 5.1).
 ## Valuation pipeline (implemented)
 
 ```
-itemSaveDatas + aggregateSaveDatas (material stacks)
+itemSaveDatas + slot Quantity (material stacks, summed cross-slot) + aggregateSaveDatas (fallback)
   -> parseInventory / resolveInventory (core/inventory/*)
   -> gamedata.json + stage_boxes.json: ItemKey -> {name, grade, type, level}
   -> (stage boxes filtered out of inventory rows)

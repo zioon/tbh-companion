@@ -25,7 +25,7 @@ flowchart LR
     Norm[catalog id 归一化 truncate 前缀]
     Loc[location 推断 equipped/inventory/stash/trading]
     Chests[parseChests BoxTypes + BoxQuantity]
-    Mat[材料堆叠 aggregateSaveDatas]
+    Mat[材料堆叠 槽位 Quantity 跨格求和]
     Cap[背包容量 parseSlotCapacity]
   end
   Items --> Snapshot
@@ -70,20 +70,32 @@ flowchart LR
    - `isMarketPipelineSaveItemKey`（结尾 `900`）单独标记为 pipeline-only，不计入可分配物品。
 4. **location 推断**：`resolveLocation(uniqueId, equipped, inventory, stash, trading)` 返回 `"equipped" | "inventory" | "stash" | "trading" | "unknown"`。
 5. **chests 解析**：`parseChests(player)` 从 `player.BoxData.BoxTypes` + `BoxData.BoxQuantity` 配对生成 `ChestHolding[]`。
-6. **材料堆叠**：若 `isMaterialItemKey` 注入，则 `parseAggregateEntries(player)` 从 `player.aggregateSaveDatas` 按 `aggregateSubKeyToItemKey` 映射回 catalog id，再通过 `materialStacksFromAggregates` 过滤出材料，得到 `Map<itemKey, stackQty>`。
-7. **背包容量**：`parseSlotCapacity(arrText)` 遍历 `inventorySaveDatas` 的扁平对象数组，`IsUnlock=true` 计入 `capacity`，`ItemUniqueId !== 0` 计入 `used`。
+6. **材料堆叠**：若 `isMaterialItemKey` 注入，则优先走**槽位堆叠**路径：
+   - `collectMaterialSlotsFromString` / `collectMaterialSlotsFromObject`：从 `inventorySaveDatas` / `stashSaveDatas` / `remakeTradingStashSaveDatas` 三个数组收集槽位，每槽取 `ItemUniqueId`（**字符串**，超 `MAX_SAFE_INTEGER`）与 `Quantity`（缺字段则记 `null`），并标注所属袋（`inventory`/`stash`/`trading`）。
+   - `buildItemKeyByUniqueIdFromString` / `...FromObject`：从 `itemSaveDatas` 建 `UniqueId(字符串) → catalog ItemKey` 映射。
+   - `materialStacksFromSlots(slots, itemKeyByUniqueId, isMaterialItemKey)`：把每槽 `Quantity` 经 `clampStackQuantity` 夹到 `[0, MAX_STACK_PER_SLOT=5]` 后，**按 ItemKey 跨格求和**（含分袋拆分），忽略空槽（`ItemUniqueId === "0"`）与 `Quantity <= 0`。
+   - **回退**：仅当所有槽位都缺 `Quantity`（旧存档 / 字段被移除）时，才退回 `parseAggregateEntries` + `aggregateSubKeyToItemKey` + `materialStacksFromAggregates`（生命周期计数器，`Math.max` 语义）。保证旧存档不报错、不清零。
+7. **背包容量**：`parseSlotCapacity(arrText)` → `slotCapacityFromEntries(slots)` 遍历 `inventorySaveDatas` 的槽位对象数组，`IsUnlock=true` 计入 `capacity`（仅解锁格计入容量）。`used` 采用**显式双口径**：
+   - **新格式**（存在任一槽位带 `Quantity` 字段）：`used` 按 `Quantity != null && Quantity > 0` 计。游戏同时会把空槽的 `ItemUniqueId` 也清零，所以今天两口径等价；以 `Quantity` 为准是为了将来若游戏只清 `Quantity`、遗留陈旧 `ItemUniqueId` 时仍正确。
+   - **旧格式**（全部槽位都无 `Quantity` 字段）：退回 `ItemUniqueId !== "0"` 计。没有这个兜底，堆叠前的老存档会把 `used` 塌成 0。
+   - 两口径下 **堆叠格（`Quantity > 1`）仍只算 1 个已用格**；字符串路径与对象路径共用同一 `slotCapacityFromEntries`，口径不会漂移。
+8. **stash / trading 占用**：`slotCapacityFromEntries` 同样会为 `stashSaveDatas`、`remakeTradingStashSaveDatas` 算出 `{ capacity, used }`，但 **`InventorySnapshot` 只对外暴露背包那一组**（`inventoryCapacity` / `inventoryUsed`）。这是刻意的，不是遗漏（2026-09-23 用户确认）：
+   - 游戏**仅在背包满时**停止自动开箱计时器，仓库/交易暂存满不影响开箱行为 → 不参与 `updateInventoryPauseState` 判定。
+   - 仓库容量**只看 `slots` 槽位数量，与堆叠无关**（堆叠只影响某格里的 `Quantity`，不改变该格占 1 格的事实）。所以 stash 容量无需任何堆叠相关逻辑。
+   - 结论：stash 占用是**纯展示需求**（若要显示需另加字段），与材料堆叠正确性无关。
 
-返回 `InventorySnapshot`：`{ items, chests, saveMtime, materialStacks?, inventoryCapacity, inventoryUsed, marketPipelineOnlyCatalogKeys? }`。
+返回 `InventorySnapshot`：`{ items, chests, saveMtime, materialStacks?, inventoryCapacity, inventoryUsed, marketPipelineOnlyCatalogKeys? }`。`materialStacks` 为 `Map<materialItemKey, MaterialStackTotal>`，`MaterialStackTotal = { total, inventory, stash, trading }`。
 
 ### 6.2 inventory core 各子模块职责
 
 均位于 `app/src/core/inventory/`：
 
-- **aggregates.ts**：`parseAggregateEntries(player)` 提取 `{ type, subKey, value }` 三元组；`aggregateSubKeyToItemKey(type, subKey)` SubKey → ItemKey 映射；`materialStacksFromAggregates(entries, isMaterialItemKey)` 过滤出材料。
+- **aggregates.ts**：`parseAggregateEntries(player)` 提取 `{ type, subKey, value }` 三元组；`aggregateSubKeyToItemKey(type, subKey)` SubKey → ItemKey 映射；`materialStacksFromAggregates(entries, isMaterialItemKey)` 过滤出材料（**仅作旧存档回退**，`Math.max` 语义，因为 `aggregateSaveDatas` 是生命周期计数器而非实时库存）。
+- **stacks.ts**：`MAX_STACK_PER_SLOT`（=5，单格堆叠上限）；`clampStackQuantity(quantity)` 把单格数量夹到 `[0, 5]`；`materialStacksFromSlots(slots, itemKeyByUniqueId, isMaterialItemKey)` 按 `ItemUniqueId`（字符串）→ catalog `ItemKey` 连接，**跨格求和** `Quantity`，返回 `Map<itemKey, MaterialStackTotal>`（含 `total`/`inventory`/`stash`/`trading` 分袋拆分）。空槽与 `Quantity <= 0` 忽略。堆叠数量字段是**槽位对象的 `Quantity`**，不在 `itemSaveDatas` 上。
 - **composition.ts**：`computeInventoryComposition(rows, feeRates)` 聚合 `InventoryComposition`（计数维度 + 价格维度 + 手续费）；每行的 `value` 字段在此设置。`buyOrderValuedTotal` 累加毛额，`buyOrderNetTotal` 通过 `instantSellNetValue` 逐级扣费精确累加（不再用整体 feeRatio 估算）。
 - **location.ts**：`unassignedCount(row)`、`rowMatchesLocation(row, filter)`、`rowMatchesAnyLocation(rows, filter)` 用于 UI 位置过滤。
 - **buyOrder.ts**：`instantSellValue(ownedCount, levels)` 把 `ownedCount` 件物品按 `BuyOrderLevel[]` 从高到低价吃单，返回毛额 `{ value, coveredCount }`；`instantSellNetValue(ownedCount, levels, rates)` 同逻辑但每档按 `sellerProceedsFromBuyerPrice(price, rates)` 计算净到手（逐级扣 Steam/厂商交易成本与收款保底）。
-- **ownedPriceTargets.ts**：`ownedPriceTargetForItem(item)` 单个 GameItem → `OwnedPriceTarget | null`；`ownedPriceTargets(snapshot, lookup, excludeItemKey?)` 遍历派生目标去重；`flattenOwnedHashes(targets)` 摊平为 `string[]` 供价格缓存裁剪使用。
+- **ownedPriceTargets.ts**：`ownedPriceTargetForItem(item)` 单个 GameItem → `OwnedPriceTarget | null`；`ownedPriceTargets(snapshot, lookup, excludeItemKey?)` 遍历 `snapshot.items` **并追加仅存在于 `materialStacks` 中的材料**（这些材料没有可分配的 `itemSaveDatas` 实例，漏掉会导致市场页无价格目标）去重派生；`flattenOwnedHashes(targets)` 摊平为 `string[]` 供价格缓存裁剪使用。
 - **predictFillTime.ts**：`predictFillTime(input)` 根据 `inventoryCapacity / inventoryUsed` + 多个 `ChestFillSource` 预测多久后背包满。每个 chest type 是串行队列，开箱速率 = `3600 / autoOpenSecondsPerChest`。
 - **columnPrefs.ts**：UI 表格列可见性配置归一化。
 

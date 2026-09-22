@@ -66,7 +66,9 @@ PlayerSaveData.value (nested JSON string) ->
   commonSaveData: { playTime, currentStageKey, currentStageWave,
                     maxCompletedStage, ... }
   inventorySaveDatas / stashSaveDatas / tradingStashSaveDatas:
-      [ { Index, ItemUniqueId, IsUnlock }, ... ]   # slots, ref items by id
+      [ { Index, ItemUniqueId, IsUnlock|IsUnLock, Quantity }, ... ]  # slots, ref items by id
+                                                                     # Quantity = per-slot stack size
+                                                                     # (materials stack up to 5/slot)
   itemSaveDatas: [ { ItemKey, UniqueId, PrevUniqueId, IsChaotic, IsBlocked,
                      IsServerPendingItem, EnchantCount[3], EnchantData[6], ... },
                    ... ]                            # master list of instances
@@ -113,6 +115,31 @@ formation (passives apply whether equipped or not).
   them, so distinct ids can collide (~6/185 observed). Any future slot->instance
   join must parse these as strings/bigints losslessly (the numeric form is
   unsafe).
+- **Material stack counts (per-slot `Quantity`).** Materials stack inside one bag
+  slot, up to **5 per slot**. The per-slot size lives on the **slot objects**
+  (`inventorySaveDatas` / `stashSaveDatas` / `remakeTradingStashSaveDatas`) as a
+  `Quantity` field — **not** on `itemSaveDatas` (verified on a live save: the
+  `itemSaveDatas` field union contains no quantity field at all). Multiple slots
+  may reference the same material by `ItemUniqueId`; the **total owned quantity is
+  the sum of every non-empty slot's `Quantity`** (e.g. 7 = 5 + 2). Empty slots
+  (`ItemUniqueId === "0"`) and `Quantity <= 0` are ignored. A stacked slot still
+  counts as **one** used bag slot.
+  - **Slot occupancy (`used`) is dual-criterion.** `capacity` counts only
+    `IsUnlock === true` slots. For `used`: if **any** slot on the array carries a
+    `Quantity` field (new format), a slot counts as used iff `Quantity > 0`; if
+    **no** slot carries `Quantity` at all (old save), it falls back to
+    `ItemUniqueId !== "0"`. The game also zeroes empty slots' `ItemUniqueId`, so on
+    new saves both criteria agree (measured: 3/140 either way, no `UID≠0 ∧
+    Quantity=0` slot) — but the fallback is required so a pre-stacking save does not
+    collapse `used` to 0 (measured old save: `UID≠0` = 104/176, `Quantity>0` = 0/0).
+  - **`itemSaveDatas` material rows are stack templates, not per-instance rows:**
+    the same `ItemKey`/`UniqueId` can repeat many times (observed a single id
+    repeated 24×) — one template per holding slot. Counting those rows would
+    inflate the total; the slot sum is authoritative.
+  - Parser: `core/inventory/stacks.ts` (`materialStacksFromSlots`,
+    `MAX_STACK_PER_SLOT`), wired via `parseInventory`. The lifetime
+    `aggregateSaveDatas` path is a **fallback only**, used when slots lack
+    `Quantity` (old save / field removed).
 - `ItemKey` itself is small and safe; it equals the `id` in the bundled catalogs
   (`data/gamedata.json` for GEAR/MATERIAL, `data/stage_boxes.json` for STAGEBOX).
 - **`BoxData`** holds *unopened* chests as three parallel arrays
@@ -127,11 +154,14 @@ formation (passives apply whether equipped or not).
   (string-exact `UniqueId` match per the precision warning above). History:
   `docs/findings/v1.2.2-box-data-migration.md`.
 - **`aggregateSaveDatas`** are lifetime counters `{ Type, SubKey, Value }`.
-  Type `0` rows with mappable SubKeys supplement **material stack counts** (see
-  `core/inventory/aggregates.ts`). Many SubKeys (e.g. `10021`) are still undecoded.
-  The same Type `0` rows also store **per-monster kill counts** when `SubKey` is a
-  monster id (e.g. `10031` = Bat) — used for pet unlock progress (`core/pets/`).
-  Do not run those SubKeys through the material `aggregateSubKeyToItemKey()` mapper.
+  Type `0` rows with mappable SubKeys were the historical **material stack count**
+  source (`core/inventory/aggregates.ts`). Since the stacking update they are a
+  **fallback only** — the authoritative material quantity is the per-slot
+  `Quantity` on the slot arrays (see below). Many SubKeys (e.g. `10021`) are still
+  undecoded. The same Type `0` rows also store **per-monster kill counts** when
+  `SubKey` is a monster id (e.g. `10031` = Bat) — used for pet unlock progress
+  (`core/pets/`). Do not run those SubKeys through the material
+  `aggregateSubKeyToItemKey()` mapper.
 - **`PetSaveData`** lists all companions: `PetKey` (`1001`–`1005` farmable,
   `6001`–`6003` DLC), `IsUnlock`, `IsViewed`. Kill progress toward the 5,000
   unlock is **not** on this array — read monster kills from `aggregateSaveDatas`.

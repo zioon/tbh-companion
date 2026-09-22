@@ -2,6 +2,36 @@
 
 Terse record of architectural decisions. Newest first.
 
+## 2026-09-22 - 材料按「格子堆叠」计数：以槽位 `Quantity` 为准，跨格求和
+
+游戏更新后材料类物品可在**单个背包格子内堆叠，每格上限 5**。旧的计数来源（`aggregateSaveDatas` 生命周期计数器 + `Math.max`）在堆叠模型下必然错误，已改造。
+
+**字段结论（实机存档验证）**：每格的堆叠数量是**槽位对象**上的 `Quantity` 字段，**不在 `itemSaveDatas` 上**。实机 dump（`%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskbarHero\SaveFile_Live.es3`）显示：
+
+```
+inventorySaveDatas: [{ "Index":1, "ItemUniqueId":551278195918962700, "IsUnlock":true, "Quantity":2 }, ...]
+stashSaveDatas:     [{ "Index":0, "ItemUniqueId":551278195918962700, "IsUnLock":true, "Quantity":5 }, ...]
+```
+
+- 三个槽位数组（`inventorySaveDatas` / `stashSaveDatas` / `remakeTradingStashSaveDatas`）的槽位字段并集均含 `Quantity`；`itemSaveDatas` 条目的字段并集**不含**任何数量字段（材料在那里是逐实例行，与装备一致）。
+- **同一材料跨多格**：多个槽位的 `ItemUniqueId` 指向同一条 `itemSaveDatas`（该行的 `ItemKey` 即 catalog id）。实测 `ItemKey=143002` 在 stash 占 9 格，`Quantity` = 5,5,4,4,3,3,1,1,1 → 总量 **27**。因此总量 = **各格 `Quantity` 求和**，绝非按格数、也非取最大值。
+- **每格上限 5** 已由实机验证：所有槽位 `Quantity` 观测最大值恰为 5；`Quantity=0`（空槽）大量存在，必须忽略。
+- **`itemSaveDatas` 中材料的 `UniqueId` 是「堆叠模板」而非逐件实例**：实测同一 `UniqueId` 可重复出现 24 次。故**按实例计数会严重虚高**，材总量必须走槽位求和。
+
+**实现**：新增 `app/src/core/inventory/stacks.ts`：导出 `MAX_STACK_PER_SLOT = 5`、`clampStackQuantity`、`materialStacksFromSlots`。`parseInventory` 优先用槽位求和（含 `inventory`/`stash`/`trading` 分袋拆分）；**仅当所有槽位都缺 `Quantity`（旧存档 / 字段被移除）时**才回退到 `aggregateSaveDatas` 的 `Math.max` 路径（向后兼容，不抛错、不清零）。`resolve.ts` 的 `mergeMaterialStacks` 改为用槽位总量**覆盖**材料行的 `count`/`inventoryCount`/`stashCount`/`tradingCount`（不再有「已存在实例则跳过」的语义）。
+
+**占用格口径（`slotCapacityFromEntries`，显式双口径）**：`capacity` 只计 `IsUnlock=true` 的格。`used` 的口径按格式分支——存在任一槽位带 `Quantity` 字段（新格式）时按 `Quantity > 0` 计；全部槽位都无 `Quantity`（旧格式）时退回 `ItemUniqueId !== "0"` 计。实机固定副本量化：新存档 `used`（UID≠0）= `used`(Quantity>0) = 3/140，且 0 个「UID≠0 但 Quantity=0」的幽灵格；旧存档无任何 `Quantity` 字段，`used`(UID≠0) = 104/176、`used`(Quantity>0) = 0/0。故**新存档上两口径等价**（保留 `uid !== "0"` 并非 bug，游戏会同时把空槽 `ItemUniqueId` 清零），但**旧格式必须走 UID 兜底**，否则会把 `used` 塌成 0。字符串路径与对象路径共用同一 helper，口径不会漂移。堆叠格（`Quantity > 1`）在两种口径下均只算 **1 格**。
+
+**下游修正**：`ownedPriceTargets` 补上仅存在于堆叠中的材料（否则这些材料拿不到价格目标、在市场页无价值显示）。
+
+**仓库（stash）容量的边界（2026-09-23 用户确认，据此关闭一项待裁决）**：
+
+- **自动开箱暂停只看背包**。游戏仅在**背包满**时停下自动开箱计时器，仓库/交易暂存满**不影响**开箱行为。`appState.ts` 的 `getInventoryStatus` 因此只返回 `inventoryUsed` / `inventoryCapacity`，`AutoClassifyService.updateInventoryPauseState` 也只判背包 —— 这是正确设计，不是缺漏。
+- **仓库容量只看 `slots` 数量，与堆叠无关**。堆叠只改变某一格里的 `Quantity`，不改变「该格占 1 格」这一事实（与背包同口径）。故 stash 容量无需任何堆叠相关逻辑。
+- 结论：`slotCapacityFromEntries` 虽对三个数组都算出 `{ capacity, used }`，但只把**背包**那一组暴露到 `InventorySnapshot`。stash 占用若要展示属**纯展示需求**，与本次材料堆叠修复的正确性无关，不构成缺陷。
+
+**分析纪律（本次三次踩坑的合并教训，见 skill `tbh-save-field-discovery`）**：任何数值结论必须标注 ①哪个**固定副本** ②哪个**时刻** ③哪种**解析路径**（有无精度损失）。本次分别踩了「存档是动态的（期间被游戏改写）」、「旧档与新档数字混算」、「`JSON.parse` 把超出 `MAX_SAFE_INTEGER` 的 UID 舍入导致不同材料并键」三种坑，故上文的实机数字一律以固定副本 + 无损字符串路径复算为准。
+
 ## 2026-09-10 - v1.2.2 宝箱槽位：save 解析取代内存枚举；utilityProcess 消息必须解包
 
 两个教训，一个结论：
@@ -118,7 +148,6 @@ price column shows median and lowest listing when both differ (e.g. `$15.42`
 `($714.15)`); list value still uses median-first `pickMarketUnit`. Orderbook API
 spiked and rejected (session-locked currency). TBH fee default ~5% in
 `data/steam_market_fee.json` — estimates only; Steam listing UI is authoritative.
-
 
 Gear prices use `<name> (<Grade>) A`. Materials map 1:1 by name. Gear below
 Legendary is not priced. Valuation uses `median_price` when available, otherwise
