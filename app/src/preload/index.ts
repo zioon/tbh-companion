@@ -24,6 +24,7 @@ import type {
   MarketVolumeItemStats,
   MarketVolumeRefreshProgress,
   MarketVolumeRefreshResult,
+  AnalyzeMarketVolumeBackupResult,
   ExportMarketVolumeResult,
   ImportMarketVolumeResult,
   OfferingsModel,
@@ -265,8 +266,11 @@ const api: TbhApi = {
   exportMarketVolumeHistory(): Promise<ExportMarketVolumeResult> {
     return ipcRenderer.invoke(IPC.EXPORT_MARKET_VOLUME);
   },
-  importMarketVolumeHistory(): Promise<ImportMarketVolumeResult> {
-    return ipcRenderer.invoke(IPC.IMPORT_MARKET_VOLUME);
+  analyzeMarketVolumeBackup(): Promise<AnalyzeMarketVolumeBackupResult> {
+    return ipcRenderer.invoke(IPC.ANALYZE_MARKET_VOLUME_BACKUP);
+  },
+  importMarketVolumeHistory(args: { sourceCurrency: string }): Promise<ImportMarketVolumeResult> {
+    return ipcRenderer.invoke(IPC.IMPORT_MARKET_VOLUME, args);
   },
   cancelHistoryRefresh(): void {
     ipcRenderer.send(IPC.CANCEL_MARKET_VOLUME_REFRESH);

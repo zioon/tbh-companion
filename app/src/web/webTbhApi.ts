@@ -260,6 +260,7 @@ function buildWebApi(): TbhApi {
     onMarketVolumeRefreshProgress: () => NOOP_UNSUBSCRIBE,
     refreshMarketVolumeItem: unsupported,
     exportMarketVolumeHistory: () => Promise.resolve({ ok: false, error: "desktop-only" }),
+    analyzeMarketVolumeBackup: () => Promise.resolve({ ok: false, error: "desktop-only" }),
     importMarketVolumeHistory: () => Promise.resolve({ ok: false, error: "desktop-only" }),
     cancelHistoryRefresh: () => undefined,
 

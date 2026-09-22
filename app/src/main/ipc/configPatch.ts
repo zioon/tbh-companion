@@ -36,8 +36,9 @@ export interface ConfigPatchDeps {
   /** 本地高价值价格轮询配置变更：让 LookupPricePollingService 应用新配置（启停/间隔/阈值/收藏列表）。 */
   onLookupPricePollingChanged?: (cfg: AppConfig["lookupPricePolling"]) => void;
   /**
-   * 显示货币变更时清账交易页历史/采样数据（旧币计价的金额不能继续展示），
-   * 由 appState 注入；须在 config.currency 更新为 next.currency 之后调用。
+   * 显示货币变更钩子（交易页历史已统一 USD 入库，无需清账，仅作为语义锚点 + 触发
+   * 展示层按新 fx 重新换算），由 appState 注入；须在 config.currency 更新为
+   * next.currency 之后调用。
    */
   onCurrencyChanged?: () => void;
   /** 显示货币变更时清空图鉴本地 polling 价格字段（回退 CI USD × fx）。 */
@@ -81,9 +82,9 @@ export function applyConfigPatch(deps: ConfigPatchDeps, patch: Partial<AppConfig
   if (patch.currency !== undefined && market) {
     market.setCurrency(next.currency);
     if (prev.currency.toUpperCase() !== next.currency.toUpperCase()) {
-      // 币种确实变化时才清账（提交相同币种不误清历史）——setConfig 已把
-      // config 写成 next，接下来按「新货币」清账交易页历史/采样与图鉴本地
-      // 价格字段（见 BUSINESS-FLOWS 8.7.3）。
+      // 币种确实变化时：交易页历史已统一 USD 入库，不再清账，只重广播让展示层按
+      // 新 fx 换算；图鉴本地 polling 价格字段仍清空（回退 CI USD × fx）。
+      // 提交相同币种不触发（见 BUSINESS-FLOWS 8.7.3）。
       deps.onCurrencyChanged?.();
       deps.clearLookupLocalFields?.();
     }

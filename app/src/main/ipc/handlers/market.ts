@@ -30,6 +30,18 @@ export function registerMarketHandlers(ipc: IpcMain, services: AppServices): voi
     isNonEmptyString(hash) ? services.refreshMarketVolumeItem(hash) : undefined,
   );
   ipc.handle(IPC.EXPORT_MARKET_VOLUME, () => services.exportMarketVolumeHistory());
-  ipc.handle(IPC.IMPORT_MARKET_VOLUME, () => services.importMarketVolumeHistory());
+  // 导入第一步：选文件 + 摘要（不改动数据）。第二步用暂存的备份路径按用户选定的
+  // 币种换算并融合。renderer 不回传文件路径，避免引入任意文件读取面。
+  ipc.handle(IPC.ANALYZE_MARKET_VOLUME_BACKUP, () => services.analyzeMarketVolumeBackup());
+  ipc.handle(IPC.IMPORT_MARKET_VOLUME, (_e, args: unknown) => {
+    const sourceCurrency =
+      args && typeof args === "object"
+        ? (args as { sourceCurrency?: unknown }).sourceCurrency
+        : undefined;
+    if (!isNonEmptyString(sourceCurrency)) {
+      return Promise.resolve({ ok: false, reason: "invalid_backup" });
+    }
+    return services.importMarketVolumeHistory({ sourceCurrency });
+  });
   ipc.on(IPC.CANCEL_MARKET_VOLUME_REFRESH, () => services.cancelHistoryRefresh());
 }

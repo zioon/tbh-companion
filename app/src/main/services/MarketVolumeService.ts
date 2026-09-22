@@ -23,6 +23,7 @@ import type {
   MarketVolumeStats,
 } from "../../../shared/types";
 import {
+  MARKET_VOLUME_BASE_CURRENCY,
   aggregateHistoryToHourly,
   aggregateItemVolume,
   aggregateLiveActivityItems,
@@ -31,20 +32,26 @@ import {
   aggregateVolume,
   calibratePricesWithMedian,
   computeConversionRate,
+  detectCurrencyFromPriceHistory,
   inferMarketVolumeCurrency,
+  mergeParsedHistory,
   mergePriceHistoryPoints,
   orderRefreshTargets,
   parseMarketVolumeHistory,
   recentVolumeTotal,
+  rescaleMarketVolumeItems,
   rescaleParsedHistory,
+  rescaleVolumeStats,
   VOLUME_CATEGORY_OTHER,
   volumeCategoryKey,
+  type CurrencyDetection,
   type LiveVolumePoint,
   type ParsedMarketVolumeHistory,
   type PriceHistoryPoint,
   type RefreshTargetVolume,
   type VolumeHashSample,
 } from "../../core/marketVolume";
+
 import { marketHashName } from "../../core/marketName";
 import { createLogger } from "../log";
 import { resolveUserDataDir } from "./appData";
@@ -75,7 +82,7 @@ export const COVERAGE_DEFAULT = 0.95;
 export interface MarketVolumeDeps {
   /** 返回当前图鉴物品目录（用于把 hash 归到类别）。 */
   getCatalog: () => LookupItem[];
-  /** 返回当前用户选择的显示货币（如 "USD"/"CNY"）。 */
+  /** 返回当前用户选择的**显示货币**（如 "USD"/"CNY"）。入库计价与它无关，仅用于出库换算。 */
   getCurrency: () => string;
   /** 返回用于历史拉取的 market_hash_name 列表（owned ∪ watched）。 */
   getTargetHashes: () => string[];
@@ -92,9 +99,10 @@ export interface MarketVolumeDeps {
   /** 返回刷新覆盖率阈值（0~1），默认 0.95。覆盖率达到该比例即视为已覆盖大头交易额。 */
   getCoverageThreshold?: () => number;
   /**
-   * 返回「ISO 货币 → 每 1 USD 单位」的图鉴汇率表（`LookupPriceSnapshot.fx`），
-   * 用于币种不一致的导入换算（备份币 × fx(目标)/fx(来源)）。缺失时回退用现有
-   * 价格历史推算。可选；未注入则跳过 fx 路径。
+   * 返回「ISO 货币 → 每 1 USD 单位」的图鉴汇率表（`LookupPriceSnapshot.fx`）。
+   * 用途有三：① 采集时把显示货币的价格换算成基准货币（USD）入库；② 出库时把 USD
+   * 金额换算回显示货币；③ 备份币种换算与自动探测。缺失时：采集侧跳过该次采样、
+   * 出库按 USD 原值展示、导入若也推算不出比例则拒绝。
    */
   getFxRates?: () => Readonly<Record<string, number>>;
   /** 注入用于测试；默认 userData 路径。 */
@@ -151,25 +159,58 @@ export interface PriceHistoryResultLike {
 }
 
 interface PersistedMarketVolume {
-  /** 备份格式版本；当前恒为 1。 */
+  /** 备份格式版本：1 = 旧版（金额按显示货币），2 = 金额统一为基准货币（USD）。 */
   version?: number;
   /**
-   * 数据入库存档时价格线使用的显示货币 ISO 码。载入/导入时与当前显示货币
-   * 不一致的金额数据会被丢弃/拒绝，避免「旧币数值 + 新币标签」的错误展示。
+   * 本文件金额的计价货币 ISO 码。**v2 起恒为 {@link MARKET_VOLUME_BASE_CURRENCY}**。
+   * 刻意沿用 `currency` 字段名（而非新字段）是为了向下兼容：旧版应用读 v2 备份时会把
+   * `"USD"` 与其当时的显示货币比对并走 fx 换算，恰好得到正确结果。
    */
   currency?: string;
+  /** 轮询采样快照（金额为 USD）。 */
   samples: MarketVolumeSample[];
+  /** pricehistory 聚合的小时成交额（金额为 USD）。 */
   historyHourly: MarketVolumeHourPoint[];
-  /** 原始 pricehistory 点：hash -> 该物品的全部历史点（保留天/小时混合粒度），供后续按需再聚合。 */
+  /** 原始 pricehistory 点（`price` 为 USD）：hash -> 该物品的全部历史点（保留天/小时混合粒度）。 */
   priceHistory: Record<string, PriceHistoryPoint[]>;
-  /** 各 hash 的活跃度采样历史（旧→新），快照卡片「不刷新也随时间范围变化」用。 */
+  /** 各 hash 的活跃度采样历史（`median` 为 USD，旧→新）。 */
   liveHistory?: Record<string, LiveVolumePoint[]>;
   itemCount: number;
   itemCountsByCategory: Record<string, number>;
-  /** 上次成功刷新 pricehistory 的时间（ms），持久化以便重启后仍命中 30min 缓存。 */
+  /** 上次成功刷新 pricehistory 的时间（ms），持久化以便重启后仍命中 1h 缓存。 */
   historyFetchedAtMs?: number;
   /** 各 hash 最近一次发起 pricehistory 刷新的 epoch ms，保障「每天全量一遍」。 */
   lastRefreshAt?: Record<string, number>;
+}
+
+/** {@link MarketVolumeService.analyzeBackupJson} 的返回。 */
+export interface MarketVolumeBackupAnalysis {
+  ok: true;
+  /** 备份的计价货币；null = 无法确认（旧格式且价格历史不足，需用户手动选择）。 */
+  detectedCurrency: string | null;
+  /**
+   * 币种来源：
+   * - `declared`：文件顶层 `currency` 字段（v2 文件恒为 USD）；
+   * - `samples`：旧格式从 `samples[].currency` 推断；
+   * - `auto`：按「备份价格历史 × USD 价格参考」推算（见 `detectCurrencyFromPriceHistory`）；
+   * - null：无法确认。
+   */
+  detectedBy: "declared" | "samples" | "auto" | null;
+  /** 自动探测的诊断信息（仅 `detectedBy === "auto"` 时非空，供 UI 显示依据/歧义）。 */
+  detection: {
+    method: CurrencyDetection["method"];
+    samples: number;
+    relativeError: number | null;
+    runnerUp: CurrencyDetection["runnerUp"];
+  } | null;
+  /** 备份已是 USD 基准（`version >= 2`），前端可锁定币种选择器。 */
+  baseCurrencyFile: boolean;
+  /** 摘要：物品种数、价格历史覆盖 hash 数、原始点数、时间范围（epoch 秒）。 */
+  itemCount: number;
+  priceHashCount: number;
+  pricePointCount: number;
+  oldestTs: number | null;
+  newestTs: number | null;
 }
 
 /** 默认的显示货币中位价查询：走 Steam priceoverview。 */
@@ -219,33 +260,45 @@ export class MarketVolumeService {
         this.resetVolumeData();
         return;
       }
-      // 金额数据（samples/historyHourly/priceHistory/liveHistory）都以「入库时的显示
-      // 货币」计价。先确认文件货币：新格式取顶层 `currency`；旧格式（无该字段）从
-      // 采样的 `samples[].currency` 推断——确认与当前显示货币一致则**无损保留全部
-      // 细粒度历史**并迁移落盘（补写顶层 currency）；不一致/无法确认则保守丢弃，
-      // 绝不把旧币数值标成当前货币展示。元数据一并处理（保留或清空），避免 1 小时
-      // 缓存阻碍新货币下尽快重拉。
-      const confirmed = this.confirmFileCurrency(parsed);
-      if (confirmed.matches) {
-        this.samples = parsed.samples;
-        this.historyHourly = parsed.historyHourly;
-        this.priceHistory = parsed.priceHistory;
-        this.liveHistory = parsed.liveHistory ?? {};
-        this.historyItemCount = parsed.itemCount;
-        this.historyItemCountsByCategory = parsed.itemCountsByCategory;
-        this.historyFetchedAtMs = parsed.historyFetchedAtMs ?? 0;
-        this.lastRefreshAt = parsed.lastRefreshAt ?? {};
-        if (confirmed.inferred) {
-          // 旧格式经采样确认货币后，补写顶层 currency 字段完成一次性迁移。
-          this.saveHistory();
-        }
-      } else {
+      // 金额数据统一以基准货币（USD）入库。先解析文件计价货币（顶层 `currency` 优先，
+      // 旧格式从 samples 推断），再等比换算到 USD —— **即使文件币种与当前显示货币
+      // 不一致也不再丢弃**（这是「统一 USD 计价」的核心收益：切币/换机不再丢历史）。
+      // 只有币种确实无法确认、或 fx 表缺该币种时，才保守丢弃金额数据。
+      const resolved = this.resolveFileCurrency(parsed);
+      const base = this.toBaseCurrency(parsed, resolved.currency);
+      if (!base) {
         log.warn(
-          `market volume history currency mismatch: file=${confirmed.fileCurrency ?? "(unknown)"} ` +
-            `current=${this.deps.getCurrency()}; discarding volume data`,
+          `market volume history currency unresolved: file=${resolved.currency ?? "(unknown)"} ` +
+            `source=${resolved.source ?? "(none)"}; discarding volume data`,
         );
         this.resetVolumeData();
+        return;
       }
+      this.samples = base.data.samples;
+      this.historyHourly = base.data.historyHourly;
+      this.priceHistory = base.data.priceHistory;
+      this.liveHistory = base.data.liveHistory ?? {};
+      this.historyItemCount = base.data.itemCount;
+      this.historyItemCountsByCategory = base.data.itemCountsByCategory;
+      this.historyFetchedAtMs = base.data.historyFetchedAtMs ?? 0;
+      this.lastRefreshAt = base.data.lastRefreshAt ?? {};
+      if (base.convertedFrom) {
+        log.info(
+          `market volume history converted to ${MARKET_VOLUME_BASE_CURRENCY}: ` +
+            `from=${base.convertedFrom} rate=${(base.rate ?? 0).toFixed(4)}`,
+        );
+      }
+      // 走势（historyHourly）是 priceHistory 的派生物。文件里缺失/为空但有原始点
+      // 时（例如只带 priceHistory 的备份、或早期版本的残缺文件）重算一次，避免
+      // 出现「有原始价格历史却没有任何走势」的不一致状态。
+      if (this.historyHourly.length === 0 && Object.keys(this.priceHistory).length > 0) {
+        this.recomputeHistoryTrend();
+      }
+      // 非 v2/USD 文件就地迁移落盘（换算后的 USD 金额 + 补写 version/currency），只做一次。
+      const alreadyMigrated =
+        (parsed.version ?? 0) >= 2 &&
+        (resolved.currency ?? "").toUpperCase() === MARKET_VOLUME_BASE_CURRENCY;
+      if (!alreadyMigrated) this.saveHistory();
     } catch (err) {
       log.warn(`Failed to load market volume history: ${(err as Error).message}`);
       this.resetVolumeData();
@@ -253,36 +306,94 @@ export class MarketVolumeService {
   }
 
   /**
-   * 确认历史文件的「价格线货币」并与当前显示货币比对。
-   *
-   * 新格式文件以顶层 `currency` 为准；旧格式文件（顶层无 currency）通过
-   * {@link inferMarketVolumeCurrency} 从采样记录推断（旧版每条采样都带当时
-   * 显示货币）。推断成功且与当前一致时 `inferred=true`（调用方可迁移落盘），
-   * 推断失败（无采样/混杂）时视为货币未知、不匹配。
+   * 解析历史/备份文件的计价货币。顶层 `currency` 优先（v2 文件恒为 USD）；旧格式
+   * （顶层无 currency）用 {@link inferMarketVolumeCurrency} 从采样记录推断（旧版每条
+   * 采样都带当时的显示货币），混杂/缺失时返回 null。
    */
-  private confirmFileCurrency(parsed: ParsedMarketVolumeHistory): {
-    matches: boolean;
-    fileCurrency: string | null;
-    inferred: boolean;
+  private resolveFileCurrency(parsed: ParsedMarketVolumeHistory): {
+    currency: string | null;
+    source: "declared" | "samples" | null;
   } {
-    let fileCurrency: string | null = null;
-    let inferred = false;
     if (typeof parsed.currency === "string" && parsed.currency.trim().length > 0) {
-      fileCurrency = parsed.currency.trim();
-    } else if (parsed.samples.length > 0) {
-      fileCurrency = inferMarketVolumeCurrency(parsed.samples);
-      inferred = fileCurrency != null;
+      return { currency: parsed.currency.trim().toUpperCase(), source: "declared" };
     }
-    return { matches: this.currencyMatches(fileCurrency), fileCurrency, inferred };
+    if (parsed.samples.length > 0) {
+      const inferred = inferMarketVolumeCurrency(parsed.samples);
+      if (inferred) return { currency: inferred.toUpperCase(), source: "samples" };
+    }
+    return { currency: null, source: null };
   }
 
-  /** 文件存档货币与当前显示货币是否为同币种（大小写不敏感）。存档货币缺失视为不匹配。 */
-  private currencyMatches(fileCurrency: string | null | undefined): boolean {
-    if (!fileCurrency) return false;
-    return fileCurrency.toUpperCase() === this.deps.getCurrency().toUpperCase();
+  /**
+   * 把已解析快照的金额归一化到基准货币（USD）。
+   *
+   * - 已是基准货币 → 原样返回；
+   * - 非基准货币且 `fx[该币]` 可得 → 等比换算（`rate = 1 / fx[该币]`）；
+   * - **币种不可知且确有金额数据 → 返回 null**（调用方丢弃，绝不给旧币数值贴 USD 标签）；
+   * - fx 表缺该币种 → 返回 null（同上，保守兜底）。
+   */
+  private toBaseCurrency(
+    parsed: ParsedMarketVolumeHistory,
+    fileCurrency: string | null,
+  ): { data: ParsedMarketVolumeHistory; convertedFrom: string | null; rate: number | null } | null {
+    if (fileCurrency == null) {
+      // 币种不可知：仅当没有金额数据可丢时接受（相当于从空数据起步）。
+      return hasVolumeAmounts(parsed) ? null : { data: parsed, convertedFrom: null, rate: null };
+    }
+    if (fileCurrency === MARKET_VOLUME_BASE_CURRENCY) {
+      return { data: parsed, convertedFrom: null, rate: null };
+    }
+    const unitsPerUsd = this.unitsPerUsd(fileCurrency);
+    if (unitsPerUsd == null) return null;
+    const rate = 1 / unitsPerUsd;
+    return { data: rescaleParsedHistory(parsed, rate), convertedFrom: fileCurrency, rate };
   }
 
-  /** 清空全部金额类状态与元数据（货币切换 / 损坏文件 / 异币种载入时用）。 */
+  /** 「每 1 USD 的该币单位数」：基准货币恒为 1，其余查图鉴 fx 表。fx 缺失/无效返回 null。 */
+  private unitsPerUsd(iso: string): number | null {
+    const code = iso.trim().toUpperCase();
+    if (code === MARKET_VOLUME_BASE_CURRENCY) return 1;
+    const v = (this.deps.getFxRates?.() ?? {})[code];
+    return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+  }
+
+  /**
+   * 出库换算比例：基准货币（USD）→ 显示货币。`fx[显示货币]` 有效时返回该值；
+   * fx 缺失（图鉴快照尚未就绪）或该币种不在表中时**回退为 1 并标 USD** —— 宁可把
+   * USD 数值标成 USD，也不标成其他币种。
+   */
+  private displayRate(): { rate: number; currency: string } {
+    const display = this.deps.getCurrency().trim().toUpperCase();
+    const units = this.unitsPerUsd(display);
+    if (units == null) {
+      log.warn(
+        `displayRate: fx missing for ${display}; displaying raw ${MARKET_VOLUME_BASE_CURRENCY}`,
+      );
+      return { rate: 1, currency: MARKET_VOLUME_BASE_CURRENCY };
+    }
+    return { rate: units, currency: display };
+  }
+
+  /**
+   * 把当前内存态拼成 {@link ParsedMarketVolumeHistory} 快照（供融合导入作为 existing 侧）。
+   * 金额已是基准货币（USD）。
+   */
+  private buildExistingSnapshot(): ParsedMarketVolumeHistory {
+    return {
+      version: 2,
+      currency: MARKET_VOLUME_BASE_CURRENCY,
+      samples: this.samples,
+      historyHourly: this.historyHourly,
+      priceHistory: this.priceHistory,
+      liveHistory: this.liveHistory,
+      itemCount: this.historyItemCount,
+      itemCountsByCategory: this.historyItemCountsByCategory,
+      historyFetchedAtMs: this.historyFetchedAtMs,
+      lastRefreshAt: this.lastRefreshAt,
+    };
+  }
+
+  /** 清空全部金额类状态与元数据（货币不可知 / 损坏文件时用）。 */
   private resetVolumeData(): void {
     this.live.clear();
     this.samples = [];
@@ -296,13 +407,14 @@ export class MarketVolumeService {
     this.lastRefreshAt = {};
   }
 
-  /** 持久化历史。 */
+  /** 持久化历史（v2：金额统一为基准货币 USD）。 */
   private saveHistory(): void {
     try {
       const path = this.filePath();
       mkdirSync(dirname(path), { recursive: true });
       const payload: PersistedMarketVolume = {
-        currency: this.deps.getCurrency(),
+        version: 2,
+        currency: MARKET_VOLUME_BASE_CURRENCY,
         samples: this.samples,
         historyHourly: this.historyHourly,
         priceHistory: this.priceHistory,
@@ -318,33 +430,24 @@ export class MarketVolumeService {
     }
   }
 
-  /** 返回当前完整历史快照（供导出备份；结构即落盘 payload，含备份版本号）。 */
+  /**
+   * 返回当前完整历史快照（供导出备份）。金额统一为基准货币（USD），与显示货币无关 ——
+   * 因此备份可跨机、跨币种导入并**融合**。
+   */
   exportHistory(): PersistedMarketVolume {
-    return {
-      version: 1,
-      currency: this.deps.getCurrency(),
-      samples: this.samples,
-      historyHourly: this.historyHourly,
-      priceHistory: this.priceHistory,
-      liveHistory: this.liveHistory,
-      itemCount: this.historyItemCount,
-      itemCountsByCategory: this.historyItemCountsByCategory,
-      historyFetchedAtMs: this.historyFetchedAtMs,
-      lastRefreshAt: this.lastRefreshAt,
-    };
+    return { ...this.buildExistingSnapshot(), version: 2 };
   }
 
   /**
-   * 用备份 JSON 整体替换当前历史数据。解析/校验失败或备份货币与当前显示货币
-   * 不一致且无法换算时返回失败原因且不改动现有数据；成功返回导入后的 itemCount
-   * 并立即落盘。币种不一致但能确认换算比例时，把全部金额等比换算到当前货币后再
-   * 导入（返回 `converted: true`），比例来源见 {@link computeConversionRate}。
+   * 解析备份 JSON 并生成导入前摘要（供 UI 展示摘要与选择币种）。纯解析，**不改动**
+   * 内存态与磁盘。
+   *
+   * 备份币种按「顶层 `currency` → `samples[].currency` 推断 → 价格历史自动探测」三级
+   * 解析（自动探测见 {@link detectBackupCurrency}）。
    */
-  importHistory(
+  analyzeBackupJson(
     json: string,
-  ):
-    | { ok: true; itemCount: number; converted?: boolean }
-    | { ok: false; reason: "invalid_backup" | "currency_mismatch" } {
+  ): MarketVolumeBackupAnalysis | { ok: false; reason: "invalid_backup" } {
     let raw: unknown;
     try {
       raw = JSON.parse(json.replace(/^\uFEFF/, ""));
@@ -353,84 +456,230 @@ export class MarketVolumeService {
     }
     const parsed = parseMarketVolumeHistory(raw);
     if (!parsed) return { ok: false, reason: "invalid_backup" };
-    // 备份中的金额以「备份生成的显示货币」计价。先确认备份货币（新格式顶层
-    // currency；旧格式从 samples[].currency 推断）。
-    const confirmed = this.confirmFileCurrency(parsed);
-    let converted = false;
-    let data = parsed;
-    if (!confirmed.matches) {
-      // 备份货币与当前显示货币不一致：不直接拒绝——用「现有数据」确认换算比例
-      // （优先图鉴汇率表 fx，回退用当前价格历史与备份同 hash 的价格比推算），
-      // 成功则把备份金额等比换算到当前货币后导入；拿不到比例才保守拒绝。
-      const fileCurrency = confirmed.fileCurrency;
-      const rate =
-        fileCurrency != null
-          ? computeConversionRate({
-              from: fileCurrency,
-              to: this.deps.getCurrency(),
-              fx: this.deps.getFxRates?.(),
-              backupPriceHistory: new Map(Object.entries(parsed.priceHistory)),
-              currentPriceHistory: new Map(Object.entries(this.priceHistory)),
-            })
-          : null;
-      if (rate == null) {
-        log.warn(
-          `import market volume history currency mismatch: file=${fileCurrency ?? "(unknown)"} ` +
-            `current=${this.deps.getCurrency()}; no conversion rate, import rejected`,
-        );
-        return { ok: false, reason: "currency_mismatch" };
+
+    const resolved = this.resolveFileCurrency(parsed);
+    let detectedCurrency: string | null = resolved.currency;
+    let detectedBy: MarketVolumeBackupAnalysis["detectedBy"] = resolved.source;
+    let detection: MarketVolumeBackupAnalysis["detection"] = null;
+    if (detectedCurrency == null) {
+      const auto = this.detectBackupCurrency(parsed);
+      if (auto.currency) {
+        detectedCurrency = auto.currency;
+        detectedBy = "auto";
       }
-      log.info(
-        `import market volume history converted: ${fileCurrency} -> ${this.deps.getCurrency()} ` +
-          `rate=${rate.toFixed(4)}`,
-      );
-      data = rescaleParsedHistory(parsed, rate);
-      converted = true;
+      detection = {
+        method: auto.method,
+        samples: auto.samples,
+        relativeError: auto.relativeError,
+        runnerUp: auto.runnerUp,
+      };
     }
-    this.samples = data.samples;
-    this.historyHourly = data.historyHourly;
-    this.priceHistory = data.priceHistory;
-    this.liveHistory = data.liveHistory ?? {};
-    this.historyItemCount = data.itemCount;
-    this.historyItemCountsByCategory = data.itemCountsByCategory;
-    this.historyFetchedAtMs = data.historyFetchedAtMs ?? 0;
-    this.lastRefreshAt = data.lastRefreshAt ?? {};
-    this.saveHistory();
+
+    let priceHashCount = 0;
+    let pricePointCount = 0;
+    let oldestTs: number | null = null;
+    let newestTs: number | null = null;
+    for (const pts of Object.values(parsed.priceHistory)) {
+      if (pts.length === 0) continue;
+      priceHashCount++;
+      pricePointCount += pts.length;
+      for (const p of pts) {
+        if (!Number.isFinite(p.timestamp)) continue;
+        if (oldestTs == null || p.timestamp < oldestTs) oldestTs = p.timestamp;
+        if (newestTs == null || p.timestamp > newestTs) newestTs = p.timestamp;
+      }
+    }
+
     return {
       ok: true,
-      itemCount: this.historyItemCount,
-      ...(converted ? { converted: true } : {}),
+      detectedCurrency,
+      detectedBy: detectedCurrency ? detectedBy : null,
+      detection,
+      baseCurrencyFile: (parsed.version ?? 0) >= 2,
+      itemCount: parsed.itemCount,
+      priceHashCount,
+      pricePointCount,
+      oldestTs,
+      newestTs,
     };
   }
 
   /**
-   * 显示货币切换后的清理：`samples`/`historyHourly`/`priceHistory`/`liveHistory`
-   * 中的金额全部以旧货币计价，实时映射 `live` 也是旧币采样——全部清空并立即以
-   * 新货币落盘（若不清掉 dedup 缓存，下一轮采样/刷新会用旧币数据继续展示）。
-   * CI/USD 数据不受影响（图鉴价格另走 fx 换汇）。polling 下一轮与新货币下的
-   * refreshHistory 会重新积累数据。调用方须在 `config.currency` 已更新为
-   * 新货币后调用，落盘时才能标上正确的货币。
+   * 备份币种**自动探测**：用备份的价格历史与「USD 价格参考」比对推算比例，再在 fx 表里
+   * 匹配最接近的币种。参考源优先**现有 USD 价格历史**（内存里已是 USD，历史比历史最准），
+   * 回退 **CI USD 快照的当前挂单价**（`deps.getSnapshotPriceUsd`）。
+   */
+  private detectBackupCurrency(parsed: ParsedMarketVolumeHistory): CurrencyDetection {
+    const backupPriceHistory = new Map(Object.entries(parsed.priceHistory));
+    const usdSnapshot: Record<string, number | null> = {};
+    for (const hash of backupPriceHistory.keys()) {
+      usdSnapshot[hash] = this.deps.getSnapshotPriceUsd?.(hash) ?? null;
+    }
+    return detectCurrencyFromPriceHistory({
+      fx: this.deps.getFxRates?.() ?? {},
+      backupPriceHistory,
+      usdHistory: new Map(Object.entries(this.priceHistory)),
+      usdSnapshot,
+    });
+  }
+
+  /**
+   * 用备份 JSON **融合**当前历史数据（不再整体替换）。
+   *
+   * `sourceCurrency` 传 `"auto"` 时走三级币种解析（顶层 `currency` → `samples` 推断 →
+   * 价格历史自动探测）；传具体 ISO 时以用户选择为准。备份金额先等比换算到基准货币
+   * （USD），再与内存态合并（`mergeParsedHistory`：`priceHistory` 按 UTC 天保留更细粒度、
+   * 采样按时间键去重），**因此同一备份重复导入不会翻倍**。解析失败 / 币种无法确认 /
+   * 换算比例不可得时返回失败原因且**不改动现有数据**。
+   */
+  importHistory(
+    json: string,
+    sourceCurrency: string,
+  ):
+    | {
+        ok: true;
+        itemCount: number;
+        mergedHashes: number;
+        mergedSamples: number;
+        mergedLivePoints: number;
+        converted?: { from: string; rate: number };
+      }
+    | { ok: false; reason: "invalid_backup" | "conversion_unavailable" } {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(json.replace(/^\uFEFF/, ""));
+    } catch {
+      return { ok: false, reason: "invalid_backup" };
+    }
+    const parsed = parseMarketVolumeHistory(raw);
+    if (!parsed) return { ok: false, reason: "invalid_backup" };
+
+    const resolved = this.resolveImportCurrency(parsed, sourceCurrency);
+    if (resolved == null) {
+      log.warn(
+        `import market volume history: currency unresolved (requested=${sourceCurrency}); rejected`,
+      );
+      return { ok: false, reason: "conversion_unavailable" };
+    }
+
+    let data = parsed;
+    let converted: { from: string; rate: number } | undefined;
+    if (resolved !== MARKET_VOLUME_BASE_CURRENCY) {
+      const rate = this.conversionRateToBase(resolved, parsed);
+      if (rate == null) {
+        log.warn(
+          `import market volume history: no conversion rate for ${resolved} -> ` +
+            `${MARKET_VOLUME_BASE_CURRENCY}; rejected`,
+        );
+        return { ok: false, reason: "conversion_unavailable" };
+      }
+      data = rescaleParsedHistory(parsed, rate);
+      converted = { from: resolved, rate };
+      log.info(
+        `import market volume history converted: ${resolved} -> ` +
+          `${MARKET_VOLUME_BASE_CURRENCY} rate=${rate.toFixed(4)}`,
+      );
+    }
+
+    const { merged, addedHashes, addedSamples, addedLivePoints } = mergeParsedHistory(
+      this.buildExistingSnapshot(),
+      data,
+      { maxSamples: MAX_SAMPLES, maxLivePointsPerHash: MAX_LIVE_POINTS_PER_HASH },
+    );
+    this.samples = merged.samples;
+    this.priceHistory = merged.priceHistory;
+    this.liveHistory = merged.liveHistory ?? {};
+    this.historyFetchedAtMs = merged.historyFetchedAtMs ?? 0;
+    this.lastRefreshAt = merged.lastRefreshAt ?? {};
+    // 派生字段（historyHourly / itemCount / itemCountsByCategory）由合并后的 priceHistory
+    // 重算；无可聚合数据时保留融合值，避免把已有的好走势清空。
+    this.recomputeHistoryTrend();
+    if (this.historyHourly.length === 0 && merged.historyHourly.length > 0) {
+      this.historyHourly = merged.historyHourly;
+      this.historyItemCount = merged.itemCount;
+      this.historyItemCountsByCategory = merged.itemCountsByCategory;
+    }
+    this.saveHistory();
+    log.info(
+      `import market volume history merged: hashes=+${addedHashes}, samples=+${addedSamples}, ` +
+        `livePoints=+${addedLivePoints}, itemCount=${this.historyItemCount}`,
+    );
+    return {
+      ok: true,
+      itemCount: this.historyItemCount,
+      mergedHashes: addedHashes,
+      mergedSamples: addedSamples,
+      mergedLivePoints: addedLivePoints,
+      ...(converted ? { converted } : {}),
+    };
+  }
+
+  /**
+   * 解析导入来源的计价货币。`"auto"`（或缺省）走三级解析 —— 顶层 `currency` →
+   * `samples[].currency` 推断 → 价格历史自动探测；显式 ISO 直接采用（大小写不敏感）。
+   * 三级都拿不到时返回 null。
+   */
+  private resolveImportCurrency(
+    parsed: ParsedMarketVolumeHistory,
+    requested: string,
+  ): string | null {
+    const asked = (requested ?? "").trim();
+    if (asked !== "" && asked.toUpperCase() !== "AUTO") return asked.toUpperCase();
+    const resolved = this.resolveFileCurrency(parsed);
+    if (resolved.currency) return resolved.currency;
+    return this.detectBackupCurrency(parsed).currency;
+  }
+
+  /**
+   * 「来源币 → USD」换算比例。优先 fx 表（`1 / fx[来源]`）；缺该币种时回退
+   * {@link computeConversionRate}（用现有 USD 价格历史与备份共同 hash / 时间最接近的
+   * 一对点求价格比推算）；仍拿不到返回 null。
+   */
+  private conversionRateToBase(from: string, parsed: ParsedMarketVolumeHistory): number | null {
+    const units = this.unitsPerUsd(from);
+    if (units != null) return 1 / units;
+    return computeConversionRate({
+      from,
+      to: MARKET_VOLUME_BASE_CURRENCY,
+      fx: this.deps.getFxRates?.(),
+      backupPriceHistory: new Map(Object.entries(parsed.priceHistory)),
+      currentPriceHistory: new Map(Object.entries(this.priceHistory)),
+    });
+  }
+
+  /**
+   * 显示货币变更钩子 —— 现在**不再清账**。
+   *
+   * 金额已统一以 {@link MARKET_VOLUME_BASE_CURRENCY} 入库，与显示货币无关：`samples` /
+   * `priceHistory` / `liveHistory` / 实时 `live` 在任意显示货币下都继续有效，展示层按
+   * 新的 fx 重新换算即可。调用方（appState / configPatch）只需在调用后重新广播
+   * `MARKET_VOLUME` / `MARKET_VOLUME_ITEMS`。保留本方法作为切币语义的锚点与日志位。
    */
   onCurrencyChanged(): void {
     log.info(
-      `onCurrencyChanged: clearing volume data (currency is now ${this.deps.getCurrency()})`,
+      `onCurrencyChanged: no-op (base currency is ${MARKET_VOLUME_BASE_CURRENCY}, ` +
+        `display is ${this.deps.getCurrency()})`,
     );
-    this.resetVolumeData();
-    this.saveHistory();
   }
 
   /** 记录一次轮询采样（hash 维度），并累积该 hash 的活跃度采样历史。 */
   recordVolume(hash: string, volume: number, median: number | null, currency: string): void {
     if (!hash) return;
     if (!Number.isFinite(volume) || volume < 0) return;
-    // 货币护栏：cycle 在切换货币前开始、切换后结束的竞态窗口内，旧币采样会
-    // 把错误的账面数值混进 live/liveHistory（后续展示标新币标签）。与当前显示
-    // 货币不符的采样直接丢弃，等下一轮以新货币重新抓取。
+    // 竞态护栏（与基准货币无关）：cycle 在切换显示货币前开始、切换后结束时，采样货币
+    // 会与当前显示货币不符；这种旧币采样直接丢弃，等下一轮重新抓取。
     if (currency.toUpperCase() !== this.deps.getCurrency().toUpperCase()) {
       log.debug(`recordVolume: drop stale-currency sample for ${hash} (${currency})`);
       return;
     }
-    this.live.set(hash, { volume, median });
+    // 采样 median 以显示货币计价；入库统一换算为基准货币（USD）。
+    const unitsPerUsd = this.unitsPerUsd(currency);
+    if (median != null && unitsPerUsd == null) {
+      log.debug(`recordVolume: drop sample for ${hash} (no fx rate for ${currency})`);
+      return;
+    }
+    const medianUsd = median == null || unitsPerUsd == null ? null : median / unitsPerUsd;
+    this.live.set(hash, { volume, median: medianUsd });
     // 累积 per-hash 活跃度采样点：同一轮询周期（< MIN_SAMPLE_INTERVAL_MS）内去重，
     // 只更新该点数值而非新增，避免重复。裁剪到 MAX_LIVE_POINTS_PER_HASH。
     const now = Date.now();
@@ -438,9 +687,9 @@ export class MarketVolumeService {
     const last = arr[arr.length - 1];
     if (last && now - last.ts < MIN_SAMPLE_INTERVAL_MS) {
       last.volume = volume;
-      last.median = median;
+      last.median = medianUsd;
     } else {
-      arr.push({ ts: now, volume, median });
+      arr.push({ ts: now, volume, median: medianUsd });
       if (arr.length > MAX_LIVE_POINTS_PER_HASH) {
         this.liveHistory[hash] = arr.slice(-MAX_LIVE_POINTS_PER_HASH);
       }
@@ -460,13 +709,13 @@ export class MarketVolumeService {
     return sample;
   }
 
-  /** 用当前轮询实时映射构造一次采样（不落盘）。 */
+  /** 用当前轮询实时映射构造一次采样（不落盘；金额已由 `recordVolume` 换算为 USD）。 */
   private buildSample(nowMs: number): MarketVolumeSample {
     const itemsByHash = this.buildItemsByHash();
     return aggregateVolume(
       itemsByHash,
       this.live,
-      this.deps.getCurrency(),
+      MARKET_VOLUME_BASE_CURRENCY,
       new Date(nowMs).toISOString(),
     );
   }
@@ -532,20 +781,20 @@ export class MarketVolumeService {
   }
 
   /**
-   * 把 pricehistory 本次拉到的点换算到显示货币（若返回货币与显示货币不一致）。
+   * 把 pricehistory 本次拉到的点换算到**基准货币（USD）**（若返回货币不是 USD）。
    *
    * Steam `pricehistory` 忽略 `currency` 参数，返回区域锁定货币（价格列单位靠
-   * `price_prefix` 判定）。本方法用该物品 priceoverview 的成交中位价（显示货币）
-   * 作锚，把整条序列等比校正到显示货币。货币解析不出来 / 与显示货币一致 / 锚
-   * 不可用时都保守地不换算（保留原值）。
+   * `price_prefix` 判定）。本方法用该物品 priceoverview 的成交中位价（**USD**）作锚，
+   * 把整条序列等比校正到 USD。货币解析不出来 / 已是 USD / 锚不可用时都保守地不换算
+   * （保留原值）。
    */
-  private async maybeCalibrateHistory(
+  private async calibrateHistoryToBase(
     hash: string,
     points: PriceHistoryPoint[],
     resCurrency: string | null | undefined,
   ): Promise<PriceHistoryPoint[]> {
     if (!resCurrency) return points;
-    if (resCurrency.toUpperCase() === this.deps.getCurrency().toUpperCase()) return points;
+    if (resCurrency.toUpperCase() === MARKET_VOLUME_BASE_CURRENCY) return points;
 
     // 取最近一个有成交量的点，作为与锚中位价对应的原货币价格。
     let sourcePrice: number | null = null;
@@ -560,7 +809,7 @@ export class MarketVolumeService {
     let median: number | null = null;
     try {
       const fetchMedian = this.deps.fetchAnchorMedian ?? defaultFetchAnchorMedian;
-      median = await fetchMedian(hash, this.deps.getCurrency());
+      median = await fetchMedian(hash, MARKET_VOLUME_BASE_CURRENCY);
     } catch (err) {
       log.warn(`calibrate history ${hash}: median fetch failed: ${(err as Error).message}`);
     }
@@ -568,7 +817,8 @@ export class MarketVolumeService {
     const cal = calibratePricesWithMedian(points, median, sourcePrice);
     if (cal.applied && median != null) {
       log.info(
-        `calibrate history ${hash}: ${resCurrency} -> ${this.deps.getCurrency()} scale=${(median / sourcePrice).toFixed(4)}`,
+        `calibrate history ${hash}: ${resCurrency} -> ${MARKET_VOLUME_BASE_CURRENCY} ` +
+          `scale=${(median / sourcePrice).toFixed(4)}`,
       );
     }
     return cal.points;
@@ -590,7 +840,7 @@ export class MarketVolumeService {
     const fetchOne = this.deps.fetchHistory ?? fetchSteamPriceHistory;
     const r = await fetchOne(hash, currency, cookie);
     if (r.ok && r.points && r.points.length > 0) {
-      const calibrated = await this.maybeCalibrateHistory(hash, r.points, r.currency);
+      const calibrated = await this.calibrateHistoryToBase(hash, r.points, r.currency);
       this.priceHistory[hash] = mergePriceHistoryPoints(this.priceHistory[hash] ?? [], calibrated);
       this.recomputeHistoryTrend();
       this.historyFetchedAtMs = now;
@@ -695,7 +945,7 @@ export class MarketVolumeService {
           try {
             const r = await fetchOne(hash, currency, cookie);
             if (r.ok && r.points && r.points.length > 0) {
-              const calibrated = await this.maybeCalibrateHistory(hash, r.points, r.currency);
+              const calibrated = await this.calibrateHistoryToBase(hash, r.points, r.currency);
               historyByHash.set(hash, calibrated);
               // 实时更新内存态：与旧数据合并（保留更细粒度），该 hash 立即反映
               // 最新价格，供前端实时刷新卡片（持久化在全部拉完之后统一做）。
@@ -831,7 +1081,7 @@ export class MarketVolumeService {
     }
   }
 
-  /** 返回当前统计（最新轮询快照 + 按小时走势）。 */
+  /** 返回当前统计（最新轮询快照 + 按小时走势）。金额换算到**显示货币**后返回。 */
   getStats(): MarketVolumeStats {
     const latest = this.samples.length > 0 ? this.samples[this.samples.length - 1] : null;
     let hourly = this.historyHourly;
@@ -848,13 +1098,13 @@ export class MarketVolumeService {
     log.debug(
       `[volume-stats] getStats called hourly=${hourly.length} (${hourly[0]?.hour}..${hourly[hourly.length - 1]?.hour})`,
     );
-    return {
-      latest,
-      hourly,
-      itemCount,
-      itemCountsByCategory,
-      currency: this.deps.getCurrency(),
-    };
+    // 内存与磁盘金额均为基准货币（USD），出库时换算到显示货币。
+    const { rate, currency } = this.displayRate();
+    return rescaleVolumeStats(
+      { latest, hourly, itemCount, itemCountsByCategory, currency: MARKET_VOLUME_BASE_CURRENCY },
+      rate,
+      currency,
+    );
   }
 
   /** 返回原始 pricehistory 点（hash -> 全部历史点，保留混合粒度），供按需再聚合/展示。 */
@@ -866,7 +1116,7 @@ export class MarketVolumeService {
    * 构造单个 hash 的最新「物品维度」卡片（刷新过程中实时推送用）。
    *
    * 复用该 hash 已存在（含刚实时写入）的 pricehistory 聚合出带走势的卡片；
-   * 无有效交易额数据时回退为空白卡片（仅展示名与分类）。
+   * 无有效交易额数据时回退为空白卡片（仅展示名与分类）。金额换算到**显示货币**。
    */
   private buildItemForHash(hash: string): MarketVolumeItem {
     // 复用同一个 catalog 映射，避免 refreshHistory 逐 hash 调用时反复重建整个 Map。
@@ -874,21 +1124,21 @@ export class MarketVolumeService {
     const item = itemsByHash.get(hash);
     const pts = this.priceHistory[hash] ?? [];
     const agg = aggregateItemVolume(new Map([[hash, pts]]), itemsByHash);
-    return (
-      agg[0] ?? {
-        hash,
-        name: item?.name ?? hash,
-        category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
-        grade: item?.grade,
-        itemKey: item?.id,
-        gearGroup: item?.gearGroup,
-        level: item?.level ?? null,
-        gearType: item?.gearType ?? null,
-        materialType: item?.materialType ?? null,
-        total: 0,
-        points: [],
-      }
-    );
+    const base: MarketVolumeItem = agg[0] ?? {
+      hash,
+      name: item?.name ?? hash,
+      category: item ? volumeCategoryKey(item) : VOLUME_CATEGORY_OTHER,
+      grade: item?.grade,
+      itemKey: item?.id,
+      gearGroup: item?.gearGroup,
+      level: item?.level ?? null,
+      gearType: item?.gearType ?? null,
+      materialType: item?.materialType ?? null,
+      total: 0,
+      points: [],
+    };
+    const { rate } = this.displayRate();
+    return rescaleMarketVolumeItems([base], rate)[0]!;
   }
 
   /**
@@ -1032,7 +1282,7 @@ export class MarketVolumeService {
   }
 
   /**
-   * 返回「物品维度」的交易额卡片数据（交易页），按总交易额降序。
+   * 返回「物品维度」的交易额卡片数据（交易页），按总交易额降序。金额换算到**显示货币**。
    *
    * 合并三路数据：
    *  - pricehistory 按小时聚合（含小时走势 points），为主；
@@ -1043,7 +1293,6 @@ export class MarketVolumeService {
    */
   getVolumeItems(): MarketVolumeItemStats {
     const itemsByHash = this.buildItemsByHash();
-    const currency = this.deps.getCurrency();
     const historyByHash = new Map(Object.entries(this.priceHistory));
     const historyItems = aggregateItemVolume(historyByHash, itemsByHash);
     const skip = new Set(historyItems.map((item) => item.hash));
@@ -1057,8 +1306,23 @@ export class MarketVolumeService {
     );
     const merged = [...historyItems, ...liveActivityItems, ...liveFallback];
     merged.sort((a, b) => b.total - a.total);
-    return { items: merged, currency };
+    // 聚合出的金额是基准货币（USD），出库换算到显示货币。
+    const { rate, currency } = this.displayRate();
+    return { items: rescaleMarketVolumeItems(merged, rate), currency };
   }
+}
+
+/**
+ * 判断一个已解析快照里是否存在任何金额类数据。用于「文件币种不可知时」的判定：
+ * 无金额可丢才接受，否则保守丢弃。
+ */
+function hasVolumeAmounts(p: ParsedMarketVolumeHistory): boolean {
+  return (
+    p.samples.length > 0 ||
+    p.historyHourly.length > 0 ||
+    Object.keys(p.priceHistory).length > 0 ||
+    Object.keys(p.liveHistory ?? {}).length > 0
+  );
 }
 
 /**

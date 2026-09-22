@@ -1176,20 +1176,72 @@ export interface ExportMarketVolumeResult {
   reason?: string;
 }
 
-/** 交易页「导入历史数据」的结果。 */
+/**
+ * 交易页「导入历史数据」的第一步：分析备份文件并返回摘要。
+ *
+ * 导入改为两段式 —— 先 `analyzeMarketVolumeBackup()` 让用户看到摘要与探测到的
+ * 备份币种，再由用户确认/改选币种后 `importMarketVolumeHistory()` 融合导入。
+ */
+export interface AnalyzeMarketVolumeBackupResult {
+  /** 分析成功。 */
+  ok?: boolean;
+  /** 用户取消文件对话框。 */
+  canceled?: boolean;
+  /** 失败原因（仅 ok=false 时，如 "invalid_backup"、"read_failed"）。 */
+  reason?: string;
+  /** 备份文件名（仅展示用，不下发完整路径）。 */
+  fileName?: string;
+  /** 探测到的备份币种；null = 无法确认（需用户手动选择）。 */
+  detectedCurrency?: string | null;
+  /** 币种来源：顶层字段 / 采样推断 / 按价格历史自动探测。 */
+  detectedBy?: "declared" | "samples" | "auto" | null;
+  /**
+   * 自动探测的诊断信息（仅 `detectedBy === "auto"` 时非空）：
+   * `method` 参考源、`samples` 参与物品数、`relativeError` 与汇率表的相对误差、
+   * `runnerUp` 次优候选（提示量级接近的币种歧义）。
+   */
+  detection?: {
+    method: "usdHistory" | "usdSnapshot" | null;
+    samples: number;
+    relativeError: number | null;
+    runnerUp: { currency: string; unitsPerUsd: number; relativeError: number } | null;
+  } | null;
+  /** 备份已是美元基准（v2），前端可锁定币种选择器。 */
+  baseCurrencyFile?: boolean;
+  /** 备份覆盖的物品种数。 */
+  itemCount?: number;
+  /** 备份价格历史覆盖的 hash 数。 */
+  priceHashCount?: number;
+  /** 备份价格历史的原始点数。 */
+  pricePointCount?: number;
+  /** 备份价格历史最早/最晚时间戳（epoch 秒）；无数据时为 null。 */
+  oldestTs?: number | null;
+  newestTs?: number | null;
+}
+
+/** 交易页「导入历史数据」的结果（与现有历史**融合**，不再整体替换）。 */
 export interface ImportMarketVolumeResult {
-  /** 导入成功并已整体替换（无 ok 字段时为用户取消）。 */
+  /** 成功（无 ok 字段时为用户取消或未先分析备份）。 */
   ok?: boolean;
   /** 用户取消对话框。 */
   canceled?: boolean;
-  /** 导入后历史统计覆盖的物品种数（仅 ok=true 时）。 */
+  /** 融合后历史统计覆盖的物品种数（仅 ok=true 时）。 */
   itemCount?: number;
+  /** 本次融合带来的增量：新增/更细的 hash 数、新增采样条数、新增活跃度采样点数。 */
+  mergedHashes?: number;
+  mergedSamples?: number;
+  mergedLivePoints?: number;
   /**
-   * 备份货币与当前显示货币不一致但已按确认的汇率换算后导入（仅 ok=true 时）。
-   * UI 可据此提示「已换算到当前币种」。
+   * 备份币种非 USD 且已换算到基准货币时给出换算信息（仅 ok=true 时）。
+   * UI 可据此提示「已从 X 换算为美元」。
    */
-  converted?: boolean;
-  /** 失败原因（仅 ok=false 时，如 "invalid_backup"、"currency_mismatch"）。 */
+  converted?: { from: string; rate: number };
+  /**
+   * 失败原因（仅 ok=false 时）：
+   * - `invalid_backup`：JSON / 结构非法；
+   * - `no_pending_backup`：未先调用分析（无暂存备份路径）；
+   * - `conversion_unavailable`：备份币种无法确认或缺少换算比例。
+   */
   reason?: string;
 }
 
@@ -2253,7 +2305,16 @@ export interface TbhApi {
   onMarketVolumeRefreshProgress(cb: (progress: MarketVolumeRefreshProgress) => void): () => void;
   refreshMarketVolumeItem(hash: string): Promise<void>;
   exportMarketVolumeHistory(): Promise<ExportMarketVolumeResult>;
-  importMarketVolumeHistory(): Promise<ImportMarketVolumeResult>;
+  /**
+   * 导入第一步：选择备份文件并分析（摘要 + 探测币种），不改动现有数据。
+   * 成功后主进程会暂存该备份路径，供 {@link TbhApi.importMarketVolumeHistory} 使用。
+   */
+  analyzeMarketVolumeBackup(): Promise<AnalyzeMarketVolumeBackupResult>;
+  /**
+   * 导入第二步：按 `sourceCurrency`（`"auto"` = 用探测结果）把备份换算为美元基准后
+   * **融合**进现有历史。
+   */
+  importMarketVolumeHistory(args: { sourceCurrency: string }): Promise<ImportMarketVolumeResult>;
   cancelHistoryRefresh(): void;
   getLiveMemory(): Promise<LiveMemorySnapshot | null>;
   getLiveMemoryStatus(): Promise<LiveMemoryStatus | null>;

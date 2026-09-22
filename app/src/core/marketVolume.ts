@@ -1,7 +1,12 @@
 // 市场交易额纯函数：把「hash 维度」的成交量×成交价聚合为「类别 + 时间」维度，
 // 供 Market 页展示总交易额、各类别交易额与按小时走势。无 Electron/IO 依赖，可单测。
 
-import type { LookupItem, MarketVolumeHourPoint, MarketVolumeSample } from "../../shared/types";
+import type {
+  LookupItem,
+  MarketVolumeHourPoint,
+  MarketVolumeSample,
+  MarketVolumeStats,
+} from "../../shared/types";
 
 /** Steam pricehistory 返回的单个历史点。 */
 export interface PriceHistoryPoint {
@@ -48,6 +53,14 @@ export const VOLUME_CATEGORY_ACCESSORY = "ACCESSORY";
 export const VOLUME_CATEGORY_MATERIAL = "MATERIAL";
 export const VOLUME_CATEGORY_COIN = "COIN";
 export const VOLUME_CATEGORY_OTHER = "OTHER";
+
+/**
+ * 交易页价格历史的**入库计价货币**。`samples` / `historyHourly` / `priceHistory` /
+ * `liveHistory` 的全部金额字段在内存与磁盘上统一以该货币计价，展示时按图鉴 `fx`
+ * 汇率表换算到用户显示货币。这样切换显示货币不再需要清空历史，历史备份也能跨币种
+ * 无损融合。
+ */
+export const MARKET_VOLUME_BASE_CURRENCY = "USD";
 
 /**
  * 把一个图鉴物品归到交易额展示的 5 大分类：
@@ -526,9 +539,12 @@ export function calibratePricesWithMedian(
 
 /** 解析后的交易页历史数据快照（结构兼容 main 的 PersistedMarketVolume）。 */
 export interface ParsedMarketVolumeHistory {
-  /** 备份格式版本；当前恒为 1。解析时保留，供未来迁移。 */
+  /** 备份格式版本：1 = 旧版（金额按显示货币），2 = 金额统一为基准货币（USD）。 */
   version?: number;
-  /** 数据入库存档时价格线的显示货币 ISO 码。缺失 = 旧格式文件，货币未知。 */
+  /**
+   * 本文件金额的计价货币 ISO 码。v2 起恒为 {@link MARKET_VOLUME_BASE_CURRENCY}；
+   * v1 文件为该文件生成时的显示货币。缺失 = 极旧格式，货币未知。
+   */
   currency?: string;
   samples: MarketVolumeSample[];
   historyHourly: MarketVolumeHourPoint[];
@@ -926,4 +942,311 @@ export function orderRefreshTargets(
     primary = Math.min(primary, result.length);
   }
   return { ordered: result, primary };
+}
+
+// ---------------------------------------------------------------------------
+// 基准货币（USD）相关的金额缩放、历史融合与备份币种自动探测
+// ---------------------------------------------------------------------------
+
+/** {@link mergeParsedHistory} 的返回：融合后的快照 + 增量摘要（供 UI 提示）。 */
+export interface MergedMarketVolumeHistory {
+  /** 融合后的快照（金额已统一为 {@link MARKET_VOLUME_BASE_CURRENCY}）。 */
+  merged: ParsedMarketVolumeHistory;
+  /** 融合后 `priceHistory` 中「新增或更细」的 hash 数。 */
+  addedHashes: number;
+  /** 融合后 `samples` 新增的条数。 */
+  addedSamples: number;
+  /** 融合后 `liveHistory` 新增的采样点数。 */
+  addedLivePoints: number;
+}
+
+/**
+ * 融合两份价格历史快照（导入用）。
+ *
+ * 与「整体替换」不同，本函数保留双方数据：
+ * - `priceHistory`：逐 hash 用 {@link mergePriceHistoryPoints}（按 UTC 天保留更细粒度，
+ *   相等时取 incoming）—— 以「天」为最小融合单元，天然避免同一小时的**重复计数**，
+ *   不同天则取并集实现历史累积；
+ * - `samples` / `liveHistory`：按时间键（`timestamp` / `ts`）去重合并，同键取 incoming，
+ *   升序后裁剪到给定上限（保留最新）；
+ * - `historyHourly` / `itemCount` / `itemCountsByCategory` 为**派生于 `priceHistory`** 的
+ *   字段，此处不合并，由调用方在融合后重算（见 `MarketVolumeService`）；
+ * - `historyFetchedAtMs` 取二者较大值，`lastRefreshAt` 每 hash 取较大值（不倒退
+ *   「每日全量兜底」的进度）。
+ *
+ * 两份快照的金额必须**已是同一基准货币**，换算由调用方在此之前完成。
+ *
+ * 已知取舍：同一 UTC 天内若两侧都有数据，只保留点数更多（更细粒度）的一侧，另一侧
+ * 独有的小时点会被丢弃。对「同溯源的分支备份」可接受（两侧点集高度重叠）。
+ */
+export function mergeParsedHistory(
+  existing: ParsedMarketVolumeHistory,
+  incoming: ParsedMarketVolumeHistory,
+  limits: { maxSamples: number; maxLivePointsPerHash: number },
+): MergedMarketVolumeHistory {
+  // priceHistory：逐 hash 按「保留更细粒度」合并
+  const priceHistory: Record<string, PriceHistoryPoint[]> = {};
+  let addedHashes = 0;
+  for (const hash of new Set([
+    ...Object.keys(existing.priceHistory),
+    ...Object.keys(incoming.priceHistory),
+  ])) {
+    const oldPts = existing.priceHistory[hash] ?? [];
+    const nextPts = incoming.priceHistory[hash] ?? [];
+    const mergedPts = mergePriceHistoryPoints(oldPts, nextPts);
+    if (mergedPts.length > 0) priceHistory[hash] = mergedPts;
+    if (mergedPts.length > oldPts.length) addedHashes++;
+  }
+
+  // samples：按 timestamp 去重，同刻取 incoming
+  const sampleByTs = new Map<string, MarketVolumeSample>();
+  for (const s of existing.samples) sampleByTs.set(s.timestamp, s);
+  const existingTs = new Set(sampleByTs.keys());
+  let addedSamples = 0;
+  for (const s of incoming.samples) {
+    if (!existingTs.has(s.timestamp)) addedSamples++;
+    sampleByTs.set(s.timestamp, s);
+  }
+  const samples = [...sampleByTs.values()]
+    .sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0))
+    .slice(-limits.maxSamples);
+
+  // liveHistory：逐 hash 按 ts 去重
+  const liveHistory: Record<string, LiveVolumePoint[]> = {};
+  let addedLivePoints = 0;
+  for (const hash of new Set([
+    ...Object.keys(existing.liveHistory ?? {}),
+    ...Object.keys(incoming.liveHistory ?? {}),
+  ])) {
+    const byTs = new Map<number, LiveVolumePoint>();
+    for (const p of existing.liveHistory?.[hash] ?? []) byTs.set(p.ts, p);
+    for (const p of incoming.liveHistory?.[hash] ?? []) {
+      if (!byTs.has(p.ts)) addedLivePoints++;
+      byTs.set(p.ts, p);
+    }
+    if (byTs.size === 0) continue;
+    liveHistory[hash] = [...byTs.values()]
+      .sort((a, b) => a.ts - b.ts)
+      .slice(-limits.maxLivePointsPerHash);
+  }
+
+  // lastRefreshAt：逐 hash 取较大值
+  const lastRefreshAt: Record<string, number> = { ...(existing.lastRefreshAt ?? {}) };
+  for (const [hash, ms] of Object.entries(incoming.lastRefreshAt ?? {})) {
+    lastRefreshAt[hash] = Math.max(lastRefreshAt[hash] ?? 0, ms);
+  }
+
+  const merged: ParsedMarketVolumeHistory = {
+    version: 2,
+    currency: MARKET_VOLUME_BASE_CURRENCY,
+    samples,
+    // 派生字段（historyHourly / itemCount / itemCountsByCategory）由调用方用合并后的
+    // priceHistory 重算；这里只做「占位」——优先沿用 existing 的非空值，existing 为空时
+    // 退到 incoming，避免仅带 historyHourly 的备份在重算不出结果时整段丢失。
+    historyHourly:
+      existing.historyHourly.length > 0 ? existing.historyHourly : incoming.historyHourly,
+    priceHistory,
+    liveHistory,
+    itemCount: existing.itemCount > 0 ? existing.itemCount : incoming.itemCount,
+    itemCountsByCategory:
+      Object.keys(existing.itemCountsByCategory).length > 0
+        ? existing.itemCountsByCategory
+        : incoming.itemCountsByCategory,
+    historyFetchedAtMs: Math.max(
+      existing.historyFetchedAtMs ?? 0,
+      incoming.historyFetchedAtMs ?? 0,
+    ),
+    lastRefreshAt,
+  };
+
+  return { merged, addedHashes, addedSamples, addedLivePoints };
+}
+
+/**
+ * 把「基准货币（USD）」的成交额卡片缩放到显示货币（`rate` = `fx[显示货币]`）。
+ *
+ * 缩放 `total` 与走势点的 `price` / `total`；`volume` 是件数、无币种，不缩放。
+ * `rate` 无效（非有限 / ≤ 0）时返回浅拷贝原值，避免把 USD 数值按错误比例放大。
+ */
+export function rescaleMarketVolumeItems(
+  items: readonly MarketVolumeItem[],
+  rate: number,
+): MarketVolumeItem[] {
+  if (!Number.isFinite(rate) || rate <= 0 || rate === 1) {
+    return items.map((it) => ({ ...it, points: it.points.map((p) => ({ ...p })) }));
+  }
+  return items.map((it) => ({
+    ...it,
+    total: it.total * rate,
+    points: it.points.map((p) => ({ ...p, price: p.price * rate, total: p.total * rate })),
+  }));
+}
+
+/**
+ * 把「基准货币（USD）」的 Market 页统计缩放到显示货币（`rate` = `fx[显示货币]`），
+ * 并把 `currency` / `latest.currency` 标为给定的显示货币。
+ */
+export function rescaleVolumeStats(
+  stats: MarketVolumeStats,
+  rate: number,
+  currency: string,
+): MarketVolumeStats {
+  const scale = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  const latest = stats.latest
+    ? {
+        ...stats.latest,
+        total: stats.latest.total * scale,
+        byCategory: rescaleRecord(stats.latest.byCategory, scale) ?? {},
+        currency,
+      }
+    : null;
+  return {
+    ...stats,
+    latest,
+    hourly: stats.hourly.map((h) => ({
+      ...h,
+      total: h.total * scale,
+      // 保留 `byCategory` 的「缺失」语义，避免把所有走势点都补成空对象。
+      ...(h.byCategory ? { byCategory: rescaleRecord(h.byCategory, scale) } : {}),
+    })),
+    currency,
+  };
+}
+
+/** 备份币种自动探测的结果。 */
+export interface CurrencyDetection {
+  /** 匹配到的备份币种 ISO；null = 无法判定（样本不足 / 与汇率表都对不上）。 */
+  currency: string | null;
+  /**
+   * 「1 单位备份币 = rate 单位 USD」的换算比例；用于把备份金额换算到基准货币。
+   * `currency === "USD"` 时为 1；未判定时为 null。
+   */
+  rate: number | null;
+  /**
+   * 判定依据：
+   * - `usdHistory`：与**现有 USD 价格历史**（内存中已是 USD 的 `priceHistory`）在共同
+   *   hash、时间最接近的一对点上求比 —— 历史比历史，最可靠；
+   * - `usdSnapshot`：回退到与 **CI USD 价格快照**（`LookupPriceSnapshot.prices`，每
+   *   hash 的当前 USD 挂单价）的当前价比对；
+   * - null：无可用参考。
+   */
+  method: "usdHistory" | "usdSnapshot" | null;
+  /** 参与推算的物品数（样本量）。 */
+  samples: number;
+  /** 推算出的「每 1 USD 的备份币单位数」，与 fx 表同量纲；未算出时 null。 */
+  impliedUnitsPerUsd: number | null;
+  /** 与匹配到的汇率之间的相对误差（0.05 = 差 5%）；未匹配时 null。 */
+  relativeError: number | null;
+  /** 次优候选（用于提示歧义，例如 NOK/SEK 这类量级接近的币种）。 */
+  runnerUp: { currency: string; unitsPerUsd: number; relativeError: number } | null;
+}
+
+/** {@link detectCurrencyFromPriceHistory} 的默认匹配容差（相对误差）。 */
+export const CURRENCY_DETECT_TOLERANCE = 0.15;
+/** 自动探测所需的最少样本物品数（低于该值直接判定为「无法识别」）。 */
+export const CURRENCY_DETECT_MIN_SAMPLES = 3;
+
+/**
+ * 依据「备份的价格历史」与「USD 价格参考」推算备份的计价货币。
+ *
+ * 思路：同一物品在**同一时期**的价格比就等于币种汇率。先逐 hash 求
+ * `备份价 ÷ USD 参考价`（= 每 1 USD 的备份币单位数），多 hash 取中位数抗噪（价格随
+ * 时间的漂移在样本间相互抵消），再在 `fx` 表里找最接近的币种；相对误差超过
+ * {@link CURRENCY_DETECT_TOLERANCE} 或样本不足 {@link CURRENCY_DETECT_MIN_SAMPLES}
+ * 时判定为「无法识别」，交由用户手动选择。
+ *
+ * 参考源优先级：现有 USD 价格历史（`usdHistory`）> CI USD 快照（`usdSnapshot`）。
+ */
+export function detectCurrencyFromPriceHistory(opts: {
+  /** 图鉴汇率表：ISO → 每 1 USD 的该币单位数。 */
+  fx: Readonly<Record<string, number>>;
+  /** 备份的价格历史（计价货币未知）—— 推导主体。 */
+  backupPriceHistory: ReadonlyMap<string, readonly PriceHistoryPoint[]>;
+  /** 现有内存中的 USD 价格历史（可选，优先参考源）。 */
+  usdHistory?: ReadonlyMap<string, readonly PriceHistoryPoint[]>;
+  /** CI USD 快照的当前挂单价（可选，回退参考源）。 */
+  usdSnapshot?: Readonly<Record<string, number | null | undefined>>;
+  /** 覆盖默认容差。 */
+  tolerance?: number;
+}): CurrencyDetection {
+  const empty: CurrencyDetection = {
+    currency: null,
+    rate: null,
+    method: null,
+    samples: 0,
+    impliedUnitsPerUsd: null,
+    relativeError: null,
+    runnerUp: null,
+  };
+
+  const ratios: number[] = [];
+  let method: CurrencyDetection["method"] = null;
+
+  // 参考源 1：与现有 USD 价格历史比对（历史 vs 历史，最可靠）
+  if (opts.usdHistory && opts.usdHistory.size > 0) {
+    for (const [hash, backupPts] of opts.backupPriceHistory) {
+      const usdPts = opts.usdHistory.get(hash);
+      if (!usdPts || usdPts.length === 0) continue;
+      const backupPoint = nearestVolumePoint(backupPts);
+      if (!backupPoint) continue;
+      const usdPoint = nearestInTime(usdPts, backupPoint.timestamp);
+      if (!usdPoint) continue;
+      ratios.push(backupPoint.price / usdPoint.price);
+    }
+    if (ratios.length > 0) method = "usdHistory";
+  }
+
+  // 参考源 2：回退到 CI USD 快照的当前挂单价
+  if (ratios.length === 0 && opts.usdSnapshot) {
+    for (const [hash, backupPts] of opts.backupPriceHistory) {
+      const usd = opts.usdSnapshot[hash];
+      if (typeof usd !== "number" || !Number.isFinite(usd) || usd <= 0) continue;
+      const backupPoint = nearestVolumePoint(backupPts);
+      if (!backupPoint) continue;
+      ratios.push(backupPoint.price / usd);
+    }
+    if (ratios.length > 0) method = "usdSnapshot";
+  }
+
+  if (ratios.length === 0 || method == null) return empty;
+  const implied = median(ratios);
+  if (!Number.isFinite(implied) || implied <= 0) return empty;
+
+  // 在 fx 表里找量纲最接近的币种（按相对误差）
+  const candidates = Object.entries(opts.fx)
+    .filter(([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0)
+    .map(([currency, unitsPerUsd]) => ({
+      currency: currency.toUpperCase(),
+      unitsPerUsd,
+      relativeError: Math.abs(unitsPerUsd - implied) / implied,
+    }))
+    .sort((a, b) => a.relativeError - b.relativeError);
+
+  const samples = ratios.length;
+  if (candidates.length === 0) {
+    return { ...empty, method, samples, impliedUnitsPerUsd: implied };
+  }
+  const best = candidates[0]!;
+  const runnerUp = candidates[1] ? { ...candidates[1] } : null;
+  const tolerance = opts.tolerance ?? CURRENCY_DETECT_TOLERANCE;
+  if (samples < CURRENCY_DETECT_MIN_SAMPLES || best.relativeError > tolerance) {
+    return {
+      currency: null,
+      rate: null,
+      method,
+      samples,
+      impliedUnitsPerUsd: implied,
+      relativeError: best.relativeError,
+      runnerUp,
+    };
+  }
+  return {
+    currency: best.currency,
+    rate: 1 / best.unitsPerUsd,
+    method,
+    samples,
+    impliedUnitsPerUsd: implied,
+    relativeError: best.relativeError,
+    runnerUp,
+  };
 }

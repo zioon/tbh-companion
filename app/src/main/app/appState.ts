@@ -42,6 +42,7 @@ import { UpdateService } from "../services/UpdateService";
 import { NotificationService } from "../services/NotificationService";
 import type {
   AppDataClearTarget,
+  AnalyzeMarketVolumeBackupResult,
   BoxTrackerSortOrder,
   ClassifyPromptResolvePayload,
   ExportMarketVolumeResult,
@@ -64,6 +65,13 @@ import { selectHistoryRefreshTargets } from "../../core/lookupPrice";
 import { POLLING_DEFAULT_THRESHOLD_USD } from "../services/LookupPricePollingService";
 
 let config: AppConfig;
+
+/**
+ * 交易页「导入历史数据」两段式流程的中间态：第一步 `analyzeMarketVolumeBackup` 选中的
+ * 备份文件路径，第二步 `importMarketVolumeHistory` 复用它读文件。刻意不把路径下发给
+ * renderer（也不接收 renderer 传回的路径），避免引入任意文件读取面。
+ */
+let pendingHistoryBackupPath: string | null = null;
 
 /**
  * 包装 normalizeConfigFromRaw，注入运行时派生字段 `resolvedLanguage` 与
@@ -655,8 +663,10 @@ export function getAppServices() {
       config.currency = iso;
       saveConfig(config);
       if (prevCurrency.toUpperCase() !== iso.toUpperCase()) {
-        // 货币切换的清账（见 BUSINESS-FLOWS 8.7.3）：交易页历史/采样数据以
-        // 旧币计价，统一清空重积；图鉴本地 polling 价格字段清空、回退 CI USD × fx。
+        // 交易页历史已统一以 USD 入库，切换显示货币**不再清账**（见 BUSINESS-FLOWS
+        // 8.7.3）：onCurrencyChanged 现在只是语义锚点，历史在任意显示货币下继续有效，
+        // 展示层按新的 fx 重新换算。仍需重新广播，让 UI 用新币格式展示。
+        // 图鉴本地 polling 价格字段仍清空、回退 CI USD × fx（那两个字段没有 USD 化）。
         marketVolume.onCurrencyChanged();
         lookupPrices.clearLocalFields();
         // 立即推送清空后的市场数据，避免 Market/交易页继续显示旧币数值。
@@ -726,7 +736,8 @@ export function getAppServices() {
           setMarketAutoScanEnabled: (enabled) => inventory.setAutoScanEnabled(enabled),
           setMarketLowValueThresholdUsd: (value) => inventory.setLowValueThresholdUsd(value),
           onCurrencyChanged: () => {
-            // Settings 里改币种：交易页历史/采样清账 + 立即推送空数据。
+            // Settings 里改币种：交易页历史已统一 USD 入库，不再清账，只需重广播
+            // 让展示层按新的 fx 换算（见 BUSINESS-FLOWS 8.7.3）。
             marketVolume.onCurrencyChanged();
             broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
             broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
@@ -934,8 +945,9 @@ export function getAppServices() {
         return { ok: false, reason: (err as Error).message };
       }
     },
-    // 交易页「导入历史数据」：打开对话框读 JSON，整体替换历史数据并广播刷新。
-    importMarketVolumeHistory: async (): Promise<ImportMarketVolumeResult> => {
+    // 交易页「导入历史数据」第一步：选备份文件、解析出摘要与探测币种，并把路径
+    // 暂存在主进程（renderer 不回传路径，避免任意文件读取面）。
+    analyzeMarketVolumeBackup: async (): Promise<AnalyzeMarketVolumeBackupResult> => {
       const parent =
         mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getFocusedWindow();
       const options: OpenDialogOptions = {
@@ -954,11 +966,45 @@ export function getAppServices() {
       } catch (err) {
         return { ok: false, reason: (err as Error).message };
       }
-      const imported = marketVolume.importHistory(json);
+      const analyzed = marketVolume.analyzeBackupJson(json);
+      if (!analyzed.ok) return { ok: false, reason: analyzed.reason };
+      pendingHistoryBackupPath = filePath;
+      const { ok: _ok, ...summary } = analyzed;
+      return {
+        ok: true,
+        ...summary,
+        fileName: filePath.split(/[\\/]/).pop() ?? filePath,
+      };
+    },
+    // 交易页「导入历史数据」第二步：用暂存的备份路径重新读取，按用户选定的币种
+    // （"auto" = 用探测结果）换算为 USD 基准后**融合**进现有历史并广播刷新。
+    importMarketVolumeHistory: async ({
+      sourceCurrency,
+    }: {
+      sourceCurrency: string;
+    }): Promise<ImportMarketVolumeResult> => {
+      const filePath = pendingHistoryBackupPath;
+      if (!filePath) return { ok: false, reason: "no_pending_backup" };
+      let json: string;
+      try {
+        json = readFileSync(filePath, "utf-8");
+      } catch (err) {
+        return { ok: false, reason: (err as Error).message };
+      }
+      const imported = marketVolume.importHistory(json, sourceCurrency);
       if (!imported.ok) return { ok: false, reason: imported.reason };
+      // 一次性消费：导入成功后清空暂存，避免重复导入同一个文件。
+      pendingHistoryBackupPath = null;
       broadcast(IPC.MARKET_VOLUME, marketVolume.getStats());
       broadcast(IPC.MARKET_VOLUME_ITEMS, marketVolume.getVolumeItems());
-      return { ok: true, itemCount: imported.itemCount };
+      return {
+        ok: true,
+        itemCount: imported.itemCount,
+        mergedHashes: imported.mergedHashes,
+        mergedSamples: imported.mergedSamples,
+        mergedLivePoints: imported.mergedLivePoints,
+        ...(imported.converted ? { converted: imported.converted } : {}),
+      };
     },
     getLiveMemory: () => liveMemory.getSnapshot(),
     getLiveMemoryStatus: () => liveMemory.getStatus(),

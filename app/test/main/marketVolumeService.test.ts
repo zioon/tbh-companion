@@ -33,6 +33,7 @@ function makeService(
     cookie?: string;
     currency?: string;
     getFxRates?: () => Readonly<Record<string, number>>;
+    getSnapshotPriceUsd?: (hash: string) => number;
     fetchHistory?: (
       hash: string,
       currency: string,
@@ -59,6 +60,7 @@ function makeService(
     getHistoryBatchSize: () => 10,
     getHistoryBatchDelaySec: () => 0,
     getFxRates: overrides.getFxRates,
+    getSnapshotPriceUsd: overrides.getSnapshotPriceUsd,
     filePath: () => file,
     fetchHistory: overrides.fetchHistory,
     fetchAnchorMedian: overrides.fetchAnchorMedian,
@@ -66,8 +68,9 @@ function makeService(
   });
 }
 
-describe("MarketVolumeService 历史价格货币换算", () => {
-  it("pricehistory 货币与显示货币不一致时，按 median 锚等比换算后入库", async () => {
+describe("MarketVolumeService pricehistory 校正到基准货币（USD）", () => {
+  it("pricehistory 返回区域货币时，用 USD 锚（与显示货币无关）等比校正后入库", async () => {
+    const anchorCurrencies: string[] = [];
     const svc = makeService({
       currency: "CNY",
       targetHashes: ["Copper Coin"],
@@ -80,18 +83,24 @@ describe("MarketVolumeService 历史价格货币换算", () => {
           { timestamp: (BASE + 3600_000) / 1000, price: 1.452, volume: 46 },
         ],
       }),
-      fetchAnchorMedian: async () => 1.91,
+      fetchAnchorMedian: async (_hash, currency) => {
+        anchorCurrencies.push(currency);
+        return 1.91;
+      },
     });
     await svc.refreshHistory(BASE);
     const ph = svc.getPriceHistory()["Copper Coin"];
-    // 源点 1.452（R$）应换算为锚中位价 1.91（CNY）；早期点等比放大
+    // 源点 1.452（R$）换算为 USD 锚中位价 1.91；早期点等比放大
     expect(ph[1].price).toBeCloseTo(1.91, 6);
     expect(ph[0].price).toBeCloseTo(0.5 * (1.91 / 1.452), 6);
+    // 锚固定以基准货币（USD）请求，不再跟随显示货币
+    expect(anchorCurrencies).toEqual(["USD"]);
   });
 
-  it("pricehistory 货币与显示货币一致时不换算", async () => {
+  it("pricehistory 已是 USD 时不换算，也不请求锚中位价", async () => {
+    let anchorCalls = 0;
     const svc = makeService({
-      currency: "USD",
+      currency: "CNY",
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
@@ -99,10 +108,14 @@ describe("MarketVolumeService 历史价格货币换算", () => {
         currency: "USD",
         points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
       }),
-      fetchAnchorMedian: async () => 0.5,
+      fetchAnchorMedian: async () => {
+        anchorCalls++;
+        return 0.5;
+      },
     });
     await svc.refreshHistory(BASE);
     expect(svc.getPriceHistory()["Copper Coin"][0].price).toBe(0.5);
+    expect(anchorCalls).toBe(0);
   });
 
   it("pricehistory 货币解析不出（null）时保持原样，不换算", async () => {
@@ -755,8 +768,8 @@ describe("MarketVolumeService 持久化", () => {
   });
 });
 
-describe("MarketVolumeService 历史数据导出 / 导入", () => {
-  it("exportHistory 返回完整快照，importHistory 到新实例后一致（往返）", async () => {
+describe("MarketVolumeService 历史数据导出 / 融合导入", () => {
+  it("exportHistory 输出 v2 / USD 快照；导入到新实例后一致（往返）", async () => {
     const svc = makeService({
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
@@ -773,25 +786,30 @@ describe("MarketVolumeService 历史数据导出 / 导入", () => {
     svc.sampleNow(BASE);
 
     const snapshot = svc.exportHistory();
+    expect(snapshot.version).toBe(2);
+    expect(snapshot.currency).toBe("USD");
     expect(snapshot.priceHistory["Copper Coin"]).toHaveLength(2);
     expect(snapshot.samples.length).toBeGreaterThan(0);
 
-    const json = JSON.stringify(snapshot);
     const restored = makeService();
-    const imported = restored.importHistory(json);
+    const imported = restored.importHistory(JSON.stringify(snapshot), "auto");
     expect(imported.ok).toBe(true);
-    if (imported.ok) expect(imported.itemCount).toBe(snapshot.itemCount);
+    if (imported.ok) {
+      expect(imported.itemCount).toBe(snapshot.itemCount);
+      expect(imported.converted).toBeUndefined();
+    }
     expect(restored.getPriceHistory()).toEqual(svc.getPriceHistory());
     expect(restored.getStats().hourly).toEqual(svc.getStats().hourly);
   });
 
-  it("importHistory 覆盖现有数据（整体替换）", () => {
+  it("融合而非替换：备份并入现有数据，现有采样与历史不丢失", () => {
     const svc = makeService();
     svc.recordVolume("Old Item", 10, 1, "USD");
     svc.sampleNow(BASE);
 
     const imported = svc.importHistory(
       JSON.stringify({
+        version: 2,
         currency: "USD",
         samples: [],
         historyHourly: [],
@@ -800,16 +818,53 @@ describe("MarketVolumeService 历史数据导出 / 导入", () => {
         itemCountsByCategory: {},
         historyFetchedAtMs: BASE,
       }),
+      "auto",
     );
     expect(imported.ok).toBe(true);
-    if (imported.ok) expect(imported.itemCount).toBe(1);
+    if (imported.ok) expect(imported.mergedHashes).toBe(1);
+    // 导入的价格历史并入
     expect(svc.getPriceHistory()).toEqual({
       "New Item": [{ timestamp: BASE / 1000, price: 1, volume: 5 }],
     });
-    expect(svc.getStats().hourly).toEqual([]);
+    // 现有采样快照**未被替换**（旧行为会整体替换）
+    expect(svc.getStats().latest).not.toBeNull();
+    expect(svc.getStats().hourly.length).toBeGreaterThan(0);
   });
 
-  it("importHistory 非法 JSON 返回 invalid_backup 且不改动现有数据", async () => {
+  it("幂等：同一份备份连续导入两次，价格历史与采样都不翻倍", async () => {
+    const svc = makeService({
+      targetHashes: ["Copper Coin"],
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        points: [
+          { timestamp: BASE / 1000, price: 0.5, volume: 100 },
+          { timestamp: (BASE - 3600_000) / 1000, price: 0.4, volume: 50 },
+        ],
+      }),
+    });
+    await svc.refreshHistory(BASE);
+    svc.recordVolume("Copper Coin", 300, 0.5, "USD");
+    svc.sampleNow(BASE);
+
+    const backup = JSON.stringify(svc.exportHistory());
+    const hourlyBefore = svc.getStats().hourly;
+    const itemsBefore = svc.getVolumeItems().items;
+
+    for (let i = 0; i < 2; i++) {
+      const res = svc.importHistory(backup, "USD");
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect(res.mergedHashes).toBe(0);
+        expect(res.mergedSamples).toBe(0);
+        expect(res.mergedLivePoints).toBe(0);
+      }
+    }
+    expect(svc.getStats().hourly).toEqual(hourlyBefore);
+    expect(svc.getVolumeItems().items).toEqual(itemsBefore);
+  });
+
+  it("非法 JSON 返回 invalid_backup 且不改动现有数据", async () => {
     const svc = makeService({
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
@@ -822,20 +877,110 @@ describe("MarketVolumeService 历史数据导出 / 导入", () => {
     const before = svc.getPriceHistory();
     const hourlyBefore = svc.getStats().hourly;
 
-    expect(svc.importHistory("{ not json")).toEqual({ ok: false, reason: "invalid_backup" });
-    expect(svc.importHistory(JSON.stringify("just a string"))).toEqual({
+    expect(svc.importHistory("{ not json", "USD")).toEqual({
+      ok: false,
+      reason: "invalid_backup",
+    });
+    expect(svc.importHistory(JSON.stringify("just a string"), "USD")).toEqual({
       ok: false,
       reason: "invalid_backup",
     });
     expect(svc.getPriceHistory()).toEqual(before);
     expect(svc.getStats().hourly).toEqual(hourlyBefore);
   });
+
+  it("analyzeBackupJson 返回摘要、币种来源与时间范围", async () => {
+    const svc = makeService({ getFxRates: () => ({ USD: 1, CNY: 7.1 }) });
+    const res = svc.analyzeBackupJson(
+      JSON.stringify({
+        currency: "CNY",
+        samples: [],
+        historyHourly: [],
+        priceHistory: {
+          A: [{ timestamp: BASE / 1000, price: 7.1, volume: 1 }],
+          B: [{ timestamp: (BASE + 3600_000) / 1000, price: 14.2, volume: 2 }],
+        },
+        itemCount: 2,
+        itemCountsByCategory: { MATERIAL: 2 },
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.detectedCurrency).toBe("CNY");
+    expect(res.detectedBy).toBe("declared");
+    expect(res.baseCurrencyFile).toBe(false);
+    expect(res.detection).toBeNull();
+    expect(res.itemCount).toBe(2);
+    expect(res.priceHashCount).toBe(2);
+    expect(res.pricePointCount).toBe(2);
+    expect(res.oldestTs).toBe(BASE / 1000);
+    expect(res.newestTs).toBe((BASE + 3600_000) / 1000);
+  });
+
+  it("analyzeBackupJson 对缺省币种字段的旧备份，用价格历史 × USD 快照自动探测", () => {
+    const svc = makeService({
+      getFxRates: () => ({ USD: 1, CNY: 7.1, BRL: 5.4 }),
+      getSnapshotPriceUsd: (hash) => ({ A: 1, B: 2, C: 5 })[hash] ?? 0,
+    });
+    const res = svc.analyzeBackupJson(
+      JSON.stringify({
+        priceHistory: {
+          A: [{ timestamp: BASE / 1000, price: 7.1, volume: 1 }],
+          B: [{ timestamp: BASE / 1000, price: 14.2, volume: 1 }],
+          C: [{ timestamp: BASE / 1000, price: 35.5, volume: 1 }],
+        },
+        itemCount: 3,
+        itemCountsByCategory: {},
+      }),
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.detectedCurrency).toBe("CNY");
+    expect(res.detectedBy).toBe("auto");
+    expect(res.detection?.method).toBe("usdSnapshot");
+    expect(res.detection?.samples).toBe(3);
+  });
+
+  it("importHistory 传 auto 时按自动探测结果换算为 USD 后融合", () => {
+    const svc = makeService({
+      getFxRates: () => ({ USD: 1, CNY: 7.1 }),
+      getSnapshotPriceUsd: (hash) => ({ A: 1, B: 2, C: 5 })[hash] ?? 0,
+    });
+    const res = svc.importHistory(
+      JSON.stringify({
+        priceHistory: {
+          A: [{ timestamp: BASE / 1000, price: 7.1, volume: 1 }],
+          B: [{ timestamp: BASE / 1000, price: 14.2, volume: 1 }],
+          C: [{ timestamp: BASE / 1000, price: 35.5, volume: 1 }],
+        },
+        itemCount: 3,
+        itemCountsByCategory: {},
+      }),
+      "auto",
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.converted?.from).toBe("CNY");
+    const ph = svc.getPriceHistory();
+    expect(ph.A[0].price).toBeCloseTo(1, 6);
+    expect(ph.B[0].price).toBeCloseTo(2, 6);
+    expect(ph.C[0].price).toBeCloseTo(5, 6);
+  });
 });
 
-describe("MarketVolumeService 多货币同步", () => {
-  it("落盘带 currency 字段；同币重启恢复，异币重启丢弃金额数据", async () => {
-    const svc = makeService({
-      targetHashes: ["Copper Coin"],
+describe("MarketVolumeService USD 基准货币与显示货币", () => {
+  it("落盘 v2 / USD；切显示货币后历史保留、金额按 fx 换算且不重写落盘货币", async () => {
+    const fx = { USD: 1, CNY: 7.1 };
+    let display = "USD";
+    const svc = new MarketVolumeService({
+      getCatalog: () => [],
+      getCurrency: () => display,
+      getCookie: () => "",
+      getTargetHashes: () => ["Copper Coin"],
+      getHistoryBatchSize: () => 10,
+      getHistoryBatchDelaySec: () => 0,
+      getFxRates: () => fx,
+      filePath: () => file,
       fetchHistory: async () => ({
         ok: true,
         status: 200,
@@ -844,103 +989,102 @@ describe("MarketVolumeService 多货币同步", () => {
       }),
     });
     await svc.refreshHistory(BASE);
-    svc.recordVolume("Copper Coin", 300, 0.5, "USD");
+    svc.recordVolume("Copper Coin", 300, 1, "USD");
     svc.sampleNow(BASE);
 
     const onDisk = JSON.parse(readFileSync(file, "utf-8"));
+    expect(onDisk.version).toBe(2);
     expect(onDisk.currency).toBe("USD");
+    // 入库金额为 USD，与显示货币（USD）一致
+    expect(svc.getStats().latest!.total).toBeCloseTo(300, 6);
 
-    // 同币重启：金额数据恢复
-    const same = makeService();
-    expect(Object.keys(same.getPriceHistory())).toContain("Copper Coin");
-    expect(same.getStats().hourly.length).toBeGreaterThan(0);
+    // 切显示货币到 CNY：历史**保留**（旧行为会清空），金额按 fx 换算
+    display = "CNY";
+    svc.onCurrencyChanged();
+    expect(svc.getPriceHistory()["Copper Coin"]).toBeDefined();
+    expect(svc.getStats().hourly.length).toBeGreaterThan(0);
+    expect(svc.getStats().currency).toBe("CNY");
+    expect(svc.getStats().latest!.total).toBeCloseTo(300 * 7.1, 4);
+    // 卡片口径：priceHistory 优先于 live 采样 → 0.5 USD × 100 件 → CNY
+    expect(svc.getVolumeItems().items[0]!.total).toBeCloseTo(0.5 * 100 * 7.1, 4);
 
-    // 异币重启：金额数据全部丢弃（避免旧币数值标新币标签），元数据一并清空
-    const other = makeService({ currency: "CNY" });
-    expect(other.getPriceHistory()).toEqual({});
-    expect(other.getStats().hourly).toEqual([]);
-    expect(other.getStats().latest).toBeNull();
-    expect(other.getVolumeItems().items).toEqual([]);
-    expect(other.getStats().currency).toBe("CNY");
+    // 落盘仍是 USD（入库计价与显示货币无关）
+    const onDisk2 = JSON.parse(readFileSync(file, "utf-8"));
+    expect(onDisk2.currency).toBe("USD");
+    expect(onDisk2.priceHistory["Copper Coin"][0].price).toBeCloseTo(0.5, 6);
   });
 
-  it("旧格式（无 currency 字段）从采样确认货币一致时，无损保留细粒度历史并迁移落盘", async () => {
+  it("显示货币为 CNY 时采样换算为 USD 入库（展示再换算回 CNY）", () => {
+    const svc = makeService({ currency: "CNY", getFxRates: () => ({ USD: 1, CNY: 7.1 }) });
+    svc.recordVolume("Copper Coin", 100, 7.1, "CNY");
+    // 展示口径：100 × 7.1 CNY
+    expect(svc.getVolumeItems().items[0]!.total).toBeCloseTo(100 * 7.1, 6);
+    svc.sampleNow(BASE);
+    // 落盘口径：median 与采样金额都是 USD
+    const onDisk = JSON.parse(readFileSync(file, "utf-8"));
+    expect(onDisk.liveHistory["Copper Coin"][0].median).toBeCloseTo(1, 6);
+    expect(onDisk.samples[0].total).toBeCloseTo(100, 6);
+    expect(onDisk.samples[0].currency).toBe("USD");
+  });
+
+  it("fx 缺少显示货币时按 USD 原值展示并标 USD（不误标其他币种）", () => {
     writeFileSync(
       file,
       JSON.stringify({
+        version: 2,
+        currency: "USD",
         samples: [
           {
             timestamp: "2026-08-25T00:00:00Z",
             items: 1,
-            total: 10,
+            total: 50,
             byCategory: {},
             currency: "USD",
           },
         ],
         historyHourly: [],
-        priceHistory: {
-          "Copper Coin": [
-            { timestamp: BASE / 1000, price: 0.5, volume: 100 },
-            { timestamp: (BASE - 48 * 3600_000) / 1000, price: 0.4, volume: 80 },
-          ],
-        },
+        priceHistory: { "Copper Coin": [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }] },
         itemCount: 1,
         itemCountsByCategory: { COIN: 1 },
-        historyFetchedAtMs: BASE,
       }),
     );
-    const svc = makeService(); // USD
-    // 细粒度 history 点数全部保留（含 48h 前的老点）+ 采样恢复
-    expect(svc.getPriceHistory()["Copper Coin"]).toHaveLength(2);
-    expect(svc.getStats().latest).not.toBeNull();
-    expect(svc.getStats().latest!.currency).toBe("USD");
-    // 一次性迁移：顶层 currency 已补写落盘
-    const onDisk = JSON.parse(readFileSync(file, "utf-8"));
-    expect(onDisk.currency).toBe("USD");
-    expect(onDisk.priceHistory["Copper Coin"]).toHaveLength(2);
+    const svc = makeService({ currency: "CNY", getFxRates: () => ({}) });
+    const stats = svc.getStats();
+    expect(stats.currency).toBe("USD");
+    expect(stats.latest!.currency).toBe("USD");
+    expect(stats.latest!.total).toBeCloseTo(50, 6); // 原值，不放大
   });
 
-  it("旧格式确认出的货币与当前显示货币不符时，仍保守丢弃", async () => {
+  it("旧版（v1）异币文件载入时换算保留并就地迁移为 v2/USD（不再丢弃）", () => {
     writeFileSync(
       file,
       JSON.stringify({
+        currency: "CNY",
         samples: [
           {
             timestamp: "2026-08-25T00:00:00Z",
             items: 1,
-            total: 10,
-            byCategory: {},
-            currency: "USD",
+            total: 710,
+            byCategory: { COIN: 710 },
+            currency: "CNY",
           },
         ],
-        priceHistory: {
-          "Copper Coin": [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
-        },
+        priceHistory: { "Copper Coin": [{ timestamp: BASE / 1000, price: 7.1, volume: 100 }] },
         itemCount: 1,
         itemCountsByCategory: { COIN: 1 },
       }),
     );
-    const svc = makeService({ currency: "CNY" });
-    expect(svc.getPriceHistory()).toEqual({});
-    expect(svc.getStats().latest).toBeNull();
+    const svc = makeService({ currency: "USD", getFxRates: () => ({ USD: 1, CNY: 7.1 }) });
+    expect(svc.getPriceHistory()["Copper Coin"][0].price).toBeCloseTo(1, 6);
+    expect(svc.getStats().latest!.total).toBeCloseTo(100, 6);
+
+    const onDisk = JSON.parse(readFileSync(file, "utf-8"));
+    expect(onDisk.version).toBe(2);
+    expect(onDisk.currency).toBe("USD");
+    expect(onDisk.priceHistory["Copper Coin"][0].price).toBeCloseTo(1, 6);
   });
 
-  it("旧格式无采样货币或采样混杂 → 无法确认，金额数据被丢弃", async () => {
-    // 采样缺 currency 字段：无法确认
-    writeFileSync(
-      file,
-      JSON.stringify({
-        samples: [{ timestamp: "2026-08-25T00:00:00Z", items: 1, total: 10, byCategory: {} }],
-        priceHistory: {
-          "Copper Coin": [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
-        },
-        itemCount: 1,
-        itemCountsByCategory: { COIN: 1 },
-      }),
-    );
-    expect(makeService().getPriceHistory()).toEqual({});
-
-    // 采样货币混杂（USD 与 CNY 并存）→ 保守放弃
+  it("旧格式（无顶层 currency）从采样推断币种后同样换算保留并迁移", () => {
     writeFileSync(
       file,
       JSON.stringify({
@@ -948,64 +1092,65 @@ describe("MarketVolumeService 多货币同步", () => {
           {
             timestamp: "2026-08-25T00:00:00Z",
             items: 1,
-            total: 10,
-            byCategory: {},
-            currency: "USD",
-          },
-          {
-            timestamp: "2026-08-25T01:00:00Z",
-            items: 1,
-            total: 9,
+            total: 710,
             byCategory: {},
             currency: "CNY",
           },
         ],
-        priceHistory: {
-          "Copper Coin": [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
-        },
+        priceHistory: { "Copper Coin": [{ timestamp: BASE / 1000, price: 7.1, volume: 100 }] },
         itemCount: 1,
         itemCountsByCategory: { COIN: 1 },
       }),
     );
-    expect(makeService().getPriceHistory()).toEqual({});
+    const svc = makeService({ currency: "USD", getFxRates: () => ({ USD: 1, CNY: 7.1 }) });
+    expect(svc.getPriceHistory()["Copper Coin"][0].price).toBeCloseTo(1, 6);
+    const onDisk = JSON.parse(readFileSync(file, "utf-8"));
+    expect(onDisk.currency).toBe("USD");
+    expect(onDisk.version).toBe(2);
   });
 
-  it("onCurrencyChanged 清空金额数据并立即以新币落盘", async () => {
-    const svc = makeService({
-      targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({
-        ok: true,
-        status: 200,
-        points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
+  it("币种不可知或 fx 缺该币种时保守丢弃金额数据", () => {
+    // 无 currency 字段、无 samples，却有价格历史 → 币种无法确认
+    writeFileSync(
+      file,
+      JSON.stringify({
+        priceHistory: { "Copper Coin": [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }] },
+        itemCount: 1,
+        itemCountsByCategory: { COIN: 1 },
       }),
-    });
-    await svc.refreshHistory(BASE);
-    svc.recordVolume("Copper Coin", 300, 0.5, "USD");
-    svc.sampleNow(BASE);
+    );
+    expect(makeService({ getFxRates: () => ({ USD: 1 }) }).getPriceHistory()).toEqual({});
 
-    // 可变 deps 模拟 appState.setCurrency：先改 config.currency，再通知清账。
-    let current = "USD";
-    const live = new MarketVolumeService({
-      getCatalog: () => [],
-      getCurrency: () => current,
-      getCookie: () => "",
-      getTargetHashes: () => [],
-      getHistoryBatchSize: () => 10,
-      getHistoryBatchDelaySec: () => 0,
-      filePath: () => file,
-    });
-    live.recordVolume("Copper Coin", 300, 0.5, "USD");
-    live.sampleNow(BASE);
-    expect(live.getVolumeItems().items.length).toBeGreaterThan(0);
+    // 币种确认为 CNY 但 fx 表缺 CNY → 无法换算
+    writeFileSync(
+      file,
+      JSON.stringify({
+        currency: "CNY",
+        priceHistory: { "Copper Coin": [{ timestamp: BASE / 1000, price: 7.1, volume: 100 }] },
+        itemCount: 1,
+        itemCountsByCategory: { COIN: 1 },
+      }),
+    );
+    expect(makeService({ getFxRates: () => ({ USD: 1 }) }).getPriceHistory()).toEqual({});
+  });
 
-    current = "CNY"; // config.currency 已更新
-    live.onCurrencyChanged();
-    expect(live.getVolumeItems().items).toEqual([]);
-    expect(live.getStats().hourly).toEqual([]);
-    expect(live.getStats().latest).toBeNull();
-    const onDisk = JSON.parse(readFileSync(file, "utf-8"));
-    expect(onDisk.currency).toBe("CNY");
-    expect(onDisk.priceHistory).toEqual({});
+  it("已经是 USD 的 v2 文件原值保留、不被二次换算", () => {
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        currency: "USD",
+        samples: [],
+        historyHourly: [],
+        priceHistory: { "Copper Coin": [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }] },
+        itemCount: 1,
+        itemCountsByCategory: { COIN: 1 },
+      }),
+    );
+    const svc = makeService({ currency: "CNY", getFxRates: () => ({ USD: 1, CNY: 7.1 }) });
+    expect(svc.getPriceHistory()["Copper Coin"][0].price).toBe(0.5);
+    // 展示换算：0.5 × 100 USD → CNY
+    expect(svc.getStats().hourly[0]!.total).toBeCloseTo(50 * 7.1, 4);
   });
 
   it("recordVolume 丢弃与当前显示货币不符的采样（防切换竞态混入）", () => {
@@ -1016,95 +1161,8 @@ describe("MarketVolumeService 多货币同步", () => {
     expect(svc.getVolumeItems().items).toHaveLength(1);
   });
 
-  it("importHistory 拒绝异币备份且不改动现有数据", async () => {
-    const svc = makeService({
-      targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({
-        ok: true,
-        status: 200,
-        points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
-      }),
-    });
-    await svc.refreshHistory(BASE);
-    const before = svc.getPriceHistory();
-
-    const res = svc.importHistory(
-      JSON.stringify({
-        currency: "CNY",
-        samples: [],
-        historyHourly: [],
-        priceHistory: { "Other Item": [{ timestamp: BASE / 1000, price: 1, volume: 5 }] },
-        itemCount: 1,
-        itemCountsByCategory: {},
-      }),
-    );
-    expect(res).toEqual({ ok: false, reason: "currency_mismatch" });
-    expect(svc.getPriceHistory()).toEqual(before);
-  });
-
-  it("importHistory 旧格式备份经采样确认货币一致时导入成功（无损迁移）", () => {
-    const svc = makeService(); // USD
-    const res = svc.importHistory(
-      JSON.stringify({
-        samples: [
-          {
-            timestamp: "2026-08-25T00:00:00Z",
-            items: 1,
-            total: 10,
-            byCategory: {},
-            currency: "USD",
-          },
-        ],
-        historyHourly: [],
-        priceHistory: {
-          "Other Item": [
-            { timestamp: BASE / 1000, price: 1, volume: 5 },
-            { timestamp: (BASE - 7200_000) / 1000, price: 1.2, volume: 3 },
-          ],
-        },
-        itemCount: 1,
-        itemCountsByCategory: { MATERIAL: 1 },
-      }),
-    );
-    expect(res).toEqual({ ok: true, itemCount: 1 });
-    expect(svc.getPriceHistory()["Other Item"]).toHaveLength(2);
-  });
-
-  it("importHistory 旧格式备份无法确认货币（采样混杂）时拒绝", () => {
-    const svc = makeService(); // USD
-    const res = svc.importHistory(
-      JSON.stringify({
-        samples: [
-          {
-            timestamp: "2026-08-25T00:00:00Z",
-            items: 1,
-            total: 10,
-            byCategory: {},
-            currency: "USD",
-          },
-          {
-            timestamp: "2026-08-25T01:00:00Z",
-            items: 1,
-            total: 9,
-            byCategory: {},
-            currency: "CNY",
-          },
-        ],
-        priceHistory: {
-          "Other Item": [{ timestamp: BASE / 1000, price: 1, volume: 5 }],
-        },
-        itemCount: 1,
-        itemCountsByCategory: { MATERIAL: 1 },
-      }),
-    );
-    expect(res).toEqual({ ok: false, reason: "currency_mismatch" });
-    expect(svc.getPriceHistory()).toEqual({});
-  });
-
-  it("importHistory 币种不一致但带 fx 汇率表时，按比例换算导入（converted）", () => {
-    const svc = makeService({
-      getFxRates: () => ({ USD: 1, CNY: 7.2 }),
-    }); // USD；fx：1 USD = 7.2 CNY
+  it("importHistory 用户显式选定币种优先，按 fx 换算为 USD 后融合", () => {
+    const svc = makeService({ getFxRates: () => ({ USD: 1, CNY: 7.2 }) });
     const res = svc.importHistory(
       JSON.stringify({
         currency: "CNY",
@@ -1117,35 +1175,25 @@ describe("MarketVolumeService 多货币同步", () => {
             currency: "CNY",
           },
         ],
-        historyHourly: [
-          { hour: "2026-08-25T00:00:00Z", total: 140, byCategory: { MATERIAL: 140 } },
-        ],
-        priceHistory: {
-          "Item A": [
-            { timestamp: BASE / 1000, price: 7.2, volume: 10 },
-            { timestamp: (BASE - 3600_000) / 1000, price: 14.4, volume: 5 },
-          ],
-        },
-        liveHistory: {
-          "Item A": [{ ts: BASE, volume: 10, median: 7.2 }],
-        },
+        historyHourly: [],
+        priceHistory: { "Item A": [{ timestamp: BASE / 1000, price: 7.2, volume: 10 }] },
+        liveHistory: { "Item A": [{ ts: BASE, volume: 10, median: 7.2 }] },
         itemCount: 1,
         itemCountsByCategory: { MATERIAL: 1 },
       }),
+      "CNY",
     );
-    expect(res).toEqual({ ok: true, itemCount: 1, converted: true });
-    // 全部金额 × (fx[USD]/fx[CNY] = 1/7.2)
-    const ph = svc.getPriceHistory()["Item A"];
-    expect(ph[0].price).toBeCloseTo(7.2 / 7.2, 6); // =1 USD
-    expect(ph[1].price).toBeCloseTo(14.4 / 7.2, 6); // =2 USD
-    expect(svc.getStats().latest!.total).toBeCloseTo(72 / 7.2, 6);
-    expect(svc.getStats().hourly[0].total).toBeCloseTo(140 / 7.2, 6);
-    // live median 也换算
-    expect(svc.getVolumeItems().items).not.toBeNull();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.converted?.from).toBe("CNY");
+    expect(res.converted!.rate).toBeCloseTo(1 / 7.2, 9);
+    // 全部金额 × (1 / fx[CNY]) → USD
+    expect(svc.getPriceHistory()["Item A"][0].price).toBeCloseTo(1, 6);
+    expect(svc.getStats().latest!.total).toBeCloseTo(10, 6);
   });
 
-  it("importHistory 币种不一致且无 fx 时，用当前价格历史同 hash 价格比推算后换算导入", async () => {
-    // 当前（USD）已有 Item A 的价格历史：BASE 时刻价 1
+  it("importHistory 缺 fx 时回退用当前 USD 价格历史同 hash 价格比推算", async () => {
+    // 当前已有 USD 历史：Item A 在 BASE 时刻价 1
     const svc = makeService({
       targetHashes: ["Item A"],
       fetchHistory: async () => ({
@@ -1164,33 +1212,47 @@ describe("MarketVolumeService 多货币同步", () => {
         currency: "CNY",
         samples: [],
         historyHourly: [],
-        priceHistory: {
-          "Item A": [{ timestamp: BASE / 1000, price: 7.4, volume: 50 }],
-        },
+        priceHistory: { "Item A": [{ timestamp: BASE / 1000, price: 7.4, volume: 50 }] },
         itemCount: 1,
         itemCountsByCategory: {},
       }),
+      "auto",
     );
-    expect(res).toEqual({ ok: true, itemCount: 1, converted: true });
-    // 导入后 Item A 价格被换算到 USD：7.4 * (1/7.4) ≈ 1
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.converted?.from).toBe("CNY");
     expect(svc.getPriceHistory()["Item A"][0].price).toBeCloseTo(1, 5);
   });
 
-  it("importHistory 币种不一致、无 fx 且无共同价格可推算时仍拒绝", () => {
-    const svc = makeService(); // USD，无当前 priceHistory
+  it("importHistory 币种无法确认或换算比例不可得时返回 conversion_unavailable 且不改动数据", () => {
+    // 无 currency 字段、无采样、无 USD 参考 → 自动探测不出币种
+    const svc = makeService();
+    const before = svc.getPriceHistory();
     const res = svc.importHistory(
       JSON.stringify({
         currency: "CNY",
         samples: [],
-        priceHistory: {
-          "Other Item": [{ timestamp: BASE / 1000, price: 1, volume: 5 }],
-        },
+        priceHistory: { "Other Item": [{ timestamp: BASE / 1000, price: 1, volume: 5 }] },
         itemCount: 1,
         itemCountsByCategory: {},
       }),
+      "auto",
     );
-    expect(res).toEqual({ ok: false, reason: "currency_mismatch" });
-    expect(svc.getPriceHistory()).toEqual({});
+    expect(res).toEqual({ ok: false, reason: "conversion_unavailable" });
+    expect(svc.getPriceHistory()).toEqual(before);
+
+    // 用户显式选了币种但 fx 缺该币、且无共同价格可推算
+    const res2 = svc.importHistory(
+      JSON.stringify({
+        samples: [],
+        priceHistory: { "Other Item": [{ timestamp: BASE / 1000, price: 1, volume: 5 }] },
+        itemCount: 1,
+        itemCountsByCategory: {},
+      }),
+      "CNY",
+    );
+    expect(res2).toEqual({ ok: false, reason: "conversion_unavailable" });
+    expect(svc.getPriceHistory()).toEqual(before);
   });
 });
 
