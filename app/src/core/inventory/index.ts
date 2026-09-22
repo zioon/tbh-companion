@@ -5,6 +5,13 @@ export {
   materialStacksFromAggregates,
 } from "./aggregates";
 export {
+  MAX_STACK_PER_SLOT,
+  clampStackQuantity,
+  materialStacksFromSlots,
+  type SlotEntry,
+  type StackSlotLocation,
+} from "./stacks";
+export {
   resolveInventory,
   ownedMarketNames,
   type PriceLookup,

@@ -40,7 +40,23 @@ export function aggregateSubKeyToItemKey(type: number, subKey: number): number |
   return 140_000 + (subKey % 10_000);
 }
 
-/** Build ItemKey -> stack quantity from aggregate rows (materials only). */
+/**
+ * Legacy fallback: ItemKey -> quantity from lifetime aggregate rows (materials
+ * only).
+ *
+ * `aggregateSaveDatas` is a set of **lifetime counters**, not a live inventory
+ * snapshot — it keeps counting even after materials are consumed. It was the
+ * only material source before the stacking update; now the authoritative source
+ * is the per-slot `Quantity` on `inventorySaveDatas`/`stashSaveDatas` (see
+ * `./stacks.ts`). This function is therefore used **only** when no slot-based
+ * stacking data is available (old save, or field removed).
+ *
+ * When two distinct SubKeys map to the same ItemKey we take the larger counter
+ * — summing them would double-count the same lifetime tally. The result is
+ * still clamped per catalog semantics downstream; here we only avoid emitting a
+ * value above {@link MAX_STACK_PER_SLOT}-derived totals is left to callers
+ * because aggregates are lifetime totals, not per-slot stacks.
+ */
 export function materialStacksFromAggregates(
   entries: AggregateEntry[],
   isMaterialItemKey: (itemKey: number) => boolean,

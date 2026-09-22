@@ -13,6 +13,7 @@ import type {
   ResolvedInventoryRow,
   InventoryPriceInfo,
   BuyOrderLevel,
+  MaterialStackTotal,
 } from "../../../shared/types";
 
 export interface PriceLookup {
@@ -205,39 +206,38 @@ function accumulateInstances(
   });
 }
 
-function hasSavedInstances(
-  items: InventoryItemInstance[],
-  itemKey: number,
-  excludeItemKey?: (itemKey: number) => boolean,
-): boolean {
-  return items.some(
-    (instance) => instance.itemKey === itemKey && !excludeItemKey?.(instance.itemKey),
-  );
-}
-
 function mergeMaterialStacks(
   rowsByItemKey: Map<number, ResolvedInventoryRow>,
-  stacks: Map<number, number>,
+  stacks: Map<number, MaterialStackTotal>,
   snapshot: InventorySnapshot,
   lookup: (itemKey: number) => GameItem | undefined,
   priceLookup: PriceLookup | undefined,
   excludeItemKey?: (itemKey: number) => boolean,
 ): void {
-  stacks.forEach((stackQty, itemKey) => {
+  stacks.forEach((stack, itemKey) => {
     if (excludeItemKey?.(itemKey)) return;
     if (snapshot.marketPipelineOnlyCatalogKeys?.has(itemKey)) return;
 
     const catalogItem = lookup(itemKey);
     if (!catalogItem) return;
+    // Material rows carry stack totals; gear never appears in `materialStacks`.
+    if (catalogItem.type !== "MATERIAL") return;
+    if (stack.total <= 0) return;
 
     const row = rowsByItemKey.has(itemKey)
       ? rowsByItemKey.get(itemKey)!
       : ensureRow(rowsByItemKey, itemKey, catalogItem, priceLookup);
-    if (row.type !== "MATERIAL" || stackQty <= row.count) return;
-    if (hasSavedInstances(snapshot.items, itemKey, excludeItemKey)) return;
 
-    row.count = stackQty;
-    row.inventoryCount = stackQty;
+    // `materialStacks` is the authoritative total (sum of per-slot `Quantity`).
+    // `itemSaveDatas` material rows are stack *templates* — the same UniqueId is
+    // repeated once per holding slot (verified: one id can appear 24× in a live
+    // save), so counting instances would inflate the total. Overwrite the row's
+    // counted fields with the slot sums; leave `inUseCount` / `chaoticCount`
+    // (set by the instance pass) untouched.
+    row.count = stack.total;
+    row.inventoryCount = stack.inventory;
+    row.stashCount = stack.stash;
+    row.tradingCount = stack.trading;
   });
 }
 

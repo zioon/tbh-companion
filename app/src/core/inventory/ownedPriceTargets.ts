@@ -36,16 +36,27 @@ export function ownedPriceTargets(
   const targets: OwnedPriceTarget[] = [];
   const seenItemKeys = new Set<number>();
 
-  snapshot.items.forEach((instance) => {
-    if (excludeItemKey?.(instance.itemKey)) return;
-    if (seenItemKeys.has(instance.itemKey)) return;
-    seenItemKeys.add(instance.itemKey);
+  const addItemKey = (itemKey: number): void => {
+    if (excludeItemKey?.(itemKey)) return;
+    if (seenItemKeys.has(itemKey)) return;
+    seenItemKeys.add(itemKey);
 
-    const catalogItem = lookup(instance.itemKey);
+    const catalogItem = lookup(itemKey);
     if (!catalogItem) return;
 
     const target = ownedPriceTargetForItem(catalogItem);
     if (target) targets.push(target);
+  };
+
+  snapshot.items.forEach((instance) => addItemKey(instance.itemKey));
+
+  // Materials can exist ONLY as stack holdings (no assignable `itemSaveDatas`
+  // instance — the sole durable record is the per-slot `Quantity`). Without
+  // this pass those materials would never get a price target and would show no
+  // market value on the Inventory tab.
+  snapshot.materialStacks?.forEach((stack, itemKey) => {
+    if (stack.total <= 0) return;
+    addItemKey(itemKey);
   });
 
   return targets;

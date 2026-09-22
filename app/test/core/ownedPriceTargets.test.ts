@@ -52,6 +52,25 @@ describe("ownedPriceTargets", () => {
     expect(targets).toEqual([{ kind: "material", hash: "Wood" }]);
   });
 
+  it("includes materials that exist only as stack holdings (no itemSaveDatas instance)", () => {
+    const lookup = (key: number) => (key === 141002 ? mat : undefined);
+    const withStacks: InventorySnapshot = {
+      ...snap([]),
+      materialStacks: new Map([[141002, { total: 7, inventory: 5, stash: 2, trading: 0 }]]),
+    };
+    const targets = ownedPriceTargets(withStacks, lookup);
+    expect(targets).toEqual([{ kind: "material", hash: "Wood" }]);
+  });
+
+  it("ignores zero-total stack entries", () => {
+    const lookup = (key: number) => (key === 141002 ? mat : undefined);
+    const withStacks: InventorySnapshot = {
+      ...snap([]),
+      materialStacks: new Map([[141002, { total: 0, inventory: 0, stash: 0, trading: 0 }]]),
+    };
+    expect(ownedPriceTargets(withStacks, lookup)).toEqual([]);
+  });
+
   it("flattens all variant hashes for cache prune", () => {
     const target = ownedPriceTargetForItem(gearLeg);
     expect(target?.kind).toBe("gear");

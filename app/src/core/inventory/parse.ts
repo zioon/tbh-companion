@@ -3,12 +3,14 @@
 import { catalogItemKeyFromSave, isMarketPipelineSaveItemKey } from "../gamedata";
 import { unwrapEs3Entry } from "../save/snapshot";
 import { materialStacksFromAggregates, parseAggregateEntries } from "./aggregates";
+import { materialStacksFromSlots, type SlotEntry, type StackSlotLocation } from "./stacks";
 import type {
   InventoryItemInstance,
   ChestHolding,
   InventorySnapshot,
   ItemLocation,
   BoxCategory,
+  MaterialStackTotal,
 } from "../../../shared/types";
 
 function toNum(v: unknown, fallback = 0): number {
@@ -68,20 +70,80 @@ function parseSlotUniqueIds(playerStr: string, arrayKey: string): Set<string> {
   return ids;
 }
 
-/** Counts unlocked inventory slots and how many hold an item, from a flat slot-object array.
- *  Uses depth-aware splitting (same as `splitTopLevelObjects`) so a save format that
- *  later adds nested sub-objects inside a slot (e.g. enchant data) is not mis-parsed. */
-function parseSlotCapacity(arrText: string): { capacity: number; used: number } {
+/** Extract the raw text of a field, preserving full precision (UniqueId etc.). */
+const SLOT_UNIQUE_ID_RE = /"ItemUniqueId"\s*:\s*(\d+)/;
+const SLOT_UNLOCK_RE = /"(?:IsUnlock|IsUnLock)"\s*:\s*true/;
+const SLOT_QUANTITY_RE = /"Quantity"\s*:\s*(-?\d+)/;
+
+/**
+ * Parse the flat slot-object arrays (`inventorySaveDatas` / `stashSaveDatas` /
+ * `remakeTradingStashSaveDatas`) into normalized {@link SlotEntry} records.
+ *
+ * Uses depth-aware splitting (same as `splitTopLevelObjects`) so a save format
+ * that nests sub-objects inside a slot is not mis-parsed. `ItemUniqueId` is kept
+ * as a digit **string** — ids exceed `Number.MAX_SAFE_INTEGER`. `Quantity` is
+ * `null` when the field is absent (pre-stacking save / field removed), which the
+ * stack builder treats as "no contribution", letting the aggregate fallback run.
+ */
+function parseSlots(arrText: string): SlotEntry[] {
+  const slots: SlotEntry[] = [];
+  for (const obj of splitTopLevelObjects(arrText)) {
+    const idMatch = SLOT_UNIQUE_ID_RE.exec(obj);
+    if (!idMatch) continue;
+    const qtyMatch = SLOT_QUANTITY_RE.exec(obj);
+    slots.push({
+      itemUniqueId: idMatch[1],
+      isUnlock: SLOT_UNLOCK_RE.test(obj),
+      quantity: qtyMatch ? Math.trunc(Number(qtyMatch[1])) : null,
+    });
+  }
+  return slots;
+}
+
+/** Capacity/used from parsed slot entries — shared by the string and object paths
+ *  so the dual occupancy criterion can never drift between them. See
+ *  {@link parseSlotCapacity} for the criterion rationale. */
+function slotCapacityFromEntries(slots: readonly SlotEntry[]): { capacity: number; used: number } {
+  const slotsWithQuantity = slots.filter((slot) => slot.quantity != null).length;
   let capacity = 0;
   let used = 0;
-  for (const obj of splitTopLevelObjects(arrText)) {
-    const isUnlock = /"IsUnlock"\s*:\s*true/.test(obj);
-    if (!isUnlock) continue;
+  for (const slot of slots) {
+    if (!slot.isUnlock) continue;
     capacity++;
-    const idMatch = /"ItemUniqueId"\s*:\s*(\d+)/.exec(obj);
-    if (idMatch && idMatch[1] !== "0") used++;
+    if (slotsWithQuantity > 0) {
+      if (slot.quantity != null && slot.quantity > 0) used++;
+    } else if (slot.itemUniqueId !== "0") {
+      used++;
+    }
   }
   return { capacity, used };
+}
+
+/** Counts unlocked inventory slots and how many hold an item, from a flat slot-object array.
+ *  Uses depth-aware splitting (same as `splitTopLevelObjects`) so a save format that
+ *  later adds nested sub-objects inside a slot (e.g. enchant data) is not mis-parsed.
+ *  A stacked material slot (Quantity > 1) still counts as exactly ONE used slot.
+ *
+ *  Occupancy criterion is **explicitly dual**:
+ *   - New format (any slot carries a `Quantity` field): a slot is used iff
+ *     `Quantity > 0`. The game also zeroes the `ItemUniqueId` of empty slots, so
+ *     both criteria agree today — but keying on `Quantity` keeps us correct if a
+ *     future patch clears only `Quantity` and leaves a stale `ItemUniqueId`.
+ *   - Old format (no slot has `Quantity`): fall back to `ItemUniqueId !== "0"`.
+ *     Without this fallback a pre-stacking save would collapse `used` to 0.
+ *  `capacity` always counts only unlocked slots.
+ *
+ *  Capacity never depends on stacking: a slot holding a 5-stack occupies one
+ *  slot, exactly like a slot holding a single item.
+ *
+ *  Shared by the inventory, stash and trading arrays. Only the **inventory**
+ *  pair is exposed on `InventorySnapshot` — the game pauses chest auto-open
+ *  timers solely when the *inventory* is full, and stash capacity is a pure
+ *  slot count (stacking is irrelevant to it), so the stash/trading results are
+ *  deliberately not surfaced rather than missing.
+ */
+function parseSlotCapacity(arrText: string): { capacity: number; used: number } {
+  return slotCapacityFromEntries(parseSlots(arrText));
 }
 
 /**
@@ -175,6 +237,105 @@ function resolveLocation(
   if (stash.has(uniqueId)) return "stash";
   if (trading.has(uniqueId)) return "trading";
   return "unknown";
+}
+
+/**
+ * Build `UniqueId (string) -> catalog ItemKey` from the `itemSaveDatas` master
+ * list. Used to resolve a material slot's `ItemUniqueId` to the material it
+ * stacks. Keys on the lossless digit **string**: `UniqueId` exceeds
+ * `Number.MAX_SAFE_INTEGER` and rounding would collide distinct stacks.
+ *
+ * Pipeline (suffix `900`) rows are included too — a slot can hold a listed
+ * copy — but the catalog id is derived with the same normalizer as the rest of
+ * the parser so `141002900 -> 141002`.
+ */
+function buildItemKeyByUniqueIdFromString(playerStr: string): Map<string, number> {
+  const arr = sliceJsonArray(playerStr, '"itemSaveDatas":');
+  const map = new Map<string, number>();
+  for (const objText of splitTopLevelObjects(arr)) {
+    const uniqueId = extractRawNumberText(objText, "UniqueId");
+    if (uniqueId == null || uniqueId === "0") continue;
+    const rawItemKeyText = extractRawNumberText(objText, "ItemKey");
+    if (rawItemKeyText === null) continue;
+    const catalogId = catalogItemKeyFromSave(Math.trunc(Number(rawItemKeyText)));
+    if (catalogId <= 0) continue;
+    map.set(uniqueId, catalogId);
+  }
+  return map;
+}
+
+/** Object-path twin of {@link buildItemKeyByUniqueIdFromString}. */
+function buildItemKeyByUniqueIdFromObject(player: Record<string, unknown>): Map<string, number> {
+  const map = new Map<string, number>();
+  const arr = player.itemSaveDatas;
+  if (!Array.isArray(arr)) return map;
+  for (const raw of arr) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    // UniqueId may arrive as a string (preferred) or a (lossy) number.
+    const uniqueId =
+      typeof it.UniqueId === "string" ? it.UniqueId : String(Math.trunc(toNum(it.UniqueId, 0)));
+    if (uniqueId === "0" || uniqueId === "NaN") continue;
+    const catalogId = catalogItemKeyFromSave(Math.trunc(toNum(it.ItemKey, 0)));
+    if (catalogId <= 0) continue;
+    map.set(uniqueId, catalogId);
+  }
+  return map;
+}
+
+/** Slot arrays that can hold stacked materials, with their resolved bag. */
+const STACK_SLOT_ARRAYS = [
+  { key: '"inventorySaveDatas":', objectKey: "inventorySaveDatas", location: "inventory" },
+  { key: '"stashSaveDatas":', objectKey: "stashSaveDatas", location: "stash" },
+  {
+    key: '"remakeTradingStashSaveDatas":',
+    objectKey: "remakeTradingStashSaveDatas",
+    location: "trading",
+  },
+] as const;
+
+/** Collect every slot entry from the bag/stash/trading arrays (string path). */
+function collectMaterialSlotsFromString(playerStr: string): SlotEntry[] {
+  const slots: SlotEntry[] = [];
+  for (const { key, location } of STACK_SLOT_ARRAYS) {
+    for (const slot of parseSlots(sliceJsonArray(playerStr, key))) {
+      slots.push({ ...slot, location });
+    }
+  }
+  return slots;
+}
+
+/** Normalize one object-path slot array into {@link SlotEntry} records. */
+function slotsFromObjectArray(arr: readonly unknown[], location: StackSlotLocation): SlotEntry[] {
+  const slots: SlotEntry[] = [];
+  for (const raw of arr) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const rawId = row.ItemUniqueId;
+    if (rawId == null) continue;
+    const uniqueId = typeof rawId === "string" ? rawId : String(Math.trunc(toNum(rawId, 0)));
+    const rawQty = row.Quantity;
+    const quantity =
+      rawQty == null || !Number.isFinite(Number(rawQty)) ? null : Math.trunc(Number(rawQty));
+    slots.push({
+      itemUniqueId: uniqueId,
+      quantity,
+      isUnlock: Boolean(row.IsUnlock ?? row.IsUnLock),
+      location,
+    });
+  }
+  return slots;
+}
+
+/** Object-path twin of {@link collectMaterialSlotsFromString}. */
+function collectMaterialSlotsFromObject(player: Record<string, unknown>): SlotEntry[] {
+  const slots: SlotEntry[] = [];
+  for (const { objectKey, location } of STACK_SLOT_ARRAYS) {
+    const arr = player[objectKey];
+    if (!Array.isArray(arr)) continue;
+    slots.push(...slotsFromObjectArray(arr, location));
+  }
+  return slots;
 }
 
 function parseItemsFromPlayerString(playerStr: string): {
@@ -315,6 +476,23 @@ function parseChests(
   return chests;
 }
 
+/**
+ * Legacy fallback: shape the lifetime-aggregate totals as `MaterialStackTotal`.
+ * Used only when no slot carries a `Quantity` (pre-stacking save). The aggregate
+ * value is a lifetime counter, not a live bag holding, so it is attributed to
+ * the bag (`inventory`) for display/filter purposes.
+ */
+function aggregateTotalsAsStacks(
+  entries: ReturnType<typeof parseAggregateEntries>,
+  isMaterialItemKey: (itemKey: number) => boolean,
+): Map<number, MaterialStackTotal> {
+  const out = new Map<number, MaterialStackTotal>();
+  materialStacksFromAggregates(entries, isMaterialItemKey).forEach((quantity, itemKey) => {
+    out.set(itemKey, { total: quantity, inventory: quantity, stash: 0, trading: 0 });
+  });
+  return out;
+}
+
 export function parseInventory(
   decryptedText: string,
   saveMtime = 0,
@@ -328,6 +506,7 @@ export function parseInventory(
 
   let items: InventoryItemInstance[] = [];
   let marketPipelineOnlyCatalogKeys: Set<number> | undefined;
+  let materialStacks: Map<number, MaterialStackTotal> | undefined;
   if (playerStr) {
     ({ items, marketPipelineOnlyCatalogKeys } = parseItemsFromPlayerString(playerStr));
   } else if (player && typeof player === "object") {
@@ -335,9 +514,31 @@ export function parseInventory(
   }
 
   const chests = parseChests(player, playerStr, classifyBoxItemKey);
-  let materialStacks: Map<number, number> | undefined;
+
+  // Material stacks: the authoritative source is the per-slot `Quantity` on the
+  // bag/stash slot arrays (game update: materials stack up to MAX_STACK_PER_SLOT
+  // per slot, multiple slots sum). Falls back to the lifetime-aggregate
+  // counters only when no slot carries a `Quantity` (pre-stacking save / field
+  // removed) so old saves keep behaving.
   if (isMaterialItemKey) {
-    materialStacks = materialStacksFromAggregates(parseAggregateEntries(player), isMaterialItemKey);
+    const slotStacks: Map<number, MaterialStackTotal> = playerStr
+      ? materialStacksFromSlots(
+          collectMaterialSlotsFromString(playerStr),
+          buildItemKeyByUniqueIdFromString(playerStr),
+          isMaterialItemKey,
+        )
+      : player && typeof player === "object"
+        ? materialStacksFromSlots(
+            collectMaterialSlotsFromObject(player),
+            buildItemKeyByUniqueIdFromObject(player),
+            isMaterialItemKey,
+          )
+        : new Map();
+
+    materialStacks =
+      slotStacks.size > 0
+        ? slotStacks
+        : aggregateTotalsAsStacks(parseAggregateEntries(player), isMaterialItemKey);
   }
 
   let inventoryCapacity = 0;
@@ -346,13 +547,11 @@ export function parseInventory(
     const arr = sliceJsonArray(playerStr, '"inventorySaveDatas":');
     ({ capacity: inventoryCapacity, used: inventoryUsed } = parseSlotCapacity(arr));
   } else if (player && Array.isArray(player.inventorySaveDatas)) {
-    for (const raw of player.inventorySaveDatas) {
-      if (!raw || typeof raw !== "object") continue;
-      const row = raw as Record<string, unknown>;
-      if (!row.IsUnlock) continue;
-      inventoryCapacity++;
-      if (toNum(row.ItemUniqueId, 0) !== 0) inventoryUsed++;
-    }
+    // Object path reuses the same normalized slot entries + dual criterion as the
+    // string path, so a stacked slot (Quantity > 1) still counts as ONE used slot.
+    ({ capacity: inventoryCapacity, used: inventoryUsed } = slotCapacityFromEntries(
+      slotsFromObjectArray(player.inventorySaveDatas, "inventory"),
+    ));
   }
 
   return {

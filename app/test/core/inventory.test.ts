@@ -227,9 +227,166 @@ describe("parseInventory", () => {
     expect(snap.items[0]?.location).toBe("stash");
   });
 
-  it("parses material stacks from aggregateSaveDatas when mapped", () => {
+  it("parses material stacks from aggregateSaveDatas when no slot Quantity exists (legacy fallback)", () => {
     const snap = parseInventory(wrapPlayer(playerInner), 0, isMaterial);
-    expect(snap.materialStacks?.get(140002)).toBe(5);
+    expect(snap.materialStacks?.get(140002)?.total).toBe(5);
+  });
+
+  it("sums material stacks across slots (7 = 5 + 2) instead of counting slots or taking a max", () => {
+    const inner = `{
+      "stashSaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":5},
+        {"Index":1,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":2}
+      ],
+      "itemSaveDatas":[{"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
+    const stack = snap.materialStacks!.get(141002)!;
+    expect(stack.total).toBe(7);
+    expect(stack.stash).toBe(7);
+
+    const res = resolveInventory(snap, lookup, true);
+    const ingot = res.rows.find((r) => r.itemKey === 141002)!;
+    expect(ingot.count).toBe(7);
+  });
+
+  it("sums material stacks split across inventory and stash bags", () => {
+    const inner = `{
+      "inventorySaveDatas":[{"Index":0,"ItemUniqueId":514119247889201002,"IsUnlock":true,"Quantity":3}],
+      "stashSaveDatas":[{"Index":0,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":4}],
+      "itemSaveDatas":[{"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
+    const stack = snap.materialStacks!.get(141002)!;
+    expect(stack.total).toBe(7);
+    expect(stack.inventory).toBe(3);
+    expect(stack.stash).toBe(4);
+  });
+
+  it("ignores empty slots and Quantity<=0 when summing material stacks", () => {
+    const inner = `{
+      "stashSaveDatas":[
+        {"Index":0,"ItemUniqueId":0,"IsUnLock":true,"Quantity":0},
+        {"Index":1,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":0},
+        {"Index":2,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":2},
+        {"Index":3,"ItemUniqueId":0,"IsUnLock":true,"Quantity":5}
+      ],
+      "itemSaveDatas":[{"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
+    const stack = snap.materialStacks!.get(141002)!;
+    expect(stack.total).toBe(2);
+    // Only slot #2 is a used slot — empty slots and the 0-quantity slot don't count.
+    expect(snap.inventoryCapacity).toBe(0);
+    expect(snap.inventoryUsed).toBe(0);
+  });
+
+  it("clamps a single slot's Quantity to MAX_STACK_PER_SLOT (corrupt/over-cap save)", () => {
+    const inner = `{
+      "stashSaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":9},
+        {"Index":1,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":2}
+      ],
+      "itemSaveDatas":[{"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
+    // 9 clamps to 5, plus 2 => 7. Never emits a >5 single-slot value.
+    expect(snap.materialStacks!.get(141002)!.total).toBe(7);
+  });
+
+  it("counts a stacked material slot as exactly one used slot", () => {
+    const inner = `{
+      "inventorySaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247889201002,"IsUnlock":true,"Quantity":5},
+        {"Index":1,"ItemUniqueId":0,"IsUnlock":true,"Quantity":0}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.inventoryCapacity).toBe(2);
+    expect(snap.inventoryUsed).toBe(1);
+  });
+
+  // --- Occupancy criterion: new format keys on Quantity, old format on ItemUniqueId ---
+
+  it("new format: a slot with stale ItemUniqueId but Quantity=0 is NOT counted as used", () => {
+    // Regression net: if a future patch clears only `Quantity` (leaving a stale
+    // non-zero `ItemUniqueId`) the new-format branch keys on Quantity, so this
+    // phantom slot must not inflate `used`.
+    const inner = `{
+      "inventorySaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247889201002,"IsUnlock":true,"Quantity":3},
+        {"Index":1,"ItemUniqueId":514119247889201099,"IsUnlock":true,"Quantity":0}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.inventoryCapacity).toBe(2);
+    expect(snap.inventoryUsed).toBe(1);
+  });
+
+  it("old format: no Quantity field -> occupancy falls back to ItemUniqueId !== 0 (does not collapse)", () => {
+    // Pre-stacking saves have no `Quantity` at all. The fallback must keep
+    // counting used slots by `ItemUniqueId`, otherwise capacity reads empty and
+    // the "almost full" notification dies.
+    const inner = `{
+      "inventorySaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247889201002,"IsUnlock":true},
+        {"Index":1,"ItemUniqueId":0,"IsUnlock":true},
+        {"Index":2,"ItemUniqueId":0,"IsUnlock":false}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0);
+    expect(snap.inventoryCapacity).toBe(2);
+    expect(snap.inventoryUsed).toBe(1);
+  });
+
+  it("object path uses the same dual occupancy criterion as the string path", () => {
+    // New format via the object path: Quantity=0 with stale UID is not used.
+    const newFormat = parseInventory(
+      JSON.stringify({
+        PlayerSaveData: {
+          value: {
+            inventorySaveDatas: [
+              { Index: 0, ItemUniqueId: 514119247889201002, IsUnlock: true, Quantity: 3 },
+              { Index: 1, ItemUniqueId: 514119247889201099, IsUnlock: true, Quantity: 0 },
+            ],
+          },
+        },
+      }),
+      0,
+    );
+    expect(newFormat.inventoryCapacity).toBe(2);
+    expect(newFormat.inventoryUsed).toBe(1);
+
+    // Old format via the object path: no Quantity -> fall back to UID.
+    const oldFormat = parseInventory(
+      JSON.stringify({
+        PlayerSaveData: {
+          value: {
+            inventorySaveDatas: [
+              { Index: 0, ItemUniqueId: 514119247889201002, IsUnlock: true },
+              { Index: 1, ItemUniqueId: 0, IsUnlock: true },
+            ],
+          },
+        },
+      }),
+      0,
+    );
+    expect(oldFormat.inventoryCapacity).toBe(2);
+    expect(oldFormat.inventoryUsed).toBe(1);
+  });
+
+  it("degrades gracefully when the Quantity field is missing (old save)", () => {
+    const inner = `{
+      "stashSaveDatas":[{"Index":0,"ItemUniqueId":514119247889201002,"IsUnLock":true}],
+      "itemSaveDatas":[{"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
+    // No slot Quantity -> falls back to aggregates (none here) -> no stack entry.
+    expect(snap.materialStacks?.has(141002) ?? false).toBe(false);
+    // The instance still resolves via the normal instance path.
+    const res = resolveInventory(snap, lookup, true);
+    const ingot = res.rows.find((r) => r.itemKey === 141002)!;
+    expect(ingot.count).toBe(1);
   });
 
   it("tolerates a missing player gracefully", () => {
@@ -479,17 +636,41 @@ describe("resolveInventory", () => {
     expect(ingot.stashCount).toBe(1);
   });
 
-  it("does not inflate material count from lifetime aggregates when instances exist", () => {
+  it("does not inflate material count from lifetime aggregates when slot stacks exist", () => {
+    // Slot path wins: the stash holds 3 Iron Ingots (Quantity 3) while the
+    // lifetime aggregate reports 99. The live slot count must be authoritative,
+    // never the lifetime counter.
     const inner = `{
-      "stashSaveDatas":[{"Index":0,"ItemUniqueId":514119247889201002,"IsUnlock":true}],
+      "stashSaveDatas":[{"Index":0,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":3}],
       "itemSaveDatas":[{"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}],
-      "aggregateSaveDatas":[{"Type":0,"SubKey":10002,"Value":99}]
+      "aggregateSaveDatas":[{"Type":0,"SubKey":141002,"Value":99}]
     }`;
     const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
     const res = resolveInventory(snap, lookup, true);
     const ingot = res.rows.find((r) => r.itemKey === 141002)!;
-    expect(ingot.count).toBe(1);
-    expect(ingot.stashCount).toBe(1);
+    expect(ingot.count).toBe(3);
+    expect(ingot.stashCount).toBe(3);
+  });
+
+  it("treats a material instance row as a template and uses the slot stack total", () => {
+    // The same UniqueId is repeated once per holding slot in `itemSaveDatas`
+    // (verified: one id can appear 24x in a live save). Counting those
+    // instances would inflate the total; the slot stack sum wins.
+    const inner = `{
+      "stashSaveDatas":[
+        {"Index":0,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":5},
+        {"Index":1,"ItemUniqueId":514119247889201002,"IsUnLock":true,"Quantity":2}
+      ],
+      "itemSaveDatas":[
+        {"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false},
+        {"ItemKey":141002,"UniqueId":514119247889201002,"IsChaotic":false}
+      ]
+    }`;
+    const snap = parseInventory(wrapPlayer(inner), 0, isMaterial);
+    const res = resolveInventory(snap, lookup, true);
+    const ingot = res.rows.find((r) => r.itemKey === 141002)!;
+    expect(ingot.count).toBe(7);
+    expect(ingot.stashCount).toBe(7);
   });
 
   it("hides materials that exist only as market-pipeline rows", () => {

@@ -735,6 +735,18 @@ export interface InventoryItemInstance {
   location: ItemLocation;
 }
 
+/**
+ * One material's summed stack quantity, split by the bag the copies sit in.
+ * `total` = `inventory + stash + trading` = sum of every non-empty slot's
+ * `Quantity` (each clamped to `MAX_STACK_PER_SLOT`).
+ */
+export interface MaterialStackTotal {
+  total: number;
+  inventory: number;
+  stash: number;
+  trading: number;
+}
+
 export interface ChestHolding {
   type: number;
   quantity: number;
@@ -759,11 +771,17 @@ export interface InventorySnapshot {
   items: InventoryItemInstance[];
   chests: ChestHolding[];
   saveMtime: number;
-  /** Stack counts from aggregateSaveDatas when decoded (materials only). */
-  materialStacks?: Map<number, number>;
+  /**
+   * Per-material stack totals. Authoritative source is the per-slot `Quantity`
+   * on the bag/stash slot arrays (materials stack up to `MAX_STACK_PER_SLOT` per
+   * slot, multiple slots sum). Falls back to the lifetime `aggregateSaveDatas`
+   * counters when the field is absent (old save / removed). Keyed by material
+   * ItemKey; value carries the grand total plus the per-bag split.
+   */
+  materialStacks?: Map<number, MaterialStackTotal>;
   /** Count of inventorySaveDatas slots with IsUnlock true. */
   inventoryCapacity: number;
-  /** Count of unlocked slots holding an item (ItemUniqueId !== 0). */
+  /** Count of unlocked slots holding an item (ItemUniqueId !== 0). A stacked slot counts once. */
   inventoryUsed: number;
   /**
    * Parse-time only: catalog ids with pipeline (…900) rows and no assignable
