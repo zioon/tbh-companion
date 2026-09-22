@@ -19,7 +19,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/12-box-open-backfill.md",
     "docs/business-flows/13-web-inspector.md"
   ],
-  "generatedAt": "2026-09-22T08:52:57.905Z",
+  "generatedAt": "2026-09-22T17:14:01.650Z",
   "flows": [
     {
       "number": 18,
@@ -2130,7 +2130,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "流程图",
           "subsection": "流程图",
-          "mermaid": "%% TBH flow diagram\nflowchart LR\n  Text[decryptedText] --> Parse[parseInventory]\n  subgraph ParseInv [parseInventory 核心]\n    Items[物品实例解析 字符串正则 / 对象遍历]\n    Norm[catalog id 归一化 truncate 前缀]\n    Loc[location 推断 equipped/inventory/stash/trading]\n    Chests[parseChests BoxTypes + BoxQuantity]\n    Mat[材料堆叠 aggregateSaveDatas]\n    Cap[背包容量 parseSlotCapacity]\n  end\n  Items --> Snapshot\n  Norm --> Snapshot\n  Loc --> Snapshot\n  Chests --> Snapshot\n  Mat --> Snapshot\n  Cap --> Snapshot\n  Parse --> Snapshot[InventorySnapshot]\n  Snapshot --> OnInv[InventoryService.onInventory]\n  OnInv --> Resolve[resolveAndPushInventory]\n  Resolve --> QReady{worker.isReady?}\n  QReady -- 是 --> WorkerResolve[InventoryWorker.resolve 异步]\n  WorkerResolve -- 成功 --> Publish[publishResolved]\n  WorkerResolve -- 崩溃/超时 5s --> Fallback[resolveAndPublishSync]\n  QReady -- 否 --> Fallback\n  Publish --> Locale[locale 后处理 替换本地化名]\n  Fallback --> Locale\n  Locale --> Cache[缓存 lastInventory]\n  Cache --> Bcast[广播 IPC.INVENTORY]\n  Bcast --> Hook[onInventoryUpdated → tracking.setInventorySnapshot]\n  OnInv --> QAuto{autoScanEnabled?}\n  QAuto -- 是 --> Owned[ensureOwnedPrices 异步刷新]\n  QAuto -- 否 --> Almost[checkAlmostFull]\n  Almost -- used/capacity 超阈 上升沿 --> Notify[NotificationService.showInventoryAlmostFull]\n  class Parse,Snapshot,OnInv,Resolve,WorkerResolve,Publish,Fallback,Locale,Cache,Bcast,Hook,Owned,Almost,Items,Norm,Loc,Chests,Mat,Cap data\n  class QReady,QAuto dec\n  class Notify svc",
+          "mermaid": "%% TBH flow diagram\nflowchart LR\n  Text[decryptedText] --> Parse[parseInventory]\n  subgraph ParseInv [parseInventory 核心]\n    Items[物品实例解析 字符串正则 / 对象遍历]\n    Norm[catalog id 归一化 truncate 前缀]\n    Loc[location 推断 equipped/inventory/stash/trading]\n    Chests[parseChests BoxTypes + BoxQuantity]\n    Mat[材料堆叠 槽位 Quantity 跨格求和]\n    Cap[背包容量 parseSlotCapacity]\n  end\n  Items --> Snapshot\n  Norm --> Snapshot\n  Loc --> Snapshot\n  Chests --> Snapshot\n  Mat --> Snapshot\n  Cap --> Snapshot\n  Parse --> Snapshot[InventorySnapshot]\n  Snapshot --> OnInv[InventoryService.onInventory]\n  OnInv --> Resolve[resolveAndPushInventory]\n  Resolve --> QReady{worker.isReady?}\n  QReady -- 是 --> WorkerResolve[InventoryWorker.resolve 异步]\n  WorkerResolve -- 成功 --> Publish[publishResolved]\n  WorkerResolve -- 崩溃/超时 5s --> Fallback[resolveAndPublishSync]\n  QReady -- 否 --> Fallback\n  Publish --> Locale[locale 后处理 替换本地化名]\n  Fallback --> Locale\n  Locale --> Cache[缓存 lastInventory]\n  Cache --> Bcast[广播 IPC.INVENTORY]\n  Bcast --> Hook[onInventoryUpdated → tracking.setInventorySnapshot]\n  OnInv --> QAuto{autoScanEnabled?}\n  QAuto -- 是 --> Owned[ensureOwnedPrices 异步刷新]\n  QAuto -- 否 --> Almost[checkAlmostFull]\n  Almost -- used/capacity 超阈 上升沿 --> Notify[NotificationService.showInventoryAlmostFull]\n  class Parse,Snapshot,OnInv,Resolve,WorkerResolve,Publish,Fallback,Locale,Cache,Bcast,Hook,Owned,Almost,Items,Norm,Loc,Chests,Mat,Cap data\n  class QReady,QAuto dec\n  class Notify svc",
           "nodes": [
             {
               "id": "Almost",
@@ -2174,7 +2174,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "Mat",
-              "label": "材料堆叠 aggregateSaveDatas"
+              "label": "材料堆叠 槽位 Quantity 跨格求和"
             },
             {
               "id": "Norm",
@@ -3835,7 +3835,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "14.4 reconcileWithChestSlots(slots) — 每次 save 解析触发",
           "subsection": "14.4 reconcileWithChestSlots(slots) — 每次 save 解析触发",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Reconcile[reconcileWithChestSlots slots] --> Recalib[maybeRecalibrateQueue]\n  Recalib --> Step1[Step1 excess-prune 队列数 > 槽位数 且 autoOpenAtMs 已到 → 移除最老]\n  Step1 --> Step2{Step2 比较 liveSlots 与 save slots}\n  Step2 -- 1 category decreased --> AllBurst[所有 pending burst reclassify 到该类别 + resetSlotTimersForCategory]\n  Step2 -- 0 decreased --> Signals{信号 A excess-prune 或 信号 B save 槽位绝对值减少}\n  Signals -- 指向恰一个类别 --> Classify[归类]\n  Signals -- 多类别 真歧义 --> Wait[等待 TTL prune 仅重置 timer]\n  Step2 -- 多 category decreased --> Wait\n  Classify --> Step3[Step3 liveSlots = slots save 是 ground truth]\n  AllBurst --> Step3\n  Wait --> Step3\n  Step3 --> Step4[Step4 backfill 队列数 < 槽位数 用 placeholder 锚定]\n  Step4 --> Step5{Step5 漏掉掉落补偿 rare/act/plague*}\n  Step5 -- save 槽位增量 > 0 --> Missed[延迟 5s 宽限 → flush 时先 claim 信用 → recordLiveChestDrop 补偿（不触发 BoxTimer）]\n  Step5 -- 否 --> Done[结束]\n  class Reconcile,Recalib,Step1,AllBurst,Classify,Wait,Step3,Step4,Missed data\n  class Step2,Signals,Step5 dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Reconcile[reconcileWithChestSlots slots] --> Recalib[maybeRecalibrateQueue]\n  Recalib --> Step1[Step1 excess-prune 队列数 > 槽位数 且 autoOpenAtMs 已到 → 移除最老]\n  Step1 --> Step2{Step2 比较 liveSlots 与 save slots}\n  Step2 -- 1 category decreased --> AllBurst[所有 pending burst reclassify 到该类别 + resetSlotTimersForCategory]\n  Step2 -- 0 decreased --> Signals{信号 A excess-prune 或 信号 B save 槽位绝对值减少}\n  Signals -- 指向恰一个类别 --> Classify[归类]\n  Signals -- 多类别 真歧义 --> Wait[等待 TTL prune 仅重置 timer]\n  Step2 -- 多 category decreased --> Wait\n  Classify --> Step3[Step3 liveSlots = slots save 是 ground truth]\n  AllBurst --> Step3\n  Wait --> Step3\n  Step3 --> Step4[Step4 arm 重复信用（save 槽位增量）+ backfill 队列数 < 槽位数 用 placeholder 锚定]\n  Step4 --> Step5{Step5 漏掉掉落补偿 rare/act/plague*}\n  Step5 -- save 槽位增量 > 0 --> Missed[延迟 5s 宽限 → flush 时先 claim 信用 → recordLiveChestDrop 补偿（不触发 BoxTimer）]\n  Step5 -- 否 --> Done[结束]\n  class Reconcile,Recalib,Step1,AllBurst,Classify,Wait,Step3,Step4,Missed data\n  class Step2,Signals,Step5 dec",
           "nodes": [
             {
               "id": "AllBurst",
@@ -3879,7 +3879,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "Step4",
-              "label": "Step4 backfill 队列数 < 槽位数 用 placeholder 锚定"
+              "label": "Step4 arm 重复信用（save 槽位增量）+ backfill 队列数 < 槽位数 用 placeholder 锚定"
             },
             {
               "id": "Step5",
