@@ -23,6 +23,25 @@ export function boxCategoryFromType(boxType: number | undefined | null): BoxCate
 }
 
 /**
+ * Whether a catalog itemKey denotes a chest (stage box) rather than loot.
+ *
+ * Chests occupy their own id bands (910xxx / 915xxx / 920xxx / 925xxx /
+ * 930xxx / 935xxx) — the same ranges `chestDropTracker.categoryFromPrefix`
+ * maps to categories. Callers use this to protect box rows from catalog
+ * normalizers that would otherwise drop them: a box key's item is bookkeeping,
+ * not inventory loot, and must survive a locale/catalog swap even when the
+ * loot catalog has no row for it.
+ */
+export function isBoxItemKey(itemKey: number): boolean {
+  if (!Number.isFinite(itemKey) || itemKey < 910_000 || itemKey >= 940_000) return false;
+  const band = Math.trunc(itemKey / 1000);
+  // 910/915 = common, 920/925 = rare (stage boss), 930/935 = act (act boss).
+  return (
+    band === 910 || band === 915 || band === 920 || band === 925 || band === 930 || band === 935
+  );
+}
+
+/**
  * Derive the tracker boxKey from a boxType and optional level.
  * Returns "common" | "rare" | "act" (category-only) or "rare:3" (levelled).
  * Returns null when boxType is unknown.

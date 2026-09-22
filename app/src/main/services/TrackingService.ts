@@ -15,7 +15,12 @@ import {
   type BoxOpenPriceResolver,
   type BoxOpenAccessoryResolver,
 } from "../../core/boxOpenTracker";
-import { resolveBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
+import {
+  resolveBoxKey,
+  UNCLASSIFIED_BOX_KEY,
+  levelFromBoxKey,
+  isBoxItemKey,
+} from "../../core/boxOpenLog";
 import { catalogItemKeyFromSave, gameItemName, type GameItem } from "../../core/gamedata";
 import { GRADE_ORDER } from "../../core/grades";
 import { instantSellValue } from "../../core/inventory/buyOrder";
@@ -31,6 +36,7 @@ import {
   backfillOpensFromLog,
   toBackfillTrackerEntry,
   BACKFILL_WINDOW_SEC,
+  type BackfillBoxRoutes,
 } from "../../core/boxOpenBackfill";
 import { parseAcquireMessage, stripRichText, gradeFromAcquireColor } from "../../core/acquireLog";
 import type {
@@ -174,6 +180,15 @@ export class TrackingService {
    * window, so persistence would add nothing. Cleared on session resets.
    */
   private stageClearHistory: ClearFitEvent[] = [];
+  /**
+   * Per-category box drop routes, used by the box-open backfill to turn a
+   * category-only attribution into a levelled one from the stage-clear
+   * evidence — see `core/boxOpenBackfill.ts`. Injected via {@link setBoxRoutes}
+   * because core cannot read the bundled catalog itself; null until wired,
+   * which makes the backfill fall back to category-only boxKeys (the previous
+   * behaviour) rather than guess.
+   */
+  private boxRoutes: BackfillBoxRoutes | null = null;
   /** Last stage seen in a live frame — used to detect stage/wave changes for per-map DPS. */
   private lastLiveStage: { stageKey: number; stageWave: number } | null = null;
   /** Wall-clock (ms) of the last map-time diagnostic log; throttles output. */
@@ -655,6 +670,14 @@ export class TrackingService {
     if (!this.lookupItems && !this.gameDataLookup) return;
     this.boxOpenTracker.reResolveNames((rawItemKey, grade) => {
       const catalogId = rawItemKey < 1_000_000 ? rawItemKey : Math.trunc(rawItemKey / 1000);
+      // Box items must never be dropped here, whatever their id happens to be.
+      // The backfill records rows under a levelled boxKey whose item may not be
+      // in the loot catalog at all — a test/production catalog gap would
+      // otherwise delete the recovered row on the next locale change (the
+      // range check below only ever rescued out-of-range BOX ids, which is why
+      // this went unnoticed). `reResolveNames` is idempotent, so preserving the
+      // id unchanged and re-running on the next catalog swap is safe.
+      if (isBoxItemKey(catalogId)) return { itemKey: catalogId, name: `#${catalogId}` };
       // Drop garbage itemKeys (e.g. v1.00.28 String-pointer low bits) that
       // don't fall in the catalog id range — they'd otherwise render as
       // `#1703973696` forever.
@@ -721,6 +744,21 @@ export class TrackingService {
    */
   setAutoClassifyService(svc: AutoClassifyService): void {
     this.autoClassify = svc;
+  }
+
+  /**
+   * Inject the per-category drop routes the box-open backfill uses to derive a
+   * chest level from a stage-clear stageKey. Built by appState from the bundled
+   * stage-box catalog (the same tables AutoClassifyService consumes), because
+   * `core/` may not read files. Safe to call repeatedly — the backfill reads
+   * the field on each pass — but in practice it is called once at startup.
+   */
+  setBoxRoutes(routes: BackfillBoxRoutes): void {
+    this.boxRoutes = routes;
+  }
+  /** Drop routes currently wired into the backfill (diagnostics / tests). */
+  getBoxRoutes(): BackfillBoxRoutes | null {
+    return this.boxRoutes;
   }
 
   /**
@@ -1034,14 +1072,27 @@ export class TrackingService {
       .fitHistory()
       .map((e) => ({ wallTime: e.wallTime, category: e.category }));
 
+    // Stage-clear evidence for the level step. The history entries carry a
+    // resolved stageKey (difficulty included) and cover ~200 clears, which
+    // comfortably brackets the judged window. The ring's own clear lines are
+    // read inside `backfillOpensFromLog` from `logLines`, so a clear that the
+    // live reader has not surfaced yet is still usable there — the history is
+    // only the preferred (difficulty-resolved) reference.
+    const clearEvents = this.stageClearHistory.map((e) => ({
+      wallTime: e.wallTime,
+      stageKey: e.stageKey,
+    }));
+
     const { candidates, scanned, alreadyTracked, excluded, unattributed } = backfillOpensFromLog(
       logLines,
       trackerEntries,
       chestEvents,
+      this.boxRoutes ? { clears: clearEvents, boxRoutes: this.boxRoutes } : { clears: clearEvents },
     );
 
     let recorded = 0;
     let unresolved = 0;
+    let levelled = 0;
     for (const c of candidates) {
       const resolved = this.resolveBackfillItem(c.itemName, c.color);
       if (!resolved) {
@@ -1058,6 +1109,7 @@ export class TrackingService {
         c.count,
         c.wallTime,
       );
+      if (levelFromBoxKey(c.boxKey) != null) levelled += 1;
       recorded += 1;
     }
 
@@ -1065,7 +1117,7 @@ export class TrackingService {
       log.info(
         `box-open backfill: recorded ${recorded} missing opens ` +
           `(scanned=${scanned} tracked=${alreadyTracked} excluded=${excluded} ` +
-          `unattributed=${unattributed} unresolved=${unresolved})`,
+          `unattributed=${unattributed} unresolved=${unresolved} levelled=${levelled})`,
       );
       this.sessionState?.flush(
         this.tracker,

@@ -7,7 +7,9 @@ import type {
 } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 import type { LocaleCatalog } from "../../src/core/localeCatalog";
+import { emptyLocaleCatalog } from "../../src/core/localeCatalog";
 import type { GameItem } from "../../src/core/gamedata";
+import type { BackfillBoxRoutes } from "../../src/core/boxOpenBackfill";
 
 vi.mock("../../src/main/saveWatcher", () => ({
   SaveWatcher: class {
@@ -2125,6 +2127,16 @@ describe("TrackingService box-open backfill", () => {
     };
   }
 
+  /**
+   * Same as {@link openFrame} but with no level resolved — the reader saw the
+   * chest as a bare `boxType`, so its key stays category-only. This is the
+   * shape the level-from-clear step exists for: there IS a neighbouring grant
+   * to attribute against, yet that sibling cannot supply a level.
+   */
+  function openFrameNoLevel(at: number, itemKey: number): LiveMemorySnapshot {
+    return { ...openFrame(at, itemKey), boxOpens: [{ boxType: 0, itemKey }] };
+  }
+
   beforeEach(() => {
     onSnapshot = undefined;
     vi.clearAllMocks();
@@ -2238,6 +2250,185 @@ describe("TrackingService box-open backfill", () => {
     svc.runBoxOpenBackfill(true);
 
     expect(svc.getBoxOpenTracker().fitHistory()).toHaveLength(0);
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  /**
+   * Drop routes mirroring the bundled `stage_boxes.json`: each level owns a
+   * disjoint set of `dropStageKeys`, which is what makes a stageKey → level
+   * deduction legitimate rather than a guess.
+   */
+  function routes(): BackfillBoxRoutes {
+    return {
+      byCategory: new Map([
+        [
+          "common",
+          [
+            {
+              level: 65,
+              dropStageKeys: [3205, 3206, 3207, 3208, 3209, 3301, 3302, 3303, 3304, 3305],
+            },
+            { level: 90, dropStageKeys: [4209, 4301, 4302] },
+          ],
+        ],
+        [
+          "rare",
+          [
+            {
+              level: 65,
+              dropStageKeys: [3205, 3206, 3207, 3208, 3209, 3301, 3302, 3303, 3304, 3305],
+            },
+            { level: 90, dropStageKeys: [4209, 4301, 4302] },
+          ],
+        ],
+      ]),
+    };
+  }
+
+  /**
+   * End to end through the service. The box-open reader saw the chest but could
+   * not resolve its level (bare `boxType` → key `common`), and it only ever
+   * committed the FIRST grant of the burst. The ring holds both grants plus a
+   * "通关了关卡 3-5" clear between them, so the recovered sibling must come out
+   * as `common:65` — derived from the clear via the wired routes, upgrading the
+   * sibling's category-only key rather than leaving it unlevelled.
+   */
+  it("derives a level for a recovered drop from the surrounding stage-clear log line", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    svc.setBoxRoutes(routes());
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // Prime the live clear history so a difficulty is resolvable. Without a
+    // resolved clear the ring-line path deliberately refuses (a bare "3-5"
+    // label carries no difficulty, and guessing it would invent a level).
+    svc.ingestLiveFrame({
+      ...openFrameNoLevel(T0, DICE.id),
+      stageClears: [{ act: 3, stage: 5, clearTimeSec: 4, valid: true }],
+    });
+
+    svc.ingestAcquireBatch([
+      { seq: 910041, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910042, time: "17:45", message: "通关了关卡 3-5。(4秒)" },
+      { seq: 910043, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+
+    const history = svc.getBoxOpenTracker().fitHistory();
+    const recovered = history.filter((e) => e.itemName === "紫水晶");
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]?.itemKey).toBe(AMETHYST.id);
+    // `3-5` → act 3, stage 5 → stageKey 3305 → the level-65 band under `common`.
+    expect(recovered[0]?.boxKey).toBe("common:65");
+    // The sibling itself stays category-only — the clear only levels the row
+    // being recovered, it never rewrites history that already exists.
+    expect(history.find((e) => e.itemName === "骰子")?.boxKey).toBe("common");
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  /**
+   * The clear line is level evidence, never loot: it must be filtered out of
+   * the candidate set rather than backfilled as a phantom `count: 1` grant.
+   */
+  it("never backfills a stage-clear line as a grant", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    svc.setBoxRoutes(routes());
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestLiveFrame(openFrame(T0, DICE.id));
+    svc.ingestAcquireBatch([
+      { seq: 910044, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910045, time: "17:45", message: "通关了关卡 3-5。(4秒)" },
+    ]);
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+
+    const history = svc.getBoxOpenTracker().fitHistory();
+    expect(history).toHaveLength(1);
+    expect(history.every((e) => !e.itemName.includes("通关了"))).toBe(true);
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  /**
+   * The service must hand the routes straight through to `core/`. Without
+   * `setBoxRoutes` the same scenario has no way to resolve a level, so the row
+   * falls back to the sibling's category-only box instead of inventing one.
+   */
+  it("leaves the key category-only (no invented level) when no routes are wired", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestLiveFrame(openFrameNoLevel(T0, DICE.id));
+    svc.ingestAcquireBatch([
+      { seq: 910051, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910052, time: "17:45", message: "通关了关卡 3-5。(4秒)" },
+      { seq: 910053, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+
+    const history = svc.getBoxOpenTracker().fitHistory();
+    const recovered = history.find((e) => e.itemName === "紫水晶");
+    expect(recovered).toBeDefined();
+    expect(recovered?.boxKey).toBe("common");
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  /**
+   * Regression guard for the `runReResolveNames` normalizer: a levelled
+   * backfill row carries a synthetic boxKey whose item may be absent from the
+   * lookup catalog, and a locale swap must not delete it. This is the exact
+   * path that used to silently drop recovered rows.
+   */
+  it("keeps a levelled recovered row across a locale-catalog swap", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    svc.setBoxRoutes(routes());
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestLiveFrame({
+      ...openFrameNoLevel(T0, DICE.id),
+      stageClears: [{ act: 3, stage: 5, clearTimeSec: 4, valid: true }],
+    });
+    svc.ingestAcquireBatch([
+      { seq: 910061, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910062, time: "17:45", message: "通关了关卡 3-5。(4秒)" },
+      { seq: 910063, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+    vi.setSystemTime(T0 + 30_000);
+    svc.runBoxOpenBackfill(true);
+
+    const before = svc
+      .getBoxOpenTracker()
+      .fitHistory()
+      .find((e) => e.itemName === "紫水晶");
+    expect(before?.boxKey).toBe("common:65");
+
+    // A language change re-resolves every recorded row; the recovered one must
+    // survive it (and stay idempotent — a second backfill adds nothing).
+    svc.setLocaleCatalog(emptyLocaleCatalog());
+    svc.runBoxOpenBackfill(true);
+
+    const after = svc
+      .getBoxOpenTracker()
+      .fitHistory()
+      .filter((e) => e.itemName === "紫水晶");
+    expect(after).toHaveLength(1);
+    expect(after[0]?.boxKey).toBe("common:65");
+    expect(after[0]?.itemKey).toBe(AMETHYST.id);
 
     // See the note in the first test of this block — no stop(), nothing persisted.
   });

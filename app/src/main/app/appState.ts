@@ -32,6 +32,7 @@ import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
 import { loadActBossTrackerRoutes, loadCommonChestTrackerRoutes } from "../../core/stageBoxTracker";
+import type { BackfillBoxRoutes } from "../../core/boxOpenBackfill";
 import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
 import { IPC } from "../../../shared/ipc";
@@ -307,6 +308,51 @@ function persistWindowLayout<K extends keyof WindowLayoutPrefs>(
  * 注意：服务自身的 `setLocaleCatalog` 不会主动 re-broadcast；调用方需在
  * 语言切换后显式触发 re-emit（见 `onLanguageChanged`）。
  */
+/**
+ * Build the per-category drop routes the box-open backfill uses to turn a
+ * stage-clear stageKey into a chest level.
+ *
+ * RARE stage-boss boxes take their level numbering from the BoxTimer catalog
+ * (`farmStageOptions`, the same source `inferLevelFromStage` consumes for the
+ * auto-classify queue); COMMON and ACT have their own route tables because
+ * their level numbering differs (COMMON Lv1/5/10 vs RARE Lv4/5/7 at the same
+ * stages — see `loadCommonChestTrackerRoutes`). Plague variants are omitted on
+ * purpose: their boxes carry no level, and a missing entry makes the backfill
+ * keep the category-only boxKey rather than guess one.
+ */
+function buildBackfillBoxRoutes(): BackfillBoxRoutes {
+  const byCategory = new Map<string, { level: number; dropStageKeys: number[] }[]>();
+  const add = (
+    category: string,
+    entries: ReadonlyArray<{ level: number; dropStageKeys: readonly number[] }>,
+  ): void => {
+    byCategory.set(
+      category,
+      entries.map((e) => ({ level: e.level, dropStageKeys: [...e.dropStageKeys] })),
+    );
+  };
+
+  const rareLevels = boxTimers
+    .getState()
+    .catalog.map((e) => ({ level: e.level, farmStageOptions: e.farmStageOptions }));
+  const rareRoutes: { level: number; dropStageKeys: number[] }[] = [];
+  for (const entry of rareLevels) {
+    if (entry.level == null) continue;
+    const dropStageKeys: number[] = [];
+    for (const opt of entry.farmStageOptions) {
+      const key = typeof opt === "number" ? opt : opt.stageKey;
+      if (Number.isFinite(key) && key > 0) dropStageKeys.push(key);
+    }
+    if (dropStageKeys.length > 0) rareRoutes.push({ level: entry.level, dropStageKeys });
+  }
+  add("rare", rareRoutes);
+  add("common", loadCommonChestTrackerRoutes());
+  add("act", loadActBossTrackerRoutes());
+  // Plague categories intentionally absent.
+
+  return { byCategory };
+}
+
 function reloadLocaleCatalog(): void {
   const base = normalizeConfigFromRaw(config);
   const gameLang = base.language === "game" ? readGameLanguage() : null;
@@ -441,6 +487,14 @@ export function startTracking(): SessionUiSnapshot {
   chests.setOnReconcile((slots) => autoClassifyRef.reconcileWithChestSlots(slots));
   autoClassify.setEnabled(config.lootAutoClassifyEnabled);
   tracking.setAutoClassifyService(autoClassify);
+  // Per-category drop routes for the box-open backfill's level inference: the
+  // stage-box catalog maps a stageKey to exactly one box level per category
+  // (`dropStageKeys` are disjoint per level — see core/boxOpenBackfill.ts).
+  // RARE uses loadStageBoxTrackerRoutes (same table as the Chests tab), COMMON
+  // and ACT use their own loaders because their level numbering differs.
+  // Plague variants deliberately have no entry: they carry no level, so a
+  // plague attribution stays category-only instead of inventing one.
+  tracking.setBoxRoutes(buildBackfillBoxRoutes());
   // Load the LocaleCatalog for the current resolved language and inject it
   // into all 5 localizing services. Done after `tracking.start()` so the
   // service instances exist; subsequent snapshots will use the catalog when

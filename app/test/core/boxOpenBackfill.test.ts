@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   backfillOpensFromLog,
   BACKFILL_WINDOW_SEC,
+  type BackfillBoxRoutes,
   type BackfillChestEvent,
   type BackfillTrackerEntry,
 } from "../../src/core/boxOpenBackfill";
@@ -13,6 +14,22 @@ function line(over: Partial<RecordLogEntry> & { wallTime: number }): RecordLogEn
     seq: over.ringSeq ?? Math.round(over.wallTime),
     kind: "acquire",
     acquireRaw: `获得了${over.acquireName ?? "物品"}。`,
+    ...over,
+  } as RecordLogEntry;
+}
+
+/** Build the game's stage-clear ring line ("通关了关卡 3-10。(4秒)"). */
+function clearLine(
+  wallTime: number,
+  label: string,
+  over: Partial<RecordLogEntry> = {},
+): RecordLogEntry {
+  return {
+    seq: Math.round(wallTime * 1000),
+    kind: "acquire",
+    acquireRaw: `通关了关卡 ${label}。(4秒)`,
+    acquireName: `关卡 ${label}`,
+    wallTime,
     ...over,
   } as RecordLogEntry;
 }
@@ -276,5 +293,256 @@ describe("backfillOpensFromLog", () => {
     expect(r.alreadyTracked).toBe(1);
     expect(r.excluded).toBe(1); // the chest notice
     expect(r.candidates).toHaveLength(1);
+  });
+});
+
+describe("backfillOpensFromLog level inference from stage clears", () => {
+  /**
+   * Real route shapes from the bundled catalog (`data/stage_boxes.json`):
+   *  - COMMON/RARE share the same stage ranges but differ at low levels.
+   *  - ACT boss boxes drop on their act's boss stage only (1 stage per level).
+   * Plague variants have no routes at all.
+   *
+   * Note the stage encoding: act 3 stage 5 is 3205, and stage 10 is 3210 —
+   * which is the ACT boss stage for act 3, NOT a stage-boss (rare) stage.
+   */
+  const ROUTES: BackfillBoxRoutes = {
+    byCategory: new Map([
+      [
+        "common",
+        [
+          {
+            level: 65,
+            dropStageKeys: [3205, 3206, 3207, 3208, 3209, 3301, 3302, 3303, 3304, 3305],
+          },
+          { level: 90, dropStageKeys: [4209, 4301, 4302] },
+        ],
+      ],
+      [
+        "rare",
+        [
+          {
+            level: 65,
+            dropStageKeys: [3205, 3206, 3207, 3208, 3209, 3301, 3302, 3303, 3304, 3305],
+          },
+          { level: 90, dropStageKeys: [4209, 4301, 4302] },
+        ],
+      ],
+      [
+        "act",
+        [
+          { level: 65, dropStageKeys: [3210] },
+          { level: 90, dropStageKeys: [4210, 4310] },
+        ],
+      ],
+    ]),
+  };
+
+  it("levels a category-only sibling using the nearest clear line's stage", () => {
+    // The tracker kept one sibling but could only resolve its category; the
+    // clear records bracket the burst, so the level is recoverable exactly.
+    const r = backfillOpensFromLog(
+      [
+        clearLine(1000.0, "3-5"),
+        line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" }),
+        clearLine(1000.4, "4-1"),
+      ],
+      [tracked(1000.1, "幸存品", "rare")],
+      [],
+      { clears: [{ wallTime: 1000.0, stageKey: 3205 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates).toHaveLength(1);
+    // The live clear history is preferred: 3205 resolves to rare Lv65.
+    expect(r.candidates[0]!.boxKey).toBe("rare:65");
+    expect(r.unattributed).toBe(0);
+  });
+
+  it("levels a chest-drop category with no open evidence at all", () => {
+    const chests: BackfillChestEvent[] = [{ wallTime: 1000.1, category: "common" }];
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 1, wallTime: 1000.2, acquireName: "漏记品" })],
+      [tracked(900, "别的箱子", "rare:65")],
+      chests,
+      { clears: [{ wallTime: 1000.0, stageKey: 4209 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common:90");
+  });
+
+  it("reads the level from the clear LINES when the clear history is empty", () => {
+    // The history is bounded (200 entries) and in-memory only, so after a
+    // restart the ring's own clear lines are the surviving evidence. Their
+    // "act-stage" label needs the difficulty borrowed from a resolved clear.
+    const r = backfillOpensFromLog(
+      [clearLine(1000.0, "3-5"), line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      // Reference clear is far outside the window: only its difficulty (3) is
+      // borrowed, the ring line supplies the act/stage.
+      { clears: [{ wallTime: 900, stageKey: 3205 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common:65"); // 3205 → Lv65
+  });
+
+  it("resolves the plague 6-digit stage encoding", () => {
+    // Plague acts (21-24) reuse `difficulty * 100 + act` for the region base.
+    const regionBase = 2012; // Nightmare act 21
+    const r = backfillOpensFromLog(
+      [clearLine(1000.0, "21-1"), line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      { clears: [{ wallTime: 900, stageKey: regionBase * 100 + 1 }], boxRoutes: ROUTES },
+    );
+    // 201201 — no common route claims it, so the attribution stays category-only.
+    expect(r.candidates[0]!.boxKey).toBe("common");
+  });
+
+  it("never touches a sibling boxKey that already carries a level", () => {
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [tracked(1000.1, "幸存品", "rare:65")],
+      [{ wallTime: 1000.2, category: "common" }],
+      { clears: [{ wallTime: 1000.0, stageKey: 4209 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("rare:65");
+  });
+
+  it("leaves the attribution category-only when no clear evidence is in the window", () => {
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      {
+        clears: [{ wallTime: 1000 - BACKFILL_WINDOW_SEC - 60, stageKey: 4209 }],
+        boxRoutes: ROUTES,
+      },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common");
+  });
+
+  it("leaves the attribution category-only when no route claims the stage", () => {
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      // Stage 1102 is not in this trimmed route table.
+      { clears: [{ wallTime: 1000.0, stageKey: 1102 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common");
+  });
+
+  it("keeps plague categories category-only (they have no routes)", () => {
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [{ wallTime: 1000.2, category: "plagueCommon" }],
+      { clears: [{ wallTime: 1000.0, stageKey: 4209 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("plagueCommon");
+  });
+
+  it("still falls to unclassified when there is neither chest nor clear evidence", () => {
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [],
+      { clears: [{ wallTime: 1000.0, stageKey: 4209 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("unclassified");
+    expect(r.unattributed).toBe(1);
+  });
+
+  it("ignores a bulk-replayed clear line when collecting level evidence", () => {
+    // A bulk line's wallTime is the ingest moment, so it must never be treated
+    // as a real clear near the grant.
+    const r = backfillOpensFromLog(
+      [
+        clearLine(999.0, "4-1", { bulk: true }),
+        line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" }),
+      ],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      { clears: [], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common");
+  });
+
+  it("is idempotent when the recorded candidate carries a level", () => {
+    const log = [
+      clearLine(1000.0, "3-5"),
+      line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" }),
+    ];
+    const first = backfillOpensFromLog(log, [], [{ wallTime: 1000.2, category: "common" }], {
+      clears: [{ wallTime: 1000.0, stageKey: 3205 }],
+      boxRoutes: ROUTES,
+    });
+    expect(first.candidates[0]!.boxKey).toBe("common:65");
+
+    // Simulate the caller recording it under the name from the log line, then
+    // re-run: the name+time match must claim it and yield nothing.
+    const after = [tracked(1000.2, "漏记品", "common:65")];
+    const second = backfillOpensFromLog(log, after, [{ wallTime: 1000.2, category: "common" }], {
+      clears: [{ wallTime: 1000.0, stageKey: 3205 }],
+      boxRoutes: ROUTES,
+    });
+    expect(second.candidates).toEqual([]);
+    expect(second.alreadyTracked).toBe(1);
+  });
+
+  it("does not level without boxRoutes (previous behaviour preserved)", () => {
+    const r = backfillOpensFromLog(
+      [line({ ringSeq: 2, wallTime: 1000.2, acquireName: "漏记品" })],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      { clears: [{ wallTime: 1000.0, stageKey: 4209 }] },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common");
+  });
+
+  it("counts clear lines as excluded, not as grants", () => {
+    const r = backfillOpensFromLog(
+      [clearLine(1000.0, "3-10"), line({ ringSeq: 2, wallTime: 1001, acquireName: "正常品" })],
+      [tracked(1001, "正常品")],
+      [],
+      { clears: [], boxRoutes: ROUTES },
+    );
+    expect(r.scanned).toBe(1);
+    expect(r.alreadyTracked).toBe(1);
+    expect(r.excluded).toBe(1);
+    expect(r.candidates).toEqual([]);
+  });
+
+  it("takes the nearest clear line when several are inside the window", () => {
+    // The label is "act-stage": "3-5" is act 3 stage 5 → 3305 (a Lv65
+    // stage-boss stage). It sits 0.1s from the grant while "1-1" (1101, which
+    // this trimmed table gives no route) sits 6s away — the nearer wins.
+    const r = backfillOpensFromLog(
+      [
+        clearLine(994.0, "1-1"),
+        clearLine(1000.1, "3-5"),
+        line({ ringSeq: 3, wallTime: 1000.2, acquireName: "漏记品" }),
+      ],
+      [],
+      [{ wallTime: 1000.2, category: "rare" }],
+      // Difficulty reference (3) is borrowed; it is far outside the window.
+      { clears: [{ wallTime: 900, stageKey: 3305 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("rare:65");
+  });
+
+  it("skips a nearer clear line whose stage has no route and uses the next", () => {
+    // "5-1" → 5501: no route anywhere claims it (the trimmed table only knows
+    // 1xxx low stages and 3xxx/4xxx), so the farther "3-5" → 3305 (Lv65) is
+    // used instead of leaving the row category-only.
+    const r = backfillOpensFromLog(
+      [
+        clearLine(1000.1, "5-1"),
+        clearLine(995.0, "3-5"),
+        line({ ringSeq: 3, wallTime: 1000.2, acquireName: "漏记品" }),
+      ],
+      [],
+      [{ wallTime: 1000.2, category: "common" }],
+      { clears: [{ wallTime: 900, stageKey: 3305 }], boxRoutes: ROUTES },
+    );
+    expect(r.candidates[0]!.boxKey).toBe("common:65");
   });
 });
