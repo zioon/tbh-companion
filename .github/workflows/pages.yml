@@ -4,7 +4,19 @@ on:
   push:
     branches: [main]
     paths:
+      # The landing page itself
       - "website/**"
+      # Sources the web inspector is built from — `pnpm build:web` bundles the
+      # shared core/ + renderer/ sources, so a change to any of them changes the
+      # deployed artifact.
+      - "app/src/**"
+      - "app/shared/**"
+      - "app/package.json"
+      - "app/pnpm-lock.yaml"
+      - "app/vite.web.config.ts"
+      - "app/tsconfig.json"
+      # Bundled catalogs and item icons are inlined/copied into the artifact.
+      - "data/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -25,6 +37,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      # --- Build the browser save inspector and stage it under website/inspector ---
+      # The artifact below is the whole `website/` directory, so the web build has
+      # to land inside it. `vite.web.config.ts` uses `base: "./"`, which is what
+      # lets the output live at a subpath without rewriting any asset URLs.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web inspector
+        working-directory: app
+        run: pnpm build:web
+
+      - name: Stage inspector into the Pages artifact
+        run: |
+          rm -rf website/inspector
+          mkdir -p website/inspector
+          cp -r dist-web/. website/inspector/
+          # Notification sounds are desktop-only; the web build never plays them.
+          rm -f website/inspector/assets/*.wav
 
       - uses: actions/configure-pages@v5
 
