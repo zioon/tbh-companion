@@ -111,6 +111,7 @@
 
 ### 6.1 暂停检测
 - `updateInventoryPauseState`：`used >= capacity` → 暂停
+- **只看背包（inventory）**：容量/占用均取自 `InventorySnapshot.inventoryUsed` / `inventoryCapacity`，**不含 stash / trading**。游戏也仅在背包满时停下计时器，仓库满不影响开箱（2026-09-23 用户确认）。
 - 记录 `inventoryFullSinceMs`
 - `effectiveNow` 返回 `inventoryFullSinceMs`（冻结）
 - tick 跳过 decrement 和 prune

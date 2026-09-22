@@ -196,9 +196,14 @@ flowchart TD
   2. `stageKey = getCurrentStageKey() ?? 0`。
   3. `autoOpen = chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN`。
   4. `boxKey = resolveDropBoxKey(event, stageKey)`：common → commonRoutes 推断 level；rare → BoxTimer catalog 推断 level；act → actBossRoutes 推断 level。**stageKey 未知（≤0）或匹配不到任何 route 时返回 category-only boxKey（`common`/`rare`/`act`，无 `:level` 后缀）**，绝不回退到最低等级 —— 避免在关卡信息缺失瞬间把后期掉落错误归类成 `common:1`/`act:1`（2026-08-28 修复）。
-  5. **inventory full 处理**：`droppedAtMs = inventoryFullSinceMs != null ? getEffectiveNow() : event.wallTime*1000`（pause 期间掉落的 chest 锚定到 pauseStart，让倒计时显示完整 autoOpenSec）。
-  6. `queue = enqueue(queue, {...})` — 串行链式计算 autoOpenAtMs。
-  7. `liveSlots[cat]++`（实时槽位跟踪）。
+  5. **重复抑制（`outstandingReconcileCredits` 信用消费），必须在任何 queue/slot 变更之前（2026-09-23 修复）**：`cat = categoryFromBoxKey(boxKey)`；若 `liveSlots` 存在且 `cat` 有效，则在 `outstandingReconcileCredits` 中查一条 `category === cat && expiresAtMs > Date.now()` 的信用：
+     - **命中** → `splice` 掉该信用后**直接 `return`**：该箱子已被先前的 save 对账计入（Step 3 已把它折进 `liveSlots`，Step 4 已 backfill 进队列），既不入队也不自增。
+     - **未命中** → 继续走第 6、7 步。
+     - **为何必须前置**：旧实现把该判断放在 `enqueue()` **之后**，于是命中信用时只跳过了 `liveSlots[cat]++`，却仍然无条件 `enqueue()` 追加了一条重复队列项。`liveSlots` 因此始终正确（掩盖了 bug），但**队列永久比 save 深一个**：`excess-prune` 只能剪 `autoOpenAtMs` 已到的条目，而新追加的重复项计时器在**未来**，永远剪不掉 → 不收敛。这正是用户报的「普通宝箱数量还是有问题」（偏多、常态可见）。**回归守卫见 `test/main/autoClassifyService.commonOverreportRepro.test.ts`——必须同时断言 `liveSlots` 与队列长度**（只断言 `liveSlots` 会让此 bug 漏网）。
+  6. **inventory full 处理**：`droppedAtMs = inventoryFullSinceMs != null ? getEffectiveNow() : event.wallTime*1000`（pause 期间掉落的 chest 锚定到 pauseStart，让倒计时显示完整 autoOpenSec）。
+  7. `queue = enqueue(queue, {...})` — 串行链式计算 autoOpenAtMs。
+  8. `liveSlots[cat]++`（实时槽位跟踪）。
+  9. 日志：命中信用时打 `drop boxKey=... already counted by save (credit consumed); skipping enqueue queueLen=...`；正常入队时打 `queued drop boxKey=... stageKey=... queueLen=...`。
 - **`handleUnclassifiedBatch(entries)`**：`boxOpenTracker.onUnclassified` 触发（microtask 批处理）。
   1. `events = groupBoxOpenEvents(entries.map(e => ({itemKey, wallTime})))` — 按 2s gap 把 entries 分组成"开箱事件"。
   2. 对每个 event 调用 `processEvent(itemKeys, evt.startMs)`。
@@ -258,7 +263,7 @@ flowchart TD
   Classify --> Step3[Step3 liveSlots = slots save 是 ground truth]
   AllBurst --> Step3
   Wait --> Step3
-  Step3 --> Step4[Step4 backfill 队列数 < 槽位数 用 placeholder 锚定]
+  Step3 --> Step4[Step4 arm 重复信用（save 槽位增量）+ backfill 队列数 < 槽位数 用 placeholder 锚定]
   Step4 --> Step5{Step5 漏掉掉落补偿 rare/act/plague*}
   Step5 -- save 槽位增量 > 0 --> Missed[延迟 5s 宽限 → flush 时先 claim 信用 → recordLiveChestDrop 补偿（不触发 BoxTimer）]
   Step5 -- 否 --> Done[结束]
@@ -279,7 +284,12 @@ flowchart TD
        两者覆盖"堆积宝箱手动全开、autoOpenAtMs 早已过、1Hz tick 抢先把 liveSlots 减掉导致 delta 为 0"的场景（2026-09-02 修复：原来 delta=0 时无脑等待，burst 5 分钟 TTL prune 后物品滞留未分类）。
    - 多 category decreased（真正歧义）→ 不 reclassify，所有 category 用 earliestBurstMs + per-cat autoOpenSec 重置 timer。
 4. **Step 3: liveSlots = {...slots}** — save 是 ground truth，覆盖实时调整。
-5. **Step 4: backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
+4. **Step 4: backfill + 重复信用 arm**：
+   - **backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
+   - **重复信用 arm（`outstandingReconcileCredits`，2026-09-10 引入 / 2026-09-23 修正消费点）**：对每个 `prev = lastReconcileSlots != null && slots[cat] > prev[cat]` 的类别，压入 `slots[cat] - prev[cat]` 条信用（`expiresAtMs = Date.now() + RECOVERY_GRACE_MS(=5s)`）。含义：save 新计入的这批箱子，其 live GetBox burst **可能仍在路上**（reader 滞后于 5s save watcher，或同一颗箱子被重复上报）；当它真的到来时，`handleChestDrop` 必须**消费信用并完全跳过入队/自增**（详见 §14.2 第 5 步），因为 Step 3 已把增量折进 `liveSlots`、Step 4 已 backfill 进队列。
+   - **该 arm 与 backfill 判定相互独立**：即使队列已与 save 数相等（无 backfill），也必须 arm —— 否则一颗 trailing burst 会把 `liveSlots` 顶到 `save + 1`。
+   - **仅在 `prev != null` 时 arm**：首次对账（app 启动、队列为空）不得把启动前既存的宝箱当作新掉落。
+   - **信用的两条释放路径**：① `handleChestDrop` 命中即消费（正常路径）；② `pruneExpiredReconcileCredits` 在 `RECOVERY_GRACE_MS` 后丢弃（live 从未上报 → 不能永久压制后续合法掉落）。`setEnabled(false)` 清空全部信用。
 6. **Step 5: 漏掉掉落补偿（rare/act/plague\*，延迟宽限）**：backfill 期间，当 `prev = lastReconcileSlots != null` 且某 boss 类别（rare/act/plagueCommon/plagueRare/plagueAct）的 save 槽位 `increase = slots[cat] - prev[cat] > 0`，则该增量代表 live reader 从未 surfacing 的真实掉落（实时 `readRuntimeChestLog`/fastpoll/burst 均可能漏掉）。把 `count = min(increase, deficit)` 存为待定恢复、延迟 `RECOVERY_GRACE_MS=5s` 后由 `flushDueDropRecoveries` 先 claim 信用再对差额补偿（`recordLiveChestDrop` 补偿，不触发 BoxTimer）：
    - **打开反推获得（auto-open 兜底，2026-09-11）**：Step5 依赖"存档未开槽位净增"，对"掉落即被自动打开"（save 净变 0）失效。补一条不依赖槽位的来源——**打开事件**。`classifyAllPendingBursts` 把"被打开但未匹配到活获得记录"的 `pendingBursts` 归入某类别后，用守恒补记：若该类别最近 `OPEN_BACKFILL_WINDOW_SEC`(=120s) 内的获得记录数（`ChestDropTracker.dropCountWithin`）不足本次打开数，差额即被 live miss 且 save 补不到的"获得"，以 `"reconcile"` 来源补记（不污染 live 学分）。去重由近窗计数承担，避免把窗口内正常获得重复补记。
    - **去重护栏（live credit 模型，2026-09-10）**：`ChestDropTracker` 按来源区分 live/reconcile，每次 `recordLiveChestDrop(cat, wallTime, "live")` 压入一个**带时间戳的信用**（`liveCreditsByCategory[cat]`）。对账补偿用 `coveredLive = chestDropTracker.claimLiveDropCredits(cat, count)` —— 用 save 的槽位增量去**消耗**这些信用：被消耗的部分是 live 已记录过的掉落，不重复补偿。
@@ -299,6 +309,7 @@ flowchart TD
    - `isFull = inv.used >= inv.capacity`。
    - full → not-full 转换：记录 `inventoryFullSinceMs`，不操作 queue。
    - not-full → full 转换：`shiftQueueTimes(pausedMs)` 把所有 non-slot-decremented item 的 `autoOpenAtMs` 和 `expiresAtMs` 向前推 pausedMs。
+   - **暂停只看背包（inventory），与 stash 无关**（2026-09-23 用户确认）：`getInventoryStatus` 只返回 `inventoryUsed` / `inventoryCapacity`，游戏也仅在背包满时停下自动开箱计时器。`stashSaveDatas` 的占用**不参与**任何暂停/恢复判定，因此 `InventorySnapshot` 不暴露 stash 容量不构成缺陷。
 2. **inventory full 时**：跳过 slot decrement 和 prune（timer 暂停）。仅处理 pending prompt timeout（wall-clock）和 pendingBursts TTL prune。
 3. **正常路径**：
    - 遍历 queue prefix，对每个 `autoOpenAtMs <= now` 且未在 WeakSet 中的 item：`liveSlots[cat]--` + WeakSet.add。

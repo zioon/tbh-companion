@@ -270,6 +270,34 @@ export class AutoClassifyService {
     plagueAct: number;
   } | null = null;
   /**
+   * Outstanding "already-counted live drop" credits, one entry per save slot
+   * increase a reconcile observed that the live GetBox burst may still report.
+   *
+   * The reported bug (掉落页 slots 数量校正后仍偏高) is a duplicate credit: when
+   * the save observes a slot increase BEFORE the live GetBox burst for that
+   * same physical chest flushes, Step 3 has already folded the chest into
+   * `liveSlots` (= the save count), and the later `handleChestDrop` from the
+   * live burst then increments `liveSlots` AGAIN — leaving it at `save + 1`
+   * for the whole interval until the next save parse rewrites `liveSlots`
+   * (up to a full save cadence, ~30s; longer whenever the save file's mtime
+   * does not change, e.g. an idle or paused game). Because the Loot tab renders
+   * `liveSlots ?? saveQuantity`, that phantom `+1` shadows the corrected save
+   * value — the exact over-count the user sees.
+   *
+   * Each credit is armed at reconcile time with an expiry of
+   * {@link RECOVERY_GRACE_MS} (the same window the deferred-recovery mechanism
+   * uses, comfortably covering the ~1s burst-flush latency). While a category
+   * has an unexpired credit, {@link handleChestDrop} consumes it (oldest first)
+   * instead of incrementing `liveSlots` — the incoming live drop is the chest
+   * the save already counted. Expiry bounds the suppression window so a credit
+   * the live reader never cashes in (a genuine miss) cannot later swallow a
+   * legitimate new drop's increment.
+   */
+  private outstandingReconcileCredits: Array<{
+    category: ChestDropCategory;
+    expiresAtMs: number;
+  }> = [];
+  /**
    * Last-seen `autoOpenSeconds` from ChestService, used to detect drift
    * (rune purchase, first save parse replacing FALLBACK_AUTO_OPEN, etc.).
    * When drift exceeds {@link AUTO_OPEN_DRIFT_THRESHOLD} on any category,
@@ -413,6 +441,7 @@ export class AutoClassifyService {
       this.pendingDropRecoveries = [];
       this.liveSlots = null;
       this.lastReconcileSlots = null;
+      this.outstandingReconcileCredits = [];
       this.lastAutoOpenSeconds = null;
       this.inventoryFullSinceMs = null;
     } else {
@@ -518,6 +547,38 @@ export class AutoClassifyService {
       log.warn(`could not resolve boxKey for drop category=${event.category} stageKey=${stageKey}`);
       return;
     }
+    // Duplicate suppression, resolved BEFORE any queue/slot mutation.
+    //
+    // Step 4 of `reconcileWithChestSlots` arms one `outstandingReconcileCredits`
+    // entry per chest the SAVE newly counted (slot increase vs the previous
+    // reconcile). A live GetBox burst for a chest the save already counted — the
+    // reader lags the 5 s save watcher, or the same physical chest is reported
+    // again — must consume that credit and do NOTHING else: the chest is already
+    // in `liveSlots` (Step 3 overwrote it with the save's absolute value) AND
+    // already in the queue (Step 4 backfilled the deficit, or it was carried over).
+    //
+    // Previously this check ran *after* the unconditional `enqueue()`, so the
+    // credited drop was skipped only for the `liveSlots` increment while still
+    // appending a duplicate queue entry. `liveSlots` stayed correct, which hid
+    // the bug, but the queue drifted permanently deeper than the save: excess-prune
+    // can only shave items whose `autoOpenAtMs` already elapsed, and a freshly
+    // appended duplicate has a FUTURE timer — so it never converges and the Loot
+    // tab's queue-derived counts sit above the in-game count (the reported
+    // "普通宝箱数量还是有问题").
+    const cat = categoryFromBoxKey(boxKey);
+    if (this.liveSlots && cat && cat !== "unclassified") {
+      const creditIdx = this.outstandingReconcileCredits.findIndex(
+        (c) => c.category === cat && c.expiresAtMs > Date.now(),
+      );
+      if (creditIdx >= 0) {
+        this.outstandingReconcileCredits.splice(creditIdx, 1);
+        log.info(
+          `drop boxKey=${boxKey} already counted by save (credit consumed); skipping enqueue ` +
+            `queueLen=${this.queue.length}`,
+        );
+        return;
+      }
+    }
     // Serial-queue model: each category has one shared timer. `enqueue`
     // computes this chest's `autoOpenAtMs` relative to the previous
     // same-category tail (or `droppedAtMs` if the category queue is empty).
@@ -543,8 +604,7 @@ export class AutoClassifyService {
       autoOpenSeconds: this.autoOpenForBoxKey(boxKey, autoOpen),
     });
     // Real-time slot tracking: a dropped chest occupies a slot immediately.
-    // Save path will recalibrate on the next save parse.
-    const cat = categoryFromBoxKey(boxKey);
+    // The save path calibrates it back to the absolute value on the next parse.
     if (this.liveSlots && cat && cat !== "unclassified") {
       this.liveSlots[cat]++;
     }
@@ -604,6 +664,9 @@ export class AutoClassifyService {
     // delta bookkeeping below (their `claimLiveDropCredits` must run before the
     // new `prev` baseline is taken so ordering stays deterministic).
     this.flushDueDropRecoveries();
+    // Drop expired duplicate-credit entries so a credit the live reader never
+    // cashed in cannot suppress a later legitimate drop's increment.
+    this.pruneExpiredReconcileCredits();
     // Drift check: a save parse is the canonical moment when rune purchases
     // and other state changes become visible to ChestService, so this is the
     // primary trigger for queue recalibration.
@@ -630,10 +693,17 @@ export class AutoClassifyService {
     // not here.)
     const nowMs = this.getEffectiveNow();
     let prunedTotal = 0;
+    // Seed every tracked category (incl. plague) so `prunedByCategory` is a
+    // complete map — `classifyPendingBursts` scans all six categories, and a
+    // missing plague key would make its `?? 0` fallback silently hide a plague
+    // prune signal (plague opens would then never classify their burst).
     const prunedByCategory: Partial<Record<BoxCategory, number>> = {
       common: 0,
       rare: 0,
       act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
     };
     for (const category of order) {
       const slotCount = slots[category];
@@ -679,7 +749,13 @@ export class AutoClassifyService {
 
     // Step 3: Recalibrate liveSlots to the save's absolute values. This
     // discards any real-time adjustments (drops/opens) accumulated since
-    // the last save parse — the save is the ground truth.
+    // the last save parse — the save is the ground truth. Outstanding credits
+    // from an earlier reconcile are intentionally NOT cleared here. They are
+    // released by exactly two paths: (1) consumed in `handleChestDrop` when the
+    // lagging live burst for an already-counted chest arrives, and (2) discarded
+    // by `pruneExpiredReconcileCredits` once their RECOVERY_GRACE_MS (5s) window
+    // lapses. Clearing them here as well would wrongly suppress a future
+    // legitimate drop (and desync with the Step 4 arming below).
     this.liveSlots = { ...slots };
 
     // Step 4: Backfill (queue < slots). Companion just opened or live reader
@@ -687,17 +763,46 @@ export class AutoClassifyService {
     // placeholder items anchored to "now", each getting a full autoOpenSeconds
     // countdown. `enqueue` handles serial-queue chaining.
     const prev = prevSlots;
+    // `slotsChanged` gates the backfill / recovery info logs. Every tracked
+    // category (incl. plague) participates — omitting plague made plague
+    // backfills silent and, more importantly, kept the gate from reflecting a
+    // real plague change (so a plague-only save update logged nothing).
     const slotsChanged =
       prev == null ||
       prev.common !== slots.common ||
       prev.rare !== slots.rare ||
-      prev.act !== slots.act;
+      prev.act !== slots.act ||
+      prev.plagueCommon !== slots.plagueCommon ||
+      prev.plagueRare !== slots.plagueRare ||
+      prev.plagueAct !== slots.plagueAct;
     this.lastReconcileSlots = slots;
 
     for (const category of order) {
       const slotCount = slots[category];
       const matching = this.queue.filter((q) => categoryFromBoxKey(q.boxKey) === category);
       const queueCount = matching.length;
+      // Arm outstanding duplicate-credit counters for every category whose save
+      // count INCREASED since the last reconcile. Each new chest the save now
+      // counts may STILL be reported by a lagging live GetBox burst; when it is,
+      // `handleChestDrop` must consume a credit instead of incrementing
+      // `liveSlots` (the increase is already folded into the baseline by Step 3).
+      //
+      // This is intentionally independent of the queue-deficit decision below:
+      // even when the queue already matches the save count (no backfill), a
+      // trailing live burst for an already-counted chest would otherwise push
+      // `liveSlots` to `save + 1` (the reported over-count). Gated on
+      // `prev != null` so the first reconcile (app launch, queue starts empty)
+      // does not treat pre-existing chests as fresh drops.
+      if (prev != null && slotCount > prev[category]) {
+        const armedAt = Date.now();
+        const newCredits = slotCount - prev[category];
+        for (let i = 0; i < newCredits; i++) {
+          this.outstandingReconcileCredits.push({
+            category,
+            expiresAtMs: armedAt + RECOVERY_GRACE_MS,
+          });
+        }
+      }
       if (queueCount >= slotCount) continue;
       const deficit = slotCount - queueCount;
       const stageKey = this.deps.getCurrentStageKey() ?? 0;
@@ -849,6 +954,24 @@ export class AutoClassifyService {
         );
       }
     }
+  }
+
+  /**
+   * Drop duplicate-credit entries whose {@link RECOVERY_GRACE_MS} window has
+   * elapsed. A credit is armed for every save slot increase (see
+   * `outstandingReconcileCredits`) and consumed by the matching lagging live
+   * drop; one the live reader never cashes in must not linger, or it would
+   * suppress a later legitimate drop's `liveSlots` increment.
+   *
+   * Called at the top of every reconcile and tick so the effective suppression
+   * window is bounded to {@link RECOVERY_GRACE_MS} regardless of the save
+   * cadence.
+   */
+  private pruneExpiredReconcileCredits(nowMs: number = Date.now()): void {
+    if (this.outstandingReconcileCredits.length === 0) return;
+    this.outstandingReconcileCredits = this.outstandingReconcileCredits.filter(
+      (c) => c.expiresAtMs > nowMs,
+    );
   }
 
   /**
@@ -1160,6 +1283,9 @@ export class AutoClassifyService {
     // so the recovery lands within ~1s of its due time even when no save parse
     // or slot change triggers a reconcile in the meantime.
     this.flushDueDropRecoveries();
+    // Drop expired duplicate-credit entries (see outstandingReconcileCredits /
+    // pruneExpiredReconcileCredits).
+    this.pruneExpiredReconcileCredits();
     // Detect inventory full / not-full transitions first, so pause/resume
     // effects (effectiveNow freeze, shiftQueueTimes on resume) are applied
     // before any elapsed/expired checks below. This is the primary trigger
@@ -1208,6 +1334,14 @@ export class AutoClassifyService {
         this.slotDecrementedItems.add(item);
       }
     }
+    // Expiry prune (pure filter). An expired item's `autoOpenAtMs` has always
+    // elapsed too (TTL > autoOpenSeconds), so the decrement loop above already
+    // handled its `liveSlots` release — the item is in `slotDecrementedItems`
+    // and must NOT be decremented a second time here. When `liveSlots` was null
+    // during the loop (pre-first-save) nothing was decremented for it either;
+    // Step 3 of the next reconcile overwrites `liveSlots` with the save truth,
+    // so no phantom count survives. Prune intentionally does not touch
+    // `liveSlots`.
     const before = this.queue.length;
     this.queue = pruneExpired(this.queue, now);
     if (this.queue.length < before) {

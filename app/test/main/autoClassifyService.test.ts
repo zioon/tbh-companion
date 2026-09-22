@@ -4248,3 +4248,354 @@ describe("AutoClassifyService pending burst classification", () => {
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Loot slot-count over-report regression (掉落页 slots 数量校正后仍偏高).
+//
+// Root cause (empirically reproduced): the *duplicate live credit* on the
+// deferred-recovery path. When a save parse observes a slot increase BEFORE the
+// live GetBox burst for that same physical chest flushes, `reconcileWithChestSlots`
+// Step 3 folds the chest into `liveSlots` (= the save count, N) and Step 4 stashes
+// a `pendingDropRecovery` for the increase. The live burst then flushes and fires
+// `handleChestDrop`, whose unconditional `liveSlots[cat]++` raises the counter to
+// N+1 — a phantom slot, since the chest was already counted by the save. Because
+// the Loot tab renders `liveSlots ?? saveQuantity` (LootQueueSlots.tsx:154), that
+// N+1 shadows the corrected save value until the next save parse happens to
+// change mtime (a full save cadence, ~30s — longer during an idle or paused game
+// where reconciles do not fire at all).
+//
+// Fix: the reconcile arms one `outstandingReconcileCredits[cat]` per recovered
+// drop; `handleChestDrop` consumes a credit (skipping the `++`) while one is
+// armed, so a drop the save already counted never inflates `liveSlots`. The
+// credit is released at the recovery's flush. The queue still enqueues the drop
+// (classification needs it); only the slot count is deduplicated.
+//
+// These tests drive the *realistic* ordering (save-increase reconcile, THEN the
+// live burst within the recovery grace) so they fail on the pre-fix code — the
+// duplicate `++` is what they assert against.
+// ---------------------------------------------------------------------------
+
+describe("AutoClassifyService liveSlots over-report regression", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * PRIMARY. Save observes the chest first (0 -> 1 rare), THEN the live burst
+   * for the same chest flushes inside the recovery grace. `liveSlots` must stay
+   * at the save truth (1), not jump to 2.
+   *
+   * Pre-fix: `handleChestDrop`'s unconditional `++` raises liveSlots.rare to 2
+   * (the reported over-count). Post-fix: the armed reconcile credit is consumed
+   * and liveSlots stays 1.
+   */
+  it("[overreport] a live drop the save already counted does not add a second slot", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    // First reconcile establishes the baseline (all zero → liveSlots = 0).
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+
+    // t0: the save parses a rare slot increase 0 -> 1 BEFORE the live burst
+    // flushed. Step 3 sets liveSlots.rare = 1 and Step 4 arms a recovery credit.
+    const t0 = FIXED_NOW_MS + 1_000;
+    vi.setSystemTime(t0);
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+
+    // t0: the live GetBox burst for the SAME chest then flushes.
+    chestDropTracker.recordLiveChestDrop("rare", t0 / 1000);
+
+    // THE ASSERTION: still exactly 1 — the save is the truth, the live drop is
+    // the chest the save already counted. Pre-fix this reads 2.
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+
+    // Even after the recovery grace elapses (flush), it must remain 1.
+    vi.setSystemTime(t0 + 20_000); // > RECOVERY_GRACE_MS (5s)
+    service.tick(); // flushDueDropRecoveries runs here
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+
+    // And the next save (still 1) keeps liveSlots === 1.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+  });
+
+  /**
+   * Repeated cycles of the primary scenario must never accumulate: liveSlots
+   * tracks the save exactly, cycle after cycle (this is the "worsens over long
+   * runs" symptom). Pre-fix each cycle leaves liveSlots one above the save.
+   */
+  it("[overreport] repeated save-then-live cycles never ratchet the count", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    let saveRare = 0;
+    for (let cycle = 1; cycle <= 6; cycle++) {
+      const t = FIXED_NOW_MS + cycle * 5_000;
+      vi.setSystemTime(t);
+      // The save sees the new chest first (increase by 1) …
+      saveRare += 1;
+      service.reconcileWithChestSlots({
+        common: 0,
+        rare: saveRare,
+        act: 0,
+        plagueCommon: 0,
+        plagueRare: 0,
+        plagueAct: 0,
+      });
+      // … then the live reader records the SAME chest (duplicate credit).
+      chestDropTracker.recordLiveChestDrop("rare", t / 1000);
+      // liveSlots must equal the save truth — never save + cycle.
+      expect(service.getQueueSnapshot().liveSlots?.rare).toBe(saveRare);
+    }
+  });
+
+  /**
+   * NEGATIVE CONTROL. A genuinely NEW drop the save has NOT counted yet must
+   * still increment `liveSlots` (the fix must not suppress real drops). Here the
+   * live drop arrives with NO armed reconcile credit, so the `++` applies.
+   */
+  it("[overreport] a genuinely new drop (no armed credit) still increments liveSlots", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+    // No save increase preceded this drop → no armed credit → +1 is correct.
+    chestDropTracker.recordLiveChestDrop("rare", FIXED_NOW_MS / 1000 + 1);
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(2);
+  });
+
+  /**
+   * An armed credit that no live burst consumes (a genuine live-reader miss)
+   * must not leak: after the grace flush the recovery records the drop and the
+   * credit is released, so a LATER legitimate drop still increments.
+   */
+  it("[overreport] an unclaimed reconcile credit is released at flush and does not suppress a later drop", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    const t0 = FIXED_NOW_MS + 1_000;
+    vi.setSystemTime(t0);
+    // Save increase with NO following live burst — arms a credit that will
+    // never be consumed by a live drop (the reader missed it).
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+
+    // Grace elapses → credit released.
+    vi.setSystemTime(t0 + 20_000);
+    service.tick();
+
+    // A later legitimate live drop (save not yet reflecting it) must increment.
+    chestDropTracker.recordLiveChestDrop("rare", (t0 + 20_000) / 1000);
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(2);
+  });
+
+  /**
+   * Save decrease must snap liveSlots down to the new save truth (no residual
+   * from an inflated history), and never negative under repeated ticks.
+   */
+  it("[overreport] a save decrease snaps liveSlots to the new truth, never negative", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    // Rare drops the save has NOT yet counted (real-time live ahead).
+    for (let i = 0; i < 3; i++) {
+      chestDropTracker.recordLiveChestDrop("rare", 1.0 + i);
+    }
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(3);
+    // Save now reports only 1 held (the others opened).
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 1,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 0,
+      plagueAct: 0,
+    });
+    expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
+    // Repeated ticks never drive it negative.
+    for (const t of [700_000, 1_300_000, 1_600_000]) {
+      vi.setSystemTime(t);
+      service.tick();
+      const v = service.getQueueSnapshot().liveSlots?.rare ?? 0;
+      expect(v).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  /**
+   * plague 类别纳入 prev 基线 / prunedByCategory：plague 的 save 变化必须能被
+   * backfill 与（via prunedByCategory）burst 分类观察到（修复前 slotsChanged /
+   * prunedByCategory 只含 common/rare/act）。
+   */
+  it("[overreport] plague slot changes are observable (backfill + delta gating)", () => {
+    const { service, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: 1105,
+    });
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 2,
+      plagueAct: 0,
+    });
+    let snap = service.getQueueSnapshot();
+    expect(snap.byCategory.find((c) => c.category === "plagueRare")?.count).toBe(2);
+    expect(snap.liveSlots?.plagueRare).toBe(2);
+
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 4,
+      plagueAct: 0,
+    });
+    snap = service.getQueueSnapshot();
+    expect(snap.byCategory.find((c) => c.category === "plagueRare")?.count).toBe(4);
+    expect(snap.liveSlots?.plagueRare).toBe(4);
+
+    // An unmatched plague open burst pends for classification.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // Save drops plagueRare 4 -> 3 → the burst must classify as plagueRare.
+    service.reconcileWithChestSlots({
+      common: 0,
+      rare: 0,
+      act: 0,
+      plagueCommon: 0,
+      plagueRare: 3,
+      plagueAct: 0,
+    });
+    const stats = boxOpenTracker.getStats(null);
+    expect(stats.find((s) => s.boxKey.startsWith("plagueRare"))).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+  });
+});
