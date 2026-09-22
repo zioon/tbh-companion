@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { LuRefreshCw, LuDownload, LuUpload } from "react-icons/lu";
 import { MarketVolumeSection } from "../components/market/MarketVolumeSection";
 import { ItemVolumeCard } from "../components/market/ItemVolumeCard";
+import { ImportHistoryDialog } from "../components/market/ImportHistoryDialog";
 import { TradingFilters } from "../components/market/TradingFilters";
 import { useMarketVolumeItems } from "../lib/useMarketVolumeItems";
 import { useMarketVolume } from "../lib/useMarketVolume";
@@ -32,6 +33,7 @@ import { Card } from "../design-system/primitives/Card/Card";
 import { HintBanner } from "../design-system/primitives/HintBanner/HintBanner";
 import { TabHeader } from "../design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../design-system/primitives/TabPage/TabPage";
+import type { AnalyzeMarketVolumeBackupResult } from "../../../shared/types";
 
 /**
  * 「交易」页：市场总交易额走势 + 按「当前时间窗口内成交额」降序排列的单物品卡片
@@ -92,6 +94,8 @@ export function Trading() {
   // 导出/导入操作的结果提示与导入进行中状态。
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  // 导入第一步的备份摘要；非 null 时展示币种确认弹窗。
+  const [importSummary, setImportSummary] = useState<AnalyzeMarketVolumeBackupResult | null>(null);
 
   // 窗口宽度 = 当前范围内的小时点数（"all" 展示全量）。若历史数据不足范围，
   // 宽度回缩到实际点数，此时无偏移余地（maxOffset=0）。
@@ -230,22 +234,42 @@ export function Trading() {
     else setHistoryNotice(t("trading.exportFailed", { reason: res.reason ?? "unknown" }));
   };
 
-  // 导入：确认后整体替换交易页历史数据，结果以提示条展示。
+  // 导入第一步：选备份文件并分析出摘要 + 探测币种，随后弹确认框让用户确认/改选币种。
   const handleImportHistory = async () => {
-    if (!window.confirm(t("trading.importConfirm"))) return;
     setImporting(true);
     try {
-      const res = await window.tbh.importMarketVolumeHistory();
+      const res = await window.tbh.analyzeMarketVolumeBackup();
       if (res.canceled) return;
-      if (res.ok && res.itemCount !== undefined)
+      if (res.ok) setImportSummary(res);
+      else setHistoryNotice(t("trading.importFailed", { reason: res.reason ?? "unknown" }));
+    } finally {
+      if (mountedRef.current) setImporting(false);
+    }
+  };
+
+  // 导入第二步：按用户选定的备份币种（"auto" = 用探测结果）换算为美元基准后**融合**。
+  const handleConfirmImport = async (sourceCurrency: string) => {
+    setImporting(true);
+    try {
+      const res = await window.tbh.importMarketVolumeHistory({ sourceCurrency });
+      if (res.ok && res.itemCount !== undefined) {
         setHistoryNotice(
           res.converted
-            ? t("trading.importConverted", { count: res.itemCount })
-            : t("trading.importSuccess", { count: res.itemCount }),
+            ? t("trading.importMergedConverted", {
+                count: res.itemCount,
+                from: res.converted.from,
+              })
+            : t("trading.importMerged", { count: res.itemCount }),
         );
-      else if (res.reason === "currency_mismatch")
-        setHistoryNotice(t("trading.importCurrencyMismatch"));
-      else setHistoryNotice(t("trading.importFailed", { reason: res.reason ?? "unknown" }));
+        setImportSummary(null);
+      } else if (res.reason === "no_pending_backup") {
+        setHistoryNotice(t("trading.importNoPending"));
+        setImportSummary(null);
+      } else if (res.reason === "conversion_unavailable") {
+        setHistoryNotice(t("trading.importConversionUnavailable"));
+      } else {
+        setHistoryNotice(t("trading.importFailed", { reason: res.reason ?? "unknown" }));
+      }
     } finally {
       if (mountedRef.current) setImporting(false);
     }
@@ -421,6 +445,16 @@ export function Trading() {
           )}
         </div>
       </div>
+
+      {/* 导入第二步：备份摘要 + 币种确认（含「自动探测」）。确认后融合导入。 */}
+      {importSummary ? (
+        <ImportHistoryDialog
+          summary={importSummary}
+          busy={importing}
+          onConfirm={(sourceCurrency) => void handleConfirmImport(sourceCurrency)}
+          onCancel={() => setImportSummary(null)}
+        />
+      ) : null}
     </TabPage>
   );
 }
