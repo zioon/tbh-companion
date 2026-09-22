@@ -242,7 +242,7 @@ flowchart LR
 
 #### LookupPriceService（CI 快照客户端，`app/src/main/services/LookupPriceService.ts`）
 
-- **数据来源**：GitHub release `https://github.com/lucasfevi/tbh-companion/releases/download/lookup-prices/prices.json`（CI 每 6 小时构建一次）。
+- **数据来源**：GitHub release `https://github.com/zioon/tbh-companion/releases/download/lookup-prices/prices.json`（CI 每 6 小时构建一次；本仓库自建，不依赖上游 lucasfevi 的快照）。
 - **职责**：拉取 CI 快照、缓存、广播；**从不调用 Steam**。
 - **缓存路径**：`app.getPath("userData")/lookup_prices.json`。
 - **启动**：`start()` 先 `loadFromDisk()`，再 `refresh()`，然后 `setInterval(refresh, 30 * 60 * 1000)`（30 分钟轮询）。

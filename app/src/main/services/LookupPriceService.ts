@@ -16,7 +16,11 @@ import { getProxyDispatcher } from "./proxyResolver";
 
 const log = createLogger("lookupPrices");
 
-const OWNER = "lucasfevi";
+// Self-hosted on purpose: the repo this build ships from owns its own rolling
+// `lookup-prices` release (built by `.github/workflows/lookup-prices.yml` in the
+// same repo), so clients never depend on the upstream author's snapshot, which
+// is keyed to a catalog that stops matching ours as soon as either side updates.
+const OWNER = "zioon";
 const REPO = "tbh-companion";
 const RELEASE_TAG = "lookup-prices";
 const ASSET_URL = `https://github.com/${OWNER}/${REPO}/releases/download/${RELEASE_TAG}/prices.json`;
