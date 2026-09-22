@@ -127,7 +127,7 @@ describe("parseInventory", () => {
     ]);
   });
 
-  it("v1.2.2: counts act-boss chests whose UniqueId is in neither Get nor Use bucket", () => {
+  it("v1.2.2: act counts from 'neither' bucket, but common/rare require BoxBucketGetBoxList", () => {
     // 章节 Boss 箱（930901）的 UniqueId 既不在 BoxBucketGetBoxList（未开）也不在
     // BoxBucketUseBoxList（已开），仅以 STAGEBOX 物品存在于 itemSaveDatas。
     // 回归：旧实现只认未开桶 → 章节 Boss 箱被误丢 → “掉落章节宝箱后队列被误归零”。
@@ -151,8 +151,19 @@ describe("parseInventory", () => {
             ? { category: "act" as const, label: "Act Boss Box Lv90" }
             : null;
     const snap = parseInventory(wrapPlayer(inner), 0, undefined, classify);
-    // 910901(Get 桶) + 920901 + 930901×2 计入；Use 桶里的 910901 排除。
-    expect(snap.chests).toHaveLength(4);
+    // 910901(Get 桶) + 930901×2 计入；Use 桶里的 910901 排除；
+    // 920901 与「Get/Use 都不在」的 common 均排除（neither ≠ 持有）。
+    expect(snap.chests).toHaveLength(3);
+    expect(snap.chests.filter((c) => c.type === 920901)).toHaveLength(0);
+    expect(snap.chests.filter((c) => c.type === 910901)).toEqual([
+      {
+        type: 910901,
+        quantity: 1,
+        category: "common",
+        label: "Normal Monster Box Lv90",
+        uniqueId: "551278195918946161",
+      },
+    ]);
     expect(snap.chests.filter((c) => c.type === 930901)).toEqual([
       {
         type: 930901,
@@ -169,6 +180,56 @@ describe("parseInventory", () => {
         uniqueId: "551278195918946305",
       },
     ]);
+  });
+
+  it("[regression] v1.2.8 real-shape save: GetBoxList is the truth for common/rare", () => {
+    // 复刻真实 v1.2.8 存档形状（2026-09-23 实测）：
+    //   BoxBucketGetBoxList = 5 common + 3 rare  →  与游戏内可见真值逐项一致
+    //   itemSaveDatas 另有 3 条 common 幽灵（不在任何桶）+ 3 条 act 幽灵
+    // 真值：common=5、rare=3、act=3（act 由 sessionScope 在展示层收敛）
+    // 旧规则（不在 Use 即持有）会报 common=8 → 本次修复的回归守卫。
+    const getIds = [
+      "551278195918958501",
+      "551278195918958502",
+      "551278195918958503",
+      "551278195918958504",
+      "551278195918958505",
+      "551278195918958511",
+      "551278195918958512",
+      "551278195918958513",
+    ];
+    const ghostCommonIds = ["551278195918958601", "551278195918958602", "551278195918958603"];
+    const ghostActIds = ["551278195918958701", "551278195918958702", "551278195918958703"];
+    const rows: string[] = [];
+    // Get 桶：前 5 条 common(910901)，后 3 条 rare(920901)
+    getIds.forEach((id, i) => {
+      rows.push(`{"ItemKey":${i < 5 ? 910901 : 920901},"UniqueId":${id},"IsChaotic":false}`);
+    });
+    ghostCommonIds.forEach((id) => {
+      rows.push(`{"ItemKey":910901,"UniqueId":${id},"IsChaotic":false}`);
+    });
+    ghostActIds.forEach((id) => {
+      rows.push(`{"ItemKey":930901,"UniqueId":${id},"IsChaotic":false}`);
+    });
+    const inner = `{
+      "BoxBucketUseBoxList":[],
+      "BoxBucketGetBoxList":[${getIds.join(",")}],
+      "itemSaveDatas":[${rows.join(",")}]
+    }`;
+    const classify = (key: number) =>
+      key === 910901
+        ? { category: "common" as const, label: "Normal Monster Box Lv90" }
+        : key === 920901
+          ? { category: "rare" as const, label: "Stage Boss Box Lv90" }
+          : key === 930901
+            ? { category: "act" as const, label: "Act Boss Box Lv90" }
+            : null;
+    const snap = parseInventory(wrapPlayer(inner), 0, undefined, classify);
+    const byCat = (cat: string) => snap.chests.filter((c) => c.category === cat).length;
+    expect(byCat("common")).toBe(5); // 幽灵 common 不计入（修复前为 8）
+    expect(byCat("rare")).toBe(3);
+    expect(byCat("act")).toBe(3); // act 不进桶，沿用 neither 规则
+    expect(snap.chests).toHaveLength(11);
   });
 
   it("v1.2.2: keeps boxes with unknown item ids as unclassified rows", () => {

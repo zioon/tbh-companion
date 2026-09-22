@@ -459,12 +459,29 @@ function parseChests(
       chests.push({ type: itemKey, quantity: 1, uniqueId });
       continue;
     }
-    // 已知 STAGEBOX 箱子：只要不在已开桶即视为持有。
-    // 章节 Boss 箱的 UniqueId 可能既不在 Get 也不在 Use 桶（v1.2.2 实测，
-    // 910901/920901 在 Get 而 930901 两桶皆不在），若严格限定"未开桶"会把
-    // 章节 Boss 箱误判为已开而丢弃 —— 即"掉落章节宝箱后队列被误归零"。
-    // uniqueId 供会话作用域过滤（core/boxes/sessionScope.ts）识别 v1.2.4
-    // 跨会话遗留的 act 幽灵条目。
+    // Known STAGEBOX chests — holding criterion is asymmetric per category (2026-09-23 fix).
+    //
+    //   act (Act Boss Box, 93xxxx): the UniqueId NEVER enters either the Get or the
+    //     Use bucket (since v1.2.2, still true on v1.2.8), so bucket membership is
+    //     meaningless for it. Keep the loose "held unless opened" rule; ghost rows
+    //     are handled by the session-scope filter (core/boxes/sessionScope.ts).
+    //
+    //   common / rare / plague*: the game restores their holdings from GetBoxList,
+    //     so they must appear in it to count as held. The old "not in Use => held"
+    //     rule is wrong for these: rows the game never restores after a level-up or
+    //     restart linger in itemSaveDatas (invisible in-game) and the old rule
+    //     counted them all, inflating the holding count. Measured on a real v1.2.8
+    //     save (2026-09-23): GetBoxList matches the in-game ground truth item for
+    //     item (5 common + 3 rare + 0 act) while itemSaveDatas holds 3 extra common
+    //     ghosts => the old rule showed 8 common.
+    //
+    // History: this block was once loosened to all categories because a strict
+    // Get filter dropped Act Boss boxes (which zeroed the Loot queue after an act
+    // drop). That loosening is still required for act but was over-broad for
+    // common/rare — hence the per-category split, satisfying both constraints.
+    if (meta.category !== "act" && (uniqueId == null || !unopenedIds.has(uniqueId))) {
+      continue;
+    }
     chests.push({
       type: itemKey,
       quantity: 1,
