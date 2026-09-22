@@ -42,7 +42,7 @@ python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
 ```
 
 - `--no-oracle`：跳过从旧 `data/` 推导派生规则（stat 除数、合成等级等），换游戏数据源时建议带上；常规更新不带。
-- `--game-version`：默认 `1.2.2`，与当前游戏版本不一致时手动指定。
+- `--game-version`：默认从安装目录的 `Version.txt` **自动探测**（与运行时 `detectGameVersion` 同源），仅在探测失败或需要强行覆盖时才手动指定。运行时会打印解析结果 `game version: X.Y.Z (from ...)`，务必核对。
 - **注意**：脚本会**覆盖** `data/` 下 6 个 JSON，先 `git status` 确认无未提交改动。
 
 产物（`data/` 下）：
@@ -76,7 +76,7 @@ python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
 | `rune_wave.json` | `reductionPerLevel`：Rune of Brevity（`STATTYPE = WaveCountReduction`）各节点每级 Value（键为 RuneKey 字符串），即减波数 |
 | `box_types.json` | boxType → label/category/color；与 `core/boxes/catalog.ts` 的 `BoxTypeCatalog` 一致 |
 
-**更新步骤**：临时脚本 `scripts/_dump_rune_tables.py` 过滤 `MaxAmount|UnlockAutoOpen|ReduceAutoOpen` 的 STATTYPE，按类别分组导出；对照游戏新增符文链手工更新上述 JSON 后删除临时脚本。任何新增 `BoxCategory` 值（如 v1.02.00 的 `plagueCommon/plagueRare/plagueAct`）需同步 `shared/types.ts`、`chestSlots.ts` 前缀分类、`boxOpenLog.ts` boxType 映射、AutoClassify 类别遍历、UI/locale。
+**更新步骤**：运行 `python scripts/dump_rune_tables.py` 转储两张表（按 `STATTYPE` 分组，便于发现**新增的 stat 族**），逐项对照 `rune_box_cap.json` / `rune_auto_open.json` / `rune_wave.json` / `box_types.json`，有差异才手工更新。任何新增 `BoxCategory` 值（如 v1.02.00 的 `plagueCommon/plagueRare/plagueAct`）需同步 `shared/types.ts`、`chestSlots.ts` 前缀分类、`boxOpenLog.ts` boxType 映射、AutoClassify 类别遍历、UI/locale。
 
 **步骤 2：提取物品图标**
 
@@ -110,8 +110,20 @@ pnpm build         # 生产构建
 内置数据变化后必须确认：
 
 - `app/test/core/unityAssets/catalogExtractor.test.ts` 的提取断言仍通过（fixture 是 1.00.28 旧文件，断言的是过滤行为，一般无需改）。
-- `app/test/main/gameDataProvider.test.ts` 的 `itemCount` 数量级断言匹配新 `gamedata.json`。
+- `app/test/main/gameDataProvider.test.ts` 的 `itemCount` 数量级断言匹配新 `gamedata.json`，且 `expect(provider.getVersion()).toBe("<新版本>")` 已同步更新 —— 该断言直接读内置 `data/gamedata.json`，**忘了改会必然失败**。
 - 图鉴（Lookup 页）不出现「Unknown 分类」「重复物品」「游戏内不存在的物品」。
+
+### 步骤 4.5：同步站点数据副本（易漏）
+
+`website/data/` 下的 `gamedata.json` / `stage_boxes.json` 是 **手工拷贝，不是符号链接**。不重新拷贝，落地页会继续展示旧版本数据（详见 [`DEPLOY-WEB.md`](DEPLOY-WEB.md)）。
+
+```powershell
+Copy-Item data\gamedata.json    website\data\gamedata.json -Force
+Copy-Item data\stage_boxes.json website\data\stage_boxes.json -Force
+git diff --stat website/data
+```
+
+`website/index.html` 里的 `id="side-version"` / `id="data-version"` 是加载前的占位文案（`js/app.js` 会用 JSON 里的 `gameVersion` 覆盖），顺手把占位里的版本号一并更新即可。
 
 ### 步骤 5：运行时刷新与缓存自愈
 
@@ -150,19 +162,40 @@ pnpm build         # 生产构建
 - **未做**：live GetBoxLog 的 `monsterType` 仍只映射 0/1/2，污染宝箱实时掉落分类待真机确认后扩展（save 侧解析已完整支持）。
 - **踩坑**：BOX 分类新增值牵连面大（类型联合、sort 顺序、AutoClassify 三处类别遍历、测试断言），改动前先 `grep -n '"common" | "rare" | "act"' app/` 摸底。
 
+### v1.2.6 更新实战（2026-09-22）
+
+游戏更新到 **Ver 1.2.6**（`sharedassets0.assets` 9/22 07:57 重写）。本次是"小版本 + 掉落补齐"型更新：
+
+- **`ItemInfoData` 无变化**：仍 1954 项，物品记录集合与 v1.2.2 **逐字节相同**。因此 `gamedata.json` / `lookup_items.json` / `offerings.json` / `stage_boxes.json` 实质零改动（只有 `gameVersion` / `fetchedUtc` / `source` 三行头部）；图标 0 新增。
+- **掉落图新增 4 件 CELESTIAL Lv40 装备**：`930401` Act Boss Box Lv40 与 `930451` Lv45 现在掉落 Elite Crossbow `347091`、Rune Axe `357091`（0.0005）、Rune Bolt `447091`、Elite Hatchet `457091`（0.0003）。这 4 件物品**早已在 gamedata 中**（`level=40`、`gearType` 齐全），此前只是缺掉落途径 —— 所以这是"补缺口"，不是新增物品。
+- **`synthesis_model.json` 连带变化**：`CELESTIAL|Gear|40` 桶 12 → 16 项，`poolPct` 重新分配（11.6664 → 9.2105、1.6671 → 1.3162 等）；同一批 37 个物品的 `dropPct` 出现 1e-4 级重算（如 0.6342 → 0.6341）。**这是分母变化的数学结果，不是平衡性改动**，解读报告时不要当成 nerf/buff。
+- **符文表**：现有 `rune_box_cap.json` / `rune_auto_open.json` / `rune_wave.json` 与 `RuneInfoData`/`RuneLevelInfoData` **逐项核对一致，无需改动**。但本版**新增一族掉率符文** `DropChance*ChestPercent`：普通箱/关卡 Boss 箱的 `DropChance*ChestPercent` 早就有，本版补上瘟疫链 `DropChancePlagueNormalChestPercent`（节点 `1211`/`1271`/`1311`/`11629`）与 `DropChancePlagueStageBossChestPercent`（`1302`/`1322`/`11649`），对应本地化 `Plague Rune of Exploration` / `Plague Rune of Conquest`。companion **未建模掉率符文**（没有对应 JSON，`bundledData` 也不注册），本次未新增模型 —— 属**已知缺口**，若要支持需先设计掉率加成如何并入掉落展示。
+- **本地化 +46 个 en 键**（2067 → 2113）：Credits（开发/致谢/素材授权）、皮肤商店（Dusk Wanderers Bundle、Steam Overlay 支付提示、Outfits、Split）、4 个瘟疫宝箱 `AccountStat_DropChancePlague*`。**无删除、无改写**。全部 16 语言同为 +46。
+
+两个踩坑（均已修）：
+
+1. **`Version.txt` 才是版本真源。** 本次 `--game-version` 的默认常量还是 `1.2.2`，忘传参会把新数据打上旧版本号 → app 侧 `getStatus().stale` 判定失准、用户端反复重新提取。已改为**从安装目录 `Version.txt` 自动探测**（与运行时 `detectGameVersion` 同源，可 `--game-version` 覆盖），运行日志会打印 `game version: X.Y.Z (from ...)`。
+2. **Windows 下脚本写出 CRLF。** `open(..., "w")` 文本模式在 Windows 写 `\r\n`，与 `.gitattributes` 的 `* text=auto eol=lf` 冲突：`git diff` 看不出来（git 会自动规范化，只显示真实行改动），但 `git ls-files --eol data/<file>` 会暴露 `w/crlf`，并且 `website/data/` 的拷贝会连带 CRLF。已在 `build_tbh_data.py` / `dump_game_locale.py` 加 `newline="\n"`；**更新后请用 `git ls-files --eol data/` 复核为 `w/lf`**。
+
 ## 6. 快速参考
 
 ```powershell
 # 游戏更新后的完整刷新命令（按序执行）
 python scripts/dump_game_locale.py
-python scripts/build_tbh_data.py
+python scripts/build_tbh_data.py          # 版本号自动从 Version.txt 探测
 python scripts/extract_icons.py
 python scripts/audit_catalog.py
 python scripts/audit_unresolved.py
 python scripts/check_icons.py
 
+# 站点副本（易漏）+ 行尾复核
+Copy-Item data\gamedata.json    website\data\gamedata.json -Force
+Copy-Item data\stage_boxes.json website\data\stage_boxes.json -Force
+git ls-files --eol data/gamedata.json      # 期望 w/lf
+
 # 符文数据（非管道2产物，游戏符文系统变化时手动提取，见步骤 1.5）
-#   python scripts/_dump_rune_tables.py  →  更新 rune_box_cap.json / rune_auto_open.json / box_types.json
+#   python scripts/dump_rune_tables.py  →  更新 rune_box_cap.json / rune_auto_open.json / box_types.json / rune_wave.json
+#   该脚本是常驻工具（已入库），核对完不需要删除
 
 # 应用侧
 cd app
@@ -174,6 +207,7 @@ pnpm build
 
 - 管道2 脚本：`scripts/build_tbh_data.py`
 - 本地化转储：`scripts/dump_game_locale.py`
+- 符文表转储：`scripts/dump_rune_tables.py`
 - 图标提取/校验：`scripts/extract_icons.py`、`scripts/check_icons.py`、`scripts/verify_icons.py`
 - 运行时提取：`app/src/core/unityAssets/catalogExtractor.ts`（`CATALOG_SCHEMA_VERSION`）
 - 运行时刷新：`app/src/main/catalogRefreshService.ts`（写入 `userData/gamedata.json`、`getStatus().stale`）

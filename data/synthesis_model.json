@@ -18096,51 +18096,67 @@
   "CELESTIAL|Gear|40": [
    {
     "itemKey": 307091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    },
    {
     "itemKey": 317091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    },
    {
     "itemKey": 327091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    },
    {
     "itemKey": 337091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
+   },
+   {
+    "itemKey": 347091,
+    "poolPct": 9.2105
+   },
+   {
+    "itemKey": 357091,
+    "poolPct": 9.2105
    },
    {
     "itemKey": 407091,
-    "poolPct": 1.6671
+    "poolPct": 1.3162
    },
    {
     "itemKey": 417091,
-    "poolPct": 1.6671
+    "poolPct": 1.3162
    },
    {
     "itemKey": 427091,
-    "poolPct": 1.6671
+    "poolPct": 1.3162
    },
    {
     "itemKey": 437091,
-    "poolPct": 1.6671
+    "poolPct": 1.3162
+   },
+   {
+    "itemKey": 447091,
+    "poolPct": 1.3153
+   },
+   {
+    "itemKey": 457091,
+    "poolPct": 1.3153
    },
    {
     "itemKey": 507091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    },
    {
     "itemKey": 517091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    },
    {
     "itemKey": 527091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    },
    {
     "itemKey": 537091,
-    "poolPct": 11.6664
+    "poolPct": 9.2105
    }
   ],
   "CELESTIAL|Gear|50": [

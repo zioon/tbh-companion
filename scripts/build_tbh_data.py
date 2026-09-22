@@ -217,7 +217,7 @@ class Builder:
         self.t = GameTables(game_dir)
         self.locale = Locale(REPO / "data" / "_game_locale_dump.json")
         self.out = out_dir
-        self.game_version = "1.2.2"
+        self.game_version = GAME_VERSION
 
         self.items = self.t.table("ItemInfoData")
         self.gear = {r["GearKey"]: r for r in self.t.table("GearInfoData")}
@@ -955,7 +955,27 @@ def stage_range_label(stages: list[dict]) -> str:
     return " · ".join(parts)
 
 
-GAME_VERSION = "1.2.2"
+# Fallback only — used when the game install has no readable `Version.txt`.
+# Normal runs auto-detect the version so data can never be stamped with a
+# stale version just because `--game-version` was forgotten.
+GAME_VERSION = "1.2.6"
+
+
+def detect_game_version(game_dir: str) -> tuple[str, str]:
+    """Return (version, source) from `Version.txt` next to the game exe.
+
+    `Version.txt` lives in the install root, i.e. the parent of the `<Game>_Data`
+    directory (`detectGameVersion` in `liveReader.ts` reads the same file at
+    runtime). Falls back to :data:`GAME_VERSION` when it is missing or malformed.
+    """
+    version_file = Path(game_dir).parent / "Version.txt"
+    try:
+        value = version_file.read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        return GAME_VERSION, f"fallback (no {version_file})"
+    if not re.fullmatch(r"\d+\.\d+\.\d+", value):
+        return GAME_VERSION, f"fallback ({version_file} = {value!r})"
+    return value, str(version_file)
 
 
 def main() -> int:
@@ -963,14 +983,24 @@ def main() -> int:
     parser.add_argument("--game-dir", default=DEFAULT_GAME_DIR)
     parser.add_argument("--out", default=str(REPO / "data"))
     parser.add_argument("--no-oracle", action="store_true", help="skip rule extraction from existing data")
-    parser.add_argument("--game-version", default=GAME_VERSION)
+    parser.add_argument(
+        "--game-version",
+        default=None,
+        help="override the detected Version.txt value (default: auto-detect)",
+    )
     args = parser.parse_args()
 
+    if args.game_version:
+        game_version, version_source = args.game_version, "--game-version"
+    else:
+        game_version, version_source = detect_game_version(args.game_dir)
+    print(f"game version: {game_version} (from {version_source})")
+
     b = Builder(args.game_dir, Path(args.out), use_oracle=not args.no_oracle)
-    b.game_version = args.game_version
+    b.game_version = game_version
 
     outputs = {
-        "gamedata.json": b.build_gamedata(args.game_version),
+        "gamedata.json": b.build_gamedata(game_version),
         # order matters: lookup_sources/offerings/synthesis populate the
         # "obtainable" sets that filter lookup_items
         "lookup_sources.json": b.build_lookup_sources(),
@@ -983,7 +1013,9 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, payload in outputs.items():
         path = out_dir / name
-        with open(path, "w", encoding="utf-8") as f:
+        # newline="\n": keep the worktree LF to match `.gitattributes`
+        # (`* text=auto eol=lf`); the default text mode writes CRLF on Windows.
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(payload, f, ensure_ascii=False, indent=1)
         print(f"wrote {path} ({path.stat().st_size // 1024} KB)")
     return 0
