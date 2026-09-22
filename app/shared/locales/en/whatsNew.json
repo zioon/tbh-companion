@@ -3,6 +3,16 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.25.0": {
+      "title": "What's new in v1.25.0",
+      "bullets": [
+        "Price history is now stored in USD — switching your display currency no longer wipes it, so you can move between currencies and keep the history you already have.",
+        "History import now merges instead of replacing: it combines by time, and you can pick the backup's currency. When the currency is not recorded, it is derived from the backup's own price history.",
+        "Fixed the acquisition log labelling hero defeat lines as clears with a gold clear badge.",
+        "Box drops now recover their level from nearby clear entries, and the bundled catalog is updated to game v1.2.6.",
+        "New install-free web version: drop a save in your browser to decrypt it and browse inventory and chests."
+      ]
+    },
     "1.24.4": {
       "title": "What's new in v1.24.4",
       "bullets": [
