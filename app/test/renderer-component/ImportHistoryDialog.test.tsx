@@ -83,9 +83,7 @@ describe("ImportHistoryDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
 
-    rerender(
-      <ImportHistoryDialog summary={BASE} busy onConfirm={() => {}} onCancel={onCancel} />,
-    );
+    rerender(<ImportHistoryDialog summary={BASE} busy onConfirm={() => {}} onCancel={onCancel} />);
     expect(screen.getByRole("button", { name: "Merge import" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
   });
