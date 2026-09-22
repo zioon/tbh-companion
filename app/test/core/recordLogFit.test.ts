@@ -179,4 +179,96 @@ describe("fitAcquireSources", () => {
     );
     expect(out).toEqual({});
   });
+
+  // -------------------------------------------------------------------------
+  // Hero life-event notices. Real archive data (2026-09-21, live v1.2.4 Boss
+  // run): a death lands 0.627 s before the clear line that follows it, i.e.
+  // inside FIT_WINDOW_SEC, so pass 4's clear-by-nearest-time fallback used to
+  // claim it and the UI badged "牧师被击败了。(木乃伊)" as 通关.
+  // -------------------------------------------------------------------------
+
+  it("never fits a hero death line, even when a clear event sits inside the window", () => {
+    const out = fitAcquireSources(
+      [
+        {
+          seq: 6,
+          wallTime: 1789990881.34,
+          acquireName: "牧师",
+          acquireCount: 1,
+          acquireRaw: "牧师被击败了。(木乃伊)",
+          acquireColor: "#7030A5",
+        },
+      ],
+      [],
+      [],
+      [{ wallTime: 1789990881.967, stageKey: 309 }],
+    );
+    expect(out["6"]).toBeUndefined();
+  });
+
+  it("never fits a hero line via the purple tint alone (no template wording)", () => {
+    const out = fitAcquireSources(
+      [{ seq: 1, wallTime: 1000, acquireName: "牧师", acquireRaw: "x", acquireColor: "#7030a5" }],
+      [{ wallTime: 1000, category: "common" }],
+      [{ wallTime: 1000, boxKey: "rare:1", itemName: "y", grade: null, count: 1 }],
+      [{ wallTime: 1000, stageKey: 1 }],
+    );
+    expect(out).toEqual({});
+  });
+
+  it("never fits hero lines by wording alone (tint absent on legacy rows)", () => {
+    for (const raw of [
+      "剑士阵亡了。(骷髅王)",
+      "牧师复活了。(木乃伊)",
+      "弓手升级了。",
+      "法师觉醒了。",
+    ]) {
+      const out = fitAcquireSources(
+        [{ seq: 1, wallTime: 1000, acquireName: "英雄", acquireRaw: raw }],
+        [],
+        [],
+        [{ wallTime: 1000, stageKey: 1 }],
+      );
+      expect(out, raw).toEqual({});
+    }
+  });
+
+  it("still fits the real clear line next to an excluded hero death line", () => {
+    // The pair from the live archive — only the death line is suppressed.
+    const out = fitAcquireSources(
+      [
+        {
+          seq: 6,
+          wallTime: 1789990881.34,
+          acquireName: "牧师",
+          acquireCount: 1,
+          acquireRaw: "牧师被击败了。(木乃伊)",
+          acquireColor: "#7030A5",
+        },
+        {
+          seq: 7,
+          wallTime: 1789990881.967,
+          acquireName: "关卡 3-9",
+          acquireCount: 1,
+          acquireRaw: "通关了关卡 3-9。(73秒)",
+          acquireColor: "#A69255",
+        },
+      ],
+      [],
+      [],
+      [{ wallTime: 1789990881.967, stageKey: 309 }],
+    );
+    expect(out["6"]).toBeUndefined();
+    expect(out["7"]).toEqual({ source: "clear", stageLabel: "3-9" });
+  });
+
+  it("leaves an ordinary reward line next to a clear still fittable", () => {
+    const out = fitAcquireSources(
+      [{ seq: 1, wallTime: 1000, acquireName: "金币", acquireRaw: "获得金币 x50" }],
+      [],
+      [],
+      [{ wallTime: 1000.5, stageKey: 310 }],
+    );
+    expect(out["1"]).toEqual({ source: "clear", stageKey: 310 });
+  });
 });

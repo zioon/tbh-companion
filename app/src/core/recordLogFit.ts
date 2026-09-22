@@ -11,6 +11,10 @@
 // trivially testable.
 //
 // Matching discipline (strongest signal first, each event used at most once):
+//   -1. Hero life-event notices ("牧师被击败了。(木乃伊)") are excluded UP FRONT
+//       by their purple tint / template wording. They are not grants of
+//       anything, and a death lands <1s before the following clear line, so
+//       pass 4 would otherwise claim it and mislabel it as a clear reward.
 //   0. "通关了" text prefix — the ring line IS the stage-clear record. Exact,
 //      no time inference at all.
 //   1. Open by item-name equality — the open history carries the catalog name
@@ -42,6 +46,8 @@ export interface AcquireFitInput {
   acquireCount?: number;
   /** Raw line text — the "通关了" prefix identifies stage-clear lines exactly. */
   acquireRaw?: string;
+  /** Rich-text tint — the game's purple marks hero life-event notices. */
+  acquireColor?: string | null;
   /** Initial-attach replay rows carry a distorted wallTime — never fit them. */
   bulk?: boolean;
 }
@@ -86,6 +92,27 @@ const STAGE_LABEL_RE = /关卡\s*(\d+-\d+)/;
 /** A line whose name looks like a chest item (zh / en) — gate for pass 2. */
 const CHEST_NAME_RE = /宝箱|[Cc]hest/;
 
+/**
+ * Hero life-event lines ("牧师被击败了。(木乃伊)"). The game tints these
+ * purple and every template ends with the same 了。(<unit>) tail; they are
+ * NOT rewards of anything and must never be fitted.
+ *
+ * Why this gate is load-bearing: a hero death lands within a second of the
+ * stage-clear line that follows it (measured 2026-09-21 on a live v1.2.4
+ * Boss run: "牧师被击败了。(木乃伊)" at wallTime 1789990881.34 vs
+ * "通关了关卡 3-9。(73秒)" at 1789990881.967 — 0.627 s apart, well inside
+ * FIT_WINDOW_SEC). Pass 4's clear-by-nearest-time fallback would therefore
+ * claim the death line as a clear reward and mislabel it "通关" in the UI.
+ * Pass 0 cannot catch this: the death line does not start with CLEAR_PREFIX.
+ *
+ * Because the renderer keys its unfitted-line buckets on the ABSENCE of a
+ * fit (see RecordLog.tsx `deriveRow`), letting a hero line through here
+ * would also suppress its correct "hero" classification.
+ */
+const HERO_LINE_RE = /被击败|阵亡|复活|升级|觉醒/;
+/** The game's purple tint for hero life-event notices (see boxOpenBackfill). */
+const HERO_TINT = "#7030A5";
+
 interface OpenCandidate extends OpenFitEvent {
   remaining: number;
 }
@@ -93,6 +120,22 @@ interface ChestCandidate {
   wallTime: number;
   category: ChestDropCategory;
   used: boolean;
+}
+
+/**
+ * Whether a line is one of the game's own hero life-event notices rather than
+ * a grant. Two independent signals — either is sufficient:
+ *  - the purple tint the game uses for hero notices (`#7030A5`);
+ *  - the template wording (`被击败` / `阵亡` / `复活` / `升级` / `觉醒`).
+ *
+ * The colour check alone would be enough on the zh client, but the text check
+ * keeps this working if the tint is ever absent (older archive rows, a locale
+ * that re-tints) and costs nothing.
+ */
+function isHeroNotice(a: AcquireFitInput): boolean {
+  const tint = a.acquireColor?.trim().toUpperCase();
+  if (tint === HERO_TINT) return true;
+  return HERO_LINE_RE.test(a.acquireRaw ?? "");
 }
 
 /**
@@ -127,10 +170,16 @@ export function fitAcquireSources(
     .filter((a) => !a.bulk)
     .sort((a, b) => a.wallTime - b.wallTime || a.seq - b.seq);
 
+  // Hero notices are never fitted by ANY pass (not just pass 4): a death is
+  // not an open, a chest, or a clear reward. Excluding them here — before any
+  // pass runs — also guarantees the renderer's text-keyed "hero" bucket still
+  // sees them as unfitted (see RecordLog.tsx `deriveRow`).
+  const fittable = fitables.filter((a) => !isHeroNotice(a));
+
   // Pass 0 — stage-clear lines by their own text. The game writes the clear
   // record into the same ring, so the prefix is authoritative; no bucket data
   // needed, no occupation consumed (the line is the record, not a side effect).
-  for (const a of fitables) {
+  for (const a of fittable) {
     const raw = a.acquireRaw ?? "";
     if (!raw.startsWith(CLEAR_PREFIX)) continue;
     const m = STAGE_LABEL_RE.exec(raw);
@@ -140,7 +189,7 @@ export function fitAcquireSources(
   // Pass 1 — opens by exact item-name equality. The strongest bucket signal:
   // the open history carries the granted item's catalog name and the line
   // carries the game's display name — equal means this line is that grant.
-  for (const a of fitables) {
+  for (const a of fittable) {
     if (out[String(a.seq)]) continue;
     const name = a.acquireName?.trim();
     if (!name) continue;
@@ -162,7 +211,7 @@ export function fitAcquireSources(
   // Pass 2 — chest drops by nearest unused GetBox event. A drop logs exactly
   // one ring line naming the chest, so the gate keeps gold/material/content
   // lines from stealing chest events (their colouring would be wrong).
-  for (const a of fitables) {
+  for (const a of fittable) {
     if (out[String(a.seq)]) continue;
     const name = a.acquireName?.trim() ?? "";
     if (!CHEST_NAME_RE.test(name)) continue;
@@ -173,7 +222,7 @@ export function fitAcquireSources(
   }
 
   // Pass 3 — opens by nearest time for content lines the name match missed.
-  for (const a of fitables) {
+  for (const a of fittable) {
     if (out[String(a.seq)]) continue;
     const hit = nearestWithin(openEvents, a.wallTime, windowSec, (e) => e.remaining > 0);
     if (!hit) continue;
@@ -188,7 +237,7 @@ export function fitAcquireSources(
   // Pass 4 — clears by nearest time: reward lines of a clear (gold, materials)
   // in languages the prefix check does not cover. No occupation: one clear
   // legitimately produces several lines.
-  for (const a of fitables) {
+  for (const a of fittable) {
     if (out[String(a.seq)]) continue;
     const hit = nearestWithin(clearEvents, a.wallTime, windowSec, () => true);
     if (!hit) continue;
