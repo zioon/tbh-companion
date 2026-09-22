@@ -97,19 +97,34 @@ pnpm smoke:web       # Electron + Chromium 端到端：拖入真实存档 → �
 
 ### 2.2 站点结构
 
-`website/` 是 Pages 产物的**根目录**，也是站点本身——**没有单独的营销落地页**，打开站点直接进工具：
+`website/` 是 Pages 产物的**根目录**，也是站点本身——**没有单独的营销落地页**，打开站点直接进工具。
+
+页面与桌面版的标签**一一对应、顺序一致**（`app/src/renderer/components/appTabs.ts` 的 `TAB_IDS`）：
+
+| 站点页面 | 对应标签 | 数据来源 | 需要存档？ |
+| --- | --- | --- | --- |
+| Home 首页 | `live` | 存档 + 实时读取 | **是**（含存档路径指引） |
+| Inventory 物品栏 | `inventory` | 存档 | **是** |
+| Chests 宝箱 | `chests` | 宝箱目录 + 存档（持有数/槽位） | 目录不需要，持有数需要 |
+| Lookup 图鉴 | `lookup` | `data/gamedata.json` + 价格快照 | 否 |
+| Trading 交易 | `trading` | 价格快照 + 目录 | 否 |
+
+文件构成：
 
 | 路径 | 内容 | 来源 |
 | --- | --- | --- |
-| `index.html` | 工具外壳（侧栏 + 三个工作区） | 手写维护 |
+| `index.html` | 工具外壳（侧栏 + 五个页面） | 手写维护 |
 | `css/app.css` | 设计 token 与布局 | 手写维护 |
-| `js/app.js` | 视图切换、目录/价格渲染、筛选与分页 | 手写维护 |
-| `data/gamedata.json` | 解包后的游戏目录（1,954 件物品） | `data/gamedata.json` 的拷贝，需随游戏版本手动更新 |
+| `js/app.js` | 视图切换、五个页面的渲染、筛选与分页 | 手写维护 |
+| `data/gamedata.json` | 解包后的物品目录（1,954 件） | `data/gamedata.json` 的**拷贝** |
+| `data/stage_boxes.json` | 宝箱目录（140 个，含掉落关卡区间；默认冷却 720s = 12 分钟） | `data/stage_boxes.json` 的**拷贝** |
 | `data/prices.json` | Steam 挂单价快照 | **CI 暂存**，见 §2.4 |
 | `inspector/` | 真实的浏览器端存档解密器 | CI 由 `pnpm build:web` 构建，见 §2.1 |
 | `assets/icon.png` | 站点图标 | |
 
-**设计意图：不导入存档也能用。** `Game Data` 与 `Market` 两个工作区只依赖 `data/` 下的两份数据，与存档无关；只有 `Save Analysis` 需要拖入 `.es3`（在浏览器内解密，或跳到 `inspector/`）。改动 `index.html` / `app.js` 时不要给这两个工作区加存档前置条件。
+> **两份目录是拷贝，不是符号链接。** 游戏版本更新后（走 [`docs/DATA-UPDATE.md`](DATA-UPDATE.md) 的流程）必须把 `data/gamedata.json`、`data/stage_boxes.json` 重新拷贝到 `website/data/`，否则站点会继续展示旧版本数据。
+
+**设计约束：不导入存档也要有内容。** Lookup 与 Trading 只依赖 `data/`，与存档无关；Chests 的宝箱目录同样不依赖存档，只有「持有数量 / 槽位占用」来自存档；Home 与 Inventory 本质上是存档的镜像，无存档时显示指向存档路径的空状态 + 可切换的示例数据预览。改动 `index.html` / `app.js` 时不要给 Lookup / Trading / Chests 目录加存档前置条件。
 
 `./inspector/` 的相对路径在 `https://<user>.github.io/<repo>/` 和自定义域名下都成立，上线后地址为：
 
@@ -361,8 +376,9 @@ curl -sI https://tbh.example.com/inspector/ | head -1   # 200（方案 A）
 | 图标正常显示 | 拖入存档，背包每行左侧有彩色图标框，无 broken image |
 | 物品名本地化 | 切换语言后名称跟随变化（`getLookupCatalog` 按 `resolvedLanguage` 本地化） |
 | CSP 允许同源图标 | `dist-web/index.html` 的 `img-src 'self' data:`；图标是同源 PNG，无需放开 `tbh-asset:` |
-| **不导入存档也能用** | 清空站点存储后直接打开站点：`Game Data` 应渲染 1,954 件物品，`Market` 应渲染可交易物品列表——两者都不该出现「请先载入存档」之类的拦截 |
-| **Market 有真实价格** | `Market` 价格列应显示 ¥ 数值；若显示 `no listing` 且顶部有黄色告警条，说明 `website/data/prices.json` 没暂存上（查 `pages.yml` 的 `Stage Steam price snapshot` 步骤 warning） |
+| **不导入存档也能用** | 清空站点存储后直接打开站点：`Lookup` 应渲染 1,954 件物品、`Chests` 应渲染 140 个宝箱图鉴（含掉落关卡区间）、`Trading` 应渲染可交易物品列表——三个页面都不该出现「请先载入存档」之类的拦截 |
+| **存档驱动的页面有正确空状态** | `Home` 与 `Inventory` 在无存档时应给出指向 `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\` 的指引与复制按钮，而不是空白块或报错 |
+| **Trading 有真实价格** | `Trading` 价格列应显示 ¥ 数值；若显示 `no listing` 且顶部有黄色告警条，说明 `website/data/prices.json` 没暂存上（查 `pages.yml` 的 `Stage Steam price snapshot` 步骤 warning） |
 | Steam 查价（inspector 内）显示为「未加载」 | 这是**预期行为**，不是 bug —— `inspector/` 不直连 Steam（无 CORS）；站点根 `Market` 的价格来自快照，两者不要混淆 |
 | 无遥测 | 全站无分析脚本。站点根只外链 Google Fonts；`inspector/` 产物无任何外链 |
 | 存档不外传 | DevTools → Network，拖入存档后不产生任何携带存档内容的请求 |

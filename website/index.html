@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="TBH Companion Web — browse the unpacked Task Bar Hero catalog and live Steam Market prices, then read your own save. Nothing leaves your browser."
+      content="TBH Companion Web — Home, Inventory, Chests, Lookup and Trading for Task Bar Hero. Read-only, everything runs in your browser."
     />
-    <title>TBH Companion — Game Data · Market · Save Analysis</title>
+    <title>TBH Companion — Home · Inventory · Chests · Lookup · Trading</title>
     <link rel="icon" href="assets/icon.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -58,45 +58,261 @@
         <p class="side-label">Workspace 工作台</p>
 
         <nav class="side-nav" aria-label="Workspace">
-          <button type="button" class="nav-item is-active" data-view="data">
+          <button type="button" class="nav-item is-active" data-view="home">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12h3.5l2.2-5.5 3.2 11 2.4-5.5H21" />
+            </svg>
+            <span class="bi-en">Home</span><span class="bi-cn">首页</span>
+          </button>
+          <button type="button" class="nav-item" data-view="inventory">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+              <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+              <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+            </svg>
+            <span class="bi-en">Inventory</span><span class="bi-cn">物品栏</span>
+          </button>
+          <button type="button" class="nav-item" data-view="chests">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 9h18v11H3z" />
+              <path d="M3 9 5.2 4h13.6L21 9" />
+              <path d="M12 9v11" />
+            </svg>
+            <span class="bi-en">Chests</span><span class="bi-cn">宝箱</span>
+          </button>
+          <button type="button" class="nav-item" data-view="lookup">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <ellipse cx="12" cy="6" rx="7" ry="3" />
               <path d="M5 6v12c0 1.66 3.13 3 7 3s7-1.34 7-3V6" />
               <path d="M5 12c0 1.66 3.13 3 7 3s7-1.34 7-3" />
             </svg>
-            <span class="bi-en">Game Data</span><span class="bi-cn">游戏内容解包</span>
+            <span class="bi-en">Lookup</span><span class="bi-cn">图鉴</span>
           </button>
-          <button type="button" class="nav-item" data-view="market">
+          <button type="button" class="nav-item" data-view="trading">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 20.5h18" />
               <path d="M4.5 16.5 9.5 11l4 3.2L20 6.5" />
             </svg>
-            <span class="bi-en">Market</span><span class="bi-cn">市场实时追踪</span>
-          </button>
-          <button type="button" class="nav-item" data-view="analysis">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M3 12h3.5l2.2-5.5 3.2 11 2.4-5.5H21" />
-            </svg>
-            <span class="bi-en">Save Analysis</span><span class="bi-cn">存档分析</span>
+            <span class="bi-en">Trading</span><span class="bi-cn">交易</span>
           </button>
         </nav>
 
         <div class="side-note">
           <p class="side-note-title">Data source 数据来源</p>
-          <p class="side-note-body">Unpacked catalog · Steam snapshot</p>
           <div class="side-note-rows">
-            <span class="mono" id="side-version">v1.2.2 · — items</span>
+            <span class="mono" id="side-version">catalog v1.2.2 · — items</span>
+            <span class="mono" id="side-chests">— chests</span>
             <span class="mono" id="side-snapshot">snapshot —</span>
           </div>
         </div>
       </aside>
 
       <main class="content">
-        <!-- ======================== View: Game data ======================== -->
-        <section class="view is-active" id="view-data">
+        <!-- ========================== View: Home ========================== -->
+        <section class="view is-active" id="view-home">
           <div class="page-head">
             <h1 class="page-title">
-              <span class="ttl-en">Game Data</span><span class="ttl-cn">游戏内容解包</span>
+              <span class="ttl-en">Home</span><span class="ttl-cn">首页</span>
+            </h1>
+            <div class="page-actions">
+              <span class="pill" id="save-pill">
+                <i class="dot dot-idle"></i>
+                <span class="mono" id="save-pill-text">no save loaded</span>
+              </span>
+              <button type="button" class="btn btn-ghost" id="btn-sample">
+                <span class="bi-en">Preview with sample data</span><span class="bi-cn">用示例数据预览</span>
+              </button>
+              <button type="button" class="btn btn-ghost" id="btn-reset" hidden>
+                <span class="bi-en">Clear</span><span class="bi-cn">清除</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="stack" id="home-empty">
+            <div class="dropzone" id="dropzone">
+              <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.5V4" />
+                <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
+                <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+              </svg>
+              <h2 class="dz-title">Drop your save file here</h2>
+              <p class="dz-caption">把 .es3 存档拖到这里 · 解密全部在本机浏览器内完成，文件不会上传</p>
+              <div class="dz-actions">
+                <a class="btn btn-primary" href="./inspector/">
+                  <span class="bi-en">Choose .es3 file</span><span class="bi-cn">选择存档文件</span>
+                </a>
+              </div>
+              <p class="dz-hint mono">Steam\userdata\&lt;id&gt;\&lt;appid&gt;\remote\*.es3</p>
+              <div class="dz-alt">
+                <span>没有存档也能用：</span>
+                <button type="button" class="link" data-goto="lookup">浏览 1,954 件物品</button>
+                <span class="sep">·</span>
+                <button type="button" class="link" data-goto="chests">查看 140 个宝箱</button>
+                <span class="sep">·</span>
+                <button type="button" class="link" data-goto="trading">查看 Steam 行情</button>
+              </div>
+            </div>
+
+            <div class="card savepath">
+              <div class="card-head card-head-flush">
+                <h2 class="card-title">Where the save lives</h2>
+                <span class="card-title-cn">存档位置</span>
+                <span class="mono" id="save-path-env">%USERPROFILE%</span>
+              </div>
+              <p class="kpi-sub">
+                桌面版按存档的写入时间刷新速率；网页版不读磁盘，只能由你手动选文件后在本机解密。
+              </p>
+              <div class="pathblock">
+                <span class="mono" id="save-path">%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\</span>
+                <button type="button" class="link" id="btn-copy-path">复制路径</button>
+              </div>
+              <ol class="steps">
+                <li>在 Steam 里打开 <strong>Task Bar Hero</strong>，让它写一次存档（进游戏打一会儿即可）。</li>
+                <li>按 Win+R 粘贴上面这行路径，回车后找到最新的 <span class="mono">*.es3</span>。</li>
+                <li>把该文件拖到上方区域 —— 解密在浏览器内完成，文件不会离开本机。</li>
+              </ol>
+              <p class="kpi-sub">
+                云端同步存档（Steam Cloud）也在这里：
+                <span class="mono">Steam\userdata\&lt;id&gt;\3678970\remote\</span>
+              </p>
+            </div>
+          </div>
+
+          <div class="stack" id="home-loaded" hidden></div>
+        </section>
+
+        <!-- ======================== View: Inventory ======================== -->
+        <section class="view" id="view-inventory">
+          <div class="page-head">
+            <h1 class="page-title">
+              <span class="ttl-en">Inventory</span><span class="ttl-cn">物品栏</span>
+            </h1>
+            <div class="page-actions">
+              <span class="pill"><i class="dot" id="inv-dot"></i><span class="mono" id="inv-source">no save</span></span>
+              <button type="button" class="btn btn-ghost" id="btn-export-inventory">
+                <span class="bi-en">Export JSON</span><span class="bi-cn">导出 JSON</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="inventory-body" hidden>
+            <div class="kpi-row" id="inv-summary"></div>
+
+            <div class="toolbar">
+              <label class="search">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m16.5 16.5 4 4" />
+                </svg>
+                <input id="inv-search" type="search" placeholder="搜索物品 / Search items…" autocomplete="off" />
+              </label>
+              <select class="select" id="inv-grade" aria-label="Grade"></select>
+              <select class="select" id="inv-type" aria-label="Item type">
+                <option value="ALL">所有类型 · All item types</option>
+                <option value="MATERIAL">MATERIAL</option>
+                <option value="GEAR">GEAR</option>
+              </select>
+              <select class="select" id="inv-location" aria-label="Location">
+                <option value="ALL">所有位置 · All locations</option>
+                <option value="inventory">Inventory 背包</option>
+                <option value="stash">Stash 仓库</option>
+                <option value="trading">Trading 交易栏</option>
+                <option value="equipped">Equipped 已装备</option>
+              </select>
+              <label class="check" for="inv-tradable">
+                <input type="checkbox" id="inv-tradable" />
+                <span class="bi-en">Tradable only</span><span class="bi-cn">仅可交易</span>
+              </label>
+              <span class="count mono" id="inv-count">—</span>
+            </div>
+
+            <div class="card card-col">
+              <div class="table" id="inv-table"></div>
+              <div class="grow"></div>
+              <div class="divider"></div>
+              <div class="card-foot">
+                <span class="mono muted" id="inv-page">—</span>
+                <button type="button" class="link" id="btn-more-inv">
+                  <span class="bi-en">Load more</span><span class="bi-cn">加载更多</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="empty" id="inventory-empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+              <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+              <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+              <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+            </svg>
+            <h2>Waiting for the save file</h2>
+            <p>物品栏来自存档。打开游戏让它写一次存档，或直接在首页拖入 <span class="mono">.es3</span>。</p>
+            <div class="dz-actions">
+              <button type="button" class="btn btn-primary" data-goto="home">
+                <span class="bi-en">Go to Home</span><span class="bi-cn">去首页载入</span>
+              </button>
+              <button type="button" class="btn btn-ghost" id="btn-sample-inv">
+                <span class="bi-en">Preview with sample data</span><span class="bi-cn">用示例数据预览</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================= View: Chests ========================= -->
+        <section class="view" id="view-chests">
+          <div class="page-head">
+            <h1 class="page-title">
+              <span class="ttl-en">Chests</span><span class="ttl-cn">宝箱</span>
+            </h1>
+            <div class="page-actions">
+              <span class="pill"><i class="dot" id="chest-dot"></i><span class="mono" id="chest-source">no save</span></span>
+              <span class="pill mono" id="chest-cooldown">cooldown 12 min</span>
+            </div>
+          </div>
+
+          <div class="kpi-row" id="chest-kpis"></div>
+
+          <div class="toolbar">
+            <label class="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m16.5 16.5 4 4" />
+              </svg>
+              <input id="chest-search" type="search" placeholder="搜索宝箱 / Search chests…" autocomplete="off" />
+            </label>
+            <select class="select" id="chest-grade" aria-label="Grade"></select>
+            <select class="select" id="chest-level" aria-label="Level">
+              <option value="ALL">所有等级 · All levels</option>
+            </select>
+            <span class="count mono" id="chest-count">—</span>
+          </div>
+
+          <div class="card card-col">
+            <div class="card-head">
+              <h2 class="card-title">Chest catalog</h2>
+              <span class="card-title-cn">宝箱图鉴</span>
+              <span class="mono">every obtainable chest and where it drops</span>
+            </div>
+            <div class="divider"></div>
+            <div class="table" id="chest-table"></div>
+            <div class="grow"></div>
+            <div class="divider"></div>
+            <div class="card-foot">
+              <span class="mono muted" id="chest-page">—</span>
+              <button type="button" class="link" id="btn-more-chest">
+                <span class="bi-en">Load more</span><span class="bi-cn">加载更多</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================= View: Lookup ========================= -->
+        <section class="view" id="view-lookup">
+          <div class="page-head">
+            <h1 class="page-title">
+              <span class="ttl-en">Lookup</span><span class="ttl-cn">图鉴</span>
             </h1>
             <div class="page-actions">
               <span class="pill">
@@ -114,7 +330,6 @@
               <button type="button" class="seg-cell is-on" data-type="ALL">全部 All</button>
               <button type="button" class="seg-cell" data-type="GEAR">装备 Gear</button>
               <button type="button" class="seg-cell" data-type="MATERIAL">材料 Material</button>
-              <button type="button" class="seg-cell" data-type="STAGEBOX">关卡箱 Stage box</button>
             </div>
             <label class="search">
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -147,11 +362,11 @@
           </div>
         </section>
 
-        <!-- ========================== View: Market ========================== -->
-        <section class="view" id="view-market">
+        <!-- ======================== View: Trading ======================== -->
+        <section class="view" id="view-trading">
           <div class="page-head">
             <h1 class="page-title">
-              <span class="ttl-en">Market</span><span class="ttl-cn">市场实时追踪</span>
+              <span class="ttl-en">Trading</span><span class="ttl-cn">交易</span>
             </h1>
             <div class="page-actions">
               <span class="pill">
@@ -202,53 +417,6 @@
             <div class="card grow-card" id="coverage-card"></div>
             <div class="card breakdown" id="catalog-card"></div>
           </div>
-        </section>
-
-        <!-- ======================= View: Save analysis ======================= -->
-        <section class="view" id="view-analysis">
-          <div class="page-head">
-            <h1 class="page-title">
-              <span class="ttl-en">Save Analysis</span><span class="ttl-cn">存档分析</span>
-            </h1>
-            <div class="page-actions">
-              <span class="pill" id="save-pill">
-                <i class="dot dot-idle"></i>
-                <span class="mono" id="save-pill-text">no save loaded</span>
-              </span>
-              <button type="button" class="btn btn-ghost" id="btn-reset" hidden>
-                <span class="bi-en">Reload</span><span class="bi-cn">重新载入</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="dropzone" id="dropzone">
-            <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 15.5V4" />
-              <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
-              <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
-            </svg>
-            <h2 class="dz-title">Drop your save file here</h2>
-            <p class="dz-caption">
-              把 .es3 存档拖到这里 · 解密全部在本机浏览器内完成，文件不会上传
-            </p>
-            <div class="dz-actions">
-              <a class="btn btn-primary" href="./inspector/">
-                <span class="bi-en">Choose .es3 file</span><span class="bi-cn">选择存档文件</span>
-              </a>
-              <button type="button" class="btn btn-ghost" id="btn-sample">
-                <span class="bi-en">Preview with sample data</span><span class="bi-cn">用示例数据预览</span>
-              </button>
-            </div>
-            <p class="dz-hint mono">Steam\userdata\&lt;id&gt;\&lt;appid&gt;\remote\*.es3</p>
-            <div class="dz-alt">
-              <span>没有存档也能用：</span>
-              <button type="button" class="link" data-goto="data">浏览全部 1,954 件物品</button>
-              <span class="sep">·</span>
-              <button type="button" class="link" data-goto="market">查看 Steam 市场行情</button>
-            </div>
-          </div>
-
-          <div class="stack" id="analysis-loaded" hidden></div>
         </section>
       </main>
     </div>
