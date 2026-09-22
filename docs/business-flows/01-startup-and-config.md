@@ -165,7 +165,7 @@ flowchart TD
   QSavePath -- 是 --> A1[TrackingService.onSavePathChanged 清 lastSnap + 重置 tracker]
   QSavePath -- 否 --> QCurr{currency 变化?}
   A1 --> QCurr
-  QCurr -- 是 --> A2[onCurrencyChanged 清市场历史 + clearLookupLocalFields]
+  QCurr -- 是 --> A2[onCurrencyChanged 重广播展示换算 + clearLookupLocalFields]
   QCurr -- 否 --> QTrack{needsTracker?}
   A2 --> A3[InventoryService 换币 + resolveAndPushInventory + ensureOwnedPrices]
   A3 --> QTrack
@@ -213,7 +213,7 @@ flowchart TD
 1. 检测三类 needs：`needsWatcher`（savePath/pollIntervalSeconds/es3Password 变了）、`needsTracker`（rollingWindowMinutes 变了）、`csvToggled`（logHistoryCsv 变了）。
 2. `next = normalizeConfigFromRaw({...prev, ...patch})` → `setConfig(next)` → `saveConfig(next)`。
 3. 若 savePath 变了 → `onSavePathChange()`（实为 `tracking.onSavePathChanged()`：清 lastSnap、重置所有 tracker、`sessionState.notifyNewSession()`）。
-4. currency 变了 → `market.setCurrency` + `resolveAndPushInventory` + `ensureOwnedPrices(true)`；**且当币种确实变化（大小写不敏感比较 prev ≠ next）时**，先回调 `onCurrencyChanged()`（清空 MarketVolumeService 以旧币计价的交易额历史/采样并立即以新币落盘、广播空数据）与 `clearLookupLocalFields()`（清空图鉴快照的本地 polling 价格字段，回退 CI USD × fx），再执行 inventory 重推。提交相同币种不触发清账（避免误清历史），见 8.7.3 多货币同步。
+4. currency 变了 → `market.setCurrency` + `resolveAndPushInventory` + `ensureOwnedPrices(true)`；**且当币种确实变化（大小写不敏感比较 prev ≠ next）时**，先回调 `onCurrencyChanged()`（交易页历史已统一以 USD 入库，**不再清账**；该回调现在只是语义锚点，随后 `broadcast(MARKET_VOLUME/MARKET_VOLUME_ITEMS)` 让 UI 按新 fx 重新换算展示）与 `clearLookupLocalFields()`（清空图鉴快照的本地 polling 价格字段，回退 CI USD × fx），再执行 inventory 重推。提交相同币种不触发，见 8.7.3 USD 基准货币政策。
 5. `needsTracker` → 重建 `XpTracker`（保留 logHistoryCsv hook）；否则仅 csvToggled 时切换 hook。
 6. `needsWatcher` → `restartWatcher()`。
 7. liveMemory 变了 → `setLiveMemoryEnabled(nextActive)`；若 prevActive ≠ nextActive → `onLiveMemoryToggled()`（重置所有 tracker，避免 live/save 基线混合污染）。

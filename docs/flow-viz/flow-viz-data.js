@@ -19,7 +19,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/12-box-open-backfill.md",
     "docs/business-flows/13-web-inspector.md"
   ],
-  "generatedAt": "2026-09-22T05:03:28.328Z",
+  "generatedAt": "2026-09-22T08:52:57.905Z",
   "flows": [
     {
       "number": 18,
@@ -1062,7 +1062,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "流程图",
           "subsection": "流程图",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  LoadCfg[loadConfig 搜索 userData / cwd / cwd.. config.json] --> Normalize[sanitize* 清洗字段]\n  Normalize --> Persist[saveConfig 合并 + normalize 写回 userData/config.json]\n  Patch[applyConfigPatch 收到 partial patch] --> DetectNeeds{needsWatcher / needsTracker / csvToggled}\n  DetectNeeds --> Next[normalizeConfigFromRaw 合并 + setConfig + saveConfig]\n  Next --> QSavePath{savePath 变化?}\n  QSavePath -- 是 --> A1[TrackingService.onSavePathChanged 清 lastSnap + 重置 tracker]\n  QSavePath -- 否 --> QCurr{currency 变化?}\n  A1 --> QCurr\n  QCurr -- 是 --> A2[onCurrencyChanged 清市场历史 + clearLookupLocalFields]\n  QCurr -- 否 --> QTrack{needsTracker?}\n  A2 --> A3[InventoryService 换币 + resolveAndPushInventory + ensureOwnedPrices]\n  A3 --> QTrack\n  QTrack -- 是 --> A4[重建 XpTracker 保留 logHistoryCsv hook]\n  QTrack -- 否 --> QWatch{needsWatcher?}\n  A4 --> QWatch\n  QWatch -- 是 --> A5[SaveWatcher.restartWatcher]\n  QWatch -- 否 --> QLive{liveMemory 启用状态变化?}\n  A5 --> QLive\n  QLive -- 是 --> A6[setLiveMemoryEnabled + onLiveMemoryToggled 重置 tracker]\n  QLive -- 否 --> QMarket{market 参数变化?}\n  A6 --> QMarket\n  QMarket -- 是 --> A7[同步 marketAutoScan / threshold 给 InventoryService]\n  QMarket -- 否 --> QLang{language 变化?}\n  A7 --> QLang\n  QLang -- 是 --> A8[onLanguageChanged → reloadLocaleCatalog + push + rebuildTrayMenu]\n  QLang -- 否 --> QPoll{lookupPricePolling 变化?}\n  A8 --> QPoll\n  QPoll -- 是 --> A9[onLookupPricePollingChanged]\n  QPoll -- 否 --> QTop{topmost 变化?}\n  A9 --> QTop\n  QTop -- 是 --> A10[setAlwaysOnTop 应用到三窗口]\n  QTop -- 否 --> Final[pushStats + InventoryService.resolveAndPushInventory 重推]\n  A10 --> Final\n  Final --> Return[返回 next config]\n  class LoadCfg,Normalize,Persist,Patch,Next,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,Final,Return data\n  class DetectNeeds,QSavePath,QCurr,QTrack,QWatch,QLive,QMarket,QLang,QPoll,QTop dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  LoadCfg[loadConfig 搜索 userData / cwd / cwd.. config.json] --> Normalize[sanitize* 清洗字段]\n  Normalize --> Persist[saveConfig 合并 + normalize 写回 userData/config.json]\n  Patch[applyConfigPatch 收到 partial patch] --> DetectNeeds{needsWatcher / needsTracker / csvToggled}\n  DetectNeeds --> Next[normalizeConfigFromRaw 合并 + setConfig + saveConfig]\n  Next --> QSavePath{savePath 变化?}\n  QSavePath -- 是 --> A1[TrackingService.onSavePathChanged 清 lastSnap + 重置 tracker]\n  QSavePath -- 否 --> QCurr{currency 变化?}\n  A1 --> QCurr\n  QCurr -- 是 --> A2[onCurrencyChanged 重广播展示换算 + clearLookupLocalFields]\n  QCurr -- 否 --> QTrack{needsTracker?}\n  A2 --> A3[InventoryService 换币 + resolveAndPushInventory + ensureOwnedPrices]\n  A3 --> QTrack\n  QTrack -- 是 --> A4[重建 XpTracker 保留 logHistoryCsv hook]\n  QTrack -- 否 --> QWatch{needsWatcher?}\n  A4 --> QWatch\n  QWatch -- 是 --> A5[SaveWatcher.restartWatcher]\n  QWatch -- 否 --> QLive{liveMemory 启用状态变化?}\n  A5 --> QLive\n  QLive -- 是 --> A6[setLiveMemoryEnabled + onLiveMemoryToggled 重置 tracker]\n  QLive -- 否 --> QMarket{market 参数变化?}\n  A6 --> QMarket\n  QMarket -- 是 --> A7[同步 marketAutoScan / threshold 给 InventoryService]\n  QMarket -- 否 --> QLang{language 变化?}\n  A7 --> QLang\n  QLang -- 是 --> A8[onLanguageChanged → reloadLocaleCatalog + push + rebuildTrayMenu]\n  QLang -- 否 --> QPoll{lookupPricePolling 变化?}\n  A8 --> QPoll\n  QPoll -- 是 --> A9[onLookupPricePollingChanged]\n  QPoll -- 否 --> QTop{topmost 变化?}\n  A9 --> QTop\n  QTop -- 是 --> A10[setAlwaysOnTop 应用到三窗口]\n  QTop -- 否 --> Final[pushStats + InventoryService.resolveAndPushInventory 重推]\n  A10 --> Final\n  Final --> Return[返回 next config]\n  class LoadCfg,Normalize,Persist,Patch,Next,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,Final,Return data\n  class DetectNeeds,QSavePath,QCurr,QTrack,QWatch,QLive,QMarket,QLang,QPoll,QTop dec",
           "nodes": [
             {
               "id": "A1",
@@ -1074,7 +1074,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "A2",
-              "label": "onCurrencyChanged 清市场历史 + clearLookupLocalFields"
+              "label": "onCurrencyChanged 重广播展示换算 + clearLookupLocalFields"
             },
             {
               "id": "A3",
