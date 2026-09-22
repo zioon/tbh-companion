@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Web build CSP. The analyzer is fully client-side: the only outbound
+      requests are for bundled same-origin assets (catalog JSON, item icons).
+      No Steam endpoints, no telemetry — a user's save never leaves the browser.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta
+      name="description"
+      content="Inspect your Task Bar Hero save in the browser — inventory, chests, and item values. Runs entirely on your device; nothing is uploaded."
+    />
+    <title>TBH Companion — Save Inspector</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

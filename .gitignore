@@ -12,6 +12,10 @@ app/.electron-cache/
 app/storybook-static/
 app/bench-results.json
 app/*-bench.json
+# Web inspector build output — produced by `pnpm build:web`; CI stages it into
+# website/inspector/ before uploading the Pages artifact (see docs/DEPLOY-WEB.md)
+dist-web/
+website/inspector/
 # Legacy npm lockfile (project uses pnpm)
 app/package-lock.json
 # Generated price snapshots — built by CI (lookup-prices workflow) and

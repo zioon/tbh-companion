@@ -9,6 +9,9 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.web.config.ts && node scripts/copy-web-icons.mjs",
+    "preview:web": "vite preview --config vite.web.config.ts",
+    "smoke:web": "node scripts/smoke-app/run.mjs",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json --noEmit",
     "lint": "eslint .",

@@ -9,10 +9,9 @@
 // Ported from the Python reference (tbh_xp/es3.py).
 
 import crypto from "node:crypto";
+import { DEFAULT_PASSWORD, Es3Error } from "./es3Constants";
 
-// Default ES3 password baked into TBH builds. Not secret (published on the
-// community Save Inspector). Can change in a game update -> update config.
-export const DEFAULT_PASSWORD = "emuMqG3bLYJ938ZDCfieWJ";
+export { DEFAULT_PASSWORD, Es3Error };
 
 const IV_SIZE = 16;
 const PBKDF2_ITERATIONS = 100;
@@ -21,13 +20,6 @@ const KEY_LEN = 16; // AES-128
 const WRONG_PASSWORD =
   "Decryption failed: wrong password or not a TaskbarHero save. " +
   "The password can change after a game update.";
-
-export class Es3Error extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "Es3Error";
-  }
-}
 
 /** Decrypt raw ES3 bytes and return the plaintext bytes. */
 export function decrypt(data: Buffer, password: string = DEFAULT_PASSWORD): Buffer {
@@ -56,6 +48,13 @@ export function decrypt(data: Buffer, password: string = DEFAULT_PASSWORD): Buff
   const decipher = crypto.createDecipheriv("aes-128-cbc", key, iv);
   // Strip PKCS7 manually so a wrong password yields a clean Es3Error instead of
   // a library-specific "bad decrypt" exception.
+  //
+  // NOTE: the web build replaces this module with `core/es3Web.ts`, and WebCrypto
+  // has no `setAutoPadding(false)` — it always validates and strips the padding
+  // itself. So `es3Web` must NOT strip it again (the final plaintext byte is
+  // usually `}` = 0x7D, which would be misread as a padding length of 125).
+  // The two implementations intentionally differ here; `test/web/es3Parity.test.ts`
+  // is what guarantees their final bytes still match.
   decipher.setAutoPadding(false);
   const padded = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 

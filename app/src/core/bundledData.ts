@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { getBundledDataTextSource } from "./dataSource";
+import type { BundledDataFile as BundledDataFileType } from "./bundledDataTypes";
 
 /** JSON shipped via electron-builder extraResources → resources/data/. */
 export const REQUIRED_BUNDLED_DATA_FILES = [
@@ -34,7 +36,7 @@ export const QA_GATE_BUNDLED_DATA_FILES = [
   "_game_locale_dump.json",
 ] as const;
 
-export type BundledDataFile = (typeof REQUIRED_BUNDLED_DATA_FILES)[number];
+export type BundledDataFile = BundledDataFileType;
 
 /**
  * Search order:
@@ -70,10 +72,21 @@ const jsonCache = new Map<string, unknown>();
 export function readBundledJson<T>(filename: BundledDataFile | string): T {
   const hit = jsonCache.get(filename);
   if (hit !== undefined) return hit as T;
-  const raw = readFileSync(resolveBundledDataPath(filename), "utf-8").replace(/^\uFEFF/, "");
+  const raw = readBundledText(filename);
   const parsed = JSON.parse(raw) as T;
   jsonCache.set(filename, parsed);
   return parsed;
+}
+
+/**
+ * Read a bundled file's raw text. The installed web data source (if any) wins —
+ * its values are already the file contents, so no path resolution is involved.
+ * Otherwise fall back to the filesystem search order above.
+ */
+function readBundledText(filename: string): string {
+  const injected = getBundledDataTextSource()?.(filename);
+  if (injected != null) return injected.replace(/^\uFEFF/, "");
+  return readFileSync(resolveBundledDataPath(filename), "utf-8").replace(/^\uFEFF/, "");
 }
 
 /** Drop cached reads — call after writing refreshed catalog files to userData. */

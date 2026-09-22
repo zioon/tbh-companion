@@ -23,9 +23,23 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/main/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}", "test/**/*.ts", "*.config.ts"],
+    // `scripts/**/*.cjs` is included because the web-build smoke harness has to
+    // be CommonJS: Electron loads it as the main process entry, where `require`
+    // and `__dirname` are the only available module primitives.
+    files: ["src/main/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs,cjs}", "test/**/*.ts", "*.config.ts"],
     languageOptions: {
       globals: globals.node,
+    },
+  },
+  {
+    // CommonJS scripts legitimately use `require()`, so the two rules that
+    // forbid ES modules' alternative are lifted for them only.
+    files: ["scripts/**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
   {
