@@ -346,8 +346,11 @@ describe("parseInventory", () => {
         PlayerSaveData: {
           value: {
             inventorySaveDatas: [
-              { Index: 0, ItemUniqueId: 514119247889201002, IsUnlock: true, Quantity: 3 },
-              { Index: 1, ItemUniqueId: 514119247889201099, IsUnlock: true, Quantity: 0 },
+              // UIDs are strings: they exceed Number.MAX_SAFE_INTEGER, so a numeric
+              // literal here would be rounded by JSON.stringify (and trip
+              // no-loss-of-precision) — exactly the trap the parser guards against.
+              { Index: 0, ItemUniqueId: "514119247889201002", IsUnlock: true, Quantity: 3 },
+              { Index: 1, ItemUniqueId: "514119247889201099", IsUnlock: true, Quantity: 0 },
             ],
           },
         },
@@ -363,8 +366,8 @@ describe("parseInventory", () => {
         PlayerSaveData: {
           value: {
             inventorySaveDatas: [
-              { Index: 0, ItemUniqueId: 514119247889201002, IsUnlock: true },
-              { Index: 1, ItemUniqueId: 0, IsUnlock: true },
+              { Index: 0, ItemUniqueId: "514119247889201002", IsUnlock: true },
+              { Index: 1, ItemUniqueId: "0", IsUnlock: true },
             ],
           },
         },
