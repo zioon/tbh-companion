@@ -16,9 +16,10 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/09-chest-and-autoclassify.md",
     "docs/business-flows/10-notification-update-pet.md",
     "docs/business-flows/11-record-log.md",
-    "docs/business-flows/12-box-open-backfill.md"
+    "docs/business-flows/12-box-open-backfill.md",
+    "docs/business-flows/13-web-inspector.md"
   ],
-  "generatedAt": "2026-09-21T14:29:14.072Z",
+  "generatedAt": "2026-09-22T05:03:28.328Z",
   "flows": [
     {
       "number": 18,
@@ -4427,6 +4428,209 @@ window.TBH_FLOW_VIZ = {
       "anchor": "开箱统计补齐box-open-backfill业务流程",
       "source": "docs/business-flows/12-box-open-backfill.md",
       "sourceAnchor": "docs/business-flows/12-box-open-backfill.md#开箱统计补齐box-open-backfill业务流程",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "1 定位与能力边界",
+      "anchor": "1-定位与能力边界",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#1-定位与能力边界",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "2 数据流",
+      "anchor": "2-数据流",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#2-数据流",
+      "diagrams": [
+        {
+          "label": "2 数据流",
+          "subsection": null,
+          "mermaid": "flowchart TD\n  Drop[用户拖入 .es3] --> Load[loadWebSaveFile]\n  Load --> Buf[file.arrayBuffer]\n  Buf --> Dec[decryptToText — core/es3Web]\n  Dec --> Parse[parseInventory]\n  Parse --> Resolve[resolveInventory]\n  Cat[(webCatalog<br/>gamedata + lookup_items)] --> Parse\n  Cat --> Resolve\n  Loc[(loadLocaleCatalog)] --> Resolve\n  Resolve --> Inv[ResolvedInventory]\n  Inv --> Push[runtime.inventory + notify]\n  Push --> UI[TbhProvider → Inventory / Chests 标签]\n\n  LookupAPI[getLookupCatalog] --> Loc2[loadLookupItems + gameItemName]\n  Loc2 --> Ctx[useLookupCatalog]\n  Ctx --> UI\n  Ctx --> Icons[iconSrcWeb → base/icons/name.png]",
+          "nodes": [
+            {
+              "id": "Buf",
+              "label": "file.arrayBuffer"
+            },
+            {
+              "id": "Cat",
+              "label": "webCatalog<br/>gamedata + lookup_items"
+            },
+            {
+              "id": "Ctx",
+              "label": "useLookupCatalog"
+            },
+            {
+              "id": "Dec",
+              "label": "decryptToText — core/es3Web"
+            },
+            {
+              "id": "Drop",
+              "label": "用户拖入 .es3"
+            },
+            {
+              "id": "Icons",
+              "label": "iconSrcWeb → base/icons/name.png"
+            },
+            {
+              "id": "Inv",
+              "label": "ResolvedInventory"
+            },
+            {
+              "id": "Load",
+              "label": "loadWebSaveFile"
+            },
+            {
+              "id": "Loc",
+              "label": "loadLocaleCatalog"
+            },
+            {
+              "id": "Loc2",
+              "label": "loadLookupItems + gameItemName"
+            },
+            {
+              "id": "LookupAPI",
+              "label": "getLookupCatalog"
+            },
+            {
+              "id": "Parse",
+              "label": "parseInventory"
+            },
+            {
+              "id": "Push",
+              "label": "runtime.inventory + notify"
+            },
+            {
+              "id": "Resolve",
+              "label": "resolveInventory"
+            },
+            {
+              "id": "UI",
+              "label": "TbhProvider → Inventory / Chests 标签"
+            }
+          ],
+          "edges": [
+            {
+              "from": "Buf",
+              "to": "Dec"
+            },
+            {
+              "from": "Cat",
+              "to": "Parse"
+            },
+            {
+              "from": "Cat",
+              "to": "Resolve"
+            },
+            {
+              "from": "Ctx",
+              "to": "Icons"
+            },
+            {
+              "from": "Ctx",
+              "to": "UI"
+            },
+            {
+              "from": "Dec",
+              "to": "Parse"
+            },
+            {
+              "from": "Drop",
+              "to": "Load"
+            },
+            {
+              "from": "Inv",
+              "to": "Push"
+            },
+            {
+              "from": "Load",
+              "to": "Buf"
+            },
+            {
+              "from": "Loc",
+              "to": "Resolve"
+            },
+            {
+              "from": "Loc2",
+              "to": "Ctx"
+            },
+            {
+              "from": "LookupAPI",
+              "to": "Loc2"
+            },
+            {
+              "from": "Parse",
+              "to": "Resolve"
+            },
+            {
+              "from": "Push",
+              "to": "UI"
+            },
+            {
+              "from": "Resolve",
+              "to": "Inv"
+            }
+          ],
+          "subgraphs": []
+        }
+      ]
+    },
+    {
+      "number": 25,
+      "title": "3 构建期模块替换",
+      "anchor": "3-构建期模块替换",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#3-构建期模块替换",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "4 `window.tbh` 的 web shim（`src/web/webTbhApi.ts`）",
+      "anchor": "4-windowtbh-的-web-shimsrcwebwebtbhapits",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#4-windowtbh-的-web-shimsrcwebwebtbhapits",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "5 图鉴目录本地化（易踩的坑）",
+      "anchor": "5-图鉴目录本地化易踩的坑",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#5-图鉴目录本地化易踩的坑",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "6 图标静态化",
+      "anchor": "6-图标静态化",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#6-图标静态化",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "7 存档加载链路",
+      "anchor": "7-存档加载链路",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#7-存档加载链路",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "8 错误处理",
+      "anchor": "8-错误处理",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#8-错误处理",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "9 关键文件速查",
+      "anchor": "9-关键文件速查",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#9-关键文件速查",
       "diagrams": []
     }
   ],
