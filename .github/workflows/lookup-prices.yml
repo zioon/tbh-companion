@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: lookup-prices
@@ -69,3 +70,10 @@ jobs:
           else
             echo "no prices.json produced; nothing to publish"
           fi
+
+      # The web Market view ships this snapshot (staged by pages.yml), so kick a
+      # deploy once the asset is fresh — otherwise the site would only pick it
+      # up on the next code push.
+      - name: Refresh the Pages deployment
+        if: always()
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY"

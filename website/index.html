@@ -5,224 +5,254 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="TBH Companion — open-source, read-only desktop companion for Task Bar Hero. Live XP/gold, inventory value, pet progress, and stage boss chest tracking."
+      content="TBH Companion Web — browse the unpacked Task Bar Hero catalog and live Steam Market prices, then read your own save. Nothing leaves your browser."
     />
-    <title>TBH Companion — unofficial Task Bar Hero companion</title>
+    <title>TBH Companion — Game Data · Market · Save Analysis</title>
     <link rel="icon" href="assets/icon.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Cookie&family=Instrument+Serif:ital@0;1&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/app.css" />
   </head>
   <body>
-    <header class="site-header">
-      <a class="brand" href="#top">
-        <img src="assets/icon.png" alt="" width="28" height="28" />
-        <span>TBH Companion</span>
-      </a>
-      <nav class="header-nav" aria-label="External links">
+    <!-- ============================ Top bar ============================ -->
+    <header class="topbar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 26 26" aria-hidden="true">
+          <rect width="26" height="26" rx="7" fill="var(--accent-bg)" />
+          <path d="M13 6.6 19.4 10.2v5.6L13 19.4 6.6 15.8v-5.6L13 6.6Z" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round" />
+          <path d="M13 6.6v12.8M6.6 10.2 13 13.4l6.4-3.2" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round" />
+        </svg>
+        <span class="brand-name">TBH Companion</span>
+        <span class="badge">WEB</span>
+      </div>
+
+      <div class="topbar-right">
+        <span class="pill">
+          <i class="dot"></i>
+          <span class="bi-en">Read-only · stays on your PC</span>
+          <span class="bi-cn">只读 · 数据不出本机</span>
+        </span>
+
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" class="lang-cell is-on" data-lang="en">EN</button>
+          <button type="button" class="lang-cell" data-lang="cn">中文</button>
+        </div>
+
         <a
-          class="header-bmc"
-          href="https://www.buymeacoffee.com/lucasfevi"
-          target="_blank"
+          class="btn btn-primary"
+          href="https://github.com/lucasfevi/tbh-companion/releases/latest"
           rel="noopener noreferrer"
         >
-          <i data-lucide="coffee" aria-hidden="true"></i>
-          Buy me a coffee
+          <span class="bi-en">Download desktop</span><span class="bi-cn">下载桌面版</span>
         </a>
-        <a href="https://github.com/lucasfevi/tbh-companion" rel="noopener noreferrer">Source</a>
-        <a href="https://github.com/lucasfevi/tbh-companion/releases" rel="noopener noreferrer"
-          >Releases</a
-        >
-      </nav>
+      </div>
     </header>
 
-    <main id="top" class="landing-main">
-      <div class="copy">
-        <p class="eyebrow">Open source companion for Task Bar Hero</p>
-        <h1>
-          <span class="h1-eyebrow">Unofficial · Read-only</span>
-          Know your rates.<br />Track your chests.
-        </h1>
-        <p class="lead">
-          A lightweight desktop app that reads your encrypted save locally — drop rates, chest
-          tracking, inventory value, and pet progress. All read-only, nothing leaves your PC.
-        </p>
+    <div class="shell">
+      <!-- ============================ Sidebar ============================ -->
+      <aside class="sidebar">
+        <p class="side-label">Workspace 工作台</p>
 
-        <!-- Feature icons: Lucide (MIT) + Mini/BoxTracker from app/src/renderer/components/AppToolbar.tsx -->
-        <ul class="feature-lines" aria-label="Features">
-          <li>
-            <span class="feature-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" />
-              </svg>
-            </span>
-            <span class="feature-label">Live</span>
-            <span class="feature-desc">Real-time XP and gold per hour</span>
-          </li>
-          <li>
-            <span class="feature-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-                <path d="M12 18V6" />
-              </svg>
-            </span>
-            <span class="feature-label">Inventory</span>
-            <span class="feature-desc">Items and Steam Market pricing</span>
-          </li>
-          <li>
-            <span class="feature-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-                <rect x="2" y="3" width="12" height="10" rx="1.5" />
-                <path d="M5 11V8h2v3M9 11V6h2v5" stroke-linecap="round" />
-              </svg>
-            </span>
-            <span class="feature-label">Mini</span>
-            <span class="feature-desc">Compact always-on-top overlay</span>
-          </li>
-          <li>
-            <span class="feature-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round">
-                <path d="M3 5.5 8 3l5 2.5v5L8 13 3 10.5v-5Z" />
-                <path d="M8 3v10M3 5.5l5 2.5 5-2.5" />
-              </svg>
-            </span>
-            <span class="feature-label">Chest tracker</span>
-            <span class="feature-desc">Cooldowns, overlay, automatically detected</span>
-          </li>
-          <li>
-            <span class="feature-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="11" cy="4" r="2" />
-                <circle cx="18" cy="8" r="2" />
-                <circle cx="20" cy="16" r="2" />
-                <circle cx="4" cy="16" r="2" />
-                <path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.5 13.5a3.5 3.5 0 0 1 .877-3.29A4 4 0 0 1 9 10Z" />
-              </svg>
-            </span>
-            <span class="feature-label">Pets</span>
-            <span class="feature-desc">Unlock progress and farm stages</span>
-          </li>
-          <li>
-            <span class="feature-icon" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-                <path d="M8 16H3v5" />
-              </svg>
-            </span>
-            <span class="feature-label">Updates</span>
-            <span class="feature-desc">In-app from GitHub Releases</span>
-          </li>
-        </ul>
+        <nav class="side-nav" aria-label="Workspace">
+          <button type="button" class="nav-item is-active" data-view="data">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <ellipse cx="12" cy="6" rx="7" ry="3" />
+              <path d="M5 6v12c0 1.66 3.13 3 7 3s7-1.34 7-3V6" />
+              <path d="M5 12c0 1.66 3.13 3 7 3s7-1.34 7-3" />
+            </svg>
+            <span class="bi-en">Game Data</span><span class="bi-cn">游戏内容解包</span>
+          </button>
+          <button type="button" class="nav-item" data-view="market">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 20.5h18" />
+              <path d="M4.5 16.5 9.5 11l4 3.2L20 6.5" />
+            </svg>
+            <span class="bi-en">Market</span><span class="bi-cn">市场实时追踪</span>
+          </button>
+          <button type="button" class="nav-item" data-view="analysis">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12h3.5l2.2-5.5 3.2 11 2.4-5.5H21" />
+            </svg>
+            <span class="bi-en">Save Analysis</span><span class="bi-cn">存档分析</span>
+          </button>
+        </nav>
 
-        <div class="actions">
-          <a
-            id="hero-download"
-            class="btn btn-primary"
-            href="https://github.com/lucasfevi/tbh-companion/releases/latest"
-            rel="noopener noreferrer"
-          >
-            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 15V3" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M21 21H3" />
-            </svg>
-            Download for Windows
-          </a>
-          <!--
-            Web save inspector: a static build of the inventory/chest viewer that
-            decrypts the .es3 in the browser (no install, nothing uploaded).
-            Built by `pnpm build:web` and staged to website/inspector/ by
-            .github/workflows/pages.yml — see docs/DEPLOY-WEB.md.
-          -->
-          <a class="btn btn-ghost" href="./inspector/">
-            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M2 12h20" />
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-            </svg>
-            Try the web inspector
-          </a>
-          <a
-            class="btn btn-ghost"
-            href="https://github.com/lucasfevi/tbh-companion"
-            rel="noopener noreferrer"
-          >
-            <svg class="btn-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
-              <path d="M9 18c-4.51 2-5-2-7-2" />
-            </svg>
-            View on GitHub
-          </a>
-        </div>
-      </div>
-
-      <div class="visual">
-        <div class="visual-glow" aria-hidden="true"></div>
-        <div class="icon-frame">
-          <img class="hero-icon" src="assets/icon.png" alt="TBH Companion app icon" width="200" height="200" />
-        </div>
-      </div>
-    </main>
-
-    <section class="stats-bar" aria-label="Project stats">
-      <div class="stats-inner">
-        <div class="stat-block">
-          <span class="stat-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" />
-            </svg>
-          </span>
-          <div class="stat-text">
-            <span id="stat-stars" class="stat-value">—</span>
-            <span class="stat-label">Stars</span>
+        <div class="side-note">
+          <p class="side-note-title">Data source 数据来源</p>
+          <p class="side-note-body">Unpacked catalog · Steam snapshot</p>
+          <div class="side-note-rows">
+            <span class="mono" id="side-version">v1.2.2 · — items</span>
+            <span class="mono" id="side-snapshot">snapshot —</span>
           </div>
         </div>
-        <div class="stat-divider" aria-hidden="true"></div>
-        <div class="stat-block">
-          <span class="stat-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 15V3" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M21 21H3" />
-            </svg>
-          </span>
-          <div class="stat-text">
-            <span id="stat-downloads" class="stat-value">—</span>
-            <span class="stat-label">Downloads</span>
-          </div>
-        </div>
-        <div class="stat-divider" aria-hidden="true"></div>
-        <div class="stat-block">
-          <span class="stat-icon" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
-              <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
-            </svg>
-          </span>
-          <div class="stat-text">
-            <span id="stat-version" class="stat-value">—</span>
-            <span id="stat-size" class="stat-label">Latest release</span>
-          </div>
-        </div>
-      </div>
-    </section>
+      </aside>
 
-    <footer class="site-footer">
-      <p>
-        TBH Companion is an unofficial, open-source tool for Task Bar Hero. It is not affiliated
-        with or endorsed by the game developers.
-        <a id="footer-download" class="footer-link" href="https://github.com/lucasfevi/tbh-companion/releases/latest" rel="noopener noreferrer">Download latest release</a>
-      </p>
-    </footer>
+      <main class="content">
+        <!-- ======================== View: Game data ======================== -->
+        <section class="view is-active" id="view-data">
+          <div class="page-head">
+            <h1 class="page-title">
+              <span class="ttl-en">Game Data</span><span class="ttl-cn">游戏内容解包</span>
+            </h1>
+            <div class="page-actions">
+              <span class="pill">
+                <i class="dot"></i>
+                <span class="mono" id="data-version">v1.2.2 · — items</span>
+              </span>
+              <button type="button" class="btn btn-ghost" id="btn-export-json">
+                <span class="bi-en">Export JSON</span><span class="bi-cn">导出 JSON</span>
+              </button>
+            </div>
+          </div>
 
-    <script src="https://unpkg.com/lucide@0.487.0/dist/umd/lucide.min.js"></script>
-    <script src="js/main.js" defer></script>
+          <div class="toolbar">
+            <div class="seg" role="group" aria-label="Item type">
+              <button type="button" class="seg-cell is-on" data-type="ALL">全部 All</button>
+              <button type="button" class="seg-cell" data-type="GEAR">装备 Gear</button>
+              <button type="button" class="seg-cell" data-type="MATERIAL">材料 Material</button>
+              <button type="button" class="seg-cell" data-type="STAGEBOX">关卡箱 Stage box</button>
+            </div>
+            <label class="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m16.5 16.5 4 4" />
+              </svg>
+              <input id="item-search" type="search" placeholder="搜索物品名 / Search items…" autocomplete="off" />
+            </label>
+            <select class="select" id="rarity-filter" aria-label="Grade"></select>
+            <label class="check" for="tradable-only">
+              <input type="checkbox" id="tradable-only" />
+              <span class="bi-en">Tradable only</span><span class="bi-cn">仅可交易</span>
+            </label>
+            <span class="count mono" id="item-count">—</span>
+          </div>
+
+          <div class="main-row">
+            <div class="card card-col">
+              <div class="grid" id="item-grid"></div>
+              <div class="grow"></div>
+              <div class="divider"></div>
+              <div class="card-foot">
+                <span class="mono muted" id="item-page">—</span>
+                <button type="button" class="link" id="btn-more-items">
+                  <span class="bi-en">Load more</span><span class="bi-cn">加载更多</span>
+                </button>
+              </div>
+            </div>
+            <aside class="card detail" id="item-detail"></aside>
+          </div>
+        </section>
+
+        <!-- ========================== View: Market ========================== -->
+        <section class="view" id="view-market">
+          <div class="page-head">
+            <h1 class="page-title">
+              <span class="ttl-en">Market</span><span class="ttl-cn">市场实时追踪</span>
+            </h1>
+            <div class="page-actions">
+              <span class="pill">
+                <i class="dot" id="snapshot-dot"></i>
+                <span class="mono" id="snapshot-pill">loading snapshot…</span>
+              </span>
+              <button type="button" class="btn btn-ghost" id="btn-refresh-prices">
+                <span class="bi-en">Refresh prices</span><span class="bi-cn">刷新价格</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="banner" id="market-banner" hidden></div>
+
+          <div class="kpi-row" id="market-kpis"></div>
+
+          <div class="toolbar">
+            <label class="search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m16.5 16.5 4 4" />
+              </svg>
+              <input id="market-search" type="search" placeholder="搜索可交易物品 / Search market items…" autocomplete="off" />
+            </label>
+            <select class="select" id="market-grade" aria-label="Grade"></select>
+            <select class="select" id="market-sort" aria-label="Sort">
+              <option value="price-desc">价格 ↓ · Price ↓</option>
+              <option value="price-asc">价格 ↑ · Price ↑</option>
+              <option value="grade">稀有度 ↓ · Grade ↓</option>
+              <option value="name">名称 · Name</option>
+            </select>
+            <span class="count mono" id="market-count">—</span>
+          </div>
+
+          <div class="card card-col">
+            <div class="table" id="market-board"></div>
+            <div class="grow"></div>
+            <div class="divider"></div>
+            <div class="card-foot">
+              <span class="mono muted" id="market-page">—</span>
+              <button type="button" class="link" id="btn-more-market">
+                <span class="bi-en">Load more</span><span class="bi-cn">加载更多</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="bottom-row">
+            <div class="card grow-card" id="coverage-card"></div>
+            <div class="card breakdown" id="catalog-card"></div>
+          </div>
+        </section>
+
+        <!-- ======================= View: Save analysis ======================= -->
+        <section class="view" id="view-analysis">
+          <div class="page-head">
+            <h1 class="page-title">
+              <span class="ttl-en">Save Analysis</span><span class="ttl-cn">存档分析</span>
+            </h1>
+            <div class="page-actions">
+              <span class="pill" id="save-pill">
+                <i class="dot dot-idle"></i>
+                <span class="mono" id="save-pill-text">no save loaded</span>
+              </span>
+              <button type="button" class="btn btn-ghost" id="btn-reset" hidden>
+                <span class="bi-en">Reload</span><span class="bi-cn">重新载入</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="dropzone" id="dropzone">
+            <svg class="dz-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.5V4" />
+              <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
+              <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" />
+            </svg>
+            <h2 class="dz-title">Drop your save file here</h2>
+            <p class="dz-caption">
+              把 .es3 存档拖到这里 · 解密全部在本机浏览器内完成，文件不会上传
+            </p>
+            <div class="dz-actions">
+              <a class="btn btn-primary" href="./inspector/">
+                <span class="bi-en">Choose .es3 file</span><span class="bi-cn">选择存档文件</span>
+              </a>
+              <button type="button" class="btn btn-ghost" id="btn-sample">
+                <span class="bi-en">Preview with sample data</span><span class="bi-cn">用示例数据预览</span>
+              </button>
+            </div>
+            <p class="dz-hint mono">Steam\userdata\&lt;id&gt;\&lt;appid&gt;\remote\*.es3</p>
+            <div class="dz-alt">
+              <span>没有存档也能用：</span>
+              <button type="button" class="link" data-goto="data">浏览全部 1,954 件物品</button>
+              <span class="sep">·</span>
+              <button type="button" class="link" data-goto="market">查看 Steam 市场行情</button>
+            </div>
+          </div>
+
+          <div class="stack" id="analysis-loaded" hidden></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="js/app.js" defer></script>
   </body>
 </html>

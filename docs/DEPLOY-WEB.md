@@ -95,17 +95,23 @@ pnpm smoke:web       # Electron + Chromium 端到端：拖入真实存档 → �
       - ".github/workflows/pages.yml"
 ```
 
-### 2.2 官网加一个入口
+### 2.2 站点结构
 
-`website/index.html` 里的下载按钮旁边（或 `hero-download` 区块）加链接：
+`website/` 是 Pages 产物的**根目录**，也是站点本身——**没有单独的营销落地页**，打开站点直接进工具：
 
-```html
-<a class="btn btn-secondary" href="./inspector/">Try the web save inspector</a>
-```
+| 路径 | 内容 | 来源 |
+| --- | --- | --- |
+| `index.html` | 工具外壳（侧栏 + 三个工作区） | 手写维护 |
+| `css/app.css` | 设计 token 与布局 | 手写维护 |
+| `js/app.js` | 视图切换、目录/价格渲染、筛选与分页 | 手写维护 |
+| `data/gamedata.json` | 解包后的游戏目录（1,954 件物品） | `data/gamedata.json` 的拷贝，需随游戏版本手动更新 |
+| `data/prices.json` | Steam 挂单价快照 | **CI 暂存**，见 §2.4 |
+| `inspector/` | 真实的浏览器端存档解密器 | CI 由 `pnpm build:web` 构建，见 §2.1 |
+| `assets/icon.png` | 站点图标 | |
 
-相对路径 `./inspector/` 在 `https://<user>.github.io/<repo>/` 和自定义域名下都成立。
+**设计意图：不导入存档也能用。** `Game Data` 与 `Market` 两个工作区只依赖 `data/` 下的两份数据，与存档无关；只有 `Save Analysis` 需要拖入 `.es3`（在浏览器内解密，或跳到 `inspector/`）。改动 `index.html` / `app.js` 时不要给这两个工作区加存档前置条件。
 
-上线后地址为：
+`./inspector/` 的相对路径在 `https://<user>.github.io/<repo>/` 和自定义域名下都成立，上线后地址为：
 
 ```
 https://<user>.github.io/<repo>/inspector/
@@ -113,14 +119,57 @@ https://<user>.github.io/<repo>/inspector/
 
 ### 2.3 `dist-web/` 是否提交进仓库
 
-**不提交。** 该目录目前未被 `.gitignore` 覆盖（`git status` 里是 untracked），建议显式忽略，产物一律由 CI 构建：
+**不提交。** `.gitignore` 已忽略 `dist-web/`、`website/inspector/` 与 `website/data/prices.json` —— 三者都是 CI 产物，一律由流水线生成：
 
 ```gitignore
 # web inspector build output — produced by `pnpm build:web`, staged into
 # website/inspector/ by the Pages workflow
 dist-web/
 website/inspector/
+# Staged into the Pages artifact by pages.yml so the site's Market view works
+# with no save file; never committed — the release asset is the source of truth
+website/data/prices.json
 ```
+
+### 2.4 市场价快照的暂存链路
+
+`Market` 工作区需要真实挂单价，而**浏览器不能直连 Steam**（`steamcommunity.com` 不发 CORS 头），因此复用桌面版 Lookup 标签那套快照，不新增抓取点：
+
+```
+lookup-prices.yml（每 6h，唯一调 Steam 的地方）
+  → 把 prices.json 传到滚动 release `lookup-prices`
+  → 结尾 `gh workflow run pages.yml` 触发重新部署
+       → pages.yml「Stage Steam price snapshot」把资产下载到 website/data/
+       → 随 artifact 上线，页面同源 fetch ./data/prices.json
+```
+
+`pages.yml` 里这一步是**尽力而为**：
+
+```yaml
+      - name: Stage Steam price snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download lookup-prices \
+               --pattern prices.json --dir website/data --clobber 2>/dev/null; then
+            echo "staged website/data/prices.json ($(wc -c < website/data/prices.json) bytes)"
+          else
+            echo "::warning title=Price snapshot missing::no prices.json on the lookup-prices release; Market renders without prices"
+            rm -f website/data/prices.json
+          fi
+```
+
+资产缺失时**不能**让部署失败：页面会退化成「只有目录、没有价格」并显示告警条。`pages.yml` 另加了 `schedule: 0 4 * * *`，即使仓库没有新提交，快照更新后最多一天内也会重新上线。
+
+> **fork 注意：** 仓库是 fork 时 GitHub 会把两个 workflow 置为 `disabled_fork`（表现为**没有 `lookup-prices` release**）。用 `gh api -X PUT repos/<owner>/<repo>/actions/workflows/<id>/enable` 启用，再 `gh workflow run lookup-prices.yml` 手动跑一次。
+
+**价格键的对应关系**（改 `app.js` 时必须与 `app/src/core/marketName.ts` 保持一致，否则目录和快照对不上）：
+
+- 材料 → 物品名本身（`Minor Ruby`）
+- 装备 → `名字 (Grade) A`（`Long Sword (Legendary) A`），且**只有 LEGENDARY 及以上**才定价
+- `ItemName_*` 是未解析的占位名，一律跳过
+
+当前目录下可交易物品 1,093 件（材料 119、传说及以上装备 974），去重后 1,075 个 hash。
 
 ---
 
@@ -312,8 +361,10 @@ curl -sI https://tbh.example.com/inspector/ | head -1   # 200（方案 A）
 | 图标正常显示 | 拖入存档，背包每行左侧有彩色图标框，无 broken image |
 | 物品名本地化 | 切换语言后名称跟随变化（`getLookupCatalog` 按 `resolvedLanguage` 本地化） |
 | CSP 允许同源图标 | `dist-web/index.html` 的 `img-src 'self' data:`；图标是同源 PNG，无需放开 `tbh-asset:` |
-| Steam 查价显示为「未加载」 | 这是**预期行为**，不是 bug —— 浏览器无法调 Steam 市场接口（无 CORS），页面有说明文案 |
-| 无遥测 | 全站无分析脚本，无第三方请求（Lucide 图标走 CDN 的只有官网落地页，网页版产物无外链） |
+| **不导入存档也能用** | 清空站点存储后直接打开站点：`Game Data` 应渲染 1,954 件物品，`Market` 应渲染可交易物品列表——两者都不该出现「请先载入存档」之类的拦截 |
+| **Market 有真实价格** | `Market` 价格列应显示 ¥ 数值；若显示 `no listing` 且顶部有黄色告警条，说明 `website/data/prices.json` 没暂存上（查 `pages.yml` 的 `Stage Steam price snapshot` 步骤 warning） |
+| Steam 查价（inspector 内）显示为「未加载」 | 这是**预期行为**，不是 bug —— `inspector/` 不直连 Steam（无 CORS）；站点根 `Market` 的价格来自快照，两者不要混淆 |
+| 无遥测 | 全站无分析脚本。站点根只外链 Google Fonts；`inspector/` 产物无任何外链 |
 | 存档不外传 | DevTools → Network，拖入存档后不产生任何携带存档内容的请求 |
 | 桌面版导流卡片 | 切到 Live tracking 标签，应显示「These features need the desktop app」三张卡片 |
 | base 路径正确 | 子路径部署时 `view-source:` 里的资源引用为相对路径（`./assets/...`、`./icons/...`） |

@@ -23,6 +23,9 @@ app/package-lock.json
 app/prices.json
 app/prices.*.json
 app/lookup_prices.json
+# Staged into the Pages artifact by pages.yml so the site's Market view works
+# with no save file; never committed — the release asset is the source of truth
+website/data/prices.json
 *.log
 
 # Runtime record log — written to process.cwd() only in non-electron test env

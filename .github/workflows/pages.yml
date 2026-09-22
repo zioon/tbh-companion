@@ -19,6 +19,11 @@ on:
       - "data/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
+  schedule:
+    # The Market view is driven by the rolling `lookup-prices` snapshot, which
+    # rebuilds every 6h. Nothing in the repo changes when it does, so re-stage
+    # and re-deploy daily without waiting for a code push.
+    - cron: "0 4 * * *"
 
 permissions:
   contents: read
@@ -37,6 +42,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      # --- Stage the shared Steam price snapshot -------------------------
+      # The Market view must work with no save file, so the site ships the
+      # same `prices.json` the desktop Lookup tab consumes (published on the
+      # rolling `lookup-prices` release by lookup-prices.yml). Best-effort: a
+      # missing asset degrades the Market view to catalog-only, it must never
+      # fail the deploy.
+      - name: Stage Steam price snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download lookup-prices \
+               --pattern prices.json --dir website/data --clobber 2>/dev/null; then
+            echo "staged website/data/prices.json ($(wc -c < website/data/prices.json) bytes)"
+          else
+            echo "::warning title=Price snapshot missing::no prices.json on the lookup-prices release; Market renders without prices"
+            rm -f website/data/prices.json
+          fi
 
       # --- Build the browser save inspector and stage it under website/inspector ---
       # The artifact below is the whole `website/` directory, so the web build has
