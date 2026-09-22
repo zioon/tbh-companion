@@ -12,6 +12,7 @@ import { DIAGNOSTIC_LOG_FILE, getDiagnosticLogPath, listDiagnosticLogFiles } fro
 export const BOX_TIMERS_FILE = "box_timers.json";
 export const STAGE_RUN_FILE = "stage_run_history.json";
 export const RECORD_LOG_FILE = "record_log.json";
+export const WISH_RECORD_FILE = "wish_record.json";
 export const SESSION_STATE_FILE = "session_state.json";
 export const CHEST_SESSION_SCOPE_FILE = "chest_session_scope.json";
 export const CONFIG_FILE = "config.json";
@@ -74,6 +75,12 @@ export function getAppDataPaths(userDataDir = resolveUserDataDir()): AppDataPath
       exists: existsSync(join(userDataDir, RECORD_LOG_FILE)),
     },
     {
+      id: "wish-record",
+      label: "Wish record archive",
+      files: [WISH_RECORD_FILE],
+      exists: existsSync(join(userDataDir, WISH_RECORD_FILE)),
+    },
+    {
       id: "session",
       label: "Session snapshot",
       files: [SESSION_STATE_FILE, CHEST_SESSION_SCOPE_FILE],
@@ -113,6 +120,8 @@ export function filesForClearTarget(
       return [STAGE_RUN_FILE];
     case "record-log":
       return [RECORD_LOG_FILE];
+    case "wish-record":
+      return [WISH_RECORD_FILE];
     case "session":
       return [SESSION_STATE_FILE, CHEST_SESSION_SCOPE_FILE];
     case "all-except-config":
@@ -122,6 +131,7 @@ export function filesForClearTarget(
         BOX_TIMERS_FILE,
         STAGE_RUN_FILE,
         RECORD_LOG_FILE,
+        WISH_RECORD_FILE,
         SESSION_STATE_FILE,
       ];
     default:

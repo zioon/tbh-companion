@@ -10,6 +10,7 @@ export type TabId =
   | "inventory"
   | "chests"
   | "loot"
+  | "wish"
   | "pets"
   | "lookup"
   | "market"
@@ -23,6 +24,7 @@ const TAB_IDS: TabId[] = [
   "inventory",
   "chests",
   "loot",
+  "wish",
   "pets",
   "lookup",
   "market",

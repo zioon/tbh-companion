@@ -174,6 +174,126 @@ export interface ChestDropTrackerSnapshot {
   plagueMapSec?: number;
 }
 
+// --- 祈愿记录（Wish Record） ---
+
+/**
+ * 祈愿产出的品质桶。由物品名的富文本颜色标签经 core/acquireLog.ts 的
+ * COLOR_TO_GRADE 映射得到；无法映射（无颜色 / 非物品色）归入 "UNKNOWN"。
+ * 注意：与 CHEST 提示色 / 通关色 / 英雄紫色无关 —— 那些必然落在 UNKNOWN。
+ */
+export type WishGrade =
+  | "COMMON"
+  | "UNCOMMON"
+  | "RARE"
+  | "LEGENDARY"
+  | "IMMORTAL"
+  | "ARCANA"
+  | "CELESTIAL"
+  | "UNKNOWN";
+
+/** 品质分布的一行（件数 + 占比，分母为产出物品总数）。 */
+export interface WishGradeRow {
+  grade: WishGrade;
+  /** 该品质下所有物品的件数之和（含未知）。 */
+  count: number;
+  /** count / 产出物品总数；总数为 0 时为 0。 */
+  share: number;
+}
+
+/** 单品产出排行的一行（P0 按物品名聚合；见 PRD §5.5）。 */
+export interface WishBreakdownRow {
+  /** 去富文本标签后的纯物品名（P0 聚合键）。 */
+  name: string;
+  /** 该物品的件数之和。 */
+  count: number;
+  /** count / 产出物品总数；总数为 0 时为 0。 */
+  share: number;
+  /** 该物品最常见品质（用于着色）；名下有多种品质时取最高频，并列取首个。 */
+  grade: WishGrade;
+}
+
+/** 一条祈愿产出历史记录（一次祈愿事件 = 一行，可能包含多件同名物品）。 */
+export interface WishHistoryEntry {
+  /** companion 收到该行的墙钟时刻（epoch 秒）。 */
+  wallTime: number;
+  /** 游戏内时间串 [HH:MM]（原始，仅供参考，不参与排序）。 */
+  gameTime?: string;
+  /** 去标签纯物品名。 */
+  name: string;
+  /** 该行的品质（由颜色标签映射，无法映射为 UNKNOWN）。 */
+  grade: WishGrade;
+  /** 该行的件数（>=1）。 */
+  count: number;
+  /** 原始富文本行（保留供渲染品质色）。 */
+  raw: string;
+  /** 是否为 initial 批量回灌行（会话存量重投，wallTime 非事件时刻）。 */
+  bulk?: boolean;
+}
+
+/** 祈愿统计输出（Stats.wish）。口径严格遵循 PRD §5。 */
+export interface WishStats {
+  // —— 累计（cumulative）——
+  offeringCountTotal: number;
+  itemCountTotal: number;
+  /** itemCountTotal / offeringCountTotal；次数为 0 时返回 0（不 NaN）。 */
+  itemsPerOffering: number;
+
+  // —— 会话增量（session）——
+  offeringCountSession: number;
+  itemCountSession: number;
+
+  // —— 速率（per-hour，PRD §5.3）——
+  offeringPerHour: number;
+  itemPerHour: number;
+  /** 滚动 1 小时速率（P1-2）；分母下限 RECENT_MIN_WINDOW_SEC(300s)。 */
+  offeringRecentPerHour: number;
+  itemRecentPerHour: number;
+
+  // —— 分布 / 排行（累计口径）——
+  gradeDistribution: WishGradeRow[];
+  breakdown: WishBreakdownRow[];
+
+  // —— 历史（倒序，最新在前，上限 HISTORY_VISIBLE=50）——
+  history: WishHistoryEntry[];
+
+  /** 最近一次祈愿墙钟时刻（epoch 秒）；无则 null。 */
+  lastWishWallTime: number | null;
+
+  // —— 诊断 / 边界 ——
+  /**
+   * 真 = 需 live reader 才有数据。祈愿数据源是 acquire 管道，与掉落同理，
+   * reader 关闭时为 true，renderer 显示不可用提示。
+   */
+  readerRequired: boolean;
+  /** P1-3：游戏侧 Satistics_TotalOfferingCount，未接入时为 null。 */
+  gameOfferingItemCount: number | null;
+}
+
+/** 序列化到 session_state.json / wish_record.json 的快照。 */
+export interface WishTrackerSnapshot {
+  /** 累计：祈愿次数。 */
+  offeringCount: number;
+  /** 累计：产出物品数。 */
+  itemCount: number;
+  /** 名称 → 件数。 */
+  countsByName: Record<string, number>;
+  /** 名称 → 品质（首见 / 最高频，见实现约定）。 */
+  gradeByName: Record<string, WishGrade>;
+  /** 历史（可能被 HISTORY_LIMIT 截断）。 */
+  history: WishHistoryEntry[];
+  /**
+   * perHour 速率窗口锚点 = min(trackingStartedAt, firstWishWallTime)。
+   * 持久化以使 restore 后窗口起点正确（counts 不截断，history 截断）。
+   */
+  sessionWishStart?: number | null;
+  /**
+   * 会话基线（累计口径 - 会话口径 = 基线）。重置会话时把当前累计写入
+   * 基线，使 *Session 归零而累计不变。
+   */
+  sessionOfferingBaseline?: number;
+  sessionItemBaseline?: number;
+}
+
 // --- Box open loot tracking ---
 
 /** A single recorded box open (history entry). */
@@ -625,6 +745,8 @@ export interface Stats {
   heroes: HeroRate[];
   history: HistoryEntry[];
   chestDrops: ChestDropStats;
+  /** 祈愿记录统计（双计数：祈愿次数 / 产出物品数）。口径见 PRD §5。 */
+  wish: WishStats;
   /** Box-opening outcomes aggregated by box type/level. Empty when no opens recorded. */
   boxOpens: BoxOpenStats[];
   /**
@@ -717,6 +839,8 @@ export interface PersistedSessionState {
   liveMemoryEnabled?: boolean;
   tracker: TrackerSnapshot;
   chestDropTracker?: ChestDropTrackerSnapshot;
+  /** 祈愿 tracker 状态（祈愿 tab）。可选：兼容旧档。 */
+  wishTracker?: WishTrackerSnapshot;
   /** Box-open tracker state (loot tab). */
   boxOpenTracker?: BoxOpenTrackerSnapshot;
   ui: SessionUiSnapshot;
@@ -733,18 +857,6 @@ export interface InventoryItemInstance {
   isChaotic: boolean;
   inUse: boolean;
   location: ItemLocation;
-}
-
-/**
- * One material's summed stack quantity, split by the bag the copies sit in.
- * `total` = `inventory + stash + trading` = sum of every non-empty slot's
- * `Quantity` (each clamped to `MAX_STACK_PER_SLOT`).
- */
-export interface MaterialStackTotal {
-  total: number;
-  inventory: number;
-  stash: number;
-  trading: number;
 }
 
 export interface ChestHolding {
@@ -771,17 +883,11 @@ export interface InventorySnapshot {
   items: InventoryItemInstance[];
   chests: ChestHolding[];
   saveMtime: number;
-  /**
-   * Per-material stack totals. Authoritative source is the per-slot `Quantity`
-   * on the bag/stash slot arrays (materials stack up to `MAX_STACK_PER_SLOT` per
-   * slot, multiple slots sum). Falls back to the lifetime `aggregateSaveDatas`
-   * counters when the field is absent (old save / removed). Keyed by material
-   * ItemKey; value carries the grand total plus the per-bag split.
-   */
-  materialStacks?: Map<number, MaterialStackTotal>;
+  /** Stack counts from aggregateSaveDatas when decoded (materials only). */
+  materialStacks?: Map<number, number>;
   /** Count of inventorySaveDatas slots with IsUnlock true. */
   inventoryCapacity: number;
-  /** Count of unlocked slots holding an item (ItemUniqueId !== 0). A stacked slot counts once. */
+  /** Count of unlocked slots holding an item (ItemUniqueId !== 0). */
   inventoryUsed: number;
   /**
    * Parse-time only: catalog ids with pipeline (…900) rows and no assignable
@@ -1422,6 +1528,7 @@ export type AppDataClearTarget =
   | "box-timers"
   | "stage-runs"
   | "record-log"
+  | "wish-record"
   | "session"
   | "all-except-config";
 

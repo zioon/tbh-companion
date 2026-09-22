@@ -61,6 +61,7 @@
 | [`11-record-log.md`](business-flows/11-record-log.md) | §23 | 统一记录日志（Record Log） |
 | [`12-box-open-backfill.md`](business-flows/12-box-open-backfill.md) | §24 | 开箱统计补齐（Box-Open Backfill） |
 | [`13-web-inspector.md`](business-flows/13-web-inspector.md) | §25 | 网页版存档解析器（Web Inspector） |
+| [`14-wish-record.md`](business-flows/14-wish-record.md) | §26 | 祈愿记录（Wish Record） |
 
 ---
 

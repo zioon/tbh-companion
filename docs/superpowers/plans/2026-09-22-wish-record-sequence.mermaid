@@ -1,0 +1,47 @@
+%% TBH 祈愿记录（Wish Record）—— 程序调用时序图
+%% 来源：docs/superpowers/plans/2026-09-22-wish-record-architecture.md §4
+sequenceDiagram
+  autonumber
+  participant GAME as 游戏进程 LogManager
+  participant WORKER as worker.ts (fastAcquirePollTimer ~10ms)
+  participant READER as liveReader.pollAcquireTailFast
+  participant TS as TrackingService.ingestAcquireBatch
+  participant RT as RecordLogTracker
+  participant WT as WishTracker (core)
+  participant RS as RecordLogService / WishRecordService
+  participant ST as buildStats
+  participant UI as renderer tabs/Wish.tsx
+
+  Note over GAME,READER: 1. 既定管道（P0 不新增内存读取）
+  GAME->>READER: 获得记录定长列表（含「祈愿结果：获得 X」行）
+  READER->>WORKER: {type:"acquire", entries, initial}
+  WORKER->>TS: post → ingestAcquireBatch(entries, initial, ringRestarted, watermark)
+
+  Note over TS: 2. 既有记录日志逻辑（不改）
+  TS->>TS: ordered = sort(entries, seq asc)
+  TS->>RT: 逐条 feed("acquire", ts, {ringSeq, acquireRaw, acquireName, ...})
+  TS->>RS: setAcquireWatermark(watermark); schedulePersist()
+
+  Note over TS,WT: 3. ★ 新增：祈愿识别 + 喂入（唯一喂入口）
+  loop 每条 ordered entry
+    TS->>TS: raw = stripRichText(a.message)
+    alt isWishLine(a.message) === true
+      TS->>WT: feed(parseWishLine(a.message), ts, {gameTime: a.time, raw, bulk: initial})
+      WT-->>TS: true（计数 +1 次 / +count 件）
+    else 非祈愿行
+      TS->>TS: 忽略（不影响掉落/记录日志）
+    end
+  end
+  TS->>RS: (P1-1) wishRecordService.schedulePersist()  // 长期归档防抖 ~2s
+
+  Note over ST,UI: 4. 推送（复用既有 IPC.STATS，无新通道）
+  TS->>ST: pushStats() → getStats() → buildStats(..., this.wishTracker, ...)
+  ST->>WT: getStats(tracker.elapsed)  // 缓存：无新增时复用
+  WT-->>ST: WishStats
+  ST-->>UI: broadcast(IPC.STATS, {..., wish: WishStats})
+  UI->>UI: useStats().wish → WishStatCards / GradeBreakdown / Ranking / History
+
+  Note over TS,WT: 5. 会话重置 / 恢复 / 应用重启
+  UI->>TS: resetSession()（既有）；或 appState restore
+  TS->>WT: reset()  // *Session 归零、累计不变、sessionWishStart = now、epoch++
+  TS->>WT: applySnapshot(session_state.wishTracker)  // 恢复时

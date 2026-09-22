@@ -31,6 +31,8 @@ import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import { StageRunFailDetector } from "../../core/stageRunFailDetector";
 import { RecordLogTracker } from "../../core/recordLogTracker";
+import { WishTracker } from "../../core/wishTracker";
+import { parseWishLine } from "../../core/wishLine";
 import { fitAcquireSources, FIT_WINDOW_SEC, type ClearFitEvent } from "../../core/recordLogFit";
 import {
   backfillOpensFromLog,
@@ -60,6 +62,7 @@ import { createLogger } from "../log";
 import type { SessionStateService } from "./SessionStateService";
 import type { AutoClassifyService } from "./AutoClassifyService";
 import { RecordLogService } from "./RecordLogService";
+import { WishRecordService } from "./WishRecordService";
 
 const log = createLogger("tracking");
 
@@ -124,6 +127,12 @@ const SAVE_STALE_ERROR_THRESHOLD = 3;
 export class TrackingService {
   private tracker!: XpTracker;
   private chestDropTracker!: ChestDropTracker;
+  /**
+   * 祈愿产出聚合器（对标 {@link ChestDropTracker}）。数据源复用 acquire 文本行
+   * 管道（"获得记录"环），在 {@link ingestAcquireBatch} 中识别祈愿行后喂入。
+   * 双计数（offeringCount / itemCount）与 bulk 护栏见 `core/wishTracker.ts`。
+   */
+  private wishTracker!: WishTracker;
   private chestAggregator!: LiveChestDropAggregator;
   private boxOpenTracker!: BoxOpenTracker;
   private dpsTracker!: DpsTracker;
@@ -134,6 +143,12 @@ export class TrackingService {
    */
   private recordLog = new RecordLogTracker();
   private recordLogService: RecordLogService | null = null;
+  /**
+   * 祈愿记录的长期归档（P1-1，`wish_record.json`）。启动时一次性 load、每次
+   * 识别到祈愿行后防抖落盘。**不随会话重置清空** —— `wishTracker.reset()` 只
+   * 归零 *Session，归档的累计口径天然与之解耦（见 `WishRecordService`）。
+   */
+  private wishRecordService: WishRecordService | null = null;
   private watcher: SaveWatcher | null = null;
   private tickTimer: NodeJS.Timeout | null = null;
   private lastSnap: SaveSnapshot | null = null;
@@ -322,6 +337,13 @@ export class TrackingService {
     this.chestDropTracker = new ChestDropTracker({
       onDrop: (e) => this.autoClassify?.handleChestDrop(e),
     });
+    this.wishTracker = new WishTracker();
+    // 长期归档（P1-1）：构造时 load() 一次，把 `wish_record.json` 的累计 / 历史
+    // 灌入 wishTracker（在喂入任何新行之前），随后由 ingest 路径防抖落盘。
+    // 复用既有实例（若存在），避免每次 start() 重复 load 覆盖实时数据。
+    if (!this.wishRecordService) {
+      this.wishRecordService = new WishRecordService(this.wishTracker);
+    }
     this.chestAggregator = new LiveChestDropAggregator(0.5, (e) => {
       // Diagnostic logging for chest-drop burst aggregation. Only logs on
       // meaningful events (input arriving or a flush firing), never on idle
@@ -389,6 +411,7 @@ export class TrackingService {
       tracker: this.tracker,
       chestDropTracker: this.chestDropTracker,
       boxOpenTracker: this.boxOpenTracker,
+      wishTracker: this.wishTracker,
       lastSnap: this.lastSnap,
       config: this.config,
     }));
@@ -397,6 +420,8 @@ export class TrackingService {
   stop(): void {
     // Force any pending record-log change to disk before tearing down timers.
     this.recordLogService?.flush();
+    // 祈愿长期归档同样强制落盘（防抖窗口内可能有未写入的累计）。
+    this.wishRecordService?.flush();
     this.sessionState?.stopAutosave();
     if (this.tickTimer) clearInterval(this.tickTimer);
     this.tickTimer = null;
@@ -407,6 +432,18 @@ export class TrackingService {
   /** Clear the in-memory record log after `record_log.json` was deleted from Settings. */
   resetRecordLog(): void {
     this.recordLogService?.resetStorage();
+  }
+
+  /**
+   * 设置页删除 `wish_record.json` 后丢弃内存归档标记。
+   *
+   * 注意：**不清空 `wishTracker` 的累计** —— 与 `resetRecordLog()`（会
+   * `tracker.reset()` 抹掉内存）不同，祈愿累计是 stats 展示口径，删除归档文件
+   * 只应停止后续落盘，不应让当前会话的展示数据凭空消失（PRD §2.5：清归档 ≠
+   * 清会话）。下次会话重置 / 重启后累计自然从 0 重新累积。
+   */
+  resetWishRecord(): void {
+    this.wishRecordService?.resetStorage();
   }
 
   /**
@@ -460,6 +497,7 @@ export class TrackingService {
       this.recordLog,
       this.stageClearHistory,
       this.saveStale,
+      this.wishTracker,
     );
   }
 
@@ -474,6 +512,7 @@ export class TrackingService {
   reset(): void {
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.wishTracker.reset();
     this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
@@ -494,6 +533,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.config,
       this.lastSnap,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -506,6 +546,7 @@ export class TrackingService {
   clearSession(): void {
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.wishTracker.reset();
     this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
@@ -524,6 +565,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.config,
       this.lastSnap,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -535,6 +577,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.lastSnap,
       this.config,
+      this.wishTracker,
     );
   }
 
@@ -783,6 +826,11 @@ export class TrackingService {
     return this.chestDropTracker;
   }
 
+  /** 祈愿聚合器（供测试与 P1 归档服务读取快照）。 */
+  getWishTracker(): WishTracker {
+    return this.wishTracker;
+  }
+
   /**
    * Current stage key from the most recent live frame or save snapshot.
    * Used by AutoClassifyService to infer chest level for queue entries and
@@ -831,6 +879,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.lastSnap,
       this.config,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -843,6 +892,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.lastSnap,
       this.config,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -855,6 +905,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.lastSnap,
       this.config,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -900,6 +951,8 @@ export class TrackingService {
     // game session) reuses indices from 1, so it bypasses the dedupe entirely.
     const dedupe = initial && !ringRestarted;
     let skipped = 0;
+    // 本批次识别为祈愿行、并喂入 `wishTracker` 的条数（诊断日志用）。
+    let wishCount = 0;
     // Feed in ring order (ascending `seq`) so the record log's archive order is
     // always chronological even if a batch ever arrives out of order.
     const ordered = [...entries].sort((a, b) => a.seq - b.seq);
@@ -924,6 +977,21 @@ export class TrackingService {
         // persisted entry).
         bulk: initial,
       });
+      // 祈愿行识别转发：与掉落同源（acquire 文本行），但走独立的识别/聚合器。
+      // 只在**通过去重**的行上喂入（与 recordLog 完全同步），复用已解析的
+      // `raw` / `parsed` 与同一 `ts` / `initial`；非祈愿行零副作用。
+      // 见 `core/wishLine.ts`（识别多语言前缀 + 结构兜底 + 排除表）与
+      // `core/wishTracker.ts`（双计数 offering/item + bulk 护栏）。
+      const wishItem = parseWishLine(a.message);
+      if (wishItem) {
+        this.wishTracker.feed(wishItem, ts, {
+          raw,
+          gameTime: a.time,
+          // initial 批量回灌 → bulk（计入累计/会话/历史，但不进滚动窗）。
+          bulk: initial,
+        });
+        wishCount += 1;
+      }
       dirty = true;
     }
     // Persist the reader's ring position so the next companion start resumes
@@ -935,9 +1003,11 @@ export class TrackingService {
         `acquire ingest: ${entries.length} lines initial=${initial} ringRestarted=${ringRestarted} ` +
           `deduped=${skipped} first="${stripRichText(entries[0].message).slice(0, 40)}" @${entries[0].time} ` +
           `last="${stripRichText(entries[entries.length - 1].message).slice(0, 40)}" @${entries[entries.length - 1].time} ` +
-          `-> recordLog total=${this.recordLog.getStats().total}`,
+          `-> recordLog total=${this.recordLog.getStats().total} wish=${wishCount}`,
       );
       this.recordLogService.schedulePersist();
+      // 有祈愿行时才触发长期归档落盘（防抖），非祈愿批次零额外 IO。
+      if (wishCount > 0) this.wishRecordService?.schedulePersist();
       // Push to the renderer right away. The acquire channel is independent of
       // the snapshot / read() frame, so when read() stalls (main menu / town,
       // stage null) the live-frame broadcast below never fires — without this
@@ -1125,6 +1195,7 @@ export class TrackingService {
         this.boxOpenTracker,
         this.lastSnap,
         this.config,
+        this.wishTracker,
       );
       this.pushStats();
     } else if (unattributed > 0 || unresolved > 0) {
@@ -1251,6 +1322,7 @@ export class TrackingService {
     this.sessionState?.invalidatePending();
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.wishTracker.reset();
     this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
@@ -1262,6 +1334,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.config,
       null,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -1276,6 +1349,7 @@ export class TrackingService {
     this.waveSeeded = false;
     this.tracker.reset();
     this.chestDropTracker.reset();
+    this.wishTracker.reset();
     this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
@@ -1290,6 +1364,7 @@ export class TrackingService {
       this.boxOpenTracker,
       this.config,
       this.lastSnap,
+      this.wishTracker,
     );
     this.pushStats();
   }
@@ -1712,6 +1787,7 @@ export class TrackingService {
             this.chestDropTracker,
             this.boxOpenTracker,
             snap,
+            this.wishTracker,
           );
           this.restoreApplied = true;
           // After restore, re-resolve every recorded box-open entry through

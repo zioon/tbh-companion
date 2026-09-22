@@ -775,6 +775,7 @@ export function getAppServices() {
       const reloadTimers = target === "box-timers" || target === "all-except-config";
       const reloadStageRuns = target === "stage-runs" || target === "all-except-config";
       const reloadRecordLog = target === "record-log" || target === "all-except-config";
+      const reloadWishRecord = target === "wish-record" || target === "all-except-config";
       const reloadSession = target === "session" || target === "all-except-config";
 
       if (reloadPrices) inventory.reloadPriceCache();
@@ -782,6 +783,7 @@ export function getAppServices() {
       if (reloadTimers) boxTimers.resetStorage();
       if (reloadStageRuns) stageRuns.resetStorage();
       if (reloadRecordLog) tracking.resetRecordLog();
+      if (reloadWishRecord) tracking.resetWishRecord();
       if (reloadSession) {
         tracking.onSessionFileDeleted();
         tracking.clearSession();

@@ -1,6 +1,12 @@
 // Builds the Stats payload pushed to the renderer from tracker + last snapshot.
 
-import type { LiveMemorySnapshot, Stats, SaveSnapshot, RecordLogStats } from "../../shared/types";
+import type {
+  LiveMemorySnapshot,
+  Stats,
+  SaveSnapshot,
+  RecordLogStats,
+  WishStats,
+} from "../../shared/types";
 
 import type { LocaleCatalog } from "../core/localeCatalog";
 import type {
@@ -13,6 +19,7 @@ import { liveHeroFrameTrustworthy } from "../core/tracker";
 import type { XpTracker } from "../core/tracker";
 import type { DpsTracker } from "../core/liveMemory/dpsTracker";
 import type { RecordLogTracker } from "../core/recordLogTracker";
+import type { WishTracker } from "../core/wishTracker";
 import { fitAcquireSources, FIT_WINDOW_SEC, type ClearFitEvent } from "../core/recordLogFit";
 
 import { heroName } from "../core/heroes";
@@ -30,6 +37,38 @@ const EMPTY_RECORD_LOG: RecordLogStats = {
   byKind: { drop: 0, open: 0, clear: 0, acquire: 0 },
   nextSeq: 0,
   sources: {},
+};
+
+/**
+ * Fallback for callers/tests that don't supply a wish tracker. Shape mirrors
+ * `WishTracker.getStats` on an empty tracker: 8 grade buckets (COMMON →
+ * UNKNOWN), no breakdown / history, rates 0 (never NaN).
+ */
+const EMPTY_WISH: WishStats = {
+  offeringCountTotal: 0,
+  itemCountTotal: 0,
+  itemsPerOffering: 0,
+  offeringCountSession: 0,
+  itemCountSession: 0,
+  offeringPerHour: 0,
+  itemPerHour: 0,
+  offeringRecentPerHour: 0,
+  itemRecentPerHour: 0,
+  gradeDistribution: [
+    { grade: "COMMON", count: 0, share: 0 },
+    { grade: "UNCOMMON", count: 0, share: 0 },
+    { grade: "RARE", count: 0, share: 0 },
+    { grade: "LEGENDARY", count: 0, share: 0 },
+    { grade: "IMMORTAL", count: 0, share: 0 },
+    { grade: "ARCANA", count: 0, share: 0 },
+    { grade: "CELESTIAL", count: 0, share: 0 },
+    { grade: "UNKNOWN", count: 0, share: 0 },
+  ],
+  breakdown: [],
+  history: [],
+  lastWishWallTime: null,
+  readerRequired: true,
+  gameOfferingItemCount: null,
 };
 
 function nowSeconds(): number {
@@ -73,6 +112,7 @@ export function buildStats(
   recordLogTracker: RecordLogTracker | null = null,
   stageClearHistory: readonly ClearFitEvent[] | null = null,
   saveStale = false,
+  wishTracker: WishTracker | null = null,
 ): Stats {
   const liveXp = liveFrame?.connected === true && tracker.xpLiveActive();
   const liveHeroes = liveXp && liveFrame?.heroes && liveFrame.heroes.length > 0;
@@ -237,6 +277,7 @@ export function buildStats(
       stageName: stageName(entry.stageKey, catalog),
     })),
     chestDrops: chestDropTracker.getStats(tracker.elapsed),
+    wish: wishTracker ? wishTracker.getStats(tracker.elapsed) : EMPTY_WISH,
     boxOpens: boxOpenTracker.getStats(
       boxOpenPriceResolver,
       boxOpenIsAccessory,

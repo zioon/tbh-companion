@@ -6,7 +6,7 @@
 >
 > 所有文件路径以仓库根为基准（`app/src/...`）。
 
-> ← [主索引](../BUSINESS-FLOWS.md) · 上一竧[Notification / Update / Pet](10-notification-update-pet.md) · 下一竧[开箱统计补齐（Box-Open Backfill）](12-box-open-backfill.md) · 章节：§23
+> ← [主索引](../BUSINESS-FLOWS.md) · 上一章[Notification / Update / Pet](10-notification-update-pet.md) · 下一章[开箱统计补齐（Box-Open Backfill）](12-box-open-backfill.md) · 章节：§23
 
 ---
 
@@ -173,3 +173,17 @@
 - **环形区时间戳不可作为身份（2026-09-15）**：`entry+0x28` 的 `[HH:MM]` 字符串对象会被游戏**复用/改写**——同一条未重写的环形区条目隔一段时间重读，时间戳会变成"最近"的值。因此：① 展示时间仅供参考，**不要用它做排序或去重**（排序用 `seq`，去重按原文计数，见 23.3）；② 任何"时间戳回退/跳变 = 陈旧"的判据都不可靠，陈旧判定只能用「指针 + 消息文本」指纹。
 - **"是否最新"看 `wall`，不看游戏时钟（2026-09-15）**：记录页每条显示两列时间——左列 `wall`（companion 收到该行的真实时刻，含日期）与右列游戏内 `[HH:MM]`。游戏内时钟是会话/游玩时钟，**不是墙钟**，实测每 44 分钟墙钟只推进 116 游戏分钟（≈2.6 倍速度），因此它天然落后墙钟 1~3 小时（15:24 时游戏钟 12:54，16:08 时 14:50）。判断记录是否实时：**看左列 `wall` / DEV 调试行的 `age=Ns`**（最新条目距今多少秒，正常为几秒~几十秒，因为游戏本身 30~60 秒才出一行）；`age` 按分钟持续增长才是真滞后。DEV 调试行格式：`dbg: total=… shown=… topSeq=… topAcq=… topWall=hh:mm:ss now=hh:mm:ss age=Ns`。
 - **环形区容量：2000，已实测确认（2026-09-15 dump）**：`ACQUIRE_RING_CAPACITY=2000` 与环形区对象自己的容量字段 `ring+0x18` 一致；`buf+0x18=2048` 只是底层数组的分配长度（.NET 按 2 的幂分配），游戏取模用的是 2000——dump 中 `#29700 → slot 1700`、`#29713 → slot 1713` 直接验证了 `槽位 = 计数器 % 2000`。同一份 dump 还确认：每次追加会**新分配一个 entry 对象**（相邻索引的 entry 地址互不相同且分散），所以「指针 + 消息」指纹在槽位被覆写时必然变化，陈旧槽位守卫可用。为防将来游戏改容量，读取端每次都会读出 `declaredCapacity`（`ring+0x18`），一旦与假设不符，`liveReader` 输出一次 `acquire capacity MISMATCH: ring declares N but the reader assumes 2000 …`；容量探针（同槽两次内容变化的索引步长）继续在后台给出 `acquire ring capacity MEASURED: N …`。
+
+### 23.6 祈愿行识别转发（Wish Record 复用同一管道，2026-09-22）
+
+**动机**：祈愿（offering）产出的文案与宝箱/掉落同源——它们都由游戏的「获得记录」（`LogManager@0x20` 定长平移列表）交付，都带 `<color=#RRGGBB>` 品质色。因此祈愿记录（详见 [`14-wish-record.md`](./14-wish-record.md)，§26）**不新开数据源**，而是复用 `ingestAcquireBatch` 这条既有的唯一 acquire 喂入口，在同一个循环里旁路识别祈愿行。
+
+**如何复用（关键点）**：
+
+- **零新增 IPC、零新增内存读取**：祈愿数据只走 `Stats.wish`（随既有 `IPC.STATS` 流下发）。`ingestAcquireBatch` 内除 `recordLog.feed(...)` 外，增加一次 `parseWishLine(a.message)`；命中则 `wishTracker.feed(...)`。参见 `app/src/main/services/TrackingService.ts` 的 acquire ingest 循环。
+- **共享去重结果**：祈愿行只在**已通过 `ringSeq` 去重**的行上喂入（与 `recordLog` 完全同步），因此不会因 initial 批重灌而重复计数。同时复用已解析的 `raw` / 同一 `ts` / 同一 `initial`，非祈愿行**零副作用**。
+- **bulk 护栏**：`initial=true` 的批量回灌行以 `bulk: true` 喂入 —— 计入累计 / 会话 / 历史，但**不进滚动 1 小时窗口**（`*RecentPerHour`），避免 attach 瞬间把整段存量错误计成"近一小时"的高速率。
+- **识别规则（宁可漏不可错）**：`core/wishLine.ts` 用「多语言前缀白名单 + 严格结构兜底 + 排除表」，确保非祈愿行**零误报**（在 `app/test/core/wishLine.test.ts` 中以真实文案对 + 反例断言）。
+- **诊断**：每次 ingest 的 `log.info` 日志追加 `wish=N`（本批识别为祈愿行的条数），与既有 `recordLog total=…` 同一行输出。
+
+**下游**：`WishTracker`（`core/wishTracker.ts`）→ `buildStats(..., wishTracker)` 输出 `Stats.wish` → renderer「祈愿」tab（`app/src/renderer/tabs/Wish.tsx`，tab id = `wish`）。长期累计另由 `WishRecordService` 归档到 `userData/wish_record.json`（**不随会话重置清空**）。

@@ -1,0 +1,52 @@
+{
+  "tabTitle": "祈願",
+  "intro": "祈願のたびに結果を自動記録し、品質とアイテム別に集計します。ゲームの獲得記録とリアルタイム同期します。",
+  "unavailable": "祈願トラッキング利用不可：ライブリーダー（live memory）を有効にしてゲーム内で祈願してください。結果はここに記録されます。",
+  "noWishesYet": "このセッションではまだ祈願結果がありません。ライブリーダー動作中に祈願するとここに表示されます。",
+  "resetSession": "セッションをリセット",
+  "resetTitle": "セッション統計をリセット",
+  "resetBody": "このセッションの祈願回数と獲得アイテム数をゼロにします。累計統計は保持されます。この操作は取り消せません。",
+  "cancel": "キャンセル",
+  "cards": {
+    "offerings": "祈願回数",
+    "items": "獲得アイテム数",
+    "latest": "最近の祈願",
+    "total": "累計",
+    "session": "セッション",
+    "sessionRate": "セッション /時",
+    "recentRate": "直近1時間 /時",
+    "perOffering": "平均 {{value}} 個/回",
+    "recentOfferingRate": "直近1時間 {{value}} 回/時",
+    "never": "記録なし"
+  },
+  "grades": {
+    "title": "品質分布",
+    "total": "合計 {{count}} 個",
+    "empty": "まだありません"
+  },
+  "ranking": {
+    "title": "アイテム別ランキング",
+    "empty": "まだありません",
+    "countLabel": "×{{count}}",
+    "shareLabel": "{{value}}"
+  },
+  "history": {
+    "title": "祈願履歴",
+    "empty": "履歴なし",
+    "columnTime": "時刻",
+    "columnItem": "アイテム",
+    "columnGrade": "品質",
+    "columnCount": "数量",
+    "unknownItem": "—"
+  },
+  "grade": {
+    "COMMON": "コモン",
+    "UNCOMMON": "アンコモン",
+    "RARE": "レア",
+    "LEGENDARY": "レジェンダリー",
+    "IMMORTAL": "イモータル",
+    "ARCANA": "アルカナ",
+    "CELESTIAL": "セレスティアル",
+    "UNKNOWN": "不明"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "tabTitle": "祈愿",
+  "intro": "自动记录每一次祈愿的产出，并按品质与单品聚合。数据随游戏「获得记录」实时同步。",
+  "unavailable": "祈愿追踪不可用：请在游戏中开启实时读取器（live memory）后进行祈愿，此处会自动记录产出。",
+  "noWishesYet": "本会话尚未记录到祈愿产出。在实时读取器运行时进行祈愿，此处会显示记录的产出。",
+  "resetSession": "重置会话",
+  "resetTitle": "重置会话统计",
+  "resetBody": "将本会话的祈愿次数与产出物品数归零，累计统计保持不变。此操作不可撤销。",
+  "cancel": "取消",
+  "cards": {
+    "offerings": "祈愿次数",
+    "items": "产出物品数",
+    "latest": "最近祈愿",
+    "total": "累计",
+    "session": "会话",
+    "sessionRate": "会话 /小时",
+    "recentRate": "近 1 小时 /小时",
+    "perOffering": "平均 {{value}} 件/次",
+    "recentOfferingRate": "近 1 小时 {{value}} 次/时",
+    "never": "尚无记录"
+  },
+  "grades": {
+    "title": "品质分布",
+    "total": "合计 {{count}} 件",
+    "empty": "暂无产出"
+  },
+  "ranking": {
+    "title": "单品产出排行",
+    "empty": "暂无产出",
+    "countLabel": "×{{count}}",
+    "shareLabel": "{{value}}"
+  },
+  "history": {
+    "title": "祈愿历史",
+    "empty": "暂无历史记录",
+    "columnTime": "时间",
+    "columnItem": "物品",
+    "columnGrade": "品质",
+    "columnCount": "数量",
+    "unknownItem": "—"
+  },
+  "grade": {
+    "COMMON": "普通",
+    "UNCOMMON": "罕见",
+    "RARE": "稀有",
+    "LEGENDARY": "传说",
+    "IMMORTAL": "不朽",
+    "ARCANA": "奥秘",
+    "CELESTIAL": "天界",
+    "UNKNOWN": "未知"
+  }
+}

@@ -17,6 +17,7 @@ import settings from "./settings.json";
 import tabs from "./tabs.json";
 import tray from "./tray.json";
 import whatsNew from "./whatsNew.json";
+import wish from "./wish.json";
 
 export default {
   about,
@@ -36,4 +37,5 @@ export default {
   tabs,
   tray,
   whatsNew,
+  wish,
 };

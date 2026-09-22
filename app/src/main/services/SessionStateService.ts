@@ -11,6 +11,7 @@ import {
 import type { XpTracker } from "../../core/tracker";
 import type { ChestDropTracker } from "../../core/chestDropTracker";
 import type { BoxOpenTracker } from "../../core/boxOpenTracker";
+import type { WishTracker } from "../../core/wishTracker";
 import type {
   AppConfig,
   BoxOpenTrackerSnapshot,
@@ -19,6 +20,7 @@ import type {
   SaveSnapshot,
   SessionUiSnapshot,
   TrackerSnapshot,
+  WishTrackerSnapshot,
 } from "../../../shared/types";
 import { expandPath } from "../config";
 import { SESSION_STATE_FILE } from "./appData";
@@ -34,6 +36,12 @@ export class SessionStateService {
   private pendingTracker: TrackerSnapshot | null = null;
   private pendingChestDropTracker: ChestDropTrackerSnapshot | null = null;
   private pendingBoxOpenTracker: BoxOpenTrackerSnapshot | null = null;
+  /**
+   * Pending wish-tracker restore. OPTIONAL in `session_state.json` (P0-less
+   * snapshots and pre-wish builds omit it) — a missing value simply skips the
+   * wish restore, leaving the freshly-constructed tracker empty.
+   */
+  private pendingWishTracker: WishTrackerSnapshot | null = null;
   private pendingLastSaveMtime: number | null = null;
   private lastSaveMtime: number | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
@@ -47,6 +55,7 @@ export class SessionStateService {
     this.pendingTracker = null;
     this.pendingChestDropTracker = null;
     this.pendingBoxOpenTracker = null;
+    this.pendingWishTracker = null;
     this.pendingLastSaveMtime = null;
     this.lastSaveMtime = null;
 
@@ -73,6 +82,7 @@ export class SessionStateService {
       this.pendingTracker = raw.tracker;
       this.pendingChestDropTracker = raw.chestDropTracker ?? null;
       this.pendingBoxOpenTracker = raw.boxOpenTracker ?? null;
+      this.pendingWishTracker = raw.wishTracker ?? null;
       this.pendingLastSaveMtime = raw.lastSaveMtime;
       this.lastSaveMtime = raw.lastSaveMtime;
       log.info("Session snapshot loaded; waiting for save read to restore");
@@ -88,6 +98,7 @@ export class SessionStateService {
       tracker: XpTracker;
       chestDropTracker: ChestDropTracker;
       boxOpenTracker: BoxOpenTracker;
+      wishTracker: WishTracker;
       lastSnap: SaveSnapshot | null;
       config: AppConfig;
     },
@@ -95,7 +106,14 @@ export class SessionStateService {
     this.stopAutosave();
     this.saveTimer = setInterval(() => {
       const ctx = getContext();
-      this.persist(ctx.tracker, ctx.chestDropTracker, ctx.boxOpenTracker, ctx.lastSnap, ctx.config);
+      this.persist(
+        ctx.tracker,
+        ctx.chestDropTracker,
+        ctx.boxOpenTracker,
+        ctx.lastSnap,
+        ctx.config,
+        ctx.wishTracker,
+      );
     }, SAVE_INTERVAL_MS);
   }
 
@@ -110,6 +128,7 @@ export class SessionStateService {
     chestDropTracker: ChestDropTracker,
     boxOpenTracker: BoxOpenTracker,
     snap: SaveSnapshot,
+    wishTracker: WishTracker | null = null,
   ): SessionRestoreResult {
     if (!this.pendingTracker || this.pendingLastSaveMtime === null) {
       this.lastSaveMtime = snap.saveMtime;
@@ -123,6 +142,7 @@ export class SessionStateService {
       this.pendingTracker = null;
       this.pendingChestDropTracker = null;
       this.pendingBoxOpenTracker = null;
+      this.pendingWishTracker = null;
       this.pendingLastSaveMtime = null;
       this.lastSaveMtime = snap.saveMtime;
       this.setStatusOverride("New session");
@@ -135,6 +155,7 @@ export class SessionStateService {
       this.pendingTracker = null;
       this.pendingChestDropTracker = null;
       this.pendingBoxOpenTracker = null;
+      this.pendingWishTracker = null;
       this.pendingLastSaveMtime = null;
       this.lastSaveMtime = snap.saveMtime;
       this.setStatusOverride("New session");
@@ -170,6 +191,11 @@ export class SessionStateService {
       if (this.pendingBoxOpenTracker) {
         boxOpenTracker.applySnapshot(this.pendingBoxOpenTracker);
       }
+      // Wish restore is independent of chest/box restores: an absent snapshot
+      // (older build) just leaves the fresh tracker empty — never an error.
+      if (wishTracker && this.pendingWishTracker) {
+        wishTracker.applySnapshot(this.pendingWishTracker);
+      }
       log.info("Session stats restored from snapshot");
       return "restored";
     } catch (err) {
@@ -180,6 +206,7 @@ export class SessionStateService {
       this.pendingTracker = null;
       this.pendingChestDropTracker = null;
       this.pendingBoxOpenTracker = null;
+      this.pendingWishTracker = null;
       this.pendingLastSaveMtime = null;
       this.lastSaveMtime = snap.saveMtime;
     }
@@ -191,6 +218,7 @@ export class SessionStateService {
     boxOpenTracker: BoxOpenTracker,
     lastSnap: SaveSnapshot | null,
     config: AppConfig,
+    wishTracker: WishTracker | null = null,
   ): void {
     const mtime = lastSnap?.saveMtime ?? this.lastSaveMtime;
     if (mtime === null && !tracker.isInitialized && this.pendingTracker === null) return;
@@ -208,6 +236,9 @@ export class SessionStateService {
       tracker: tracker.captureSnapshot(),
       chestDropTracker: chestDropTracker.captureSnapshot(),
       boxOpenTracker: boxOpenTracker.captureSnapshot(),
+      // Omitted (undefined) when no wish tracker is wired — the JSON field is
+      // optional, so older consumers keep parsing the file.
+      wishTracker: wishTracker?.captureSnapshot(),
       ui: { ...this.ui },
     };
 
@@ -225,10 +256,12 @@ export class SessionStateService {
     chestDropTracker: ChestDropTracker,
     boxOpenTracker: BoxOpenTracker,
     config: AppConfig,
+    wishTracker: WishTracker | null = null,
   ): void {
     this.pendingTracker = null;
     this.pendingChestDropTracker = null;
     this.pendingBoxOpenTracker = null;
+    this.pendingWishTracker = null;
     this.pendingLastSaveMtime = null;
     this.lastSaveMtime = null;
     this.statusOverride = null;
@@ -236,13 +269,15 @@ export class SessionStateService {
     tracker.reset();
     chestDropTracker.reset();
     boxOpenTracker.resetAll();
-    this.persist(tracker, chestDropTracker, boxOpenTracker, null, config);
+    wishTracker?.reset();
+    this.persist(tracker, chestDropTracker, boxOpenTracker, null, config, wishTracker);
   }
 
   invalidatePending(): void {
     this.pendingTracker = null;
     this.pendingChestDropTracker = null;
     this.pendingBoxOpenTracker = null;
+    this.pendingWishTracker = null;
     this.pendingLastSaveMtime = null;
   }
 
@@ -274,8 +309,9 @@ export class SessionStateService {
     boxOpenTracker: BoxOpenTracker,
     lastSnap: SaveSnapshot | null,
     config: AppConfig,
+    wishTracker: WishTracker | null = null,
   ): void {
-    this.persist(tracker, chestDropTracker, boxOpenTracker, lastSnap, config);
+    this.persist(tracker, chestDropTracker, boxOpenTracker, lastSnap, config, wishTracker);
   }
 
   onTrackerReset(
@@ -284,23 +320,26 @@ export class SessionStateService {
     boxOpenTracker: BoxOpenTracker,
     config: AppConfig,
     lastSnap: SaveSnapshot | null,
+    wishTracker: WishTracker | null = null,
   ): void {
     this.pendingTracker = null;
     this.pendingChestDropTracker = null;
     this.pendingBoxOpenTracker = null;
+    this.pendingWishTracker = null;
     this.pendingLastSaveMtime = null;
     this.statusOverride = null;
     this.clearStatusTimer();
     if (lastSnap) {
       this.lastSaveMtime = lastSnap.saveMtime;
     }
-    this.persist(tracker, chestDropTracker, boxOpenTracker, lastSnap, config);
+    this.persist(tracker, chestDropTracker, boxOpenTracker, lastSnap, config, wishTracker);
   }
 
   onFileDeleted(): void {
     this.pendingTracker = null;
     this.pendingChestDropTracker = null;
     this.pendingBoxOpenTracker = null;
+    this.pendingWishTracker = null;
     this.pendingLastSaveMtime = null;
     this.lastSaveMtime = null;
     this.statusOverride = null;

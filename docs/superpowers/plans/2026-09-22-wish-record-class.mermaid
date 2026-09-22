@@ -1,0 +1,134 @@
+%% TBH 祈愿记录（Wish Record）—— 类图 / 数据结构
+%% 来源：docs/superpowers/plans/2026-09-22-wish-record-architecture.md §3.4
+classDiagram
+  class WishTracker {
+    -offeringCount : number
+    -itemCount : number
+    -countsByName : Map~string, number~
+    -gradeByName : Map~string, WishGrade~
+    -gradeCounts : Record~WishGrade, number~
+    -history : WishHistoryEntry[]
+    -trackingStartedAt : number
+    -sessionWishStart : number|null
+    -sessionOfferingBaseline : number
+    -sessionItemBaseline : number
+    -breakdownCache : WishBreakdownRow[]|null
+    -historyCache : WishHistoryEntry[]|null
+    +constructor()
+    +feed(item, wallTime, opts) boolean
+    +getStats(elapsedSeconds) WishStats
+    +fitHistory() WishHistoryEntry[]
+    +reset() void
+    +getSessionEpoch() number
+    +captureSnapshot() WishTrackerSnapshot
+    +applySnapshot(data) void
+  }
+
+  class WishLineItem {
+    +name : string
+    +color : string
+    +count : number
+    +grade : WishGrade
+  }
+
+  class WishStats {
+    +offeringCountTotal : number
+    +itemCountTotal : number
+    +itemsPerOffering : number
+    +offeringCountSession : number
+    +itemCountSession : number
+    +offeringPerHour : number
+    +itemPerHour : number
+    +offeringRecentPerHour : number
+    +itemRecentPerHour : number
+    +gradeDistribution : WishGradeRow[]
+    +breakdown : WishBreakdownRow[]
+    +history : WishHistoryEntry[]
+    +lastWishWallTime : number|null
+    +readerRequired : boolean
+    +gameOfferingItemCount : number|null
+  }
+
+  class WishGradeRow {
+    +grade : WishGrade
+    +count : number
+    +share : number
+  }
+  class WishBreakdownRow {
+    +name : string
+    +count : number
+    +share : number
+    +grade : WishGrade
+  }
+  class WishHistoryEntry {
+    +wallTime : number
+    +gameTime : string
+    +name : string
+    +grade : WishGrade
+    +count : number
+    +raw : string
+    +bulk : boolean
+  }
+  class WishTrackerSnapshot {
+    +offeringCount : number
+    +itemCount : number
+    +countsByName : Record
+    +gradeByName : Record
+    +history : WishHistoryEntry[]
+    +sessionWishStart : number|null
+    +sessionOfferingBaseline : number
+    +sessionItemBaseline : number
+  }
+  class WishGrade {
+    <<enumeration>>
+    COMMON
+    UNCOMMON
+    RARE
+    LEGENDARY
+    IMMORTAL
+    ARCANA
+    CELESTIAL
+    UNKNOWN
+  }
+  class TrackingService {
+    -wishTracker : WishTracker
+    +ingestAcquireBatch(entries, initial, ringRestarted, watermark) void
+    +getStats() Stats
+  }
+  class Stats {
+    +wish : WishStats
+    +chestDrops : ChestDropStats
+    +recordLog : RecordLogStats
+  }
+  class SessionStateService {
+    -pendingWishTracker : WishTrackerSnapshot
+    +persist() void
+    +tryRestoreOnSnapshot() SessionRestoreResult
+    +clearSession() void
+  }
+  class WishRecordService {
+    +load() void
+    +schedulePersist() void
+    +flush() void
+  }
+  class buildStats {
+    <<function>>
+    +buildStats(..., wishTracker) Stats
+  }
+
+  WishTracker ..> WishLineItem : consumes
+  WishTracker ..> WishStats : produces
+  WishTracker ..> WishTrackerSnapshot : captures
+  WishStats *-- WishGradeRow
+  WishStats *-- WishBreakdownRow
+  WishStats *-- WishHistoryEntry
+  WishGradeRow --> WishGrade
+  WishBreakdownRow --> WishGrade
+  WishHistoryEntry --> WishGrade
+  WishTrackerSnapshot --> WishHistoryEntry
+  TrackingService *-- WishTracker
+  TrackingService ..> WishLineItem : parses
+  Stats *-- WishStats
+  buildStats ..> WishTracker : reads
+  SessionStateService ..> WishTracker : restore/persist
+  WishRecordService ..> WishTracker : archive
