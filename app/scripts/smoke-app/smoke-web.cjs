@@ -1,6 +1,11 @@
 // End-to-end smoke for the web build: serves dist-web/ via Electron's Chromium,
-// feeds it the real save through the app's own drop handler, and asserts the
-// inventory table actually renders with decoded item icons.
+// then exercises the real five-page shell.
+//
+// Two things are asserted that no unit test can reach:
+//   1. With NO save loaded, Lookup / Chests / Trading render real content — the
+//      "works without a save" invariant.
+//   2. A real save dropped on the Home page decrypts and renders the Inventory
+//      table with decoded item icons.
 //
 // Why Electron and not agent-browser: `ELECTRON_RUN_AS_NODE=1` is set globally
 // on this machine, which makes both the agent-browser Chromium and any Electron
@@ -94,14 +99,17 @@ app.whenReady().then(async () => {
   await win.loadURL("http://127.0.0.1:5279/index.html");
   await new Promise((r) => setTimeout(r, 4000));
 
-  // 1. Shell mounts.
+  // 1. Shell mounts with five nav sections and lands on Home.
   const shell = await win.webContents.executeJavaScript(`(() => {
     const root = document.getElementById("root");
+    const navBtns = Array.from(document.querySelectorAll("header nav button"));
     return {
       rootKids: root ? root.children.length : -1,
       title: document.title,
-      tabs: Array.from(document.querySelectorAll("header button")).map(b => b.innerText.trim()),
+      navCount: navBtns.length,
+      tabs: navBtns.map(b => b.innerText.trim()),
       hasFileInput: !!document.querySelector('input[type="file"]'),
+      activeIsHome: navBtns.length > 0 && navBtns[0].getAttribute("aria-current") === "page",
       errorBoundary: document.body.innerText.includes("failed to start")
         || document.body.innerText.includes("crashed"),
     };
@@ -109,11 +117,48 @@ app.whenReady().then(async () => {
   log("--- shell ---");
   log(JSON.stringify(shell, null, 2));
 
-  // 2. Load a real save through the app's own drop handler.
+  // 2. No save yet: Lookup / Chests / Trading must each render real content.
+  //    Nav is matched by INDEX (0 home, 1 inventory, 2 chests, 3 lookup,
+  //    4 trading) so the check is language-independent.
+  const noSave = await win.webContents.executeJavaScript(`(async () => {
+    const root = document.getElementById("root");
+    const nav = () => Array.from(document.querySelectorAll("header nav button"));
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const goto = async (i) => { nav()[i].click(); await sleep(1200); };
+    const out = {};
+
+    await goto(3); // Lookup
+    out.lookupItems = root.querySelectorAll("main ul li").length;
+    out.lookupWaiting = /waiting for save/i.test(root.innerText);
+
+    await goto(2); // Chests
+    const chestSection = root.querySelector('section[aria-labelledby="chest-catalog-heading"]');
+    out.chestCards = chestSection ? chestSection.querySelectorAll("img").length : 0;
+    out.chestWaiting = /waiting for save/i.test(root.innerText);
+
+    await goto(4); // Trading
+    out.tradingRows = root.querySelectorAll("tbody tr").length;
+    out.tradingWaiting = /waiting for save/i.test(root.innerText);
+
+    await goto(0); // Home — desktop-only capabilities must be present.
+    out.homeMentionsDesktop = /desktop app/i.test(root.innerText);
+    return out;
+  })()`);
+  log("--- no save (catalog pages) ---");
+  log(JSON.stringify(noSave, null, 2));
+
+  // 3. Load a real save through the Home drop zone, then open Inventory.
   let loaded = null;
   if (b64) {
     loaded = await win.webContents.executeJavaScript(`(async () => {
       const root = document.getElementById("root");
+      const nav = () => Array.from(document.querySelectorAll("header nav button"));
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+      // The drop zone lives on Home.
+      nav()[0].click();
+      await sleep(600);
+
       const dz = Array.from(root.querySelectorAll("div")).find(d => String(d.className).includes("border-dashed"));
       if (!dz) return { err: "drop zone missing" };
       const props = dz[Object.keys(dz).find(k => k.startsWith("__reactProps"))];
@@ -129,9 +174,16 @@ app.whenReady().then(async () => {
       dz.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: dt }));
       dz.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
 
-      // Poll until the table appears or we give up.
+      // Wait for the decode to land (the Home summary shows the file name).
+      for (let i = 0; i < 30; i++) {
+        await sleep(1000);
+        if (root.innerText.includes("SaveFile_Live.es3")) break;
+      }
+
+      // Now open Inventory (index 1) and wait for the table.
+      nav()[1].click();
       for (let i = 0; i < 20; i++) {
-        await new Promise(r => setTimeout(r, 1000));
+        await sleep(1000);
         if (document.querySelector("table")) break;
       }
 
@@ -163,37 +215,25 @@ app.whenReady().then(async () => {
         imgBroken: brokenImgs.length,
         imgSampleSrc: imgs.slice(0, 3).map(i => i.getAttribute("src")),
         imgSampleSize: okImgs.slice(0, 3).map(i => i.naturalWidth + "x" + i.naturalHeight),
-        headerLine: root.innerText.split("\\n").slice(0, 8).join(" / "),
-        cjk: /[\\u4e00-\\u9fff]/.test(root.innerText),
-        text: root.innerText,
       };
     })()`);
   }
-  log("--- inventory ---");
-  log(
-    JSON.stringify(
-      { ...loaded, text: loaded && loaded.text ? loaded.text.slice(0, 400) + "…" : "" },
-      null,
-      2,
-    ),
-  );
-
-  // 3. Desktop-guidance tab renders its notice cards.
-  const desktopTab = await win.webContents.executeJavaScript(`(async () => {
-    const btn = Array.from(document.querySelectorAll("header button")).find(b => /live/i.test(b.innerText));
-    if (!btn) return { err: "no Live tracking tab" };
-    btn.click();
-    await new Promise(r => setTimeout(r, 600));
-    const t = document.getElementById("root").innerText;
-    return { text: t.slice(0, 700), mentionsDesktop: /desktop app/i.test(t) };
-  })()`);
-  log("--- desktop tab ---");
-  log(JSON.stringify(desktopTab, null, 2));
+  log("--- inventory (after load) ---");
+  log(JSON.stringify(loaded, null, 2));
 
   const ok = !!(
     shell.rootKids > 0 &&
     !shell.errorBoundary &&
     shell.hasFileInput &&
+    shell.navCount === 5 &&
+    shell.activeIsHome &&
+    noSave.lookupItems > 50 &&
+    noSave.chestCards > 0 &&
+    noSave.tradingRows > 0 &&
+    !noSave.lookupWaiting &&
+    !noSave.chestWaiting &&
+    !noSave.tradingWaiting &&
+    noSave.homeMentionsDesktop &&
     loaded &&
     loaded.hasTable &&
     loaded.rows > 10 &&
