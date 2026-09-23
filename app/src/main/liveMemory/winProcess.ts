@@ -7,7 +7,27 @@ import koffi from "koffi";
 import type { MemoryReader } from "../../core/liveMemory/memory";
 import { BufferPool } from "./bufferPool";
 
-const kernel32 = koffi.load("kernel32.dll");
+// Native DLLs are loaded LAZILY, on first use of a native call.
+//
+// This module also exports pure helpers (`parseHModulesBuffer`,
+// `extractBasename`, `selectProcessBySandbox`) that its unit tests exercise.
+// Loading `kernel32.dll` / `psapi.dll` at module scope made those tests
+// unrunnable off Windows: the import itself threw `Failed to load shared
+// library` on Linux, so the tests never even got to run — CI (ubuntu-latest)
+// failed while the release runner (windows-latest) passed. Deferring the load
+// keeps the pure helpers importable (and testable) on any platform, and moves
+// the failure to the first actual native call, which is where it belongs.
+let kernel32Lib: ReturnType<typeof koffi.load> | null = null;
+function kernel32(): ReturnType<typeof koffi.load> {
+  if (kernel32Lib === null) kernel32Lib = koffi.load("kernel32.dll");
+  return kernel32Lib;
+}
+
+let psapiLib: ReturnType<typeof koffi.load> | null = null;
+function psapi(): ReturnType<typeof koffi.load> {
+  if (psapiLib === null) psapiLib = koffi.load("psapi.dll");
+  return psapiLib;
+}
 
 const TH32CS_SNAPPROCESS = 0x00000002;
 const TH32CS_SNAPMODULE = 0x00000008;
@@ -69,39 +89,32 @@ const MEMORY_BASIC_INFORMATION = koffi.struct("MEMORY_BASIC_INFORMATION", {
   Type: "uint32",
 });
 
-const CreateToolhelp32Snapshot = kernel32.func("CreateToolhelp32Snapshot", "void *", [
-  "uint32",
-  "uint32",
-]);
-const Process32FirstW = kernel32.func("Process32FirstW", "bool", ["void *", "void *"]);
-const Process32NextW = kernel32.func("Process32NextW", "bool", ["void *", "void *"]);
-const Module32FirstW = kernel32.func("Module32FirstW", "bool", ["void *", "void *"]);
-const Module32NextW = kernel32.func("Module32NextW", "bool", ["void *", "void *"]);
-const CloseHandle = kernel32.func("CloseHandle", "bool", ["void *"]);
-const OpenProcess = kernel32.func("OpenProcess", "void *", ["uint32", "bool", "uint32"]);
-const ReadProcessMemory = kernel32.func("ReadProcessMemory", "bool", [
-  "void *",
-  "uintptr",
-  "void *",
-  "uintptr",
-  "_Out_ uintptr *",
-]);
-const VirtualQueryEx = kernel32.func("VirtualQueryEx", "uintptr", [
-  "void *",
-  "uintptr",
-  "void *",
-  "uintptr",
-]);
-const GetExitCodeProcess = kernel32.func("GetExitCodeProcess", "bool", [
-  "void *",
-  "_Out_ uint32 *",
-]);
+const CreateToolhelp32Snapshot = () =>
+  kernel32().func("CreateToolhelp32Snapshot", "void *", ["uint32", "uint32"]);
+const Process32FirstW = () => kernel32().func("Process32FirstW", "bool", ["void *", "void *"]);
+const Process32NextW = () => kernel32().func("Process32NextW", "bool", ["void *", "void *"]);
+const Module32FirstW = () => kernel32().func("Module32FirstW", "bool", ["void *", "void *"]);
+const Module32NextW = () => kernel32().func("Module32NextW", "bool", ["void *", "void *"]);
+const CloseHandle = () => kernel32().func("CloseHandle", "bool", ["void *"]);
+const OpenProcess = () => kernel32().func("OpenProcess", "void *", ["uint32", "bool", "uint32"]);
+const ReadProcessMemory = () =>
+  kernel32().func("ReadProcessMemory", "bool", [
+    "void *",
+    "uintptr",
+    "void *",
+    "uintptr",
+    "_Out_ uintptr *",
+  ]);
+const VirtualQueryEx = () =>
+  kernel32().func("VirtualQueryEx", "uintptr", ["void *", "uintptr", "void *", "uintptr"]);
+const GetExitCodeProcess = () =>
+  kernel32().func("GetExitCodeProcess", "bool", ["void *", "_Out_ uint32 *"]);
 // GetModuleHandleW is used to detect whether the current process has been
 // injected by Sandboxie-Plus (sbiedll.dll). This is the "companion self-check"
 // half of multi-instance isolation: when multiple TBH processes coexist
 // (host + sandboxed), the companion only attaches to the one whose sandbox
 // state matches its own.
-const GetModuleHandleW = kernel32.func("GetModuleHandleW", "void *", ["str16"]);
+const GetModuleHandleW = () => kernel32().func("GetModuleHandleW", "void *", ["str16"]);
 
 // psapi.dll — PSAPI module enumeration, used as a fallback when ToolHelp's
 // CreateToolhelp32Snapshot(TH32CS_SNAPMODULE) is blocked by sandbox software
@@ -110,30 +123,32 @@ const GetModuleHandleW = kernel32.func("GetModuleHandleW", "void *", ["str16"]);
 // PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, so it does not need any extra
 // privileges and does not shell out to a child process (unlike the PowerShell
 // fallback). On Win64, HMODULE is an 8-byte pointer.
-const psapi = koffi.load("psapi.dll");
 const LIST_MODULES_ALL = 0x03;
-const EnumProcessModulesEx = psapi.func("EnumProcessModulesEx", "bool", [
-  "void *", // hProcess
-  "void *", // lphModule (HMODULE[] — pass null to query size, Buffer to receive)
-  "uint32", // cb (size in bytes)
-  "_Out_ uint32 *", // lpcbNeeded
-  "uint32", // dwFilterFlag
-]);
-const GetModuleFileNameExW = psapi.func("GetModuleFileNameExW", "uint32", [
-  "void *", // hProcess
-  "uintptr", // hModule (HMODULE as uintptr — accepts bigint read from buffer)
-  "void *", // lpFilename (wchar_t buffer — Buffer accepted as void *)
-  "uint32", // cch
-]);
+const EnumProcessModulesEx = () =>
+  psapi().func("EnumProcessModulesEx", "bool", [
+    "void *", // hProcess
+    "void *", // lphModule (HMODULE[] — pass null to query size, Buffer to receive)
+    "uint32", // cb (size in bytes)
+    "_Out_ uint32 *", // lpcbNeeded
+    "uint32", // dwFilterFlag
+  ]);
+const GetModuleFileNameExW = () =>
+  psapi().func("GetModuleFileNameExW", "uint32", [
+    "void *", // hProcess
+    "uintptr", // hModule (HMODULE as uintptr — accepts bigint read from buffer)
+    "void *", // lpFilename (wchar_t buffer — Buffer accepted as void *)
+    "uint32", // cch
+  ]);
 // MODULEINFO layout (Win64): lpBaseOfDll(8) + SizeOfImage(4) + 4-byte pad + EntryPoint(8) = 24 bytes.
 // Read via Buffer rather than a koffi struct to avoid alignment surprises.
 const MODULEINFO_SIZE = 24;
-const GetModuleInformation = psapi.func("GetModuleInformation", "bool", [
-  "void *", // hProcess
-  "uintptr", // hModule
-  "void *", // lpmodinfo (MODULEINFO buffer)
-  "uint32", // cb
-]);
+const GetModuleInformation = () =>
+  psapi().func("GetModuleInformation", "bool", [
+    "void *", // hProcess
+    "uintptr", // hModule
+    "void *", // lpmodinfo (MODULEINFO buffer)
+    "uint32", // cb
+  ]);
 
 const STILL_ACTIVE = 259;
 
@@ -282,7 +297,7 @@ export class WinProcess implements MemoryReader {
   }
 
   static listProcesses(): ProcessInfo[] {
-    const snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    const snap = CreateToolhelp32Snapshot()(TH32CS_SNAPPROCESS, 0);
     if (isInvalidHandle(snap)) {
       throw new Error("CreateToolhelp32Snapshot(PROCESS) failed.");
     }
@@ -290,17 +305,17 @@ export class WinProcess implements MemoryReader {
     initStruct(entry, PROCESSENTRY32W, { dwSize: koffi.sizeof(PROCESSENTRY32W) });
     const out: ProcessInfo[] = [];
     try {
-      if (Process32FirstW(snap, entry)) {
+      if (Process32FirstW()(snap, entry)) {
         do {
           const decoded = koffi.decode(entry, PROCESSENTRY32W);
           out.push({
             pid: decoded.th32ProcessID,
             name: utf16ArrayToString(decoded.szExeFile),
           });
-        } while (Process32NextW(snap, entry));
+        } while (Process32NextW()(snap, entry));
       }
     } finally {
-      CloseHandle(snap);
+      CloseHandle()(snap);
     }
     return out;
   }
@@ -413,7 +428,7 @@ export class WinProcess implements MemoryReader {
    */
   static isCurrentProcessInSandbox(): boolean {
     if (process.env.sandbox) return true;
-    const h = GetModuleHandleW("sbiedll.dll");
+    const h = GetModuleHandleW()("sbiedll.dll");
     return !isInvalidHandle(h);
   }
 
@@ -429,33 +444,33 @@ export class WinProcess implements MemoryReader {
    * is the legacy highest-PID tiebreak.
    */
   static isProcessInSandbox(pid: number): boolean {
-    const handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+    const handle = OpenProcess()(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
     if (isInvalidHandle(handle)) return false;
     try {
       const needed = [0];
-      if (!EnumProcessModulesEx(handle, null, 0, needed, LIST_MODULES_ALL)) return false;
+      if (!EnumProcessModulesEx()(handle, null, 0, needed, LIST_MODULES_ALL)) return false;
       const bytesNeeded = needed[0];
       if (bytesNeeded === 0) return false;
       const hModsBuf = Buffer.alloc(bytesNeeded);
-      if (!EnumProcessModulesEx(handle, hModsBuf, bytesNeeded, needed, LIST_MODULES_ALL)) {
+      if (!EnumProcessModulesEx()(handle, hModsBuf, bytesNeeded, needed, LIST_MODULES_ALL)) {
         return false;
       }
       const handles = parseHModulesBuffer(hModsBuf, needed[0]);
       const nameBuf = Buffer.alloc(260 * 2); // MAX_PATH * sizeof(wchar_t)
       for (const hMod of handles) {
-        const nameLen = GetModuleFileNameExW(handle, hMod, nameBuf, 260);
+        const nameLen = GetModuleFileNameExW()(handle, hMod, nameBuf, 260);
         if (nameLen === 0) continue;
         const path = nameBuf.toString("utf16le", 0, nameLen * 2);
         if (extractBasename(path).toLowerCase() === "sbiedll.dll") return true;
       }
       return false;
     } finally {
-      CloseHandle(handle);
+      CloseHandle()(handle);
     }
   }
 
   static open(pid: number, name: string): WinProcess {
-    const handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
+    const handle = OpenProcess()(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid);
     if (isInvalidHandle(handle)) {
       throw new Error(`OpenProcess failed for pid ${pid}. Try running as Administrator.`);
     }
@@ -464,7 +479,7 @@ export class WinProcess implements MemoryReader {
 
   close(): void {
     if (this.handle) {
-      CloseHandle(this.handle);
+      CloseHandle()(this.handle);
       this.handle = null;
     }
   }
@@ -473,7 +488,7 @@ export class WinProcess implements MemoryReader {
   isAlive(): boolean {
     if (isInvalidHandle(this.handle)) return false;
     const code = [0];
-    if (!GetExitCodeProcess(this.handle, code)) return false;
+    if (!GetExitCodeProcess()(this.handle, code)) return false;
     return code[0] === STILL_ACTIVE;
   }
 
@@ -509,13 +524,13 @@ export class WinProcess implements MemoryReader {
   }
 
   private listModulesViaToolhelp(): ModuleInfo[] {
-    const snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, this.pid);
+    const snap = CreateToolhelp32Snapshot()(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, this.pid);
     if (isInvalidHandle(snap)) return [];
     const entry = koffi.alloc(MODULEENTRY32W, 1);
     initStruct(entry, MODULEENTRY32W, { dwSize: koffi.sizeof(MODULEENTRY32W) });
     const out: ModuleInfo[] = [];
     try {
-      if (Module32FirstW(snap, entry)) {
+      if (Module32FirstW()(snap, entry)) {
         do {
           const decoded = koffi.decode(entry, MODULEENTRY32W);
           out.push({
@@ -524,10 +539,10 @@ export class WinProcess implements MemoryReader {
             baseAddress: BigInt(decoded.modBaseAddr),
             size: decoded.modBaseSize,
           });
-        } while (Module32NextW(snap, entry));
+        } while (Module32NextW()(snap, entry));
       }
     } finally {
-      CloseHandle(snap);
+      CloseHandle()(snap);
     }
     return out;
   }
@@ -546,7 +561,7 @@ export class WinProcess implements MemoryReader {
     if (isInvalidHandle(this.handle)) return [];
     const needed = [0];
     // Phase 1: query required size. lphModule=null, cb=0.
-    if (!EnumProcessModulesEx(this.handle, null, 0, needed, LIST_MODULES_ALL)) {
+    if (!EnumProcessModulesEx()(this.handle, null, 0, needed, LIST_MODULES_ALL)) {
       return [];
     }
     const bytesNeeded = needed[0];
@@ -554,7 +569,7 @@ export class WinProcess implements MemoryReader {
 
     // Phase 2: allocate HMODULE array buffer and enumerate.
     const hModsBuf = Buffer.alloc(bytesNeeded);
-    if (!EnumProcessModulesEx(this.handle, hModsBuf, bytesNeeded, needed, LIST_MODULES_ALL)) {
+    if (!EnumProcessModulesEx()(this.handle, hModsBuf, bytesNeeded, needed, LIST_MODULES_ALL)) {
       return [];
     }
     const actualBytes = needed[0];
@@ -565,11 +580,11 @@ export class WinProcess implements MemoryReader {
     const nameBuf = Buffer.alloc(260 * 2); // MAX_PATH * sizeof(wchar_t)
     const modInfoBuf = Buffer.alloc(MODULEINFO_SIZE);
     for (const hMod of handles) {
-      const nameLen = GetModuleFileNameExW(this.handle, hMod, nameBuf, 260);
+      const nameLen = GetModuleFileNameExW()(this.handle, hMod, nameBuf, 260);
       if (nameLen === 0) continue;
       const path = nameBuf.toString("utf16le", 0, nameLen * 2);
       const name = extractBasename(path);
-      if (!GetModuleInformation(this.handle, hMod, modInfoBuf, MODULEINFO_SIZE)) continue;
+      if (!GetModuleInformation()(this.handle, hMod, modInfoBuf, MODULEINFO_SIZE)) continue;
       const base = modInfoBuf.readBigUInt64LE(0); // lpBaseOfDll (uintptr, 8 bytes)
       const size = modInfoBuf.readUInt32LE(8); // SizeOfImage (uint32, 4 bytes after base)
       out.push({ name, path, baseAddress: base, size });
@@ -629,7 +644,7 @@ export class WinProcess implements MemoryReader {
     let count = 0;
 
     while (count < maxRegions) {
-      const result = VirtualQueryEx(this.handle, address, mbi, mbiSize);
+      const result = VirtualQueryEx()(this.handle, address, mbi, mbiSize);
       if (result === 0n || result === 0) break;
 
       const info = koffi.decode(mbi, MEMORY_BASIC_INFORMATION);
@@ -671,7 +686,7 @@ export class WinProcess implements MemoryReader {
     // on success).
     const buf = this.bufPool.acquire(size);
     const outLen = [0n];
-    const ok = ReadProcessMemory(this.handle, address, buf, BigInt(size), outLen);
+    const ok = ReadProcessMemory()(this.handle, address, buf, BigInt(size), outLen);
     if (!ok) {
       this.bufPool.release(buf);
       return null;
