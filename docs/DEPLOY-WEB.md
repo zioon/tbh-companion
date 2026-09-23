@@ -100,7 +100,7 @@ pnpm smoke:web       # Electron + Chromium 端到端：先断言无存档时 Loo
 
 文件构成：
 
-> ⚠️ `0647230`（serve the real web app at the site root）之后**站点根目录直接跑真实 web 应用**，本小节的「手写站点文件」清单正在随之更新；下列两行已改为现状。
+> `0647230` 起**站点根目录就是真实 web 应用**；`website/` 下唯一入库的手写文件是 `inspector/index.html`（旧 `/inspector/` URL 的跳转桩）。
 
 | 路径 | 内容 | 来源 |
 | --- | --- | --- |
@@ -376,7 +376,7 @@ curl -sI https://tbh.example.com/ | head -1   # 200（方案 A：站点根即应
 | **存档驱动的页面有正确空状态** | `Home` 与 `Inventory` 在无存档时应给出指向 `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\` 的指引与复制按钮，而不是空白块或报错 |
 | **Trading 有真实价格** | `Trading` 价格列应显示价格数值；若整列显示 `—`（`trading.never`）且顶部有黄色告警条，说明 `website/data/prices.json` 没暂存上（查 `pages.yml` 的 `Stage Steam price snapshot` 步骤 warning） |
 | 价格来自快照而非实时抓取 | 网页版**不直连 Steam**（无 CORS）：价格全部来自同源 `website/data/prices.json`。这是**设计**，不是 bug |
-| 无遥测 | 全站无分析脚本；产物只外链 Google Fonts（应用壳本身无任何外链） |
+| 无遥测 | 站点根是带严格 CSP 的 SPA（`default-src 'self'` / `font-src 'self' data:`），**无任何外部资源外链**（字体走系统字体栈，无 Google Fonts），无分析脚本 |
 | 存档不外传 | DevTools → Network，拖入存档后不产生任何携带存档内容的请求 |
 | 桌面版导流卡片 | Home 页底部应显示「These features need the desktop app」的能力卡片与桌面版下载入口 |
 | base 路径正确 | 子路径部署时 `view-source:` 里的资源引用为相对路径（`./assets/...`、`./icons/...`） |

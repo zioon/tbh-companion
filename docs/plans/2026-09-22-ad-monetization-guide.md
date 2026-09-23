@@ -125,23 +125,14 @@ MIT 允许商业化，但项目接受外部 PR。若在贡献者代码之上叠�
 | 5 | QA：断网、广告拦截器、离线、布局抖动、性能基线 | 见 §9 检查清单 |
 | 6 | 灰度 + 开关 | 可一键关停（配置或远端 manifest） |
 
-### 5.2 官网（`website/index.html`）
+### 5.2 官网落地页（`website/index.html`）—— 该载体已下线
 
-- 该页**没有 CSP meta**，且已经加载 `fonts.googleapis.com` / `fonts.gstatic.com` 与 Lucide CDN。因此在这里加广告，破坏的是弱承诺，实现成本最低。
-- 建议同时补一条 CSP，显式放行广告域名（示例，需按实际联盟域名补全）：
+> **前提变更（2026-09）：** 手写落地页 `website/index.html` 已删除。`0647230` 起**站点根目录直接托管 `pnpm build:web` 的 SPA**，而该 SPA 的 CSP 是硬约束（见 §5.3）。因此本节原来「没有 CSP meta、已加载 `fonts.googleapis.com` / Lucide CDN，所以在这里加广告破坏的是弱承诺、实现成本最低」的判断**已失效**。
 
-```html
-<meta http-equiv="Content-Security-Policy"
-  content="default-src 'self';
-           script-src 'self' https://pagead2.googlesyndication.com https://*.googlesyndication.com;
-           img-src 'self' data: https://*.googleusercontent.com https://*.gstatic.com;
-           frame-src https://googleads.g.doubleclick.net https://*.googlesyndication.com;
-           style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-           font-src https://fonts.gstatic.com;
-           connect-src 'self' https://*.googlesyndication.com https://*.doubleclick.net" />
-```
-
-- 广告位摆放：内容之间、页脚之前。**不要**放在下载按钮旁边（AdSense 明令禁止把广告伪装成功能按钮，属最高风险等级违规）。
+- 现在「官网页」与「网页版」是**同一个载体**（站点根 = SPA），不再存在「CSP 宽松的落地页 vs CSP 严格的网页版」两套差异 —— 想往站点上加广告，等价于按 §5.3 放开应用壳的 CSP。
+- 于是成本与风险都从原文的「低」升到「高」，且会直接削弱「存档不出本机 / 无第三方请求」这一核心信任资产（见 §2.2）。
+- **保留的历史意图：** 路径 A（自营赞助位）/ 路径 B（AdSense）原本把官网页当作最低成本的试验田；这块试验田随落地页一起下线。
+- 留给广告的合规面因此只剩：桌面端工具栏入口（§5.4 路径 C），或站内 / 应用内**自有**、不引入第三方脚本的区块（如赞助位文案）。
 
 ### 5.3 网页版（`app/src/web/index.html`）
 
