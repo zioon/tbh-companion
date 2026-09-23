@@ -19,7 +19,10 @@ import type {
   LootRingSeconds,
   NotificationPrefs,
   WindowTopmostPrefs,
+  WishCoinOverride,
+  WishCoinOverrides,
 } from "../../shared/types";
+import { WISH_COIN_KEYS } from "../../shared/types";
 import { DEFAULT_PASSWORD } from "../core/es3";
 
 export type { AppConfig };
@@ -37,6 +40,9 @@ const DEFAULT_CHEST_AUTO_OPEN: ChestAutoOpenPrefs = {
   common: false,
   stageBoss: false,
 };
+
+/** 十枚献祭硬币的 itemKey 闭集（与 `WISH_COIN_KEYS` 同源，供 override 校验）。 */
+const WISH_COIN_KEY_SET: ReadonlySet<number> = new Set(WISH_COIN_KEYS);
 
 const DEFAULT_LIVE_MEMORY: LiveMemoryPrefs = {
   enabled: false,
@@ -109,6 +115,8 @@ const DEFAULTS: AppConfig = {
   // 价格历史自动刷新覆盖率阈值（0~1）：按最近 24h 交易额排序时，覆盖率达到该比例
   // 的头部作为优先组，用最少刷新覆盖最多交易额；长尾在一天内补刷保证全量覆盖。
   marketHistoryCoverageThreshold: 0.95,
+  // 祈愿页「物品手工分类对应硬币」：默认无绑定（全部走自动归因）。
+  wishCoinOverrides: [],
 };
 
 type RawConfig = Omit<Partial<AppConfig>, "topmost"> & {
@@ -302,6 +310,35 @@ function sanitizeSteamCookiePart(raw: unknown): string {
 }
 
 /**
+ * Coerce the manual wish-coin overrides into a deduped, validated list.
+ *
+ * Rules (a hand-edited or corrupted config.json must never crash the app):
+ *  - drop entries whose `itemName` isn't a non-empty trimmed string;
+ *  - drop entries whose `coinKey` isn't one of the 10 offering coins
+ *    ({@link WISH_COIN_KEYS}) — a stale/hand-typed key would render as `#<key>`;
+ *  - later entries win for a duplicate `itemName` (so the newest binding sticks);
+ *  - `createdAt` falls back to 0 when not a finite number.
+ */
+export function sanitizeWishCoinOverrides(raw: unknown): WishCoinOverrides {
+  if (!Array.isArray(raw)) return [];
+  const byName = new Map<string, WishCoinOverride>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const candidate = entry as Partial<WishCoinOverride>;
+    const itemName = typeof candidate.itemName === "string" ? candidate.itemName.trim() : "";
+    if (!itemName) continue;
+    const coinKey = candidate.coinKey;
+    if (typeof coinKey !== "number" || !WISH_COIN_KEY_SET.has(coinKey)) continue;
+    const createdAt =
+      typeof candidate.createdAt === "number" && Number.isFinite(candidate.createdAt)
+        ? candidate.createdAt
+        : 0;
+    byName.set(itemName, { itemName, coinKey, createdAt });
+  }
+  return [...byName.values()];
+}
+
+/**
  * Compose the two cookie parts into a full Cookie header string
  * (`sessionid=<...>; steamLoginSecure=<...>`). Empty parts are dropped;
  * if both are empty the result is "" (not configured).
@@ -354,6 +391,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     gameInstallDir: _gameInstallDir,
     marketHistoryBatchSize: _marketHistoryBatchSize,
     marketHistoryBatchDelaySec: _marketHistoryBatchDelaySec,
+    wishCoinOverrides: _wishCoinOverrides,
     steamCookie: _steamCookie,
     steamCookieSessionid: _steamCookieSessionid,
     steamCookieLoginSecure: _steamCookieLoginSecure,
@@ -381,6 +419,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
   const marketHistoryBatchDelaySec = sanitizeMarketHistoryBatchDelaySec(
     raw.marketHistoryBatchDelaySec,
   );
+  const wishCoinOverrides = sanitizeWishCoinOverrides(raw.wishCoinOverrides);
   const marketHistoryCoverageThreshold = sanitizeMarketHistoryCoverageThreshold(
     raw.marketHistoryCoverageThreshold,
   );
@@ -414,6 +453,7 @@ function normalizeConfig(raw: RawConfig): AppConfig {
     marketHistoryBatchSize,
     marketHistoryBatchDelaySec,
     marketHistoryCoverageThreshold,
+    wishCoinOverrides,
     steamCookie,
     steamCookieSessionid,
     steamCookieLoginSecure,

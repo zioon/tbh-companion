@@ -19,6 +19,7 @@ export const IPC = {
   MARKET_VOLUME: "market:volume",
   MARKET_VOLUME_ITEMS: "market:volume:items",
   MARKET_VOLUME_REFRESH_PROGRESS: "market:volume-refresh-progress",
+  WISH_COIN_OVERRIDES: "wish-coin-overrides",
 
   // Invoke (renderer → main)
   GET_STATS: "get-stats",
@@ -56,6 +57,8 @@ export const IPC = {
   GET_LOOKUP_SOURCES: "get-lookup-sources",
   GET_LOOKUP_SYNTHESIS_MODEL: "get-lookup-synthesis-model",
   GET_OFFERINGS: "get-offerings",
+  GET_WISH_COIN_OVERRIDES: "get-wish-coin-overrides",
+  SET_WISH_COIN_OVERRIDES: "set-wish-coin-overrides",
   GET_LOOKUP_PRICES: "get-lookup-prices",
   GET_LOOKUP_PRICES_POLL_STATUS: "get-lookup-prices-poll-status",
   LOOKUP_PRICES_POLL: "lookup-prices-poll",
@@ -132,6 +135,8 @@ export const IPC_INVOKE_CHANNELS = [
   IPC.GET_LOOKUP_SOURCES,
   IPC.GET_LOOKUP_SYNTHESIS_MODEL,
   IPC.GET_OFFERINGS,
+  IPC.GET_WISH_COIN_OVERRIDES,
+  IPC.SET_WISH_COIN_OVERRIDES,
   IPC.GET_LOOKUP_PRICES,
   IPC.GET_LOOKUP_PRICES_POLL_STATUS,
   IPC.LOOKUP_PRICES_POLL,
@@ -190,4 +195,5 @@ export const IPC_PUSH_CHANNELS = [
   IPC.MARKET_VOLUME,
   IPC.MARKET_VOLUME_ITEMS,
   IPC.MARKET_VOLUME_REFRESH_PROGRESS,
+  IPC.WISH_COIN_OVERRIDES,
 ] as const;

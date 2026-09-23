@@ -1,7 +1,6 @@
 {
   "tabTitle": "Wish",
-  "intro": "Automatically records every offering result and aggregates by grade and item. Synced live from the game's acquire log.",
-  "unavailable": "Wish tracking unavailable: enable the live reader (live memory), then make an offering in-game — results will be recorded here.",
+  "intro": "Automatically records every offering result and aggregates by grade, item and offering coin. Synced live from the game's acquire log.",
   "noWishesYet": "No offering results recorded this session yet. Make an offering while the live reader is running and they will show up here.",
   "resetSession": "Reset session",
   "resetTitle": "Reset session stats",
@@ -19,16 +18,48 @@
     "recentOfferingRate": "Last 1h {{value}} offerings/h",
     "never": "No records yet"
   },
-  "grades": {
-    "title": "Grade distribution",
-    "total": "Total {{count}} items",
-    "empty": "No items yet"
+  "heldCoins": {
+    "title": "Offering coins held",
+    "empty": "No offering coins in the inventory.",
+    "quantity": "×{{count}}",
+    "unit": "{{count}} coins"
   },
-  "ranking": {
-    "title": "Item ranking",
-    "empty": "No items yet",
+  "recent": {
+    "title": "Recent offering results",
+    "empty": "No offering results yet.",
+    "columnItem": "Item",
+    "columnCoin": "Coin",
+    "columnTime": "Time",
     "countLabel": "×{{count}}",
-    "shareLabel": "{{value}}"
+    "columnCount": "Count"
+  },
+  "coinGroups": {
+    "title": "By offering coin",
+    "empty": "No attributable offering results yet.",
+    "subtitle": "{{offerings}} offerings · {{items}} items",
+    "itemCount": "×{{count}}",
+    "unattributedTitle": "Unattributed / candidates",
+    "unattributedHint": "These results cannot be pinned to a single coin — candidate coins are shown (sorted by loot pool chance). You can assign a coin manually."
+  },
+  "manual": {
+    "autoOption": "Auto",
+    "assign": "Assign",
+    "resetAuto": "Reset to auto",
+    "boundTo": "Manually assigned to {{coin}}",
+    "selectAriaLabel": "Assign a coin to {{name}}",
+    "confirmAriaLabel": "Confirm coin assignment for {{name}}",
+    "resetAriaLabel": "Reset {{name}} to automatic attribution"
+  },
+  "confidence": {
+    "observed": "Observed",
+    "inferred": "Inferred",
+    "manual": "Manual",
+    "unknown": "Unknown",
+    "observedTooltip": "Observed by frame diff: exactly one coin decreased in this interval.",
+    "manualTooltip": "Manually assigned: bound to this coin by you on this page.",
+    "inferredTooltip": "Inferred from the loot table: these coins' loot pools can yield this item.",
+    "candidateTooltip": "{{coin}} · pool {{pct}}",
+    "candidatesTitle": "Candidate coins"
   },
   "history": {
     "title": "Offering history",
@@ -36,6 +67,7 @@
     "columnTime": "Time",
     "columnItem": "Item",
     "columnGrade": "Grade",
+    "columnCoin": "Coin",
     "columnCount": "Qty",
     "unknownItem": "—"
   },
@@ -47,6 +79,9 @@
     "IMMORTAL": "Immortal",
     "ARCANA": "Arcana",
     "CELESTIAL": "Celestial",
+    "BEYOND": "Beyond",
+    "DIVINE": "Divine",
+    "COSMIC": "Cosmic",
     "UNKNOWN": "Unknown"
   }
 }

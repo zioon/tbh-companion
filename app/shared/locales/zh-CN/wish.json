@@ -1,7 +1,6 @@
 {
   "tabTitle": "祈愿",
-  "intro": "自动记录每一次祈愿的产出，并按品质与单品聚合。数据随游戏「获得记录」实时同步。",
-  "unavailable": "祈愿追踪不可用：请在游戏中开启实时读取器（live memory）后进行祈愿，此处会自动记录产出。",
+  "intro": "自动记录每一次祈愿的产出，并按品质、单品与献祭硬币聚合。数据随游戏「获得记录」实时同步。",
   "noWishesYet": "本会话尚未记录到祈愿产出。在实时读取器运行时进行祈愿，此处会显示记录的产出。",
   "resetSession": "重置会话",
   "resetTitle": "重置会话统计",
@@ -19,16 +18,48 @@
     "recentOfferingRate": "近 1 小时 {{value}} 次/时",
     "never": "尚无记录"
   },
-  "grades": {
-    "title": "品质分布",
-    "total": "合计 {{count}} 件",
-    "empty": "暂无产出"
+  "heldCoins": {
+    "title": "背包献祭硬币",
+    "empty": "背包中暂无献祭硬币。",
+    "quantity": "×{{count}}",
+    "unit": "{{count}} 枚"
   },
-  "ranking": {
-    "title": "单品产出排行",
-    "empty": "暂无产出",
+  "recent": {
+    "title": "最近祈愿结果",
+    "empty": "暂无祈愿结果。",
+    "columnItem": "物品",
+    "columnCoin": "硬币",
+    "columnTime": "时间",
     "countLabel": "×{{count}}",
-    "shareLabel": "{{value}}"
+    "columnCount": "数量"
+  },
+  "coinGroups": {
+    "title": "按硬币分组",
+    "empty": "暂无可归因的祈愿结果。",
+    "subtitle": "{{offerings}} 次祈愿 · {{items}} 件产出",
+    "itemCount": "×{{count}}",
+    "unattributedTitle": "未归因 / 候选",
+    "unattributedHint": "以下结果无法唯一确定硬币，显示候选集合（按掉落池概率降序）。可手工指定硬币。"
+  },
+  "manual": {
+    "autoOption": "自动",
+    "assign": "指定",
+    "resetAuto": "改回自动",
+    "boundTo": "已手工指定为 {{coin}}",
+    "selectAriaLabel": "为 {{name}} 指定硬币",
+    "confirmAriaLabel": "确认 {{name}} 的硬币指定",
+    "resetAriaLabel": "把 {{name}} 改回自动归因"
+  },
+  "confidence": {
+    "observed": "实证",
+    "inferred": "候选",
+    "manual": "手工",
+    "unknown": "未知",
+    "observedTooltip": "帧差分实证：本区间内恰有一枚硬币数量减少。",
+    "manualTooltip": "手工指定：由你在此页为该物品绑定的硬币。",
+    "inferredTooltip": "基于掉落表推断：以下硬币的掉落池可能产出该物品。",
+    "candidateTooltip": "{{coin}} · 池概率 {{pct}}",
+    "candidatesTitle": "候选硬币"
   },
   "history": {
     "title": "祈愿历史",
@@ -36,6 +67,7 @@
     "columnTime": "时间",
     "columnItem": "物品",
     "columnGrade": "品质",
+    "columnCoin": "硬币",
     "columnCount": "数量",
     "unknownItem": "—"
   },
@@ -47,6 +79,9 @@
     "IMMORTAL": "不朽",
     "ARCANA": "奥秘",
     "CELESTIAL": "天界",
+    "BEYOND": "超越",
+    "DIVINE": "神圣",
+    "COSMIC": "宇宙",
     "UNKNOWN": "未知"
   }
 }

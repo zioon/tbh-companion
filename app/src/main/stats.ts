@@ -41,8 +41,9 @@ const EMPTY_RECORD_LOG: RecordLogStats = {
 
 /**
  * Fallback for callers/tests that don't supply a wish tracker. Shape mirrors
- * `WishTracker.getStats` on an empty tracker: 8 grade buckets (COMMON →
- * UNKNOWN), no breakdown / history, rates 0 (never NaN).
+ * `WishTracker.getStats` on an empty tracker: 11 grade buckets (COMMON →
+ * CELESTIAL, BEYOND, DIVINE, COSMIC, UNKNOWN), no breakdown / history, rates 0
+ * (never NaN), and empty coin-attribution fields (Wish v2).
  */
 const EMPTY_WISH: WishStats = {
   offeringCountTotal: 0,
@@ -62,6 +63,9 @@ const EMPTY_WISH: WishStats = {
     { grade: "IMMORTAL", count: 0, share: 0 },
     { grade: "ARCANA", count: 0, share: 0 },
     { grade: "CELESTIAL", count: 0, share: 0 },
+    { grade: "BEYOND", count: 0, share: 0 },
+    { grade: "DIVINE", count: 0, share: 0 },
+    { grade: "COSMIC", count: 0, share: 0 },
     { grade: "UNKNOWN", count: 0, share: 0 },
   ],
   breakdown: [],
@@ -69,6 +73,9 @@ const EMPTY_WISH: WishStats = {
   lastWishWallTime: null,
   readerRequired: true,
   gameOfferingItemCount: null,
+  recentResults: [],
+  coinGroups: [],
+  unattributed: { items: [] },
 };
 
 function nowSeconds(): number {

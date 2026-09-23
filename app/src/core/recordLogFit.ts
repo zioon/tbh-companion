@@ -35,6 +35,7 @@
 // is the ingest moment, not the event moment, so any fit would be fiction.
 
 import type { ChestDropCategory, RecordLogSourceFit } from "../../shared/types";
+import { isWishLine } from "./wishLine";
 
 /** One acquire-ring line to fit (subset of RecordLogEntry). */
 export interface AcquireFitInput {
@@ -170,11 +171,19 @@ export function fitAcquireSources(
     .filter((a) => !a.bulk)
     .sort((a, b) => a.wallTime - b.wallTime || a.seq - b.seq);
 
-  // Hero notices are never fitted by ANY pass (not just pass 4): a death is
-  // not an open, a chest, or a clear reward. Excluding them here — before any
-  // pass runs — also guarantees the renderer's text-keyed "hero" bucket still
-  // sees them as unfitted (see RecordLog.tsx `deriveRow`).
-  const fittable = fitables.filter((a) => !isHeroNotice(a));
+  // Hero notices and offering-result lines are never fitted by ANY pass (not
+  // just pass 4). Neither is an open, a chest, or a clear reward:
+  //   - a hero death is not a grant at all (see isHeroNotice);
+  //   - an offering ("祈愿结果：获得 <item>") is its own event stream, and
+  //     because a wish lands close in time to a nearby stage clear, pass 4's
+  //     clear-by-nearest-time fallback would otherwise claim it and badge it
+  //     "通关" in the UI (the P0-5 defect).
+  // Excluding them here — before any pass runs — also guarantees the
+  // renderer's text-keyed buckets ("hero" / "wish") still see them as unfitted
+  // (see RecordLog.tsx `deriveRow`, whose `!fit` branch classifies by text).
+  // `isWishLine` covers all four client languages + the strict structural
+  // fallback, unlike a zh-only `/^祈愿结果/` prefix (S3 needs cross-language).
+  const fittable = fitables.filter((a) => !isHeroNotice(a) && !isWishLine(a.acquireRaw ?? ""));
 
   // Pass 0 — stage-clear lines by their own text. The game writes the clear
   // record into the same ring, so the prefix is authoritative; no bucket data

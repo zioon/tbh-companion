@@ -205,6 +205,14 @@ function buildWebApi(): TbhApi {
       return Promise.resolve(config);
     },
 
+    // --- Wish coin overrides: desktop-only feature (wish tracking needs live memory) ---
+    // The web build has no wish record at all, so these are inert: an empty list and
+    // a no-op subscription. `set` echoes the incoming value back so the optimistic
+    // update in `useWish()` settles rather than rejecting.
+    getWishCoinOverrides: () => Promise.resolve([]),
+    setWishCoinOverrides: (overrides) => Promise.resolve(overrides),
+    onWishCoinOverrides: () => () => {},
+
     // --- Catalog: bundled snapshot only, no refresh (that needs the game install) ---
     // The inventory table resolves names, grade colors and icons through
     // `useLookupCatalog()`, so answering with an empty array left every row

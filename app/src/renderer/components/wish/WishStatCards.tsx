@@ -3,12 +3,6 @@ import type { WishStats } from "../../../../shared/types";
 import { StatCard } from "../../design-system/primitives/StatCard/StatCard";
 import { fmtClock } from "../../lib/format";
 
-/** 每小时的速率显示（1 位小数，非有限值回落 0）。 */
-function fmtRate(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0.0";
-  return value.toFixed(1);
-}
-
 /** 平均值显示（1 位小数）。 */
 function fmtAvg(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0.0";
@@ -17,8 +11,8 @@ function fmtAvg(value: number): string {
 
 /**
  * 祈愿顶部指标卡组 —— 三个主卡：
- *  1. 祈愿次数（累计为主值，会话 + 速率作副信息）
- *  2. 产出物品数（累计为主值，会话 + 速率作副信息）
+ *  1. 祈愿次数（累计为主值，会话数作副信息）
+ *  2. 产出物品数（累计为主值，会话数作副信息）
  *  3. 最近祈愿（墙钟时刻）
  *
  * 口径说明：`itemsPerOffering` 由核心保证次数为 0 时返回 0（不 NaN）。
@@ -36,10 +30,6 @@ export function WishStatCards({ wish }: { wish: WishStats }) {
         detail={
           <>
             {t("cards.session")} {wish.offeringCountSession}
-            {" · "}
-            {t("cards.sessionRate")} {fmtRate(wish.offeringPerHour)}
-            {" · "}
-            {t("cards.recentRate")} {fmtRate(wish.offeringRecentPerHour)}
           </>
         }
       />
@@ -49,23 +39,13 @@ export function WishStatCards({ wish }: { wish: WishStats }) {
         detail={
           <>
             {t("cards.session")} {wish.itemCountSession}
-            {" · "}
-            {t("cards.sessionRate")} {fmtRate(wish.itemPerHour)}
-            {" · "}
-            {t("cards.recentRate")} {fmtRate(wish.itemRecentPerHour)}
           </>
         }
       />
       <StatCard
         label={t("cards.latest")}
         value={lastWish == null ? t("cards.never") : fmtClock(lastWish)}
-        detail={
-          <>
-            {t("cards.perOffering", { value: fmtAvg(wish.itemsPerOffering) })}
-            {" · "}
-            {t("cards.recentOfferingRate", { value: fmtRate(wish.offeringRecentPerHour) })}
-          </>
-        }
+        detail={<>{t("cards.perOffering", { value: fmtAvg(wish.itemsPerOffering) })}</>}
       />
     </div>
   );

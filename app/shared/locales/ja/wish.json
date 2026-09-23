@@ -1,7 +1,6 @@
 {
   "tabTitle": "祈願",
-  "intro": "祈願のたびに結果を自動記録し、品質とアイテム別に集計します。ゲームの獲得記録とリアルタイム同期します。",
-  "unavailable": "祈願トラッキング利用不可：ライブリーダー（live memory）を有効にしてゲーム内で祈願してください。結果はここに記録されます。",
+  "intro": "祈願のたびに結果を自動記録し、品質・アイテム・生贄コイン別に集計します。ゲームの獲得記録とリアルタイム同期します。",
   "noWishesYet": "このセッションではまだ祈願結果がありません。ライブリーダー動作中に祈願するとここに表示されます。",
   "resetSession": "セッションをリセット",
   "resetTitle": "セッション統計をリセット",
@@ -19,16 +18,48 @@
     "recentOfferingRate": "直近1時間 {{value}} 回/時",
     "never": "記録なし"
   },
-  "grades": {
-    "title": "品質分布",
-    "total": "合計 {{count}} 個",
-    "empty": "まだありません"
+  "heldCoins": {
+    "title": "所持している生贄コイン",
+    "empty": "バッグに生贄コインがありません。",
+    "quantity": "×{{count}}",
+    "unit": "{{count}} 枚"
   },
-  "ranking": {
-    "title": "アイテム別ランキング",
-    "empty": "まだありません",
+  "recent": {
+    "title": "最近の祈願結果",
+    "empty": "祈願結果がまだありません。",
+    "columnItem": "アイテム",
+    "columnCoin": "コイン",
+    "columnTime": "時刻",
     "countLabel": "×{{count}}",
-    "shareLabel": "{{value}}"
+    "columnCount": "個数"
+  },
+  "coinGroups": {
+    "title": "コイン別分類",
+    "empty": "帰属可能な祈願結果がありません。",
+    "subtitle": "{{offerings}} 回の祈願 · {{items}} 個",
+    "itemCount": "×{{count}}",
+    "unattributedTitle": "未帰属 / 候補",
+    "unattributedHint": "これらの結果はコインを一意に特定できません。候補コインを表示します（ドロッププール確率の降順）。手動でコインを指定できます。"
+  },
+  "manual": {
+    "autoOption": "自動",
+    "assign": "指定",
+    "resetAuto": "自動に戻す",
+    "boundTo": "{{coin}} に手動指定済み",
+    "selectAriaLabel": "{{name}} にコインを指定",
+    "confirmAriaLabel": "{{name}} のコイン指定を確定",
+    "resetAriaLabel": "{{name}} を自動帰属に戻す"
+  },
+  "confidence": {
+    "observed": "実測",
+    "inferred": "候補",
+    "manual": "手動",
+    "unknown": "不明",
+    "observedTooltip": "フレーム差分による実測：この区間でコインがちょうど 1 枚減少しました。",
+    "manualTooltip": "手動指定：このページでこのアイテムに紐付けたコインです。",
+    "inferredTooltip": "ドロップテーブルからの推測：以下のコインのドロッププールがこのアイテムを排出し得ます。",
+    "candidateTooltip": "{{coin}} · プール {{pct}}",
+    "candidatesTitle": "候補コイン"
   },
   "history": {
     "title": "祈願履歴",
@@ -36,6 +67,7 @@
     "columnTime": "時刻",
     "columnItem": "アイテム",
     "columnGrade": "品質",
+    "columnCoin": "コイン",
     "columnCount": "数量",
     "unknownItem": "—"
   },
@@ -47,6 +79,9 @@
     "IMMORTAL": "イモータル",
     "ARCANA": "アルカナ",
     "CELESTIAL": "セレスティアル",
+    "BEYOND": "ビヨンド",
+    "DIVINE": "ディヴァイン",
+    "COSMIC": "コズミック",
     "UNKNOWN": "不明"
   }
 }

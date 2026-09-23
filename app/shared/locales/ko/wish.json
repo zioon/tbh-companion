@@ -1,7 +1,6 @@
 {
   "tabTitle": "기원",
-  "intro": "기원할 때마다 결과를 자동 기록하고 등급 및 아이템별로 집계합니다. 게임 획득 기록과 실시간 동기화됩니다.",
-  "unavailable": "기원 추적을 사용할 수 없습니다: 라이브 리더(live memory)를 켜고 게임에서 기원하세요. 결과가 여기에 기록됩니다.",
+  "intro": "기원할 때마다 결과를 자동 기록하고 등급·아이템·제물 코인별로 집계합니다. 게임 획득 기록과 실시간 동기화됩니다.",
   "noWishesYet": "이 세션에서 아직 기원 결과가 없습니다. 라이브 리더 실행 중에 기원하면 여기에 표시됩니다.",
   "resetSession": "세션 초기화",
   "resetTitle": "세션 통계 초기화",
@@ -19,16 +18,48 @@
     "recentOfferingRate": "최근 1시간 {{value}} 회/시",
     "never": "기록 없음"
   },
-  "grades": {
-    "title": "등급 분포",
-    "total": "합계 {{count}} 개",
-    "empty": "아직 없음"
+  "heldCoins": {
+    "title": "보유 제물 코인",
+    "empty": "가방에 제물 코인이 없습니다.",
+    "quantity": "×{{count}}",
+    "unit": "{{count}} 개"
   },
-  "ranking": {
-    "title": "아이템 순위",
-    "empty": "아직 없음",
+  "recent": {
+    "title": "최근 기원 결과",
+    "empty": "아직 기원 결과가 없습니다.",
+    "columnItem": "아이템",
+    "columnCoin": "코인",
+    "columnTime": "시간",
     "countLabel": "×{{count}}",
-    "shareLabel": "{{value}}"
+    "columnCount": "수량"
+  },
+  "coinGroups": {
+    "title": "코인별 분류",
+    "empty": "귀속 가능한 기원 결과가 없습니다.",
+    "subtitle": "{{offerings}} 회 기원 · {{items}} 개",
+    "itemCount": "×{{count}}",
+    "unattributedTitle": "미귀속 / 후보",
+    "unattributedHint": "이 결과들은 코인을 하나로 특정할 수 없습니다. 후보 코인을 표시합니다(드롭 풀 확률 내림차순). 코인을 직접 지정할 수 있습니다."
+  },
+  "manual": {
+    "autoOption": "자동",
+    "assign": "지정",
+    "resetAuto": "자동으로 되돌리기",
+    "boundTo": "{{coin}} (으)로 직접 지정됨",
+    "selectAriaLabel": "{{name}} 에 코인 지정",
+    "confirmAriaLabel": "{{name}} 의 코인 지정 확정",
+    "resetAriaLabel": "{{name}} 을(를) 자동 귀속으로 되돌리기"
+  },
+  "confidence": {
+    "observed": "실측",
+    "inferred": "후보",
+    "manual": "수동",
+    "unknown": "알 수 없음",
+    "observedTooltip": "프레임 차분 실측: 이 구간에서 코인이 정확히 1개 감소했습니다.",
+    "manualTooltip": "수동 지정: 이 페이지에서 이 아이템에 연결한 코인입니다.",
+    "inferredTooltip": "드롭 테이블 추론: 다음 코인의 드롭 풀이 이 아이템을 산출할 수 있습니다.",
+    "candidateTooltip": "{{coin}} · 풀 {{pct}}",
+    "candidatesTitle": "후보 코인"
   },
   "history": {
     "title": "기원 기록",
@@ -36,6 +67,7 @@
     "columnTime": "시간",
     "columnItem": "아이템",
     "columnGrade": "등급",
+    "columnCoin": "코인",
     "columnCount": "수량",
     "unknownItem": "—"
   },
@@ -47,6 +79,9 @@
     "IMMORTAL": "불멸",
     "ARCANA": "아르카나",
     "CELESTIAL": "천상",
+    "BEYOND": "비욘드",
+    "DIVINE": "신성",
+    "COSMIC": "코스믹",
     "UNKNOWN": "알 수 없음"
   }
 }

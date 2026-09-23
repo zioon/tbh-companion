@@ -36,4 +36,5 @@ export const WEB_DEFAULT_CONFIG: AppConfig = {
   marketHistoryBatchSize: 10,
   marketHistoryBatchDelaySec: 120,
   marketHistoryCoverageThreshold: 0.95,
+  wishCoinOverrides: [],
 };

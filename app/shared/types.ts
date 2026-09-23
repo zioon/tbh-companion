@@ -189,6 +189,9 @@ export type WishGrade =
   | "IMMORTAL"
   | "ARCANA"
   | "CELESTIAL"
+  | "BEYOND"
+  | "DIVINE"
+  | "COSMIC"
   | "UNKNOWN";
 
 /** 品质分布的一行（件数 + 占比，分母为产出物品总数）。 */
@@ -212,6 +215,123 @@ export interface WishBreakdownRow {
   grade: WishGrade;
 }
 
+// --- 硬币归因（P0-3/P0-4；见 docs/prd/2026-09-23-wish-v2-design.md §4.2）---
+
+/**
+ * 硬币归因置信度。
+ *  - `observed`：帧差分实证 —— 祈愿事件采样区间内恰有 1 枚硬币 materialStacks 净减少；
+ *  - `inferred`：候选兜底 —— 由 offerings loot 表反查得到候选集合（多对多，不猜唯一）；
+ *  - `manual`：**用户手工指定** —— 用户在祈愿页把某物品绑定到某枚硬币（最高优先，
+ *    覆盖自动归因结果）。带 `manual` 的归因可在 UI 上一键改回自动；
+ *  - `unknown`：皆不可用（lookup miss 且差分不可靠）—— **绝不虚构 coinKey**（I7）。
+ *
+ * 优先级：`manual` > `observed` > `inferred` > `unknown`。
+ */
+export type CoinAttributionConfidence = "observed" | "inferred" | "manual" | "unknown";
+
+/**
+ * 用户手工建立的「物品名 → 硬币」绑定（持久化进 `config.json`）。
+ *
+ * 用途：自动归因（差分 + 候选）无法覆盖的物品，由用户手工指定归属硬币。
+ * 键为**去标签纯物品名**（与 `WishHistoryEntry.name` / `WishBreakdownRow.name`
+ * 同口径），值为硬币 itemKey（160001–160010）。
+ */
+export interface WishCoinOverride {
+  /** 去标签纯物品名（聚合键，与 history/breakdown 同口径）。 */
+  itemName: string;
+  /** 用户指定的硬币 itemKey。 */
+  coinKey: number;
+  /** 建立时刻（epoch 秒），仅供排序 / 展示。 */
+  createdAt: number;
+}
+
+/** `WishCoinOverride[]` 的持久化容器（按物品名唯一）。 */
+export type WishCoinOverrides = WishCoinOverride[];
+
+/** 一枚候选硬币（inferred 时使用）。 */
+export interface WishCoinCandidate {
+  /** 硬币 itemKey（160001–160010）。 */
+  coinKey: number;
+  /** 该硬币掉落表内此物品的池概率（来自 offerings.json）。 */
+  poolPct: number;
+  /** P1-2 预留：当前背包是否持有（缺省时未知）。 */
+  held?: boolean;
+}
+
+/** 一条祈愿结果的硬币归因。 */
+export interface WishCoinAttribution {
+  confidence: CoinAttributionConfidence;
+  /** `observed` / `manual` 时为唯一硬币；`inferred` / `unknown` 时恒为 null。 */
+  coinKey: number | null;
+  /** inferred 时按 poolPct 降序；observed/manual/unknown 时为空数组。 */
+  candidates: WishCoinCandidate[];
+  /**
+   * 归因依据（**诊断字符串，非展示字段**）：如 `"diff:160001"` / `"loot:3cand"`
+   * / `"manual"` / `"bulk-skip"` / `"no-frame"` / `"multi-coin"` / `"out-of-window"`。
+   */
+  basis?: string;
+}
+
+/** 「最近祈愿结果」条目（物品 / 硬币 / 时间三要素）。 */
+export interface WishRecentResult {
+  /** companion 收到该行的墙钟时刻（epoch 秒）。 */
+  wallTime: number;
+  /** 游戏内时间串（原始，仅供参考）。 */
+  gameTime?: string;
+  /** 去标签纯物品名。 */
+  name: string;
+  /** 该行的品质（11 桶）。 */
+  grade: WishGrade;
+  /** 该行的件数（>=1）。 */
+  count: number;
+  /** 硬币归因（物品 / 硬币 / 时间三要素之「硬币」）。 */
+  coin: WishCoinAttribution;
+}
+
+/** 单个硬币分区内的一条产出物品。 */
+export interface WishCoinGroupItem {
+  name: string;
+  /** 该物品被此硬币产出的件数。 */
+  count: number;
+  grade: WishGrade;
+  /** 仅未归因分区需要（observed 分区可省）：携带候选供 UI 展示。 */
+  coin?: WishCoinAttribution;
+}
+/** 一个硬币分区（对标 LootBoxSection 的 per-box 分区）。 */
+export interface WishCoinGroup {
+  /** 分区键：硬币 itemKey（160001–160010）。 */
+  coinKey: number;
+  /** 硬币显示名（来自 lookup）。 */
+  coinName: string;
+  /** 硬币自身品质。 */
+  grade: WishGrade;
+  /** 该硬币发起的祈愿次数（结果行数）。 */
+  offeringCount: number;
+  /** 该硬币产出的物品总件数。 */
+  itemCount: number;
+  /** 区内物品排行（件数降序）。 */
+  items: WishCoinGroupItem[];
+}
+
+/** 未能归因到具体硬币的分区（候选 / 未知），独立成组。 */
+export interface WishUnattributedGroup {
+  items: WishCoinGroupItem[];
+}
+
+/**
+ * 背包/仓库中持有的献祭硬币（renderer 侧本地派生，**不下发进 WishStats**）。
+ * 数据源：`ResolvedInventory.rows` join `lookup_items.json`（materialType="OFFERING"）。
+ */
+export interface WishHeldCoin {
+  coinKey: number;
+  name: string;
+  grade: WishGrade;
+  /** 背包 + 仓库槽位 Quantity 求和。 */
+  quantity: number;
+  /** `item-<id>`。 */
+  iconPath: string;
+}
+
 /** 一条祈愿产出历史记录（一次祈愿事件 = 一行，可能包含多件同名物品）。 */
 export interface WishHistoryEntry {
   /** companion 收到该行的墙钟时刻（epoch 秒）。 */
@@ -228,6 +348,11 @@ export interface WishHistoryEntry {
   raw: string;
   /** 是否为 initial 批量回灌行（会话存量重投，wallTime 非事件时刻）。 */
   bulk?: boolean;
+  /**
+   * 硬币归因（optional，缺省 = 无归因）。随 `feed()` 一次性算出并冻结，
+   * 随 `WishTrackerSnapshot.history` 自动持久化（旧档缺该字段 → 无归因，不崩）。
+   */
+  coin?: WishCoinAttribution;
 }
 
 /** 祈愿统计输出（Stats.wish）。口径严格遵循 PRD §5。 */
@@ -267,7 +392,30 @@ export interface WishStats {
   readerRequired: boolean;
   /** P1-3：游戏侧 Satistics_TotalOfferingCount，未接入时为 null。 */
   gameOfferingItemCount: number | null;
+
+  // —— 硬币归因（Wish v2；均自 `history` 派生）——
+  /**
+   * 最近祈愿结果（倒序，最新在前，上限 `WISH_RECENT_VISIBLE=20`）。
+   * 由 `history` 派生；重启后自动重算，**不持久化**。
+   */
+  recentResults: WishRecentResult[];
+  /** 按硬币分组分区（累计口径，按 coinKey 升序）。 */
+  coinGroups: WishCoinGroup[];
+  /** 未归因 / 候选分区（非 observed 的条目）。 */
+  unattributed: WishUnattributedGroup;
 }
+
+// --- 硬币（献祭）闭集常量 ---
+
+/**
+ * 十枚献祭硬币的 itemKey 闭集（160001–160010），品质阶梯一一对应：
+ * 160001 COMMON / …002 UNCOMMON / …003 RARE / …004 LEGENDARY / …005 IMMORTAL /
+ * …006 ARCANA / …007 BEYOND / …008 CELESTIAL / …009 DIVINE / …010 COSMIC。
+ * 权威来源 `data/lookup_items.json`（`materialType:"OFFERING"`）；此处为判别键闭集。
+ */
+export const WISH_COIN_KEYS: readonly number[] = [
+  160001, 160002, 160003, 160004, 160005, 160006, 160007, 160008, 160009, 160010,
+];
 
 /** 序列化到 session_state.json / wish_record.json 的快照。 */
 export interface WishTrackerSnapshot {
@@ -1519,6 +1667,12 @@ export interface AppConfig {
    * picked up across the day so every target still gets refreshed once per day.
    */
   marketHistoryCoverageThreshold: number;
+  /**
+   * 用户手工建立的「物品名 → 硬币」绑定（祈愿页手工分类）。默认空数组。
+   * 优先级高于自动归因（`manual` > `observed` > `inferred` > `unknown`）；
+   * 键为去标签纯物品名，值为硬币 itemKey（160001–160010）。
+   */
+  wishCoinOverrides: WishCoinOverrides;
 }
 
 /** Scoped targets for Settings → Data & cache clear actions. */
@@ -2417,6 +2571,9 @@ export interface TbhApi {
   getLookupSources(): Promise<LookupSources>;
   getLookupSynthesisModel(): Promise<SynthesisModel>;
   getOfferings(): Promise<OfferingsModel>;
+  getWishCoinOverrides(): Promise<WishCoinOverrides>;
+  setWishCoinOverrides(overrides: WishCoinOverrides): Promise<WishCoinOverrides>;
+  onWishCoinOverrides(cb: (overrides: WishCoinOverrides) => void): () => void;
   getLookupPrices(): Promise<LookupPriceSnapshot | null>;
   onLookupPrices(cb: (snapshot: LookupPriceSnapshot | null) => void): () => void;
   getLookupPricePollStatus(): Promise<LookupPricePollingStatus | null>;

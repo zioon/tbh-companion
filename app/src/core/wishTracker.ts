@@ -16,13 +16,30 @@
 
 import type {
   WishBreakdownRow,
+  WishCoinAttribution,
+  WishCoinGroup,
   WishGrade,
   WishGradeRow,
   WishHistoryEntry,
+  WishRecentResult,
   WishStats,
   WishTrackerSnapshot,
+  WishUnattributedGroup,
 } from "../../shared/types";
 import type { WishLineItem } from "./wishLine";
+import { WISH_RECENT_VISIBLE } from "./wish/constants";
+import { coinGroupsFromHistory, type CoinMetaResolver } from "./wish/coinGroups";
+import type { OfferingsModel } from "./lookup/types";
+
+/** 归因依赖（由 main 注入，core 不自取数据）。 */
+export interface WishLookupDeps {
+  /** 去标签物品名 → itemKey（`nameIndex` 建好）。 */
+  nameToItemKey?: (name: string) => number | undefined;
+  /** offerings 模型（目录未就绪时为 null）。 */
+  offerings?: OfferingsModel | null;
+  /** coinKey → { name, grade } 解析器（renderer/main 提供；缺省降级）。 */
+  coinMeta?: CoinMetaResolver;
+}
 
 /** 会话 per-hour 分母下限（秒），与掉落同值（PRD §5.3.2）。 */
 const MIN_RATE_WINDOW_SEC = 60;
@@ -35,7 +52,11 @@ const HISTORY_LIMIT = 500;
 /** 历史可见窗口。 */
 const HISTORY_VISIBLE = 50;
 
-/** 品质桶的固定顺序（用于确定性输出）。 */
+/**
+ * 品质桶的固定顺序（用于确定性输出）。11 桶：`COMMON…CELESTIAL` 之后插入
+ * `BEYOND / DIVINE / COSMIC`，`UNKNOWN` 恒置末尾（Wish v2 P0-9）。
+ * 与 renderer `lib/useWish.ts` 的同名常量**两处同步**。
+ */
 const GRADE_ORDER: readonly WishGrade[] = [
   "COMMON",
   "UNCOMMON",
@@ -44,6 +65,9 @@ const GRADE_ORDER: readonly WishGrade[] = [
   "IMMORTAL",
   "ARCANA",
   "CELESTIAL",
+  "BEYOND",
+  "DIVINE",
+  "COSMIC",
   "UNKNOWN",
 ];
 
@@ -51,7 +75,7 @@ function nowSeconds(): number {
   return Date.now() / 1000;
 }
 
-/** 空的 8 桶品质计数。 */
+/** 空的 11 桶品质计数（`BEYOND / DIVINE / COSMIC` 新增，`UNKNOWN` 恒置末尾）。 */
 function emptyGradeCounts(): Record<WishGrade, number> {
   return {
     COMMON: 0,
@@ -61,6 +85,9 @@ function emptyGradeCounts(): Record<WishGrade, number> {
     IMMORTAL: 0,
     ARCANA: 0,
     CELESTIAL: 0,
+    BEYOND: 0,
+    DIVINE: 0,
+    COSMIC: 0,
     UNKNOWN: 0,
   };
 }
@@ -124,8 +151,31 @@ export class WishTracker {
   /** 最近一次祈愿墙钟时刻。 */
   private lastWishWallTime: number | null = null;
 
+  // —— 硬币归因依赖（由 main 注入，见 setLookupDeps）——
+  private nameToItemKey: ((name: string) => number | undefined) | undefined;
+  private offerings: OfferingsModel | null = null;
+  private coinMeta: CoinMetaResolver | null = null;
+
   constructor() {
     this.trackingStartedAt = nowSeconds();
+  }
+
+  /**
+   * 注入归因依赖（main 在初始化 / 目录刷新时调用）。
+   * core **不 import 数据文件**（I9）；名称索引与 offerings 模型由调用方提供。
+   */
+  setLookupDeps(deps: WishLookupDeps): void {
+    if (deps.nameToItemKey !== undefined) this.nameToItemKey = deps.nameToItemKey;
+    if (deps.offerings !== undefined) this.offerings = deps.offerings;
+    if (deps.coinMeta !== undefined) this.coinMeta = deps.coinMeta;
+  }
+
+  /** 当前归因依赖快照（供 main 组装 `inferCoinCandidates` 的 deps）。 */
+  getLookupDeps(): {
+    nameToItemKey: ((name: string) => number | undefined) | undefined;
+    offerings: OfferingsModel | null;
+  } {
+    return { nameToItemKey: this.nameToItemKey, offerings: this.offerings };
   }
 
   /** 当前会话纪元（见 {@link sessionEpoch}）。 */
@@ -135,15 +185,18 @@ export class WishTracker {
 
   /**
    * 摄入一条祈愿产出。
-   * @param item   parseWishLine 的结果（名称 / 颜色 / 件数 / 品质）。
-   * @param wallTime companion 收到该行的墙钟秒（非游戏内时间）。
-   * @param opts   { gameTime?: string; raw: string; bulk?: boolean }
+   * @param item        parseWishLine 的结果（名称 / 颜色 / 件数 / 品质）。
+   * @param wallTime    companion 收到该行的墙钟秒（非游戏内时间）。
+   * @param opts        { gameTime?: string; raw: string; bulk?: boolean }
+   * @param attribution 【可选】硬币归因（缺省 → 无归因，`entry.coin = undefined`）。
+   *                    新增可选第 4 参，**不破坏既有 3 参调用**（零编译错误 / 零行为改变）。
    * @returns true = 已计入。
    */
   feed(
     item: WishLineItem,
     wallTime: number,
     opts: { gameTime?: string; raw: string; bulk?: boolean },
+    attribution?: WishCoinAttribution,
   ): boolean {
     const name = (item.name ?? "").trim();
     if (!name) return false;
@@ -178,6 +231,7 @@ export class WishTracker {
       raw: opts.raw,
     };
     if (bulk) entry.bulk = true;
+    if (attribution) entry.coin = attribution;
     this.history.push(entry);
     if (this.history.length > HISTORY_LIMIT) {
       this.history.shift();
@@ -291,6 +345,26 @@ export class WishTracker {
     }
     const history = this.historyCache;
 
+    // —— 最近祈愿结果（历史倒序前 WISH_RECENT_VISIBLE 条）——
+    // history 已是「最新在前」的切片；取前 N 条即最近 N 条。
+    const recentResults: WishRecentResult[] = history.slice(0, WISH_RECENT_VISIBLE).map((e) => ({
+      wallTime: e.wallTime,
+      gameTime: e.gameTime,
+      name: e.name,
+      grade: e.grade,
+      count: e.count,
+      coin: e.coin ?? { confidence: "unknown", coinKey: null, candidates: [] },
+    }));
+
+    // —— 按硬币分组（累计口径，从全量 history 派生；非缓存量、量小）——
+    const {
+      coinGroups,
+      unattributed,
+    }: { coinGroups: WishCoinGroup[]; unattributed: WishUnattributedGroup } = coinGroupsFromHistory(
+      this.history,
+      (coinKey) => this.coinMeta?.(coinKey),
+    );
+
     return {
       offeringCountTotal: offeringTotal,
       itemCountTotal: itemTotal,
@@ -308,6 +382,9 @@ export class WishTracker {
       readerRequired: true,
       // P1-3：游戏侧 Satistics_TotalOfferingCount 未接入 → null。
       gameOfferingItemCount: null,
+      recentResults,
+      coinGroups,
+      unattributed,
     };
   }
 

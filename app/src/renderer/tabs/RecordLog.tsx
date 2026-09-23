@@ -9,6 +9,7 @@ import { reportIpcError } from "../lib/reportError";
 import { useLookupCatalog } from "../lib/useLookupCatalog";
 import { gradeColor } from "../lib/gradeColor";
 import { gradeLabel } from "../lib/itemLabels";
+import { isWishLine } from "../../core/wishLine";
 import type { RecordLogEntry, RecordLogPage, RecordLogSourceFit } from "../../../shared/types";
 
 /**
@@ -122,11 +123,12 @@ const SYNTH_COLOR = "#8b93a7";
 
 /**
  * Unfitted-line text rules (renderer-side; only for the category filter).
- * 祈愿/制作 results and 品级 synthesis each have their own template; the
- * reforge family (装饰/雕刻/铭文/铭刻/移除) is matched by keyword — real
- * archive samples cover the 铭文/移除 templates, 装饰/雕刻 stay prospective.
+ * 祈愿结果用 core 的 {@link isWishLine} 判定（多语言前缀白名单 + 排除表 +
+ * 结构兜底，Wish v2 起与 main 侧识别同源）；制作 results and 品级 synthesis
+ * each have their own template; the reforge family (装饰/雕刻/铭文/铭刻/移除) is
+ * matched by keyword — real archive samples cover the 铭文/移除 templates,
+ * 装饰/雕刻 stay prospective.
  */
-const WISH_RE = /^祈愿结果/;
 const CRAFT_RE = /^制作结果/;
 const REFORGE_RE = /装饰|雕刻|铭文|铭刻|移除/;
 const SYNTH_RE = /消耗.*获得/;
@@ -244,7 +246,7 @@ function deriveRow(
     // 祈愿 / 制作 = 各自的结果前缀；改造 = 装饰/雕刻/铭文/铭刻/移除 关键词；
     // 合成 = 消耗…获得（品级升移）；英雄 = 被击败 / 阵亡 / 升级 等。
     const raw = e.acquireRaw ?? "";
-    if (WISH_RE.test(raw)) cat = "wish";
+    if (isWishLine(raw)) cat = "wish";
     else if (CRAFT_RE.test(raw)) cat = "craft";
     else if (REFORGE_RE.test(raw)) cat = "reforge";
     else if (SYNTH_RE.test(raw)) cat = "synth";

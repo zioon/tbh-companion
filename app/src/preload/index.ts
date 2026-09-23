@@ -29,6 +29,7 @@ import type {
   ImportMarketVolumeResult,
   OfferingsModel,
   SynthesisModel,
+  WishCoinOverrides,
   NotificationSoundPayload,
   PetState,
   PollingCycleResult,
@@ -216,6 +217,17 @@ const api: TbhApi = {
   },
   getOfferings(): Promise<OfferingsModel> {
     return ipcRenderer.invoke(IPC.GET_OFFERINGS);
+  },
+  getWishCoinOverrides(): Promise<WishCoinOverrides> {
+    return ipcRenderer.invoke(IPC.GET_WISH_COIN_OVERRIDES);
+  },
+  setWishCoinOverrides(overrides: WishCoinOverrides): Promise<WishCoinOverrides> {
+    return ipcRenderer.invoke(IPC.SET_WISH_COIN_OVERRIDES, overrides);
+  },
+  onWishCoinOverrides(cb: (overrides: WishCoinOverrides) => void): () => void {
+    const listener = (_e: unknown, overrides: WishCoinOverrides): void => cb(overrides);
+    ipcRenderer.on(IPC.WISH_COIN_OVERRIDES, listener);
+    return () => ipcRenderer.removeListener(IPC.WISH_COIN_OVERRIDES, listener);
   },
   getLookupPrices(): Promise<LookupPriceSnapshot | null> {
     return ipcRenderer.invoke(IPC.GET_LOOKUP_PRICES);

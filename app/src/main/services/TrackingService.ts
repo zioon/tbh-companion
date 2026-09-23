@@ -31,9 +31,18 @@ import { resolveClearedStageKey } from "../../core/stages";
 import { DpsTracker } from "../../core/liveMemory/dpsTracker";
 import { StageRunFailDetector } from "../../core/stageRunFailDetector";
 import { RecordLogTracker } from "../../core/recordLogTracker";
-import { WishTracker } from "../../core/wishTracker";
+import { WishTracker, type WishLookupDeps } from "../../core/wishTracker";
 import { parseWishLine } from "../../core/wishLine";
 import { fitAcquireSources, FIT_WINDOW_SEC, type ClearFitEvent } from "../../core/recordLogFit";
+import { WishCoinDiffWindow } from "../../core/wish/coinDiffWindow";
+import { attributeCoinByDiff } from "../../core/wish/coinDiff";
+import { inferCoinCandidates } from "../../core/wish/coinCandidates";
+import {
+  WISH_COIN_KEYS,
+  WISH_DIFF_TOLERANCE_FACTOR,
+  WISH_COIN_GRADE_FALLBACK,
+} from "../../core/wish/constants";
+import { buildNameIndex } from "../../core/lookup/nameIndex";
 import {
   backfillOpensFromLog,
   toBackfillTrackerEntry,
@@ -50,10 +59,13 @@ import type {
   LiveMemorySnapshot,
   LookupItem,
   LookupPriceSnapshot,
+  OfferingsModel,
   RecordLogPage,
   ResolvedInventory,
   ResolvedInventoryRow,
   SaveSnapshot,
+  WishCoinAttribution,
+  WishGrade,
 } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
 import { broadcast } from "./broadcast";
@@ -133,6 +145,19 @@ export class TrackingService {
    * 双计数（offeringCount / itemCount）与 bulk 护栏见 `core/wishTracker.ts`。
    */
   private wishTracker!: WishTracker;
+  /**
+   * 祈愿硬币归因的帧差窗（Wish v2，见 `core/wish/coinDiffWindow.ts`）。保存轮询
+   * 解析出 `materialStacks` 后，把 10 枚 OFFERING 硬币的堆叠值 push 进来（`at` 取
+   * `saveMtime`）。识别到祈愿行时用 `bracket(wallTime)` 取相邻两帧，交给
+   * `attributeCoinByDiff` 判定"observed"归因。**随会话重置清空**（4 处 reset 同步）。
+   */
+  private wishDiffWindow = new WishCoinDiffWindow();
+  /**
+   * 祈愿归因的查表依赖（名称索引 / offerings 模型 / 硬币元数据）。由 `start()` 与
+   * 目录刷新（`setLookupCatalog`）注入到 `wishTracker.setLookupDeps()`。未注入时
+   * 归因退化为 unknown（不伪造 coinKey，见不变量 I7）。
+   */
+  private wishLookupDeps: WishLookupDeps | null = null;
   private chestAggregator!: LiveChestDropAggregator;
   private boxOpenTracker!: BoxOpenTracker;
   private dpsTracker!: DpsTracker;
@@ -338,6 +363,12 @@ export class TrackingService {
       onDrop: (e) => this.autoClassify?.handleChestDrop(e),
     });
     this.wishTracker = new WishTracker();
+    // Wish v2：把查表依赖注入 wishTracker（名称索引 / offerings / 硬币元数据）。
+    // 目录可能尚未就绪（lookupItems 为空）—— 此时 nameToItemKey 覆盖空表也算注入，
+    // offerings 传 null，归因自然退化为 unknown（不伪造 coinKey，I7）。目录刷新时
+    // `setLookupCatalog` 会重新注入覆盖。
+    this.wishLookupDeps = this.buildWishLookupDeps();
+    this.wishTracker.setLookupDeps(this.wishLookupDeps);
     // 长期归档（P1-1）：构造时 load() 一次，把 `wish_record.json` 的累计 / 历史
     // 灌入 wishTracker（在喂入任何新行之前），随后由 ingest 路径防抖落盘。
     // 复用既有实例（若存在），避免每次 start() 重复 load 覆盖实时数据。
@@ -513,6 +544,8 @@ export class TrackingService {
     this.tracker.reset();
     this.chestDropTracker.reset();
     this.wishTracker.reset();
+    // Wish v2：会话重置同步清空帧差窗（W7 定稿）—— 旧帧不得跨会话参与归因。
+    this.wishDiffWindow.reset();
     this.chestAggregator.reset();
     this.dpsTracker.reset();
     this.stageEventBaseline = null;
@@ -547,6 +580,8 @@ export class TrackingService {
     this.tracker.reset();
     this.chestDropTracker.reset();
     this.wishTracker.reset();
+    // Wish v2：会话重置同步清空帧差窗（W7 定稿）—— 旧帧不得跨会话参与归因。
+    this.wishDiffWindow.reset();
     this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
@@ -620,9 +655,51 @@ export class TrackingService {
     this.lookupItems = byId;
     this.materialPointsOverride = null;
     this.rebuildVariantIndex();
+    // Wish v2：目录刷新后重算归因依赖（名称索引改用新目录），并覆盖注入。
+    this.refreshWishLookupDeps();
     // If a restore happened before the lookup catalog loaded, re-resolve so
     // the (baseId, grade) → variantId remap now uses lookup-sourced ids.
     this.runReResolveNames();
+  }
+
+  /**
+   * 组装祈愿归因依赖（Wish v2）：名称索引 + offerings 模型 + 硬币元数据解析。
+   *
+   * `coinMeta` 的**权威来源**是 lookup 目录（`LookupItem.grade`，W6 定稿）；目录
+   * 未命中时退回 `WISH_COIN_GRADE_FALLBACK` 阶梯，保证 UI 不因缺 catalog 丢品质。
+   * offerings 模型通过 `loadOfferings()` 一次性载入（bundled JSON，无网络/IO 副作用）；
+   * 载入失败（数据缺失）时降级为 null，归因自然退化为 unknown（I7）。
+   */
+  private buildWishLookupDeps(): WishLookupDeps {
+    const nameIndex = this.lookupItems
+      ? buildNameIndex([...this.lookupItems.values()])
+      : new Map<string, number>();
+    let offerings: OfferingsModel | null;
+    try {
+      offerings = loadOfferings();
+    } catch (err) {
+      log.warn(`wish: loadOfferings 失败，求愿归因降级为 unknown：${String(err)}`);
+      offerings = null;
+    }
+    const itemsById = this.lookupItems;
+    const coinMeta = (coinKey: number): { name: string; grade: WishGrade } | undefined => {
+      const item = itemsById?.get(coinKey);
+      const grade = (item?.grade ?? WISH_COIN_GRADE_FALLBACK[coinKey]) as WishGrade | undefined;
+      if (grade === undefined) return undefined;
+      const name = item?.name ?? item?.sourceName ?? `#${coinKey}`;
+      return { name, grade };
+    };
+    return {
+      nameToItemKey: (name: string) => nameIndex.get(name),
+      offerings,
+      coinMeta,
+    };
+  }
+
+  /** 重新计算归因依赖并覆盖注入到 `wishTracker`（start / 目录刷新时调用）。 */
+  private refreshWishLookupDeps(): void {
+    this.wishLookupDeps = this.buildWishLookupDeps();
+    this.wishTracker?.setLookupDeps(this.wishLookupDeps);
   }
 
   /**
@@ -984,12 +1061,23 @@ export class TrackingService {
       // `core/wishTracker.ts`（双计数 offering/item + bulk 护栏）。
       const wishItem = parseWishLine(a.message);
       if (wishItem) {
-        this.wishTracker.feed(wishItem, ts, {
-          raw,
-          gameTime: a.time,
-          // initial 批量回灌 → bulk（计入累计/会话/历史，但不进滚动窗）。
-          bulk: initial,
-        });
+        // 硬币归因（Wish v2）：先做帧级差分（observed），非 observed 再走候选兜底
+        // （inferred），两者皆 miss → unknown（绝不伪造 coinKey，I7）。
+        //  - bulk 行（initial 回灌）wallTime 非事件时刻 → 差分层直接 bulk-skip；
+        //  - 差分容差由 `config.pollIntervalSeconds` 动态算出（W4）：1.5 × 轮询秒数；
+        //  - 候选兜底复用注入的名称索引 + offerings 模型（未注入 → unknown）。
+        const attribution = this.attributeWishCoin(wishItem.name, ts, initial);
+        this.wishTracker.feed(
+          wishItem,
+          ts,
+          {
+            raw,
+            gameTime: a.time,
+            // initial 批量回灌 → bulk（计入累计/会话/历史，但不进滚动窗）。
+            bulk: initial,
+          },
+          attribution,
+        );
         wishCount += 1;
       }
       dirty = true;
@@ -1019,6 +1107,44 @@ export class TrackingService {
         this.pushStats();
       }
     }
+  }
+
+  /**
+   * 计算一条祈愿行的硬币归因（Wish v2）。
+   *
+   * 分层：帧级差分（观察到的净减少，唯一 + 时间窗双满足）→ `observed`；
+   * 否则候选兜底（物品名 → offerings 反查）→ `inferred`；再否则 `unknown`。
+   *
+   * @param name     祈愿物品名（parseWishLine 结果，用于候选反查）。
+   * @param wallTime 该行的墙钟秒（差分时间窗判定锚点）。
+   * @param bulk     是否 initial 回灌行（bulk 跳过差分，I4）。
+   */
+  private attributeWishCoin(name: string, wallTime: number, bulk: boolean): WishCoinAttribution {
+    // 差分容差动态随轮询间隔放大（W4）：`toleranceSec = 1.5 × pollIntervalSeconds`。
+    // pollIntervalSeconds 缺省 5（config 默认），据此得 7.5s。
+    const pollSec = Math.max(1, this.config?.pollIntervalSeconds ?? 5);
+    const toleranceSec = WISH_DIFF_TOLERANCE_FACTOR * pollSec;
+
+    const bracket = this.wishDiffWindow.bracket(wallTime);
+    const observed = attributeCoinByDiff(bracket.before, bracket.after, {
+      wallTime,
+      bulk,
+      beforeAt: bracket.beforeAt,
+      afterAt: bracket.afterAt,
+      toleranceSec,
+    });
+    if (observed.confidence === "observed") return observed;
+
+    // 候选兜底：复用注入的名称索引 + offerings 模型。未注入 → unknown。
+    const deps = this.wishLookupDeps;
+    if (!deps?.nameToItemKey) return observed;
+    const inferred = inferCoinCandidates(name, {
+      nameToItemKey: deps.nameToItemKey,
+      offerings: deps.offerings ?? null,
+    });
+    // 候选命中优于纯 unknown（保留 observed 的 basis 更诚实？不——候选无差分证据，
+    // 用候选结果的 basis 更准确）。仅当候选真的命中时替换。
+    return inferred.confidence === "inferred" ? inferred : observed;
   }
 
   private resolveBoxOpenEntry(entry: BoxOpenEntry): {
@@ -1323,6 +1449,8 @@ export class TrackingService {
     this.tracker.reset();
     this.chestDropTracker.reset();
     this.wishTracker.reset();
+    // Wish v2：会话重置同步清空帧差窗（W7 定稿）—— 旧帧不得跨会话参与归因。
+    this.wishDiffWindow.reset();
     this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
@@ -1350,6 +1478,8 @@ export class TrackingService {
     this.tracker.reset();
     this.chestDropTracker.reset();
     this.wishTracker.reset();
+    // Wish v2：会话重置同步清空帧差窗（W7 定稿）—— 旧帧不得跨会话参与归因。
+    this.wishDiffWindow.reset();
     this.chestAggregator.reset();
     this.boxOpenTracker.resetAll();
     this.dpsTracker.reset();
@@ -1811,8 +1941,32 @@ export class TrackingService {
         }
         this.pushStats();
       },
-      onInventory: this.onInventory,
+      onInventory: (snap) => {
+        // Wish v2 帧差喂入：从 materialStacks 抽出 10 枚 OFFERING 硬币的堆叠值，
+        // 以 `saveMtime`（秒）为锚点 push 进帧差窗。识别到祈愿行时用相邻两帧判定
+        // 硬币归因（`attributeCoinByDiff`）。materialStacks 可能未解码（旧存档 /
+        // 解密失败）—— 此时跳过一次喂帧，不影响主流程。
+        this.feedWishDiffFrame(snap);
+        this.onInventory(snap);
+      },
       parseInventorySnapshot: this.parseInventorySnapshot,
     });
+  }
+
+  /**
+   * 把一条 inventory 帧的硬币堆叠值喂入帧差窗（Wish v2）。
+   *
+   * `InventorySnapshot.materialStacks` 为 `Map<number, number>` —— 缺失（未解码）
+   * 时直接跳过，不 push 空帧（避免用 {0,0,…} 污染差分）。只取闭集
+   * {@link WISH_COIN_KEYS} 的 10 枚硬币；未出现的硬币记为 0。
+   */
+  private feedWishDiffFrame(snap: InventorySnapshot): void {
+    const stacks = snap.materialStacks;
+    if (!stacks) return;
+    const coins = new Map<number, number>();
+    for (const coinKey of WISH_COIN_KEYS) {
+      coins.set(coinKey, stacks.get(coinKey) ?? 0);
+    }
+    this.wishDiffWindow.push({ at: snap.saveMtime, stacks: coins });
   }
 }

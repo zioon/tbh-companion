@@ -13,8 +13,10 @@ import {
   saveConfig,
   expandPath,
   normalizeConfigFromRaw,
+  sanitizeWishCoinOverrides,
   type AppConfig,
 } from "../config";
+import type { WishCoinOverrides } from "../../../shared/types";
 import { TrackingService } from "../services/TrackingService";
 import { InventoryService } from "../services/InventoryService";
 import { ChestService } from "../services/ChestService";
@@ -687,6 +689,22 @@ export function getAppServices() {
       saveConfig(config);
     },
     getConfig: () => getConfigWithRuntime(),
+    getWishCoinOverrides: () => config.wishCoinOverrides,
+    setWishCoinOverrides: (overrides: WishCoinOverrides) => {
+      // 走与其它 config 变更一致的路径：先落盘，再替换内存态，最后广播。
+      // 归因是 renderer 侧再派生的（见 core/wish/coinOverrides.ts），故无需重启
+      // 追踪服务 —— 下一次 stats 广播会带上新配置，UI 立即重算。
+      //
+      // 必须**返回落盘后的数组**：renderer 的 `setCoinOverride` 会把返回值写回本地
+      // 状态（`setCoinOverrides(saved)`）。返回 void 会让状态被设成 `undefined`，
+      // 下一次渲染 `overridesSig(undefined)` 即抛
+      // `Cannot read properties of undefined (reading 'map')`（整个祈愿页崩掉）。
+      const sanitized = sanitizeWishCoinOverrides(overrides);
+      config = { ...config, wishCoinOverrides: sanitized };
+      saveConfig(config);
+      broadcast(IPC.WISH_COIN_OVERRIDES, config.wishCoinOverrides);
+      return config.wishCoinOverrides;
+    },
     pickSaveFile: async (): Promise<string | null> => {
       const current = expandPath(config.savePath);
       const parent =
