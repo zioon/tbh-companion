@@ -78,9 +78,13 @@ describe("coinGroupsFromHistory", () => {
     ];
     const { coinGroups, unattributed } = coinGroupsFromHistory(history, coinMeta);
     expect(coinGroups).toEqual([]);
-    expect(unattributed.items.map((i) => i.name)).toEqual(
-      ["木盾", "无归因", "幽灵"].sort((a, b) => a.localeCompare(b)),
-    );
+    // `items` 排序契约为「count 降序优先，同 count 再按 name 升序」：木盾 2 件 → 必居首。
+    // 同 count 的 name 升序走 `localeCompare`，其结果随运行环境 locale 变化
+    // （en-US 下「幽灵」排在「无归因」前，zh-CN 下相反），故此处不写死顺序：
+    // 只断言 count 优先级与元素集合；同 count 升序由上面的 ASCII 用例覆盖。
+    const names = unattributed.items.map((i) => i.name);
+    expect(names[0]).toBe("木盾");
+    expect(new Set(names)).toEqual(new Set(["木盾", "无归因", "幽灵"]));
     const shield = unattributed.items.find((i) => i.name === "木盾")!;
     expect(shield.coin?.confidence).toBe("inferred");
     expect(shield.coin?.candidates).toEqual([{ coinKey: 160001, poolPct: 40 }]);
