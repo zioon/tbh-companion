@@ -6,7 +6,7 @@
 >
 > 所有文件路径以仓库根为基准（`app/src/...`）。
 
-> ← [主索引](../BUSINESS-FLOWS.md) · 上一章[网页版存档解析器（Web Inspector）](13-web-inspector.md) · 章节：§26 · 相关：[统一记录日志 §23.6](11-record-log.md)
+> ← [主索引](../BUSINESS-FLOWS.md) · 上一章[网页版应用（Web App）](13-web-inspector.md) · 章节：§26 · 相关：[统一记录日志 §23.6](11-record-log.md)
 
 ---
 

@@ -50,11 +50,11 @@ pnpm qa                  # typecheck + lint + format + test + build + bundle 守
 pnpm qa:dev              # UI 不可见时的自动化开发冒烟测试 —— 见 docs/agent/QA.md
 pnpm pack                # 压缩数据 + 构建 + electron-builder --dir -> release/win-unpacked
 pnpm dist                # 压缩数据 + 构建 + Windows NSIS 安装包
-pnpm build:web           # 浏览器版（存档解析器）静态构建 -> 仓库根 dist-web/
+pnpm build:web           # 浏览器版（站点根五页应用）静态构建 -> 仓库根 dist-web/
 pnpm preview:web         # 本地预览 dist-web/（部署前冒烟）
 ```
 
-**网页版（`dist-web/`）**：`pnpm build:web` 用 `vite.web.config.ts` 单独构建一份不依赖 Electron 的静态产物，供落地页托管。它复用同一份 `core/` 源码，构建期做三处替换：`core/es3` → `core/es3Web`（node:crypto → WebCrypto）、`bundledData` → `bundledDataWeb`（磁盘读取 → `src/web/dataSource.ts` 注入的内存目录）、`renderer/lib/iconSrc` → `src/web/iconSrcWeb.ts`（`tbh-asset://` 自定义协议 → 同源静态 PNG；图标由 `scripts/copy-web-icons.mjs` 在 vite 构建后复制到 `dist-web/icons/`）。只支持「手动拖入存档 → 本地解密 → 展示背包/宝箱」，其余能力（实时追踪、内存读取、悬浮窗、Steam 查价）在页面上以导流卡片指向桌面版。改 `core/` 业务逻辑时两份产物自动同步，但**改动 `es3` 的加解密契约必须同时核对 `es3Web`**，`test/web/es3Parity.test.ts` 是这两者的等价性守卫。部署与域名关联见 [`docs/DEPLOY-WEB.md`](docs/DEPLOY-WEB.md)。
+**网页版（`dist-web/` → 站点根）**：`pnpm build:web` 用 `vite.web.config.ts` 单独构建一份不依赖 Electron 的静态产物，由 `pages.yml` 暂存到 `website/` 根目录——**站点根就是真应用**，含 Home / Inventory / Chests / Lookup / Trading 五页（旧 `/inspector/` 仅剩跳转桩）。它复用同一份 `core/` 源码，构建期做三处替换：`core/es3` → `core/es3Web`（node:crypto → WebCrypto）、`bundledData` → `bundledDataWeb`（磁盘读取 → `src/web/dataSource.ts` 注入的内存目录）、`renderer/lib/iconSrc` → `src/web/iconSrcWeb.ts`（`tbh-asset://` 自定义协议 → 同源静态 PNG；图标由 `scripts/copy-web-icons.mjs` 在 vite 构建后复制到 `dist-web/icons/`）。**不导入存档也要有内容**：Lookup / Chests / Trading 用构建期内联的目录数据 + 同源价格快照（`website/data/prices.json`，CI 暂存），无需存档即渲染真实内容；Home / Inventory 无存档时显示存档路径指引。实时追踪、内存读取、悬浮窗、自动更新等能力在页面上以导流卡片指向桌面版。改 `core/` 业务逻辑时两份产物自动同步，但**改动 `es3` 的加解密契约必须同时核对 `es3Web`**，`test/web/es3Parity.test.ts` 是这两者的等价性守卫。部署与域名关联见 [`docs/DEPLOY-WEB.md`](docs/DEPLOY-WEB.md)。
 
 **Windows 注意事项**（BOM、PowerShell、路径、Electron 安装）：[`docs/agent/WINDOWS.md`](docs/agent/WINDOWS.md)。
 

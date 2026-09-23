@@ -155,22 +155,23 @@ app/                     # 伴侣应用（Electron + React + TS）
 config.json              # 默认设置（被 userData 副本覆盖）
 data/                    # 内置数据（gamedata.json、stage_boxes.json、locale_strings_*.json 等）
 docs/                    # 架构、存档格式、业务流程、决策、研究成果
-website/                 # 单页落地页（下载链接、统计、特性概览）
+website/                 # 站点根（网页版真应用 + Pages 运行时数据），见 docs/DEPLOY-WEB.md
 ```
 
 ## 网站
 
-单页落地页，含下载链接、GitHub 统计与特性概览：**https://zioon.github.io/tbh-companion/**
+**站点根就是网页版真应用**：`pnpm build:web` 构建的静态产物由 `pages.yml` 暂存到 `website/` 根目录直接托管，含 Home / Inventory / Chests / Lookup / Trading 五页；Lookup / Chests / Trading **无需存档**即渲染真实内容。地址：**https://zioon.github.io/tbh-companion/**
 
-本地预览而不部署（需经 HTTP 提供 `website/`——统计 API 与 `data/release.json` 需要）：
+本地预览（需经 HTTP 提供，价格快照需要同源 fetch）：
 
 ```
-npx --yes serve website -p 4173
+cd app && pnpm build:web          # 产物落在仓库根 dist-web/
+cd .. && npx --yes serve dist-web -p 4173   # 或把 dist-web/ 暂存到 website/ 后 serve website
 ```
 
-然后打开 **http://localhost:4173** 并硬刷新。不要直接用 `file://` 打开 `index.html`——浏览器会阻止对 GitHub 与本地 JSON 的请求。
+然后打开 **http://localhost:4173** 并硬刷新（`pnpm preview:web` 亦可）。不要直接用 `file://` 打开 `index.html`——浏览器会阻止对本地 JSON 的请求。
 
-下载按钮优先使用 [`website/data/release.json`](website/data/release.json) 中的直链 `.exe`，随后再从 GitHub API 刷新；星标与下载数仍来自 GitHub API。页面经 `pages.yml` 在 `main` 分支推送时自动部署到 GitHub Pages。
+站点唯一的运行时数据是 `website/data/prices.json`（Steam 挂单价快照，由 `lookup-prices.yml` → `pages.yml` 暂存）；物品目录在**构建期**内联进 bundle，不随站点文件发布。桌面版下载入口指向 GitHub Releases。部署与域名关联见 [`docs/DEPLOY-WEB.md`](docs/DEPLOY-WEB.md)。
 
 ## 更多文档
 

@@ -213,7 +213,7 @@ connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'
 
 | 假设 | 取值 |
 | --- | --- |
-| 展示广告的页面 | 官网落地页 + 网页版 inspector |
+| 展示广告的页面 | 站点根（网页版五页应用：Home / Inventory / Chests / Lookup / Trading） |
 | 月 PV 量级 | 低（小众游戏伴侣工具，非内容站） |
 | 广告可见率 | ~50% |
 | 工具类站点 RPM | 个位数美元 / 千次曝光量级 |
@@ -225,7 +225,7 @@ connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'
 | 方向 | 说明 |
 | --- | --- |
 | GitHub Sponsors | 面向开源使用者，零第三方请求 |
-| Buy Me a Coffee | **官网已有入口**（`website/index.html` 的 `header-bmc`），强化它比加广告更划算 |
+| Buy Me a Coffee | **桌面版工具栏已有入口**（`app/src/renderer/components/AppToolbar.tsx` → `externalLinks.ts` 的 `BUYMEACOFFEE_URL`）；站点根现为真应用，若要在网页端强化需在壳内加入口 |
 | 高级版一次性买断 | 需区分免费/付费功能边界，注意 MIT 与社区观感 |
 | Steam 生态推广 | 与游戏方谈官方推广位，比第三方联盟更可持续 |
 

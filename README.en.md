@@ -223,28 +223,33 @@ app/                     # the companion app (Electron + React + TS)
 config.json              # default settings (overridden by userData copy)
 data/                    # bundled catalogs (gamedata.json, stage_boxes.json, locale_strings_*.json...)
 docs/                    # architecture, save format, business flows, decisions, findings
-website/                 # single-page landing (download link, stats, feature overview)
+website/                 # site root (the real web app + Pages runtime data); see docs/DEPLOY-WEB.md
 ```
 
 ## Website
 
-Single-page landing with download link, GitHub stats, and a feature overview:
+**The site root is the real web app**: the static build produced by
+`pnpm build:web` is staged into the `website/` root by `pages.yml`, giving five
+pages — Home / Inventory / Chests / Lookup / Trading. Lookup / Chests / Trading
+render real content **with no save file**. URL:
 **https://zioon.github.io/tbh-companion/**
 
-Preview locally without deploying (serves `website/` over HTTP — required for the
-stats API and `data/release.json`):
+Preview locally over HTTP (the price snapshot is fetched same-origin):
 
 ```
-npx --yes serve website -p 4173
+cd app && pnpm build:web                    # output lands in <repo root>/dist-web
+cd .. && npx --yes serve dist-web -p 4173   # or stage dist-web/ into website/ and serve website
 ```
 
-Then open **http://localhost:4173** and hard-refresh. Do not open `index.html`
-directly (`file://`) — the browser blocks fetches to GitHub and local JSON.
+Then open **http://localhost:4173** and hard-refresh (`pnpm preview:web` works
+too). Do not open `index.html` directly (`file://`) — the browser blocks fetches
+to local JSON.
 
-The download button uses [`website/data/release.json`](website/data/release.json)
-first (direct `.exe` link), then refreshes from the GitHub API when available;
-stars and total downloads come from the GitHub API. The page auto-deploys to
-GitHub Pages on `main` pushes via `pages.yml`.
+The site's only runtime data is `website/data/prices.json` (the Steam listing
+snapshot, staged by `lookup-prices.yml` → `pages.yml`); the item catalogs are
+inlined at build time and are not shipped as site files. The desktop download
+link points at GitHub Releases. See [`docs/DEPLOY-WEB.md`](docs/DEPLOY-WEB.md)
+for deployment and custom-domain details.
 
 ## Further reading
 

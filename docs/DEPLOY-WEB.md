@@ -33,73 +33,62 @@ pnpm build:web
 ```bash
 cd app
 pnpm preview:web     # vite preview，起本地静态服务
-pnpm smoke:web       # Electron + Chromium 端到端：拖入真实存档 → 断言背包表渲染 + 图标解码
+pnpm smoke:web       # Electron + Chromium 端到端：先断言无存档时 Lookup/Chests/Trading 渲染真内容，再拖入真实存档断言背包表 + 图标解码
 ```
 
 `smoke:web` 会读取 `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\` 下最新的 `.es3` 存档。
 
 ---
 
-## 2. 方案 A：挂到官网子路径（推荐）
+## 2. 方案 A：随 GitHub Pages 一起发布（推荐，已有流水线）
 
-官网落地页由 `.github/workflows/pages.yml` 发布，该工作流把 **`website/` 目录**上传为 Pages 产物。因此把网页版放进 `website/inspector/` 即可一起上线。
+`.github/workflows/pages.yml` 把 **`website/` 目录**上传为 Pages 产物（`path: website`），而**站点根就是真应用**：工作流把 `pnpm build:web` 的产物暂存到 `website/` 根目录，`website/index.html` 即 SPA 外壳。流水线已就绪，无需手工改造。
 
-### 2.1 一次性改造
+### 2.1 流水线做了什么
 
-在 `pages.yml` 的 checkout 之后、`upload-pages-artifact` 之前插入构建步骤：
+`pages.yml` 的顺序即真实编排，已全部就位：
+
+1. **`Stage Steam price snapshot`** —— 从滚动 release `lookup-prices` 下载 `prices.json` 到 `website/data/`（尽力而为：缺失只告警、不失败，见 §2.4）。
+2. **`Install dependencies` / `Build web app`** —— `working-directory: app` 下 `pnpm install --frozen-lockfile && pnpm build:web`，产物落在**仓库根** `dist-web/`。
+3. **`Stage web app into the Pages root`** —— 只替换构建产物，站点自有文件原样保留：
 
 ```yaml
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: app/pnpm-lock.yaml
-
-      - name: Build web inspector
-        working-directory: app
+      - name: Stage web app into the Pages root
         run: |
-          pnpm install --frozen-lockfile
-          pnpm build:web          # -> <repo root>/dist-web
-
-      # dist-web 构建在仓库根，拷进 website/ 后随 artifact 一起上传
-      - name: Stage inspector into website/
-        run: |
-          rm -rf website/inspector
-          mkdir -p website/inspector
-          cp -r dist-web/. website/inspector/
-          rm -f website/inspector/assets/*.wav   # 网页版不用音效，省 3.6 MB
-
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: website
+          # website/data/（价格快照）与 website/inspector/（旧 URL 跳转桩）
+          # 由站点自有，必须原样保留
+          rm -rf website/assets website/icons website/index.html website/favicon.png
+          cp -r dist-web/index.html  website/index.html
+          cp -r dist-web/assets      website/assets
+          cp -r dist-web/icons       website/icons
+          if [ -f dist-web/favicon.png ]; then cp dist-web/favicon.png website/favicon.png; fi
+          rm -f website/assets/*.wav   # 网页版不用音效，省 3.6 MB
 ```
 
-同时把触发路径补上 app 源码与构建脚本，否则改了前端不会重新发布：
+4. **`upload-pages-artifact`** 上传 `website/`，产物内容变化即触发重新部署。
+
+触发路径已包含网页版所需的全部来源（改任一即重发布）：
 
 ```yaml
     paths:
       - "website/**"
       - "app/src/**"
       - "app/shared/**"
-      - "app/scripts/copy-web-icons.mjs"
-      - "app/vite.web.config.ts"
       - "app/package.json"
-      - "data/icons/**"
+      - "app/pnpm-lock.yaml"
+      - "app/vite.web.config.ts"
+      - "app/tsconfig.json"
+      - "data/**"
       - ".github/workflows/pages.yml"
 ```
+
+> `data/**` 在触发路径里：构建期 `?raw` 内联了 `data/` 的目录 JSON（见 §2.2），所以更新富数据后只要推送 `data/`，站点即重建跟随。
 
 ### 2.2 站点结构
 
 `website/` 是 Pages 产物的**根目录**，也是站点本身——**没有单独的营销落地页**，打开站点直接进工具。
 
-页面与桌面版的标签**一一对应、顺序一致**（`app/src/renderer/components/appTabs.ts` 的 `TAB_IDS`）：
+页面与应用的导航**一一对应、顺序一致**（`app/src/web/webTabs.ts` 的 `WEB_TAB_IDS`）：
 
 | 站点页面 | 对应标签 | 数据来源 | 需要存档？ |
 | --- | --- | --- | --- |
@@ -111,36 +100,43 @@ pnpm smoke:web       # Electron + Chromium 端到端：拖入真实存档 → �
 
 文件构成：
 
+> ⚠️ `0647230`（serve the real web app at the site root）之后**站点根目录直接跑真实 web 应用**，本小节的「手写站点文件」清单正在随之更新；下列两行已改为现状。
+
 | 路径 | 内容 | 来源 |
 | --- | --- | --- |
-| `index.html` | 工具外壳（侧栏 + 五个页面） | 手写维护 |
-| `css/app.css` | 设计 token 与布局 | 手写维护 |
-| `js/app.js` | 视图切换、五个页面的渲染、筛选与分页 | 手写维护 |
-| `data/gamedata.json` | 解包后的物品目录（1,954 件） | `data/gamedata.json` 的**拷贝** |
-| `data/stage_boxes.json` | 宝箱目录（140 个，含掉落关卡区间；默认冷却 720s = 12 分钟） | `data/stage_boxes.json` 的**拷贝** |
+| `index.html` / `assets/` / `icons/` / `favicon.png` | 站点根 = 真实 web 应用（SPA + 产物 + 图标） | `pnpm build:web` 产物，CI 暂存；`.gitignore` 已忽略，**不提交** |
 | `data/prices.json` | Steam 挂单价快照 | **CI 暂存**，见 §2.4 |
-| `inspector/` | 真实的浏览器端存档解密器 | CI 由 `pnpm build:web` 构建，见 §2.1 |
-| `assets/icon.png` | 站点图标 | |
+| `inspector/index.html` | 旧 `/inspector/` 地址的跳转桩（唯一入库的 inspector 文件） | 手写维护 |
+| `data/release.json` | 桌面版发布清单（安装包直链） | 由 release 工作流更新 |
 
-> **两份目录是拷贝，不是符号链接。** 游戏版本更新后（走 [`docs/DATA-UPDATE.md`](DATA-UPDATE.md) 的流程）必须把 `data/gamedata.json`、`data/stage_boxes.json` 重新拷贝到 `website/data/`，否则站点会继续展示旧版本数据。
+> **物品目录不在站点文件里**：`0647230` 起网页版用 `?raw` 在**构建期**把 `data/` 内联进 bundle（`app/src/web/dataSource.ts`：`gamedata.json`、`stage_boxes.json`、`lookup_items.json`、`box_types.json`、`steam_market_fee.json`、4 份 `locale_strings_*.json`）。所以站点**没有** `website/data/gamedata.json` / `stage_boxes.json` 这类目录副本，也**不需要任何拷贝或同步脚本** —— 更新富数据后只要把 `data/` 提交推送，`pages.yml`（`paths` 含 `data/**`）就会重建站点，站点数据自动跟随。站点唯一的**运行时**数据是 `website/data/prices.json`，由 `pages.yml` 从滚动 release 暂存。
 
-**设计约束：不导入存档也要有内容。** Lookup 与 Trading 只依赖 `data/`，与存档无关；Chests 的宝箱目录同样不依赖存档，只有「持有数量 / 槽位占用」来自存档；Home 与 Inventory 本质上是存档的镜像，无存档时显示指向存档路径的空状态 + 可切换的示例数据预览。改动 `index.html` / `app.js` 时不要给 Lookup / Trading / Chests 目录加存档前置条件。
+**设计约束：不导入存档也要有内容。** Lookup 与 Trading 只依赖构建期内联的 `data/` 与同源价格快照，与存档无关；Chests 的宝箱目录同样不依赖存档，只有「持有数量 / 槽位占用」来自存档；Home 与 Inventory 是存档的镜像，无存档时显示指向存档路径的空状态 + 复制按钮。改动网页版页面时不要给 Lookup / Trading / Chests 目录加存档前置条件。
 
-`./inspector/` 的相对路径在 `https://<user>.github.io/<repo>/` 和自定义域名下都成立，上线后地址为：
+站点用的是相对路径（Vite `base: "./"`），在 `https://<user>.github.io/<repo>/` 和自定义域名下都成立，上线后地址为：
 
 ```
-https://<user>.github.io/<repo>/inspector/
+https://<user>.github.io/<repo>/
 ```
+
+> 旧地址 `…/<repo>/inspector/` 由 `website/inspector/index.html` 的跳转桩重定向到站点根。
 
 ### 2.3 `dist-web/` 是否提交进仓库
 
-**不提交。** `.gitignore` 已忽略 `dist-web/`、`website/inspector/` 与 `website/data/prices.json` —— 三者都是 CI 产物，一律由流水线生成：
+**不提交。** `.gitignore` 已忽略构建产物（`dist-web/`、站点根 `index.html` / `assets/` / `icons/` / `favicon.png`）与 `website/data/prices.json` —— 都是 CI 产物，一律由流水线生成；**只有** `website/inspector/index.html`（跳转桩）入库：
 
 ```gitignore
-# web inspector build output — produced by `pnpm build:web`, staged into
-# website/inspector/ by the Pages workflow
+# Web app build output — produced by `pnpm build:web`. CI stages its contents
+# into the site ROOT (website/index.html + assets/ + icons/ + favicon.png)
+# before uploading the Pages artifact (see docs/DEPLOY-WEB.md).
 dist-web/
-website/inspector/
+/website/index.html
+/website/assets/
+/website/icons/
+/website/favicon.png
+# The legacy /inspector/ URL keeps only its redirect stub under version control.
+website/inspector/*
+!website/inspector/index.html
 # Staged into the Pages artifact by pages.yml so the site's Market view works
 # with no save file; never committed — the release asset is the source of truth
 website/data/prices.json
@@ -148,7 +144,7 @@ website/data/prices.json
 
 ### 2.4 市场价快照的暂存链路
 
-`Market` 工作区需要真实挂单价，而**浏览器不能直连 Steam**（`steamcommunity.com` 不发 CORS 头），因此复用桌面版 Lookup 标签那套快照，不新增抓取点：
+`Trading` 页需要真实挂单价，而**浏览器不能直连 Steam**（`steamcommunity.com` 不发 CORS 头），因此复用桌面版 Lookup 那套快照，不新增抓取点：
 
 ```
 lookup-prices.yml（每 6h，唯一调 Steam 的地方）
@@ -169,7 +165,7 @@ lookup-prices.yml（每 6h，唯一调 Steam 的地方）
                --pattern prices.json --dir website/data --clobber 2>/dev/null; then
             echo "staged website/data/prices.json ($(wc -c < website/data/prices.json) bytes)"
           else
-            echo "::warning title=Price snapshot missing::no prices.json on the lookup-prices release; Market renders without prices"
+            echo "::warning title=Price snapshot missing::no prices.json on the lookup-prices release; Trading renders without prices"
             rm -f website/data/prices.json
           fi
 ```
@@ -178,7 +174,7 @@ lookup-prices.yml（每 6h，唯一调 Steam 的地方）
 
 > **fork 注意：** 仓库是 fork 时 GitHub 会把两个 workflow 置为 `disabled_fork`（表现为**没有 `lookup-prices` release**）。用 `gh api -X PUT repos/<owner>/<repo>/actions/workflows/<id>/enable` 启用，再 `gh workflow run lookup-prices.yml` 手动跑一次。
 
-**价格键的对应关系**（改 `app.js` 时必须与 `app/src/core/marketName.ts` 保持一致，否则目录和快照对不上）：
+**价格键的对应关系**（改交易 / 查价逻辑时必须与 `app/src/core/marketName.ts` 保持一致，否则目录和快照对不上）：
 
 - 材料 → 物品名本身（`Minor Ruby`）
 - 装备 → `名字 (Grade) A`（`Long Sword (Legendary) A`），且**只有 LEGENDARY 及以上**才定价
@@ -236,17 +232,17 @@ lookup-prices.yml（每 6h，唯一调 Steam 的地方）
 ```bash
 # 本机构建后上传
 cd app && pnpm build:web
-rsync -av --delete dist-web/ user@host:/var/www/tbh-inspector/
+rsync -av --delete dist-web/ user@host:/var/www/tbh-web/
 ```
 
-`/etc/nginx/sites-available/tbh-inspector`：
+`/etc/nginx/sites-available/tbh-web`：
 
 ```nginx
 server {
     listen 80;
     listen [::]:80;
-    server_name inspector.example.com;
-    root /var/www/tbh-inspector;
+    server_name web.example.com;
+    root /var/www/tbh-web;
     index index.html;
 
     # 单页应用：任何未命中的路径都回落到 index.html
@@ -275,7 +271,7 @@ server {
 HTTPS 用 certbot：
 
 ```bash
-sudo certbot --nginx -d inspector.example.com
+sudo certbot --nginx -d web.example.com
 ```
 
 ---
@@ -347,7 +343,7 @@ Settings → Pages → 勾选 **Enforce HTTPS**。
 ```bash
 curl -sI https://tbh.example.com/           | head -1   # 200
 curl -sI http://tbh.example.com/            | head -1   # 301 -> https
-curl -sI https://tbh.example.com/inspector/ | head -1   # 200（方案 A）
+curl -sI https://tbh.example.com/ | head -1   # 200（方案 A：站点根即应用）
 ```
 
 ### 4.2 Cloudflare Pages / Netlify / Vercel 的自定义域名
@@ -378,11 +374,11 @@ curl -sI https://tbh.example.com/inspector/ | head -1   # 200（方案 A）
 | CSP 允许同源图标 | `dist-web/index.html` 的 `img-src 'self' data:`；图标是同源 PNG，无需放开 `tbh-asset:` |
 | **不导入存档也能用** | 清空站点存储后直接打开站点：`Lookup` 应渲染 1,954 件物品、`Chests` 应渲染 140 个宝箱图鉴（含掉落关卡区间）、`Trading` 应渲染可交易物品列表——三个页面都不该出现「请先载入存档」之类的拦截 |
 | **存档驱动的页面有正确空状态** | `Home` 与 `Inventory` 在无存档时应给出指向 `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\` 的指引与复制按钮，而不是空白块或报错 |
-| **Trading 有真实价格** | `Trading` 价格列应显示 ¥ 数值；若显示 `no listing` 且顶部有黄色告警条，说明 `website/data/prices.json` 没暂存上（查 `pages.yml` 的 `Stage Steam price snapshot` 步骤 warning） |
-| Steam 查价（inspector 内）显示为「未加载」 | 这是**预期行为**，不是 bug —— `inspector/` 不直连 Steam（无 CORS）；站点根 `Market` 的价格来自快照，两者不要混淆 |
-| 无遥测 | 全站无分析脚本。站点根只外链 Google Fonts；`inspector/` 产物无任何外链 |
+| **Trading 有真实价格** | `Trading` 价格列应显示价格数值；若整列显示 `—`（`trading.never`）且顶部有黄色告警条，说明 `website/data/prices.json` 没暂存上（查 `pages.yml` 的 `Stage Steam price snapshot` 步骤 warning） |
+| 价格来自快照而非实时抓取 | 网页版**不直连 Steam**（无 CORS）：价格全部来自同源 `website/data/prices.json`。这是**设计**，不是 bug |
+| 无遥测 | 全站无分析脚本；产物只外链 Google Fonts（应用壳本身无任何外链） |
 | 存档不外传 | DevTools → Network，拖入存档后不产生任何携带存档内容的请求 |
-| 桌面版导流卡片 | 切到 Live tracking 标签，应显示「These features need the desktop app」三张卡片 |
+| 桌面版导流卡片 | Home 页底部应显示「These features need the desktop app」的能力卡片与桌面版下载入口 |
 | base 路径正确 | 子路径部署时 `view-source:` 里的资源引用为相对路径（`./assets/...`、`./icons/...`） |
 
 ---
@@ -393,7 +389,7 @@ curl -sI https://tbh.example.com/inspector/ | head -1   # 200（方案 A）
 `dist-web/icons/` 缺失或未随产物上传。确认构建跑了 `copy-web-icons.mjs`（输出 `[web-icons] Copied 364 icon(s)`），且部署时没有只传 `index.html` + `assets/`。
 
 **资源 404（JS/CSS 加载不到）。**
-产物被放到了与构建时不同的子路径，且部署工具重写了路径。检查构建实际上有没有用 `base: "./"`；若托管平台强制注入绝对路径，改用 `base: "/inspector/"` 重新构建。
+产物被放到了与构建时不同的子路径，且部署工具重写了路径。检查构建实际上有没有用 `base: "./"`；若托管平台强制注入绝对路径，改用 `base: "/<subpath>/"` 重新构建。
 
 **存档拖入后报解密失败。**
 网页版用 `es3Web`（WebCrypto）而非桌面版的 `node:crypto`。两者契约由 `app/test/web/es3Parity.test.ts` 守卫 —— 若该测试通过而线上仍失败，多半是存档本身密码不同或文件损坏。

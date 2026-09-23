@@ -41,7 +41,7 @@
 | §22 | 历史背景 | 见下文 §22 | 项目沿革（保留在本文件） |
 | §23 | 统一记录日志（Record Log） | [统一记录日志](business-flows/11-record-log.md) | 读取模型（定长平移列表）、去重、归档、字段语义、调试页速查 |
 | §24 | 开箱统计补齐（Box-Open Backfill） | [开箱统计补齐](business-flows/12-box-open-backfill.md) | 背景、数据流、六步匹配、节流、归因、错误处理、边界 |
-| §25 | 网页版存档解析器（Web Inspector） | [网页版存档解析器](business-flows/13-web-inspector.md) | 构建期模块替换、`window.tbh` 的 web shim、存档加载链路、图鉴目录本地化、图标静态化、能力降级表、部署与冒烟 |
+| §25 | 网页版应用（Web App） | [网页版应用](business-flows/13-web-inspector.md) | 站点根即真应用、五页壳、无存档也能看目录、价格快照、构建期模块替换、`window.tbh` 的 web shim、存档加载链路、图鉴目录本地化、图标静态化、能力降级表、部署与冒烟 |
 
 **按主题拆分的文件清单**（文件顺序即推荐阅读顺序）：
 
@@ -60,7 +60,7 @@
 | [`10-notification-update-pet.md`](business-flows/10-notification-update-pet.md) | §15–§17 | Notification / Update / Pet |
 | [`11-record-log.md`](business-flows/11-record-log.md) | §23 | 统一记录日志（Record Log） |
 | [`12-box-open-backfill.md`](business-flows/12-box-open-backfill.md) | §24 | 开箱统计补齐（Box-Open Backfill） |
-| [`13-web-inspector.md`](business-flows/13-web-inspector.md) | §25 | 网页版存档解析器（Web Inspector） |
+| [`13-web-inspector.md`](business-flows/13-web-inspector.md) | §25 | 网页版应用（Web App，站点根） |
 | [`14-wish-record.md`](business-flows/14-wish-record.md) | §26 | 祈愿记录（Wish Record） |
 
 ---

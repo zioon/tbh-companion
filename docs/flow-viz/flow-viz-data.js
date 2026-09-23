@@ -20,7 +20,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/13-web-inspector.md",
     "docs/business-flows/14-wish-record.md"
   ],
-  "generatedAt": "2026-09-23T07:43:09.304Z",
+  "generatedAt": "2026-09-23T13:54:27.728Z",
   "flows": [
     {
       "number": 18,
@@ -4525,19 +4525,27 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "2 数据流",
           "subsection": null,
-          "mermaid": "flowchart TD\n  Drop[用户拖入 .es3] --> Load[loadWebSaveFile]\n  Load --> Buf[file.arrayBuffer]\n  Buf --> Dec[decryptToText — core/es3Web]\n  Dec --> Parse[parseInventory]\n  Parse --> Resolve[resolveInventory]\n  Cat[(webCatalog<br/>gamedata + lookup_items)] --> Parse\n  Cat --> Resolve\n  Loc[(loadLocaleCatalog)] --> Resolve\n  Resolve --> Inv[ResolvedInventory]\n  Inv --> Push[runtime.inventory + notify]\n  Push --> UI[TbhProvider → Inventory / Chests 标签]\n\n  LookupAPI[getLookupCatalog] --> Loc2[loadLookupItems + gameItemName]\n  Loc2 --> Ctx[useLookupCatalog]\n  Ctx --> UI\n  Ctx --> Icons[iconSrcWeb → base/icons/name.png]",
+          "mermaid": "flowchart TD\n  Drop[用户拖入 .es3] --> Load[loadWebSaveFile]\n  Load --> Analyze[analyzeSaveFile]\n  Analyze --> Dec[decryptToText — core/es3Web]\n  Dec --> Parse[parseInventory]\n  Parse --> Resolve[resolveInventory]\n  Cat[(webCatalog<br/>gamedata + lookup_items)] --> Parse\n  Cat --> Resolve\n  Loc[(loadLocaleCatalog)] --> Resolve\n  Resolve --> Inv[ResolvedInventory]\n  Inv --> Push[runtime.inventory + notify]\n  Push --> Home[Home / Inventory 页]\n  Push --> ChestsHeld[Chests 持有数]\n\n  Cat --> LookupCat[getLookupCatalog]\n  LookupCat --> LookupCtx[useLookupCatalog]\n  LookupCtx --> Lookup[Lookup 页]\n  LookupCtx --> Icons[iconSrcWeb → icons/name.png]\n  Boxes[(stage_boxes.json)] --> ChestsCat[Chests 目录]\n  Prices[(data/prices.json<br/>CI 暂存 · 同源 fetch)] --> Snapshot[webPricesSnapshot]\n  Snapshot --> Trading[Trading 页]\n  Snapshot --> Lookup",
           "nodes": [
             {
-              "id": "Buf",
-              "label": "file.arrayBuffer"
+              "id": "Analyze",
+              "label": "analyzeSaveFile"
+            },
+            {
+              "id": "Boxes",
+              "label": "stage_boxes.json"
             },
             {
               "id": "Cat",
               "label": "webCatalog<br/>gamedata + lookup_items"
             },
             {
-              "id": "Ctx",
-              "label": "useLookupCatalog"
+              "id": "ChestsCat",
+              "label": "Chests 目录"
+            },
+            {
+              "id": "ChestsHeld",
+              "label": "Chests 持有数"
             },
             {
               "id": "Dec",
@@ -4548,8 +4556,12 @@ window.TBH_FLOW_VIZ = {
               "label": "用户拖入 .es3"
             },
             {
+              "id": "Home",
+              "label": "Home / Inventory 页"
+            },
+            {
               "id": "Icons",
-              "label": "iconSrcWeb → base/icons/name.png"
+              "label": "iconSrcWeb → icons/name.png"
             },
             {
               "id": "Inv",
@@ -4564,16 +4576,24 @@ window.TBH_FLOW_VIZ = {
               "label": "loadLocaleCatalog"
             },
             {
-              "id": "Loc2",
-              "label": "loadLookupItems + gameItemName"
+              "id": "Lookup",
+              "label": "Lookup 页"
             },
             {
-              "id": "LookupAPI",
+              "id": "LookupCat",
               "label": "getLookupCatalog"
+            },
+            {
+              "id": "LookupCtx",
+              "label": "useLookupCatalog"
             },
             {
               "id": "Parse",
               "label": "parseInventory"
+            },
+            {
+              "id": "Prices",
+              "label": "data/prices.json<br/>CI 暂存 · 同源 fetch"
             },
             {
               "id": "Push",
@@ -4584,14 +4604,26 @@ window.TBH_FLOW_VIZ = {
               "label": "resolveInventory"
             },
             {
-              "id": "UI",
-              "label": "TbhProvider → Inventory / Chests 标签"
+              "id": "Snapshot",
+              "label": "webPricesSnapshot"
+            },
+            {
+              "id": "Trading",
+              "label": "Trading 页"
             }
           ],
           "edges": [
             {
-              "from": "Buf",
+              "from": "Analyze",
               "to": "Dec"
+            },
+            {
+              "from": "Boxes",
+              "to": "ChestsCat"
+            },
+            {
+              "from": "Cat",
+              "to": "LookupCat"
             },
             {
               "from": "Cat",
@@ -4600,14 +4632,6 @@ window.TBH_FLOW_VIZ = {
             {
               "from": "Cat",
               "to": "Resolve"
-            },
-            {
-              "from": "Ctx",
-              "to": "Icons"
-            },
-            {
-              "from": "Ctx",
-              "to": "UI"
             },
             {
               "from": "Dec",
@@ -4623,31 +4647,51 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "from": "Load",
-              "to": "Buf"
+              "to": "Analyze"
             },
             {
               "from": "Loc",
               "to": "Resolve"
             },
             {
-              "from": "Loc2",
-              "to": "Ctx"
+              "from": "LookupCat",
+              "to": "LookupCtx"
             },
             {
-              "from": "LookupAPI",
-              "to": "Loc2"
+              "from": "LookupCtx",
+              "to": "Icons"
+            },
+            {
+              "from": "LookupCtx",
+              "to": "Lookup"
             },
             {
               "from": "Parse",
               "to": "Resolve"
             },
             {
+              "from": "Prices",
+              "to": "Snapshot"
+            },
+            {
               "from": "Push",
-              "to": "UI"
+              "to": "ChestsHeld"
+            },
+            {
+              "from": "Push",
+              "to": "Home"
             },
             {
               "from": "Resolve",
               "to": "Inv"
+            },
+            {
+              "from": "Snapshot",
+              "to": "Lookup"
+            },
+            {
+              "from": "Snapshot",
+              "to": "Trading"
             }
           ],
           "subgraphs": []
@@ -4656,58 +4700,82 @@ window.TBH_FLOW_VIZ = {
     },
     {
       "number": 25,
-      "title": "3 构建期模块替换",
-      "anchor": "3-构建期模块替换",
+      "title": "3 站点结构与五页壳",
+      "anchor": "3-站点结构与五页壳",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#3-构建期模块替换",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#3-站点结构与五页壳",
       "diagrams": []
     },
     {
       "number": 25,
-      "title": "4 `window.tbh` 的 web shim（`src/web/webTbhApi.ts`）",
-      "anchor": "4-windowtbh-的-web-shimsrcwebwebtbhapits",
+      "title": "4 构建期模块替换",
+      "anchor": "4-构建期模块替换",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#4-windowtbh-的-web-shimsrcwebwebtbhapits",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#4-构建期模块替换",
       "diagrams": []
     },
     {
       "number": 25,
-      "title": "5 图鉴目录本地化（易踩的坑）",
-      "anchor": "5-图鉴目录本地化易踩的坑",
+      "title": "5 `window.tbh` 的 web shim（`src/web/webTbhApi.ts`）",
+      "anchor": "5-windowtbh-的-web-shimsrcwebwebtbhapits",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#5-图鉴目录本地化易踩的坑",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#5-windowtbh-的-web-shimsrcwebwebtbhapits",
       "diagrams": []
     },
     {
       "number": 25,
-      "title": "6 图标静态化",
-      "anchor": "6-图标静态化",
+      "title": "6 价格快照（`src/web/pricesSnapshot.ts`）",
+      "anchor": "6-价格快照srcwebpricessnapshotts",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#6-图标静态化",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#6-价格快照srcwebpricessnapshotts",
       "diagrams": []
     },
     {
       "number": 25,
-      "title": "7 存档加载链路",
-      "anchor": "7-存档加载链路",
+      "title": "7 图鉴目录本地化（易踩的坑）",
+      "anchor": "7-图鉴目录本地化易踩的坑",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#7-存档加载链路",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#7-图鉴目录本地化易踩的坑",
       "diagrams": []
     },
     {
       "number": 25,
-      "title": "8 错误处理",
-      "anchor": "8-错误处理",
+      "title": "8 图标静态化",
+      "anchor": "8-图标静态化",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#8-错误处理",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#8-图标静态化",
       "diagrams": []
     },
     {
       "number": 25,
-      "title": "9 关键文件速查",
-      "anchor": "9-关键文件速查",
+      "title": "9 存档加载链路",
+      "anchor": "9-存档加载链路",
       "source": "docs/business-flows/13-web-inspector.md",
-      "sourceAnchor": "docs/business-flows/13-web-inspector.md#9-关键文件速查",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#9-存档加载链路",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "10 多语言",
+      "anchor": "10-多语言",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#10-多语言",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "11 错误处理",
+      "anchor": "11-错误处理",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#11-错误处理",
+      "diagrams": []
+    },
+    {
+      "number": 25,
+      "title": "12 关键文件速查",
+      "anchor": "12-关键文件速查",
+      "source": "docs/business-flows/13-web-inspector.md",
+      "sourceAnchor": "docs/business-flows/13-web-inspector.md#12-关键文件速查",
       "diagrams": []
     },
     {
