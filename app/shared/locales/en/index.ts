@@ -16,6 +16,7 @@ import recordlog from "./recordlog.json";
 import settings from "./settings.json";
 import tabs from "./tabs.json";
 import tray from "./tray.json";
+import web from "./web.json";
 import whatsNew from "./whatsNew.json";
 import wish from "./wish.json";
 
@@ -36,6 +37,7 @@ export default {
   settings,
   tabs,
   tray,
+  web,
   whatsNew,
   wish,
 };

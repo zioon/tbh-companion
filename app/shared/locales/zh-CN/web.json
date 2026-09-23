@@ -1,0 +1,107 @@
+{
+  "badge": "网页",
+  "nav": {
+    "home": "首页",
+    "inventory": "物品栏",
+    "chests": "宝箱",
+    "lookup": "图鉴",
+    "trading": "交易"
+  },
+  "language": "语言",
+  "footer": "Task Bar Hero 的非官方开源工具。你的存档在本标签页本地处理，绝不上传。",
+  "footerSource": "在 GitHub 上查看源码",
+  "crashTitle": "TBH Companion 网页版渲染失败",
+  "home": {
+    "title": "TBH Companion",
+    "tagline": "浏览物品图鉴、宝箱掉落与 Steam 市场价格，再解析你自己的存档。一切都在浏览器内完成。",
+    "dropTitle": "把 SaveFile_Live.es3 拖到这里",
+    "dropReading": "正在读取存档…",
+    "dropPrivacy": "文件完全在浏览器内解密与解析，绝不上传，也不会发送任何数据。",
+    "choose": "选择存档文件",
+    "saveError": "无法读取该存档",
+    "loadedTitle": "存档已载入",
+    "loadedSummary": "{{items}} 件物品 · {{chests}} 个宝箱",
+    "reselect": "重新选择文件",
+    "clear": "清除",
+    "stepsTitle": "使用步骤",
+    "steps": {
+      "one": {
+        "title": "找到存档",
+        "body": "Windows 下位于下方所示路径，实时存档名为 SaveFile_Live.es3。"
+      },
+      "two": {
+        "title": "拖到这里",
+        "body": "把文件拖到本页，或用按钮选择。文件仅在本地读取，绝不上传。"
+      },
+      "three": {
+        "title": "开始浏览",
+        "body": "打开「物品栏」查看你的物品，或直接进入下方的图鉴与市场页面 —— 它们无需存档。"
+      }
+    },
+    "quickTitle": "无需存档即可使用",
+    "quickHint": "这些页面在没有存档时也会渲染真实数据。",
+    "quickLookup": "物品图鉴",
+    "quickLookupHint": "全部可获得物品、属性与 Steam 市场价格。",
+    "quickChests": "宝箱图鉴",
+    "quickChestsHint": "全部可获得宝箱及其掉落关卡。",
+    "quickTrading": "市场行情",
+    "quickTradingHint": "可交易物品及其最新挂牌价。"
+  },
+  "inventoryEmpty": {
+    "title": "物品栏来自存档",
+    "body": "在首页拖入存档，或在此选择存档文件以查看你的物品。",
+    "goHome": "返回首页"
+  },
+  "trading": {
+    "intro": "来自随包目录的可交易物品及其最新的 Steam 市场挂牌价。",
+    "kpiTradable": "可交易物品",
+    "kpiPriced": "有价格",
+    "kpiCoverage": "覆盖率",
+    "updatedAt": "价格更新于 {{time}}",
+    "updatedUnknown": "价格快照不可用",
+    "colItem": "物品",
+    "colGrade": "品质",
+    "colPrice": "最低挂牌价",
+    "never": "—",
+    "empty": "目录中没有可交易物品。"
+  },
+  "loadAnother": "重新选择文件",
+  "clear": "清除",
+  "savePath": {
+    "title": "我的存档在哪里？",
+    "body": "Windows 下位于 {{path}} —— 文件名为 {{file}}。",
+    "copy": "复制路径",
+    "copied": "已复制",
+    "copyFailed": "复制失败"
+  },
+  "prices": {
+    "warning": "当前无法获取价格，图鉴暂不显示价格。快照会自动刷新。",
+    "workflowLink": "价格快照工作流"
+  },
+  "desktop": {
+    "title": "这些功能需要桌面版",
+    "body": "浏览器无法监听存档文件、读取游戏内存，也无法在游戏上方悬浮窗口。桌面版全部支持，且保持只读、数据留在你的电脑上。",
+    "download": "下载 Windows 版",
+    "viewSource": "在 GitHub 上查看",
+    "liveXp": {
+      "title": "实时经验与金币速率",
+      "body": "游戏进行时监听存档，显示每小时经验、每小时金币以及各英雄的速率。"
+    },
+    "liveMemory": {
+      "title": "只读的实时内存",
+      "body": "直接从运行中的游戏读取关卡通关、宝箱掉落与 DPS，数据精确到秒。"
+    },
+    "overlay": {
+      "title": "宝箱追踪与置顶悬浮窗",
+      "body": "为每条追踪路线提供冷却计时，并有一个悬浮在游戏上方的小窗。"
+    },
+    "pricing": {
+      "title": "Steam 市场自动定价",
+      "body": "一次为整个背包定价，并在扣除市场手续费后汇总。"
+    },
+    "extras": {
+      "title": "宠物进度、掉落历史、通知",
+      "body": "记录掉落内容与时间，并在一口宝箱就绪时提醒你。"
+    }
+  }
+}

@@ -33,14 +33,11 @@ import { WEB_DEFAULT_CONFIG } from "./defaultConfig";
 import { analyzeSaveFile, type AnalyzeResult } from "./analyzeSave";
 import { classifySaveFileError } from "./errors";
 import { installWebDataSource } from "./dataSource";
-import {
-  ensureWebPricesLoaded,
-  getWebPriceSnapshot,
-  subscribeWebPrices,
-} from "./pricesSnapshot";
+import { ensureWebPricesLoaded, getWebPriceSnapshot, subscribeWebPrices } from "./pricesSnapshot";
 import { loadLookupItems } from "../core/lookup/catalog";
 import { gameItemName } from "../core/gamedata";
 import { loadLocaleCatalog } from "../core/localeCatalog";
+import { resolveLanguage, type ResolvedLanguage } from "../../shared/language";
 import type { AppConfig, LookupItem, ResolvedInventory, TbhApi } from "../../shared/types";
 
 type Listener<T> = (value: T) => void;
@@ -73,7 +70,22 @@ const runtime: WebRuntimeState = {
 // most recent one — the identity changes exactly when the state does.
 let runtimeSnapshot: Readonly<WebRuntimeState> = { ...runtime };
 
-let config: AppConfig = { ...WEB_DEFAULT_CONFIG };
+let config: AppConfig = {
+  ...WEB_DEFAULT_CONFIG,
+  resolvedLanguage: resolveLanguage(WEB_DEFAULT_CONFIG.language, navigator.language, null),
+};
+
+/**
+ * Recompute the runtime `resolvedLanguage` from the configured `language`.
+ *
+ * On desktop this field is injected by main (it has the game's language
+ * registry); the browser has no registry, so it is derived here — "auto"/"game"
+ * follow `navigator.language` and unknown locales fall back to English. It is a
+ * derived value and is never persisted.
+ */
+function resolveWebLanguage(cfg: AppConfig): ResolvedLanguage {
+  return resolveLanguage(cfg.language, navigator.language, cfg.resolvedLanguage ?? null);
+}
 const inventoryListeners = new Set<Listener<ResolvedInventory>>();
 const runtimeSubscribers = new Set<() => void>();
 
@@ -154,7 +166,8 @@ export function restoreWebConfig(): void {
     if (!raw) return;
     // `resolvedLanguage` is runtime-only and never persisted — recompute it.
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    config = { ...config, ...parsed, resolvedLanguage: config.resolvedLanguage };
+    const merged = { ...config, ...parsed };
+    config = { ...merged, resolvedLanguage: resolveWebLanguage(merged) };
   } catch {
     // Ignore corrupt payloads and fall back to defaults.
   }
@@ -205,7 +218,8 @@ function buildWebApi(): TbhApi {
     getConfig: () => Promise.resolve(config),
     saveConfig: (patch: Partial<AppConfig>) => {
       // `resolvedLanguage` is derived per-session, never persisted.
-      config = { ...config, ...patch, resolvedLanguage: config.resolvedLanguage };
+      const merged = { ...config, ...patch };
+      config = { ...merged, resolvedLanguage: resolveWebLanguage(merged) };
       persistConfig(config);
       return Promise.resolve(config);
     },

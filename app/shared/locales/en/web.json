@@ -1,0 +1,107 @@
+{
+  "badge": "Web",
+  "nav": {
+    "home": "Home",
+    "inventory": "Inventory",
+    "chests": "Chests",
+    "lookup": "Lookup",
+    "trading": "Trading"
+  },
+  "language": "Language",
+  "footer": "Unofficial, open-source tool for Task Bar Hero. Your save is processed locally in this tab and never uploaded.",
+  "footerSource": "Source on GitHub",
+  "crashTitle": "TBH Companion web failed to render",
+  "home": {
+    "title": "TBH Companion",
+    "tagline": "Browse the item catalog, chest drops, and Steam Market prices — then inspect your own save. Everything runs in your browser.",
+    "dropTitle": "Drop your SaveFile_Live.es3 here",
+    "dropReading": "Reading save…",
+    "dropPrivacy": "The file is decrypted and analyzed entirely in your browser. It is never uploaded, and nothing is sent anywhere.",
+    "choose": "Choose save file",
+    "saveError": "Couldn't read that save",
+    "loadedTitle": "Save loaded",
+    "loadedSummary": "{{items}} items · {{chests}} chests",
+    "reselect": "Choose another file",
+    "clear": "Clear",
+    "stepsTitle": "How it works",
+    "steps": {
+      "one": {
+        "title": "Find your save",
+        "body": "On Windows it is under the path shown below. The live file is named SaveFile_Live.es3."
+      },
+      "two": {
+        "title": "Drop it here",
+        "body": "Drag the file onto this page, or pick it with the button. It is read locally and never uploaded."
+      },
+      "three": {
+        "title": "Explore",
+        "body": "Open Inventory for your items, or jump straight into the catalog and market pages below — those need no save."
+      }
+    },
+    "quickTitle": "Works without a save",
+    "quickHint": "These pages render real data with no save file at all.",
+    "quickLookup": "Item catalog",
+    "quickLookupHint": "Every obtainable item, its stats, and Steam Market prices.",
+    "quickChests": "Chest catalog",
+    "quickChestsHint": "Every obtainable chest and the stages it drops from.",
+    "quickTrading": "Market prices",
+    "quickTradingHint": "Tradable items with their latest listed prices."
+  },
+  "inventoryEmpty": {
+    "title": "Inventory comes from your save",
+    "body": "Drop a save file on the Home page, or choose one here to see your items.",
+    "goHome": "Go to Home"
+  },
+  "trading": {
+    "intro": "Tradable items from the bundled catalog with their latest Steam Market listing price.",
+    "kpiTradable": "Tradable items",
+    "kpiPriced": "With a price",
+    "kpiCoverage": "Coverage",
+    "updatedAt": "Prices updated {{time}}",
+    "updatedUnknown": "Price snapshot unavailable",
+    "colItem": "Item",
+    "colGrade": "Grade",
+    "colPrice": "Lowest listing",
+    "never": "—",
+    "empty": "No tradable items in the catalog."
+  },
+  "loadAnother": "Choose another file",
+  "clear": "Clear",
+  "savePath": {
+    "title": "Where is my save file?",
+    "body": "On Windows it is under {{path}} — look for {{file}}.",
+    "copy": "Copy path",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy"
+  },
+  "prices": {
+    "warning": "Prices are unavailable right now, so the catalog is shown without them. The snapshot refreshes automatically.",
+    "workflowLink": "Price snapshot workflow"
+  },
+  "desktop": {
+    "title": "These features need the desktop app",
+    "body": "A browser can't watch your save file, read the game's memory, or float a window over the game. The desktop app does all of it, stays read-only, and keeps your data on your PC.",
+    "download": "Download for Windows",
+    "viewSource": "View on GitHub",
+    "liveXp": {
+      "title": "Live XP & gold rates",
+      "body": "Watches your save while you play and shows XP/hour, gold/hour, and per-hero rates."
+    },
+    "liveMemory": {
+      "title": "Read-only live memory",
+      "body": "Reads stage clears, chest drops, and DPS straight from the running game for second-accurate data."
+    },
+    "overlay": {
+      "title": "Chest tracker & always-on-top overlay",
+      "body": "Cooldown timers for every tracked route, plus a mini overlay that floats over the game."
+    },
+    "pricing": {
+      "title": "Automatic Steam Market pricing",
+      "body": "Prices your whole inventory in one pass and totals it after market fees."
+    },
+    "extras": {
+      "title": "Pet progress, loot history, notifications",
+      "body": "Tracks what dropped, when, and alerts you when a chest is ready."
+    }
+  }
+}

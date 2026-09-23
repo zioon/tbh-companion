@@ -26,7 +26,24 @@ import { ItemCard } from "../components/lookup/ItemCard";
 import { LookupPollingStatusRow } from "../components/lookup/LookupPollingStatusRow";
 import { BackToTop } from "../components/lookup/BackToTop";
 
-export function Lookup() {
+export function Lookup({
+  /**
+   * Initial value of the "watched only" filter. Desktop leaves this on so the
+   * grid opens focused on starred items; the web shell passes `false` because a
+   * visitor has no starred items (the watchlist lives in desktop config), which
+   * would otherwise open the grid on an empty list.
+   */
+  watchedOnlyDefault = true,
+  /**
+   * Whether to show the local price-polling status row. It reports the desktop
+   * polling service, which the web build has no equivalent of, so the web shell
+   * passes `false`.
+   */
+  showPollingStatus = true,
+}: {
+  watchedOnlyDefault?: boolean;
+  showPollingStatus?: boolean;
+} = {}) {
   const { t } = useTranslation("lookup");
   const items = useLookupCatalog();
   const sources = useLookupSources();
@@ -42,7 +59,7 @@ export function Lookup() {
   const [uniqueOnly, setUniqueOnly] = useState(false);
   // watchedOnly 默认 true：进入图鉴时只显示已星标的物品，让用户聚焦于
   // 自己关心的价格跟踪目标。可在 UI 关闭查看全部。
-  const [watchedOnly, setWatchedOnly] = useState(true);
+  const [watchedOnly, setWatchedOnly] = useState(watchedOnlyDefault);
   const [plagueOnly, setPlagueOnly] = useState(false);
   const watchedSet = useWatchedHashesSet();
   const watchedCount = watchedSet.size;
@@ -146,7 +163,7 @@ export function Lookup() {
     <TabPage>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <TabHeader title={t("tabTitle")} intro={t("intro")} />
-        <LookupPollingStatusRow />
+        {showPollingStatus ? <LookupPollingStatusRow /> : null}
       </div>
 
       <LookupFilters

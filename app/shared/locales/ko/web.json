@@ -1,0 +1,107 @@
+{
+  "badge": "웹",
+  "nav": {
+    "home": "홈",
+    "inventory": "인벤토리",
+    "chests": "상자",
+    "lookup": "도감",
+    "trading": "거래"
+  },
+  "language": "언어",
+  "footer": "Task Bar Hero용 비공식 오픈소스 도구입니다. 세이브 데이터는 이 탭에서 로컬로 처리되며 절대 업로드되지 않습니다.",
+  "footerSource": "GitHub에서 소스 보기",
+  "crashTitle": "TBH Companion 웹 렌더링에 실패했습니다",
+  "home": {
+    "title": "TBH Companion",
+    "tagline": "아이템 도감, 상자 드롭, Steam 마켓 가격을 살펴보고 자신의 세이브를 분석하세요. 모든 것이 브라우저 안에서 실행됩니다.",
+    "dropTitle": "SaveFile_Live.es3을 여기에 놓으세요",
+    "dropReading": "세이브 읽는 중…",
+    "dropPrivacy": "파일은 전적으로 브라우저에서 복호화·분석됩니다. 절대 업로드되지 않으며 어디에도 전송되지 않습니다.",
+    "choose": "세이브 파일 선택",
+    "saveError": "이 세이브를 읽을 수 없습니다",
+    "loadedTitle": "세이브 불러옴",
+    "loadedSummary": "아이템 {{items}}개 · 상자 {{chests}}개",
+    "reselect": "다른 파일 선택",
+    "clear": "지우기",
+    "stepsTitle": "사용 방법",
+    "steps": {
+      "one": {
+        "title": "세이브 찾기",
+        "body": "Windows에서는 아래 표시된 경로에 있습니다. 라이브 파일 이름은 SaveFile_Live.es3입니다."
+      },
+      "two": {
+        "title": "여기에 놓기",
+        "body": "파일을 이 페이지로 끌어오거나 버튼으로 선택하세요. 로컬에서만 읽고 업로드하지 않습니다."
+      },
+      "three": {
+        "title": "둘러보기",
+        "body": "「인벤토리」에서 아이템을 열거나 아래 도감·마켓 페이지로 이동하세요. 후자는 세이브가 필요 없습니다."
+      }
+    },
+    "quickTitle": "세이브 없이도 사용 가능",
+    "quickHint": "이 페이지들은 세이브 파일이 없어도 실제 데이터를 표시합니다.",
+    "quickLookup": "아이템 도감",
+    "quickLookupHint": "얻을 수 있는 모든 아이템의 능력치와 Steam 마켓 가격.",
+    "quickChests": "상자 도감",
+    "quickChestsHint": "얻을 수 있는 모든 상자와 드롭되는 스테이지.",
+    "quickTrading": "마켓 가격",
+    "quickTradingHint": "거래 가능한 아이템과 최신 판매 등록 가격."
+  },
+  "inventoryEmpty": {
+    "title": "인벤토리는 세이브에서 가져옵니다",
+    "body": "홈 페이지에서 세이브 파일을 놓거나 여기에서 선택하세요.",
+    "goHome": "홈으로"
+  },
+  "trading": {
+    "intro": "번들 카탈로그의 거래 가능 아이템과 최신 Steam 마켓 판매 등록 가격입니다.",
+    "kpiTradable": "거래 가능 아이템",
+    "kpiPriced": "가격 있음",
+    "kpiCoverage": "적용률",
+    "updatedAt": "가격 갱신: {{time}}",
+    "updatedUnknown": "가격 스냅샷을 사용할 수 없음",
+    "colItem": "아이템",
+    "colGrade": "등급",
+    "colPrice": "최저 판매 등록가",
+    "never": "—",
+    "empty": "카탈로그에 거래 가능한 아이템이 없습니다."
+  },
+  "loadAnother": "다른 파일 선택",
+  "clear": "지우기",
+  "savePath": {
+    "title": "내 세이브 파일은 어디에 있나요?",
+    "body": "Windows에서는 {{path}} 아래에 있습니다. 파일 이름은 {{file}}입니다.",
+    "copy": "경로 복사",
+    "copied": "복사됨",
+    "copyFailed": "복사 실패"
+  },
+  "prices": {
+    "warning": "현재 가격을 사용할 수 없어 가격 없이 도감을 표시합니다. 스냅샷은 자동으로 갱신됩니다.",
+    "workflowLink": "가격 스냅샷 워크플로"
+  },
+  "desktop": {
+    "title": "이 기능들은 데스크톱 앱이 필요합니다",
+    "body": "브라우저는 세이브 파일을 감시하거나, 게임 메모리를 읽거나, 게임 위에 창을 띄울 수 없습니다. 데스크톱 앱은 이 모두를 지원하며 읽기 전용을 유지하고 데이터를 PC에 보관합니다.",
+    "download": "Windows용 다운로드",
+    "viewSource": "GitHub에서 보기",
+    "liveXp": {
+      "title": "실시간 XP 및 골드 속도",
+      "body": "플레이하는 동안 세이브를 감시하여 시간당 XP, 시간당 골드, 영웅별 속도를 표시합니다."
+    },
+    "liveMemory": {
+      "title": "읽기 전용 실시간 메모리",
+      "body": "실행 중인 게임에서 스테이지 클리어, 상자 드롭, DPS를 직접 읽어 초 단위로 정확한 데이터를 제공합니다."
+    },
+    "overlay": {
+      "title": "상자 트래커 및 항상 위 오버레이",
+      "body": "추적 중인 모든 경로의 쿨다운 타이머와 게임 위에 뜨는 미니 오버레이."
+    },
+    "pricing": {
+      "title": "Steam 마켓 자동 가격 책정",
+      "body": "인벤토리 전체를 한 번에 가격 책정하고 마켓 수수료를 제한 후 합계를 냅니다."
+    },
+    "extras": {
+      "title": "펫 진행도, 전리품 기록, 알림",
+      "body": "무엇이 언제 드롭되었는지 기록하고 상자가 준비되면 알려줍니다."
+    }
+  }
+}
