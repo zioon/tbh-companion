@@ -12,10 +12,19 @@ app/.electron-cache/
 app/storybook-static/
 app/bench-results.json
 app/*-bench.json
-# Web inspector build output — produced by `pnpm build:web`; CI stages it into
-# website/inspector/ before uploading the Pages artifact (see docs/DEPLOY-WEB.md)
+# Web app build output — produced by `pnpm build:web`. CI stages its contents
+# into the site ROOT (website/index.html + assets/ + icons/ + favicon.png)
+# before uploading the Pages artifact (see docs/DEPLOY-WEB.md).
 dist-web/
-website/inspector/
+# Staged build artifacts at the site root — never tracked; the CI-generated
+# copy under website/ is what gets deployed.
+/website/index.html
+/website/assets/
+/website/icons/
+/website/favicon.png
+# The legacy /inspector/ URL keeps only its redirect stub under version control.
+website/inspector/*
+!website/inspector/index.html
 # Legacy npm lockfile (project uses pnpm)
 app/package-lock.json
 # Generated price snapshots — built by CI (lookup-prices workflow) and

@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="./favicon.png" />
     <!--
       Web build CSP. The analyzer is fully client-side: the only outbound
-      requests are for bundled same-origin assets (catalog JSON, item icons).
-      No Steam endpoints, no telemetry — a user's save never leaves the browser.
+      requests are for bundled same-origin assets (catalog JSON, item icons,
+      the price snapshot). No Steam endpoints, no telemetry — a user's save
+      never leaves the browser.
     -->
     <meta
       http-equiv="Content-Security-Policy"
@@ -14,9 +16,9 @@
     />
     <meta
       name="description"
-      content="Inspect your Task Bar Hero save in the browser — inventory, chests, and item values. Runs entirely on your device; nothing is uploaded."
+      content="TBH Companion for Task Bar Hero — browse the item catalog, chest drops, and Steam Market prices, and inspect your save in the browser. Runs entirely on your device; nothing is uploaded."
     />
-    <title>TBH Companion — Save Inspector</title>
+    <title>TBH Companion — Task Bar Hero</title>
   </head>
   <body>
     <div id="root"></div>

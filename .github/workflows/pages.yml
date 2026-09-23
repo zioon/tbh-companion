@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      # The landing page itself
+      # The site itself (stub redirect + staged build artifacts + data)
       - "website/**"
-      # Sources the web inspector is built from — `pnpm build:web` bundles the
+      # Sources the web app is built from — `pnpm build:web` bundles the
       # shared core/ + renderer/ sources, so a change to any of them changes the
       # deployed artifact.
       - "app/src/**"
@@ -20,7 +20,7 @@ on:
       - ".github/workflows/pages.yml"
   workflow_dispatch:
   schedule:
-    # The Market view is driven by the rolling `lookup-prices` snapshot, which
+    # The Trading view is driven by the rolling `lookup-prices` snapshot, which
     # rebuilds every 6h. Nothing in the repo changes when it does, so re-stage
     # and re-deploy daily without waiting for a code push.
     - cron: "0 4 * * *"
@@ -44,11 +44,11 @@ jobs:
       - uses: actions/checkout@v5
 
       # --- Stage the shared Steam price snapshot -------------------------
-      # The Market view must work with no save file, so the site ships the
-      # same `prices.json` the desktop Lookup tab consumes (published on the
+      # The Trading/Lookup views must work with no save file, so the site ships
+      # the same `prices.json` the desktop Lookup tab consumes (published on the
       # rolling `lookup-prices` release by lookup-prices.yml). Best-effort: a
-      # missing asset degrades the Market view to catalog-only, it must never
-      # fail the deploy.
+      # missing asset degrades the views to catalog-only, it must never fail the
+      # deploy.
       - name: Stage Steam price snapshot
         env:
           GH_TOKEN: ${{ github.token }}
@@ -57,14 +57,16 @@ jobs:
                --pattern prices.json --dir website/data --clobber 2>/dev/null; then
             echo "staged website/data/prices.json ($(wc -c < website/data/prices.json) bytes)"
           else
-            echo "::warning title=Price snapshot missing::no prices.json on the lookup-prices release; Market renders without prices"
+            echo "::warning title=Price snapshot missing::no prices.json on the lookup-prices release; Trading renders without prices"
             rm -f website/data/prices.json
           fi
 
-      # --- Build the browser save inspector and stage it under website/inspector ---
-      # The artifact below is the whole `website/` directory, so the web build has
-      # to land inside it. `vite.web.config.ts` uses `base: "./"`, which is what
-      # lets the output live at a subpath without rewriting any asset URLs.
+      # --- Build the browser app and stage it at the site ROOT ---
+      # The site root IS the real app: `website/index.html` is the SPA shell, so
+      # a plain static host (Cloudflare/Netlify/Vercel/Nginx) pointing at
+      # `dist-web/` stays valid. `vite.web.config.ts` uses `base: "./"`, which is
+      # what lets the output be served from a subpath without rewriting any asset
+      # URLs.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v5
@@ -77,17 +79,22 @@ jobs:
         working-directory: app
         run: pnpm install --frozen-lockfile
 
-      - name: Build web inspector
+      - name: Build web app
         working-directory: app
         run: pnpm build:web
 
-      - name: Stage inspector into the Pages artifact
+      - name: Stage web app into the Pages root
         run: |
-          rm -rf website/inspector
-          mkdir -p website/inspector
-          cp -r dist-web/. website/inspector/
+          # Only the build outputs are replaced: `website/data/` (the staged
+          # snapshot) and `website/inspector/` (the legacy-URL redirect stub)
+          # are site-owned and must survive untouched.
+          rm -rf website/assets website/icons website/index.html website/favicon.png
+          cp -r dist-web/index.html website/index.html
+          cp -r dist-web/assets     website/assets
+          cp -r dist-web/icons      website/icons
+          if [ -f dist-web/favicon.png ]; then cp dist-web/favicon.png website/favicon.png; fi
           # Notification sounds are desktop-only; the web build never plays them.
-          rm -f website/inspector/assets/*.wav
+          rm -f website/assets/*.wav
 
       - uses: actions/configure-pages@v5
 

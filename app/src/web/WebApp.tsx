@@ -17,7 +17,7 @@ import { TabPage } from "../renderer/design-system/primitives/TabPage/TabPage";
 import { cn } from "../renderer/lib/cn";
 import { clearWebSave, loadWebSaveFile, onWebRuntimeChange, webRuntime } from "./webTbhApi";
 
-const REPO_URL = "https://github.com/lucasfevi/tbh-companion";
+const REPO_URL = "https://github.com/zioon/tbh-companion";
 const RELEASES_URL = `${REPO_URL}/releases/latest`;
 
 const TABS = [
@@ -271,7 +271,7 @@ export function WebApp() {
           <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
             <span className="text-sm font-semibold text-fg">TBH Companion</span>
             <span className="rounded bg-panel px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-              Web inspector
+              Web
             </span>
             <nav className="ml-auto flex items-center gap-1" aria-label="Sections">
               {TABS.map((entry) => (
@@ -293,7 +293,7 @@ export function WebApp() {
         </header>
 
         <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-4">
-          <ErrorBoundary title="Web inspector crashed">
+          <ErrorBoundary title="TBH Companion web failed to render">
             {tab === "inventory" && <InventoryPanel />}
             {tab === "chests" && <ChestsPanel />}
             {tab === "desktop" && <DesktopOnlyPanel />}
