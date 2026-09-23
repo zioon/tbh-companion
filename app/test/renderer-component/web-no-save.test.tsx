@@ -1,63 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import type { LookupItem } from "../../shared/types";
+import { render, screen, waitFor } from "@testing-library/react";
 import { installWebDataSource } from "../../src/web/dataSource";
 import { installWebTbhApi } from "../../src/web/webTbhApi";
+import { TbhProvider } from "../../src/renderer/context/TbhProvider";
 import { EntityPanelProvider } from "../../src/renderer/context/EntityPanelProvider";
 import { Lookup } from "../../src/renderer/tabs/Lookup";
 import { ChestsPanel } from "../../src/web/tabs/ChestsPanel";
 import { TradingPanel } from "../../src/web/tabs/TradingPanel";
 
-// Invariant guard for the site-root web app: Lookup / Chests / Trading must
-// render real content with NO save loaded. A regression here is exactly the
-// failure mode where a page grows a "please load a save first" gate and the
-// no-save experience silently dies.
+// Invariant guard for the site-root web app: with NO save loaded and NO network
+// (the price snapshot 404s here), Lookup / Chests / Trading must render the REAL
+// bundled catalog.
 //
-// Lookup and Trading read the item catalog through `useLookupCatalog()`. That
-// catalog is ~2k items; rendering it whole in jsdom would blow the default test
-// timeout, so the hook is mocked to a tiny fixture here. The *real* bundled
-// catalog is separately asserted to be non-empty via the shim (first test), and
-// fully rendered end-to-end by `smoke-web.cjs`. Chests reads the bundled
-// `stage_boxes.json` directly and is exercised with real data here.
+// Nothing below mocks `useLookupCatalog`: the catalog reaches the grid through
+// `TbhProvider`, which prefetches the real bundled `lookup_items.json` via the
+// web shim — the exact production path. An earlier version mocked the catalog to
+// a 3-item fixture, which only proved "a fixture renders", never "the real
+// catalog renders", and left Trading's ~1k tradable rows uncovered entirely.
+//
+// Rendering the real catalog (1,725 items on Lookup, ~1,079 tradable rows on
+// Trading) is heavy for jsdom, so the page cases carry an explicit 30s timeout
+// rather than shrinking scope to a fixture.
 
-const { CATALOG } = vi.hoisted(() => {
-  const item = (
-    over: Partial<LookupItem> & Pick<LookupItem, "id" | "name" | "type" | "grade">,
-  ): LookupItem => ({
-    gearType: null,
-    gearGroup: null,
-    materialType: null,
-    level: null,
-    marketTradable: false,
-    iconPath: `item-${over.id}`,
-    ...over,
-  });
-  return {
-    CATALOG: [
-      item({
-        id: 910001,
-        name: "Copper Coin",
-        type: "MATERIAL",
-        grade: "COMMON",
-        marketTradable: true,
-      }),
-      item({
-        id: 910002,
-        name: "Long Sword",
-        type: "GEAR",
-        grade: "LEGENDARY",
-        gearType: "sword",
-        level: 10,
-        marketTradable: true,
-      }),
-      item({ id: 910003, name: "Plain Rock", type: "MATERIAL", grade: "COMMON" }),
-    ] satisfies LookupItem[],
-  };
-});
+// A "save gate" is any copy that tells the visitor to load a save first. None of
+// these three pages may ever show one — the catalog pages are save-independent
+// by design (see `docs/DEPLOY-WEB.md` §"设计约束"). Matched against the page's
+// full text, so a real regression that inserts a gate turns the assertion red.
+const SAVE_GATE =
+  /load a save|please load|no save loaded|waiting for save|comes from your save|请先载入存档/i;
 
-vi.mock("../../src/renderer/lib/useLookupCatalog", () => ({
-  useLookupCatalog: () => CATALOG as LookupItem[],
-}));
+function expectNoSaveGate(container: HTMLElement): void {
+  expect(SAVE_GATE.test(container.textContent ?? "")).toBe(false);
+}
 
 beforeEach(() => {
   // The web entry does not auto-install the shims (that is `main.tsx`'s job),
@@ -76,54 +50,77 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("web shell without a save file", () => {
+describe("web shell without a save file — real bundled catalog", () => {
   it("serves the real bundled item catalog via the shim", async () => {
     const catalog = await window.tbh.getLookupCatalog();
     // A non-trivial catalog — guards the historical bug where `getLookupCatalog`
     // returned `[]` (no icons, raw English names) rather than a small fixture.
     expect(catalog.length).toBeGreaterThan(100);
+    // This path is the REAL bundled catalog (not a fixture), so assert it is
+    // genuinely *usable*, not merely non-empty: every row renders through
+    // `ItemIcon`/`iconSrc` (needs a non-empty name + icon), and the Trading view
+    // needs at least one `marketHashName`-addressable row.
+    expect(catalog.every((item) => item.name.length > 0 && item.iconPath.length > 0)).toBe(true);
+    expect(catalog.filter((item) => item.marketTradable).length).toBeGreaterThan(0);
   });
 
-  it("renders Lookup item cards", async () => {
-    render(
-      <EntityPanelProvider>
-        <Lookup watchedOnlyDefault={false} showPollingStatus={false} />
-      </EntityPanelProvider>,
+  it("renders every Lookup card from the real catalog", async () => {
+    const { container } = render(
+      <TbhProvider>
+        <EntityPanelProvider>
+          <Lookup watchedOnlyDefault={false} showPollingStatus={false} />
+        </EntityPanelProvider>
+      </TbhProvider>,
     );
 
-    expect(await screen.findByText(/Copper Coin/)).toBeInTheDocument();
-    expect(await screen.findByText(/Long Sword/)).toBeInTheDocument();
-    // No "waiting for the catalog" placeholder once cards are up.
+    // The ~1,725-item grid only mounts once the real catalog reaches the context
+    // — this is the assertion that would fail if the catalog were ever a stub.
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll("ul.grid > li").length).toBeGreaterThan(100);
+      },
+      { timeout: 25000 },
+    );
+    // No "waiting for the catalog" placeholder once cards are up…
     expect(screen.queryByText(/loading item catalog/i)).toBeNull();
-    // And, crucially, no save gate.
-    expect(screen.queryByText(/waiting for save/i)).toBeNull();
-    expect(screen.queryByText(/comes from your save/i)).toBeNull();
-  });
+    // …and no save gate.
+    expectNoSaveGate(container);
+  }, 30000);
 
-  it("renders the chest catalog", async () => {
-    render(<ChestsPanel />);
+  it("renders the real chest catalog", async () => {
+    const { container } = render(<ChestsPanel />);
 
-    // Groups only render when they contain rows, so a group heading implies a
-    // non-empty catalog. Icons confirm the cards actually built.
-    const headings = screen.getAllByRole("heading", { level: 3 });
-    expect(headings.length).toBeGreaterThan(0);
-    const section = document.querySelector('section[aria-labelledby="chest-catalog-heading"]');
+    const section = container.querySelector('section[aria-labelledby="chest-catalog-heading"]');
     expect(section).not.toBeNull();
-    expect(section!.querySelectorAll("img").length).toBeGreaterThan(0);
+    // Groups only render when they contain rows, so an icon/heading implies a
+    // non-empty, real catalog.
+    await waitFor(() => {
+      expect(section!.querySelectorAll("img").length).toBeGreaterThan(0);
+    });
+    expect(
+      container.querySelectorAll('section[aria-labelledby="chest-catalog-heading"] h3').length,
+    ).toBeGreaterThan(0);
 
-    expect(screen.queryByText(/waiting for save/i)).toBeNull();
-    expect(screen.queryByText(/comes from your save/i)).toBeNull();
+    expectNoSaveGate(container);
   });
 
-  it("renders tradable rows and warns when the price snapshot is missing", async () => {
-    render(<TradingPanel />);
+  it("renders real tradable rows and warns when the price snapshot is missing", async () => {
+    const { container } = render(
+      <TbhProvider>
+        <TradingPanel />
+      </TbhProvider>,
+    );
 
-    // Missing snapshot (404) must surface the yellow banner…
+    // Real tradable rows (~1,079) once the real catalog lands.
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll("tbody tr").length).toBeGreaterThan(0);
+      },
+      { timeout: 25000 },
+    );
+    // Missing snapshot (404) must surface the yellow banner while the catalog
+    // still renders.
     expect(await screen.findByText(/Prices are unavailable/)).toBeInTheDocument();
-    // …while the catalog still renders: two tradable rows.
-    expect(document.querySelectorAll("tbody tr").length).toBeGreaterThan(0);
-
-    expect(screen.queryByText(/waiting for save/i)).toBeNull();
-    expect(screen.queryByText(/comes from your save/i)).toBeNull();
-  });
+    expectNoSaveGate(container);
+  }, 30000);
 });
