@@ -71,9 +71,13 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 
 1. `player.BoxData` 存在 → 走旧路径（BoxTypes × BoxQuantity）。
 2. 否则从 `playerStr` 按原始文本遍历 `itemSaveDatas` 物品对象（`UniqueId` 超 `Number.MAX_SAFE_INTEGER`，**必须字符串比较**，禁止 JSON.parse 后转 number），`type` 携带 gamedata 物品 id。
-3. **持有的判定（2026-09-13 修复）**：凡 `classifyBoxItemKey(itemKey)` 返回已知 STAGEBOX 分类（`Normal Monster Box*`→common、`Stage Boss Box*`→rare、`Act Boss Box*`→act，`categoryFromBoxItemName` 在 `core/liveMemory/chestSlots.ts`）且该 item 的 `UniqueId` **不在 `BoxBucketUseBoxList`（已开桶）** 即计入持有。
-   - **关键**：不要求一定出现在 `BoxBucketGetBoxList`（未开桶）。v1.2.2 实测普通/关卡箱（910901/920901）的 `UniqueId` 在未开桶，而**章节 Boss 箱（930901）的 `UniqueId` 既不在未开桶也不在已开桶、仅以 STAGEBOX 物品存在于 `itemSaveDatas`**。旧实现用「未开桶」过滤 → 章节 Boss 箱被误判为已开而整体丢弃 → act 持有=0 → reconcile 把刚 +1 的实时计数覆盖回 0（"掉落章节宝箱后队列被误归零"）。
+3. **持有的判定 —— 按类别非对称（2026-09-23 修复，取代 2026-09-13 的全类别宽松规则）**：
+   - **`common` / `rare` / `plague*`：必须出现在 `BoxBucketGetBoxList`（未开桶）内**才算持有。这类箱子的持有由游戏经 GetBoxList 恢复，桶即真值。
+     - **为何收紧**：升级/游戏重启后游戏**不恢复**的条目会**永久残留**在 `itemSaveDatas`（游戏侧不可见），旧的「不在已开桶即持有」把它们全部计入 → common/rare 虚高。2026-09-23 实测（v1.2.8 真实存档）：`BoxBucketGetBoxList` 内容与游戏内可见箱子**逐项一致**（5 common + 3 rare + 0 act），而 `itemSaveDatas` 另有 3 条 common 残余 → 旧规则显示 **8**，真值 **5**。
+   - **`act`（`Act Boss Box*`/`Contaminated Act*`）：仍沿用「`UniqueId` 不在 `BoxBucketUseBoxList`（已开桶）即持有」**，**不要求**出现在 GetBoxList。
+     - **为何例外**：v1.2.2 起 act 箱子的 `UniqueId` **从不进入** Get/Use 两桶（v1.2.8 实测未变），桶内存在与否对它无意义。若也用 GetBoxList 判定，真实在持的 act 箱子会被整体丢弃 → act 恒为 0 → reconcile 把刚 +1 的实时计数覆盖回 0（"掉落章节宝箱后队列被误归零"）。其幽灵条目交由**会话作用域过滤**处理（见 13.5.1）。
    - 未知 id 的箱子（`classifyBoxItemKey` 返回 null）仍以出现在未开桶作为识别依据，计入 unclassified 行（`Type <itemId>`），不静默丢弃，便于发现 gamedata 过期。
+   - **两条例外规则并存的历史原因**：2026-09-13 曾为修 act 的误丢 bug 而把规则**放宽到全类别**；该放宽对 act 必要，但对 common/rare **过度放宽**，是 common 虚高的直接原因。现按类别分别处理，两侧约束同时满足。
 4. 分类由调用方注入 `classifyBoxItemKey`（`InventoryService.parseFromSave` 按 gamedata `type === "STAGEBOX"` + 物品名前缀）；分类结果写入 `ChestHolding.category/label`。
 5. `resolveChestHoldings`（`core/boxes/resolve.ts`）优先采用 holding 自带的 `category/label`，缺省回退 boxTypeCatalog（旧版本行为不变）。
 
@@ -284,7 +288,7 @@ flowchart TD
        两者覆盖"堆积宝箱手动全开、autoOpenAtMs 早已过、1Hz tick 抢先把 liveSlots 减掉导致 delta 为 0"的场景（2026-09-02 修复：原来 delta=0 时无脑等待，burst 5 分钟 TTL prune 后物品滞留未分类）。
    - 多 category decreased（真正歧义）→ 不 reclassify，所有 category 用 earliestBurstMs + per-cat autoOpenSec 重置 timer。
 4. **Step 3: liveSlots = {...slots}** — save 是 ground truth，覆盖实时调整。
-4. **Step 4: backfill + 重复信用 arm**：
+5. **Step 4: backfill + 重复信用 arm**：
    - **backfill**：queue 数 < slot 数（live reader 漏掉或刚启动）→ 用 placeholder item 锚定到当前 `getEffectiveNow()`，每个获得完整 autoOpenSec 倒计时。
    - **重复信用 arm（`outstandingReconcileCredits`，2026-09-10 引入 / 2026-09-23 修正消费点）**：对每个 `prev = lastReconcileSlots != null && slots[cat] > prev[cat]` 的类别，压入 `slots[cat] - prev[cat]` 条信用（`expiresAtMs = Date.now() + RECOVERY_GRACE_MS(=5s)`）。含义：save 新计入的这批箱子，其 live GetBox burst **可能仍在路上**（reader 滞后于 5s save watcher，或同一颗箱子被重复上报）；当它真的到来时，`handleChestDrop` 必须**消费信用并完全跳过入队/自增**（详见 §14.2 第 5 步），因为 Step 3 已把增量折进 `liveSlots`、Step 4 已 backfill 进队列。
    - **该 arm 与 backfill 判定相互独立**：即使队列已与 save 数相等（无 backfill），也必须 arm —— 否则一颗 trailing burst 会把 `liveSlots` 顶到 `save + 1`。

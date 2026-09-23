@@ -21,20 +21,76 @@ const newSavePath = join(fixtureDir, "newsave.es3");
 const oldSavePath = join(fixtureDir, "oldsave.es3");
 const haveFixtures = existsSync(newSavePath) && existsSync(oldSavePath);
 
-// Real catalog so MATERIAL classification is the production one (not a stub).
-const gdPath = join(__dirname, "../../dist/data/gamedata.json");
-const gd = JSON.parse(readFileSync(gdPath, "utf-8")) as { items: GameItem[] };
-const byId = new Map<number, GameItem>();
-for (const it of gd.items) byId.set(Number(it.id), it);
-const lookup = (key: number): GameItem | undefined => byId.get(key);
+// The real inventory catalog (`dist/data/gamedata.json`) only exists after
+// `pnpm minify-and-copy-data` (or `pnpm pack`/`dist`) has run. It is therefore
+// loaded LAZILY and only where it is genuinely needed — the real-save suite
+// below, which additionally requires this file.
+//
+// Reading it at module scope would throw ENOENT on CI and abort this whole
+// file, taking the skip-guards down with it (that was a real CI failure). The
+// handwritten fixtures further down deliberately do NOT use it — see
+// `isMaterial` — so they stay runnable in every environment.
+const realCatalogPath = join(__dirname, "../../dist/data/gamedata.json");
+const haveRealCatalog = existsSync(realCatalogPath);
+
+let catalogById: Map<number, GameItem> | null = null;
+function realCatalog(): Map<number, GameItem> {
+  if (catalogById === null) {
+    const gd = JSON.parse(readFileSync(realCatalogPath, "utf-8")) as { items: GameItem[] };
+    catalogById = new Map<number, GameItem>();
+    for (const it of gd.items) catalogById.set(Number(it.id), it);
+  }
+  return catalogById;
+}
+const realLookup = (key: number): GameItem | undefined => realCatalog().get(key);
+
+// Item keys used by the handwritten fixtures, classified by hand. Using the
+// real catalog for these would make an environment-independent test depend on a
+// build artifact for no benefit — 141002 is MATERIAL and 303071 is GEAR, and
+// the real-save suite independently pins that against the production catalog.
+//
+// NOTE: this is the one place the fixtures encode classification instead of
+// reading it. If either key ever changes type in `gamedata.json`,
+// `pnpm minify-and-copy-data` changes the real-save suite's expectations first
+// — check that suite before assuming this map is still right.
+const fixtureItemTypes = new Map<number, GameItem["type"]>([
+  [141002, "MATERIAL"],
+  [303071, "GEAR"],
+]);
+const lookup = (key: number): GameItem | undefined => {
+  const type = fixtureItemTypes.get(key);
+  return type ? ({ id: key, type } as GameItem) : undefined;
+};
 const isMaterial = (key: number) => lookup(key)?.type === "MATERIAL";
 
-const runReal = haveFixtures ? describe : describe.skip;
+// Two independent preconditions. The real-save probes compare against golden
+// totals produced with the production MATERIAL classification, so they are only
+// meaningful (and only runnable) when BOTH the pinned save copies and the real
+// catalog artifact are present. Either one missing -> skip, visibly.
+const realSaveReason = !haveFixtures
+  ? `fixed save copies not found at ${fixtureDir} (gitignored)`
+  : !haveRealCatalog
+    ? `real catalog not found at ${realCatalogPath} (run pnpm minify-and-copy-data)`
+    : null;
+
+if (realSaveReason) {
+  describe("QA independent — pinned real saves (immutable copies)", () => {
+    it.skip(`SKIPPED — ${realSaveReason}`, () => {});
+  });
+  console.warn(`\n[SKIP] qaMaterialStackRegression real-save probes: ${realSaveReason}\n`);
+}
+
+const runReal = realSaveReason ? describe.skip : describe;
 
 runReal("QA independent — pinned real saves (immutable copies)", () => {
+  // The real-save suite is the one place that must classify against the
+  // production catalog rather than the fixture map — it is also the suite that
+  // is skipped when the catalog is unavailable (CI), so this read is safe here.
+  const realIsMaterial = (key: number) => realLookup(key)?.type === "MATERIAL";
+
   it("P0-2 NEW save via real parseInventory: inventory 104/3, stash material split sane", () => {
     const { text, mtime } = readAndDecrypt(newSavePath);
-    const snap = parseInventory(text, mtime, isMaterial);
+    const snap = parseInventory(text, mtime, realIsMaterial);
     // Golden from QA probe on the pinned copy.
     expect(snap.inventoryCapacity).toBe(104);
     expect(snap.inventoryUsed).toBe(3);
@@ -88,7 +144,7 @@ runReal("QA independent — pinned real saves (immutable copies)", () => {
     expect(stacks.get(116001)!.total).toBe(9); // [5,4]
 
     // resolveInventory must surface the same totals on the rows.
-    const res = resolveInventory(snap, lookup, true);
+    const res = resolveInventory(snap, realLookup, true);
     const soul = res.rows.find((r) => r.itemKey === 190004)!;
     expect(soul.count).toBe(26);
     const ingot = res.rows.find((r) => r.itemKey === 116002)!;
@@ -97,7 +153,7 @@ runReal("QA independent — pinned real saves (immutable copies)", () => {
 
   it("P0-1 OLD save via real parseInventory: used must NOT collapse (inv 104/104)", () => {
     const { text, mtime } = readAndDecrypt(oldSavePath);
-    const snap = parseInventory(text, mtime, isMaterial);
+    const snap = parseInventory(text, mtime, realIsMaterial);
     expect(snap.inventoryCapacity).toBe(104);
     // Pre-stacking save: no Quantity anywhere -> UID fallback keeps 104.
     expect(snap.inventoryUsed).toBe(104);
@@ -107,7 +163,7 @@ runReal("QA independent — pinned real saves (immutable copies)", () => {
     // (QA probe on the pinned copy: {140001:162, 140003:42, 140002:15}.)
     expect(snap.materialStacks?.size ?? 0).toBe(3);
     // Full pipeline must not throw on the legacy shape.
-    expect(() => resolveInventory(snap, lookup, true)).not.toThrow();
+    expect(() => resolveInventory(snap, realLookup, true)).not.toThrow();
   });
 });
 
