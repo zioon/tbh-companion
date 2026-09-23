@@ -1,0 +1,54 @@
+sequenceDiagram
+  autonumber
+  participant Game as 游戏（只读）
+  participant Save as save 轮询（main, 5s）
+  participant AQ as acquire 轮询（worker~10ms）
+  participant TS as TrackingService
+  participant DW as WishCoinDiffWindow
+  participant WL as wishLine.parseWishLine
+  participant AT as core/wish 归因纯函数
+  participant WT as WishTracker
+  participant WR as WishRecordService
+  participant ST as buildStats
+  participant UI as renderer (useWish/Wish.tsx)
+
+  Note over Game,Save: 帧采样（与祈愿事件异步，pollIntervalSeconds=5s）
+  Game->>Save: save 文件变化
+  Save->>TS: onSaveParsed(InventorySnapshot.materialStacks)
+  TS->>DW: push({at: saveMtime, stacks: materialStacks[10 coins]})
+
+  Note over AQ,WT: 祈愿事件（唯一喂入口 ingestAcquireBatch）
+  Game->>AQ: 获得记录环出现祈愿结果行
+  AQ->>TS: ingestAcquireBatch(entries, initial, ...)
+  loop 每条通过 ringSeq 去重的行
+    TS->>TS: recordLog.feed("acquire", ...)
+    TS->>WL: parseWishLine(a.message)
+    WL-->>TS: WishLineItem | null
+    alt 是祈愿行
+      TS->>DW: bracket(eventWallTime)
+      DW-->>TS: {before, after, beforeAt, afterAt}
+      TS->>AT: attributeCoinByDiff(before, after, {wallTime, bulk})
+      AT-->>TS: observed? | unknown
+      alt 差分非 observed（多枚/bulk/越窗/无帧）
+        TS->>AT: inferCoinCandidates(name, {nameToItemKey, offerings})
+        AT-->>TS: inferred(candidates) | unknown
+      end
+      TS->>WT: feed(wishItem, ts, {raw, gameTime, bulk}, attribution)
+      WT->>WT: offeringCount++ / itemCount += count
+      WT->>WT: history.push({...entry, coin: attribution})
+      WT-->>TS: true
+    end
+  end
+  TS->>WR: schedulePersist()（防抖 2s）
+  WR->>WR: captureSnapshot() -> wish_record.json（含 entry.coin）
+
+  Note over ST,UI: 输出与渲染（既有 IPC.STATS 广播，零新增通道）
+  ST->>WT: getStats(elapsed)
+  WT->>WT: 11 桶 gradeDistribution
+  WT->>WT: recentResults = history[-20:].reverse()（含 coin）
+  WT->>WT: coinGroupsFromHistory(history, coinMeta)
+  WT-->>ST: WishStats（+recentResults/coinGroups/unattributed）
+  ST--)UI: IPC.STATS 广播（既有）
+  UI->>UI: useWish() 引用稳定化
+  UI->>UI: 三项指标 + 两列 grid + 按硬币分组
+  Note over UI: 硬币面板：useInventory().rows join useLookupCatalog()（本地，无 IPC）

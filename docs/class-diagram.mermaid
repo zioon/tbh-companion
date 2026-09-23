@@ -1,0 +1,157 @@
+classDiagram
+  class WishGrade {
+    <<enumeration>>
+    COMMON
+    UNCOMMON
+    RARE
+    LEGENDARY
+    IMMORTAL
+    ARCANA
+    CELESTIAL
+    BEYOND
+    DIVINE
+    COSMIC
+    UNKNOWN
+  }
+
+  class CoinAttributionConfidence {
+    <<enumeration>>
+    observed
+    inferred
+    unknown
+  }
+
+  class WishCoinCandidate {
+    +coinKey: number
+    +poolPct: number
+    +held?: boolean
+  }
+
+  class WishCoinAttribution {
+    +confidence: CoinAttributionConfidence
+    +coinKey: number | null
+    +candidates: WishCoinCandidate[]
+    +basis?: string
+  }
+
+  class WishHistoryEntry {
+    +wallTime: number
+    +gameTime?: string
+    +name: string
+    +grade: WishGrade
+    +count: number
+    +raw: string
+    +bulk?: boolean
+    +coin?: WishCoinAttribution
+  }
+
+  class WishRecentResult {
+    +wallTime: number
+    +gameTime?: string
+    +name: string
+    +grade: WishGrade
+    +count: number
+    +coin: WishCoinAttribution
+  }
+
+  class WishCoinGroupItem {
+    +name: string
+    +count: number
+    +grade: WishGrade
+    +coin?: WishCoinAttribution
+  }
+
+  class WishCoinGroup {
+    +coinKey: number
+    +coinName: string
+    +grade: WishGrade
+    +offeringCount: number
+    +itemCount: number
+    +items: WishCoinGroupItem[]
+  }
+
+  class WishUnattributedGroup {
+    +items: WishCoinGroupItem[]
+  }
+
+  class WishHeldCoin {
+    +coinKey: number
+    +name: string
+    +grade: WishGrade
+    +quantity: number
+    +iconPath: string
+  }
+
+  class WishStats {
+    +offeringCountTotal: number
+    +itemCountTotal: number
+    +itemsPerOffering: number
+    +offeringCountSession: number
+    +itemCountSession: number
+    +offeringPerHour: number
+    +itemPerHour: number
+    +offeringRecentPerHour: number
+    +itemRecentPerHour: number
+    +gradeDistribution: WishGradeRow[]
+    +breakdown: WishBreakdownRow[]
+    +history: WishHistoryEntry[]
+    +lastWishWallTime: number | null
+    +readerRequired: boolean
+    +gameOfferingItemCount: number | null
+    +recentResults: WishRecentResult[]
+    +coinGroups: WishCoinGroup[]
+    +unattributed: WishUnattributedGroup
+  }
+
+  class WishTrackerSnapshot {
+    +offeringCount: number
+    +itemCount: number
+    +countsByName: Record
+    +gradeByName: Record
+    +history: WishHistoryEntry[]
+    +sessionWishStart?: number | null
+    +sessionOfferingBaseline?: number
+    +sessionItemBaseline?: number
+  }
+
+  class WishCoinDiffWindow {
+    -frames: Array
+    +push(frame) void
+    +bracket(wallTime) object
+    +reset() void
+  }
+
+  class WishTracker {
+    -offeringCount: number
+    -itemCount: number
+    -countsByName: Map
+    -gradeByName: Map
+    -gradeCounts: Record
+    -history: WishHistoryEntry[]
+    -sessionOfferingBaseline: number
+    -sessionItemBaseline: number
+    -sessionWishStart: number | null
+    -nameToItemKey: function
+    -offerings: OfferingsModel
+    +feed(item, wallTime, opts, attribution?) boolean
+    +getStats(elapsed) WishStats
+    +setLookupDeps(deps) void
+    +captureSnapshot() WishTrackerSnapshot
+    +applySnapshot(data) void
+    +reset() void
+  }
+
+  WishHistoryEntry --> WishCoinAttribution : coin
+  WishRecentResult --> WishCoinAttribution : coin
+  WishCoinGroupItem --> WishCoinAttribution : coin
+  WishCoinGroup --> WishCoinGroupItem
+  WishUnattributedGroup --> WishCoinGroupItem
+  WishCoinAttribution --> WishCoinCandidate
+  WishCoinAttribution ..> CoinAttributionConfidence
+  WishStats --> WishRecentResult
+  WishStats --> WishCoinGroup
+  WishStats --> WishUnattributedGroup
+  WishStats --> WishHistoryEntry
+  WishTrackerSnapshot --> WishHistoryEntry
+  WishTracker --> WishCoinDiffWindow : reads before/after frames
+  WishTracker --> WishGrade : gradeCounts (11 buckets)
