@@ -1027,12 +1027,42 @@ export interface ChestHolding {
   uniqueId?: string;
 }
 
+/**
+ * Owned quantity of one material, split per bag.
+ *
+ * Materials stack inside a single bag slot (max 5 per slot), and several slots
+ * may reference the same material — so `total` is the **sum of every non-empty
+ * slot's `Quantity`**, never a per-slot max and never a slot count.
+ *
+ * `total` always equals `inventory + stash + trading`. See
+ * `core/inventory/stacks.ts` (`materialStacksFromSlots`) and
+ * `docs/business-flows/05-inventory-and-lookup.md` §6.1.
+ */
+export interface MaterialStackTotal {
+  /** Grand total owned, across every bag (authoritative count for the row). */
+  total: number;
+  /** Portion held in the main inventory bag. */
+  inventory: number;
+  /** Portion held in the stash. */
+  stash: number;
+  /** Portion held in the remake/trading stash. */
+  trading: number;
+}
+
 export interface InventorySnapshot {
   items: InventoryItemInstance[];
   chests: ChestHolding[];
   saveMtime: number;
-  /** Stack counts from aggregateSaveDatas when decoded (materials only). */
-  materialStacks?: Map<number, number>;
+  /**
+   * Owned material quantities keyed by catalog ItemKey.
+   *
+   * Primary source: the per-slot `Quantity` field on the bag/stash slot arrays
+   * (post-stacking saves), summed across slots. Falls back to the lifetime
+   * `aggregateSaveDatas` counters when no slot carries a `Quantity` (old save /
+   * field removed), in which case the value is attributed to `inventory`.
+   * Materials only.
+   */
+  materialStacks?: Map<number, MaterialStackTotal>;
   /** Count of inventorySaveDatas slots with IsUnlock true. */
   inventoryCapacity: number;
   /** Count of unlocked slots holding an item (ItemUniqueId !== 0). */

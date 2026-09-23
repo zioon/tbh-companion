@@ -17,9 +17,10 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/10-notification-update-pet.md",
     "docs/business-flows/11-record-log.md",
     "docs/business-flows/12-box-open-backfill.md",
-    "docs/business-flows/13-web-inspector.md"
+    "docs/business-flows/13-web-inspector.md",
+    "docs/business-flows/14-wish-record.md"
   ],
-  "generatedAt": "2026-09-22T17:14:01.650Z",
+  "generatedAt": "2026-09-23T07:43:09.304Z",
   "flows": [
     {
       "number": 18,
@@ -4420,7 +4421,83 @@ window.TBH_FLOW_VIZ = {
       "anchor": "统一记录日志record-log业务流程",
       "source": "docs/business-flows/11-record-log.md",
       "sourceAnchor": "docs/business-flows/11-record-log.md#统一记录日志record-log业务流程",
-      "diagrams": []
+      "diagrams": [
+        {
+          "label": "23.6 祈愿行识别转发（Wish Record 复用同一管道，2026-09-22）",
+          "subsection": "23.6 祈愿行识别转发（Wish Record 复用同一管道，2026-09-22）",
+          "mermaid": "flowchart LR\n  subgraph acquire[\"acquire 通道（~10ms）\"]\n    A[\"ingestAcquireBatch\"] --> B[\"parseWishLine 命中\"]\n    B --> C[\"attributeWishCoin(ts,bulk)\"]\n    C --> D[\"wishTracker.feed(..., attribution)\"]\n  end\n  subgraph save[\"save 轮询通道（~5s）\"]\n    E[\"onInventory(snap)\"] --> F[\"feedWishDiffFrame\"]\n    F --> G[\"WishCoinDiffWindow.push(2 帧)\"]\n  end\n  G -. \"bracket(wallTime)\" .-> C\n  D --> H[\"Stats.wish（含 recentResults / coinGroups / unattributed）\"]",
+          "nodes": [
+            {
+              "id": "A",
+              "label": "\"ingestAcquireBatch\""
+            },
+            {
+              "id": "B",
+              "label": "\"parseWishLine 命中\""
+            },
+            {
+              "id": "C",
+              "label": "\"attributeWishCoin(ts,bulk)\""
+            },
+            {
+              "id": "D",
+              "label": "\"wishTracker.feed(..., attribution)\""
+            },
+            {
+              "id": "E",
+              "label": "\"onInventory(snap)\""
+            },
+            {
+              "id": "F",
+              "label": "\"feedWishDiffFrame\""
+            },
+            {
+              "id": "G",
+              "label": "\"WishCoinDiffWindow.push(2 帧)\""
+            },
+            {
+              "id": "H",
+              "label": "\"Stats.wish（含 recentResults / coinGroups / unattributed）\""
+            }
+          ],
+          "edges": [
+            {
+              "from": "A",
+              "to": "B"
+            },
+            {
+              "from": "B",
+              "to": "C"
+            },
+            {
+              "from": "C",
+              "to": "D"
+            },
+            {
+              "from": "D",
+              "to": "H"
+            },
+            {
+              "from": "E",
+              "to": "F"
+            },
+            {
+              "from": "F",
+              "to": "G"
+            }
+          ],
+          "subgraphs": [
+            {
+              "id": "acquire",
+              "title": "acquire 通道（~10ms）"
+            },
+            {
+              "id": "save",
+              "title": "save 轮询通道（~5s）"
+            }
+          ]
+        }
+      ]
     },
     {
       "number": 24,
@@ -4632,6 +4709,137 @@ window.TBH_FLOW_VIZ = {
       "source": "docs/business-flows/13-web-inspector.md",
       "sourceAnchor": "docs/business-flows/13-web-inspector.md#9-关键文件速查",
       "diagrams": []
+    },
+    {
+      "number": 26,
+      "title": "祈愿记录（Wish Record）业务流程",
+      "anchor": "祈愿记录wish-record业务流程",
+      "source": "docs/business-flows/14-wish-record.md",
+      "sourceAnchor": "docs/business-flows/14-wish-record.md#祈愿记录wish-record业务流程",
+      "diagrams": [
+        {
+          "label": "26.8 硬币归因（Wish v2，2026-09-23）",
+          "subsection": "26.8 硬币归因（Wish v2，2026-09-23）",
+          "mermaid": "flowchart TD\n  A[\"acquire 行 parseWishLine 命中\"] --> B{\"bulk (initial)?\"}\n  B -- 是 --> Z1[\"unknown · basis=bulk-skip\"]\n  B -- 否 --> C{\"bracket(wallTime) 有前后帧?\"}\n  C -- 否 --> Z2[\"unknown · basis=no-frame\"]\n  C -- 是 --> D{\"恰有 1 枚硬币净减少?\"}\n  D -- 否 --> Z3[\"unknown · no-decrease / multi-coin\"]\n  D -- 是 --> E{\"wallTime ∈ [beforeAt-tol, afterAt+tol]?\"}\n  E -- 否 --> Z4[\"unknown · out-of-window\"]\n  E -- 是 --> O[\"observed · coinKey=减少的那枚 · basis=diff:key\"]\n  Z1 --> F{\"inferCoinCandidates 命中 offerings 反查?\"}\n  Z2 --> F\n  Z3 --> F\n  Z4 --> F\n  F -- 是 --> I[\"inferred · candidates 按 poolPct 降序\"]\n  F -- 否 --> Z5[\"unknown · no-item-key / no-offerings / no-candidates\"]",
+          "nodes": [
+            {
+              "id": "A",
+              "label": "\"acquire 行 parseWishLine 命中\""
+            },
+            {
+              "id": "B",
+              "label": "\"bulk (initial)?\""
+            },
+            {
+              "id": "C",
+              "label": "\"bracket(wallTime) 有前后帧?\""
+            },
+            {
+              "id": "D",
+              "label": "\"恰有 1 枚硬币净减少?\""
+            },
+            {
+              "id": "E",
+              "label": "\"wallTime ∈ [beforeAt-tol, afterAt+tol]?\""
+            },
+            {
+              "id": "F",
+              "label": "\"inferCoinCandidates 命中 offerings 反查?\""
+            },
+            {
+              "id": "I",
+              "label": "\"inferred · candidates 按 poolPct 降序\""
+            },
+            {
+              "id": "O",
+              "label": "\"observed · coinKey=减少的那枚 · basis=diff:key\""
+            },
+            {
+              "id": "Z1",
+              "label": "\"unknown · basis=bulk-skip\""
+            },
+            {
+              "id": "Z2",
+              "label": "\"unknown · basis=no-frame\""
+            },
+            {
+              "id": "Z3",
+              "label": "\"unknown · no-decrease / multi-coin\""
+            },
+            {
+              "id": "Z4",
+              "label": "\"unknown · out-of-window\""
+            },
+            {
+              "id": "Z5",
+              "label": "\"unknown · no-item-key / no-offerings / no-candidates\""
+            }
+          ],
+          "edges": [
+            {
+              "from": "A",
+              "to": "B"
+            },
+            {
+              "from": "B",
+              "to": "C"
+            },
+            {
+              "from": "B",
+              "to": "Z1"
+            },
+            {
+              "from": "C",
+              "to": "D"
+            },
+            {
+              "from": "C",
+              "to": "Z2"
+            },
+            {
+              "from": "D",
+              "to": "E"
+            },
+            {
+              "from": "D",
+              "to": "Z3"
+            },
+            {
+              "from": "E",
+              "to": "O"
+            },
+            {
+              "from": "E",
+              "to": "Z4"
+            },
+            {
+              "from": "F",
+              "to": "I"
+            },
+            {
+              "from": "F",
+              "to": "Z5"
+            },
+            {
+              "from": "Z1",
+              "to": "F"
+            },
+            {
+              "from": "Z2",
+              "to": "F"
+            },
+            {
+              "from": "Z3",
+              "to": "F"
+            },
+            {
+              "from": "Z4",
+              "to": "F"
+            }
+          ],
+          "subgraphs": []
+        }
+      ]
     }
   ],
   "services": [

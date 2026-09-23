@@ -15,7 +15,7 @@
 // historyLog 全 mock，避免触碰真实 I/O）。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { InventorySnapshot, SaveSnapshot } from "../../shared/types";
+import type { InventorySnapshot, MaterialStackTotal, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 
 vi.mock("../../src/main/saveWatcher", () => ({
@@ -469,15 +469,23 @@ describe("TrackingService wish ingestion", () => {
 
   // —— Wish v2（T03）：save 帧差喂入 × 硬币归因接线 ——
 
-  /** 构造一条 inventory 帧（materialStacks 只填硬币）。 */
+  /**
+   * 构造一条 inventory 帧（materialStacks 只填硬币）。
+   *
+   * `materialStacks` 的值现在是 `MaterialStackTotal`（`{ total, inventory,
+   * stash, trading }`）—— 帧差只读 `total`，故其余分袋字段填 0。
+   */
   function invFrame(
     mtime: number,
     coins: Record<number, number> = {},
     extra: Record<number, number> = {},
   ): InventorySnapshot {
-    const stacks = new Map<number, number>();
-    for (const [k, v] of Object.entries(coins)) stacks.set(Number(k), v);
-    for (const [k, v] of Object.entries(extra)) stacks.set(Number(k), v);
+    const stacks = new Map<number, MaterialStackTotal>();
+    const put = (k: number, v: number): void => {
+      stacks.set(k, { total: v, inventory: v, stash: 0, trading: 0 });
+    };
+    for (const [k, v] of Object.entries(coins)) put(Number(k), v);
+    for (const [k, v] of Object.entries(extra)) put(Number(k), v);
     return {
       items: [],
       chests: [],

@@ -1956,8 +1956,9 @@ export class TrackingService {
   /**
    * 把一条 inventory 帧的硬币堆叠值喂入帧差窗（Wish v2）。
    *
-   * `InventorySnapshot.materialStacks` 为 `Map<number, number>` —— 缺失（未解码）
-   * 时直接跳过，不 push 空帧（避免用 {0,0,…} 污染差分）。只取闭集
+   * `InventorySnapshot.materialStacks` 为 `Map<number, MaterialStackTotal>` ——
+   * 每枚硬币取 `total`（跨槽求和后的持有量；`inventory + stash + trading`）。
+   * 缺失（未解码）时直接跳过，不 push 空帧（避免用 {0,0,…} 污染差分）。只取闭集
    * {@link WISH_COIN_KEYS} 的 10 枚硬币；未出现的硬币记为 0。
    */
   private feedWishDiffFrame(snap: InventorySnapshot): void {
@@ -1965,7 +1966,7 @@ export class TrackingService {
     if (!stacks) return;
     const coins = new Map<number, number>();
     for (const coinKey of WISH_COIN_KEYS) {
-      coins.set(coinKey, stacks.get(coinKey) ?? 0);
+      coins.set(coinKey, stacks.get(coinKey)?.total ?? 0);
     }
     this.wishDiffWindow.push({ at: snap.saveMtime, stacks: coins });
   }
