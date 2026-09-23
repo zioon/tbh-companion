@@ -70,6 +70,17 @@ const runtime: WebRuntimeState = {
 // most recent one — the identity changes exactly when the state does.
 let runtimeSnapshot: Readonly<WebRuntimeState> = { ...runtime };
 
+/**
+ * Raw bytes (plus name / mtime) of the most recently *successfully* analyzed
+ * save.
+ *
+ * A language change has to re-resolve the loaded inventory — its rows were
+ * localised at load time — and re-reading a `File` handle after the fact is not
+ * possible (keeping the `File` object itself is unreliable). The buffer is
+ * ~220 KB, so retaining it is cheap. Cleared by `clearWebSave()`.
+ */
+let lastSave: { buffer: ArrayBuffer; fileName: string; lastModified: number } | null = null;
+
 let config: AppConfig = {
   ...WEB_DEFAULT_CONFIG,
   resolvedLanguage: resolveLanguage(WEB_DEFAULT_CONFIG.language, navigator.language, null),
@@ -111,6 +122,9 @@ function notifyRuntime(): void {
 
 /** Clear the loaded save (used by the "load another file" action). */
 export function clearWebSave(): void {
+  // Drop the retained bytes too: otherwise a later language change would
+  // resurrect an inventory the user just cleared.
+  lastSave = null;
   runtime.inventory = null;
   runtime.analyze = null;
   runtime.fileName = null;
@@ -138,6 +152,9 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
     runtime.analyze = result;
     runtime.inventory = result.inventory;
     runtime.fileName = file.name;
+    // Retain the raw bytes so a later language change can re-resolve the rows
+    // without the original `File` handle.
+    lastSave = { buffer, fileName: file.name, lastModified: file.lastModified };
     for (const cb of [...inventoryListeners]) cb(result.inventory);
     return result.inventory;
   } catch (err) {
@@ -149,11 +166,38 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
   }
 }
 
+/**
+ * Re-run the analyzer over the retained save with a new language, publishing the
+ * re-resolved inventory to subscribers.
+ *
+ * Called by `saveConfig` when the UI language changed: the loaded rows were
+ * localised with the previous language, so they must follow the catalog. A
+ * failure must never blank the page — the previous inventory is kept and
+ * `runtime.error` is left untouched (switching language is not a save error);
+ * only a warning is logged.
+ */
+async function reanalyzeLoadedSave(language: ResolvedLanguage): Promise<void> {
+  if (!lastSave) return;
+  try {
+    const result = await analyzeSaveFile(lastSave.buffer, language, lastSave.lastModified);
+    runtime.analyze = result;
+    runtime.inventory = result.inventory;
+    for (const cb of [...inventoryListeners]) cb(result.inventory);
+    notifyRuntime();
+  } catch (err) {
+    console.warn("[web] could not re-analyze the loaded save for the new language", err);
+  }
+}
+
 const CONFIG_STORAGE_KEY = "tbh-web-config";
 
 function persistConfig(next: AppConfig): void {
   try {
-    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
+    // `resolvedLanguage` is derived at runtime (`resolveWebLanguage`); strip it
+    // so `restoreWebConfig` recomputes it instead of trusting a stale value.
+    const persisted: Partial<AppConfig> = { ...next };
+    delete persisted.resolvedLanguage;
+    localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(persisted));
   } catch {
     // Private mode / quota — the in-memory value still applies for this session.
   }
@@ -216,12 +260,23 @@ function buildWebApi(): TbhApi {
 
     // --- Config: in-memory + localStorage ---
     getConfig: () => Promise.resolve(config),
-    saveConfig: (patch: Partial<AppConfig>) => {
+    saveConfig: async (patch: Partial<AppConfig>) => {
       // `resolvedLanguage` is derived per-session, never persisted.
+      const previousLanguage = config.resolvedLanguage;
       const merged = { ...config, ...patch };
-      config = { ...merged, resolvedLanguage: resolveWebLanguage(merged) };
+      const nextLanguage = resolveWebLanguage(merged);
+      config = { ...merged, resolvedLanguage: nextLanguage };
       persistConfig(config);
-      return Promise.resolve(config);
+
+      // A language change re-localizes the *loaded* inventory too, not just the
+      // catalog: its rows were resolved with the previous language. Only when the
+      // language actually changed AND a save is loaded; `setCurrency` etc. must
+      // not trigger a re-analysis. Awaited so the caller observes a consistent
+      // (config + data) pair when this resolves.
+      if (nextLanguage !== previousLanguage && lastSave) {
+        await reanalyzeLoadedSave(nextLanguage);
+      }
+      return config;
     },
 
     // --- Wish coin overrides: desktop-only feature (wish tracking needs live memory) ---
