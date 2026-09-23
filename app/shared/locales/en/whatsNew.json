@@ -3,6 +3,15 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.26.0": {
+      "title": "What's new in v1.26.0",
+      "bullets": [
+        "New Wish tab — every offering is recorded automatically: which item, which coin tier, and when. History is archived across sessions.",
+        "Wishes are counted two ways at once: offering count (one per result line) and item count (the actual number of items received).",
+        "Fixed stacked-material counts: materials now stack up to 5 per bag slot, so quantities are summed per slot. Stacked materials keep their market valuation too.",
+        "Fixed chest holdings: the Loot tab no longer counts ghost chests that are invisible in-game (3 extra common chests on a real save), and the slot count no longer sticks at one too high after calibration."
+      ]
+    },
     "1.25.0": {
       "title": "What's new in v1.25.0",
       "bullets": [

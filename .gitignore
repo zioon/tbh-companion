@@ -59,6 +59,9 @@ Thumbs.db
 .DS_Store
 .agents/
 
+# WorkBuddy agent workspace (memory, scratch)
+.workbuddy/
+
 # Specs / planning artifacts — local only
 .specs/
 
