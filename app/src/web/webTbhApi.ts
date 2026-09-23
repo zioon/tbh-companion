@@ -33,6 +33,11 @@ import { WEB_DEFAULT_CONFIG } from "./defaultConfig";
 import { analyzeSaveFile, type AnalyzeResult } from "./analyzeSave";
 import { classifySaveFileError } from "./errors";
 import { installWebDataSource } from "./dataSource";
+import {
+  ensureWebPricesLoaded,
+  getWebPriceSnapshot,
+  subscribeWebPrices,
+} from "./pricesSnapshot";
 import { loadLookupItems } from "../core/lookup/catalog";
 import { gameItemName } from "../core/gamedata";
 import { loadLocaleCatalog } from "../core/localeCatalog";
@@ -241,7 +246,9 @@ function buildWebApi(): TbhApi {
 
     // --- Prices: the browser cannot call Steam's market endpoints directly
     // (no CORS), and polling thousands of hashes from a visitor's IP would be
-    // abusive. Desktop-only by design. ---
+    // abusive. The *Lookup* snapshot, however, is pre-built by CI and served
+    // same-origin, so those two channels are real: they read
+    // `website/data/prices.json`. All other price surfaces stay inert. ---
     pricesStatus: () => Promise.resolve(emptyPriceStatus(config.currency)),
     refreshPrices: () => Promise.resolve(emptyPriceRefreshResult(config.currency, "unavailable")),
     refreshItemPrices: () =>
@@ -255,8 +262,8 @@ function buildWebApi(): TbhApi {
     setMarketAutoScanEnabled: unsupported,
     onPricesProgress: () => NOOP_UNSUBSCRIBE,
     onPriceStatus: () => NOOP_UNSUBSCRIBE,
-    getLookupPrices: () => Promise.resolve(null),
-    onLookupPrices: () => NOOP_UNSUBSCRIBE,
+    getLookupPrices: () => ensureWebPricesLoaded().then(getWebPriceSnapshot),
+    onLookupPrices: (cb) => subscribeWebPrices(() => cb(getWebPriceSnapshot())),
     getLookupPricePollStatus: () => Promise.resolve(null),
     onLookupPricePollStatus: () => NOOP_UNSUBSCRIBE,
     pollLookupPrices: () => Promise.resolve(emptyPollingCycleResult()),
