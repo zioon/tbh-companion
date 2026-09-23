@@ -210,6 +210,21 @@ describe("IPC channel registry", () => {
     expect(IPC_PUSH_CHANNELS).toContain(IPC.LOOKUP_PRICES_POLL_STATUS);
   });
 
+  it("registers the wish coin-override channels in the correct registries", () => {
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_WISH_COIN_OVERRIDES);
+    expect(IPC_INVOKE_CHANNELS).toContain(IPC.SET_WISH_COIN_OVERRIDES);
+    expect(IPC_PUSH_CHANNELS).toContain(IPC.WISH_COIN_OVERRIDES);
+    const preload = readFileSync(join(__dirname, "../../src/preload/index.ts"), "utf-8");
+    expect(preload).toContain("IPC.GET_WISH_COIN_OVERRIDES");
+    expect(preload).toContain("IPC.SET_WISH_COIN_OVERRIDES");
+    expect(preload).toContain("IPC.WISH_COIN_OVERRIDES");
+    const lookupHandler = readHandler("lookup");
+    expect(lookupHandler).toContain("IPC.GET_WISH_COIN_OVERRIDES");
+    expect(lookupHandler).toContain("IPC.SET_WISH_COIN_OVERRIDES");
+    const appState = readFileSync(join(__dirname, "../../src/main/app/appState.ts"), "utf-8");
+    expect(appState).toContain("IPC.WISH_COIN_OVERRIDES");
+  });
+
   it("registers the market-volume channels in the correct registries", () => {
     expect(IPC_INVOKE_CHANNELS).toContain(IPC.GET_MARKET_VOLUME);
     expect(IPC_PUSH_CHANNELS).toContain(IPC.MARKET_VOLUME);

@@ -271,4 +271,104 @@ describe("fitAcquireSources", () => {
     );
     expect(out["1"]).toEqual({ source: "clear", stageKey: 310 });
   });
+
+  // -------------------------------------------------------------------------
+  // Offering ("祈愿结果") lines — Wish v2 P0-5. A wish lands close in time to a
+  // stage clear, so pass 4's clear-by-nearest-time fallback would claim it and
+  // the UI would badge it "通关". The renderer's `!fit` branch already has a
+  // "wish" text bucket, so the fix is to keep the line UNFITTED at the fit
+  // layer (same discipline as isHeroNotice). `ringSeq` uses a high unique index
+  // (900000+) so these fixtures never pollute the real archive dedupe set.
+  // -------------------------------------------------------------------------
+
+  it("never fits an offering line, even when a clear event sits inside the window", () => {
+    const out = fitAcquireSources(
+      [
+        {
+          seq: 900001,
+          wallTime: 1000,
+          acquireName: "木盾",
+          acquireCount: 1,
+          acquireRaw: "祈愿结果：获得 木盾",
+        },
+      ],
+      [],
+      [],
+      [{ wallTime: 1000.4, stageKey: 310 }],
+    );
+    expect(out["900001"]).toBeUndefined();
+    expect(out).toEqual({});
+  });
+
+  it("never fits an offering line via nearest open / chest either", () => {
+    const out = fitAcquireSources(
+      [
+        {
+          seq: 900002,
+          wallTime: 1000,
+          acquireName: "永恒手套",
+          acquireCount: 1,
+          acquireRaw: "祈愿结果：获得 永恒手套",
+        },
+      ],
+      [{ wallTime: 1000.1, category: "rare" }],
+      [{ wallTime: 1000.2, boxKey: "rare:3", itemName: "永恒手套", grade: "ARCANA", count: 1 }],
+      [{ wallTime: 1000.3, stageKey: 310 }],
+    );
+    expect(out["900002"]).toBeUndefined();
+  });
+
+  it("still fits the real clear line next to an excluded offering line", () => {
+    const out = fitAcquireSources(
+      [
+        {
+          seq: 900003,
+          wallTime: 1000,
+          acquireName: "木盾",
+          acquireCount: 1,
+          acquireRaw: "祈愿结果：获得 木盾",
+        },
+        {
+          seq: 900004,
+          wallTime: 1000.4,
+          acquireName: "关卡 3-9",
+          acquireCount: 1,
+          acquireRaw: "通关了关卡 3-9。(73秒)",
+          acquireColor: "#A69255",
+        },
+      ],
+      [],
+      [],
+      [{ wallTime: 1000.4, stageKey: 309 }],
+    );
+    expect(out["900003"]).toBeUndefined();
+    expect(out["900004"]).toEqual({ source: "clear", stageLabel: "3-9" });
+  });
+
+  it("excludes offering lines across all four client languages (isWishLine)", () => {
+    for (const raw of [
+      "祈愿结果：获得 木盾",
+      "祈願結果：獲得 木盾",
+      "Offering result: obtained Wooden Shield",
+      "기원 결과: 획득 목방패",
+    ]) {
+      const out = fitAcquireSources(
+        [{ seq: 900005, wallTime: 1000, acquireName: "x", acquireRaw: raw }],
+        [],
+        [],
+        [{ wallTime: 1000.3, stageKey: 310 }],
+      );
+      expect(out, raw).toEqual({});
+    }
+  });
+
+  it("does NOT exclude a craft/synthesis result line (only offering is gated)", () => {
+    const out = fitAcquireSources(
+      [{ seq: 900006, wallTime: 1000, acquireName: "剑", acquireRaw: "制作结果：获得 剑" }],
+      [],
+      [],
+      [{ wallTime: 1000.3, stageKey: 310 }],
+    );
+    expect(out["900006"]).toEqual({ source: "clear", stageKey: 310 });
+  });
 });

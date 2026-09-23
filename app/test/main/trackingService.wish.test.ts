@@ -15,13 +15,17 @@
 // historyLog 全 mock，避免触碰真实 I/O）。
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { SaveSnapshot } from "../../shared/types";
+import type { InventorySnapshot, SaveSnapshot } from "../../shared/types";
 import { DEFAULT_NOTIFICATION_PREFS } from "../../shared/notificationCatalog";
 
 vi.mock("../../src/main/saveWatcher", () => ({
   SaveWatcher: class {
-    constructor(opts: { onSnapshot: (snap: SaveSnapshot) => void }) {
+    constructor(opts: {
+      onSnapshot: (snap: SaveSnapshot) => void;
+      onInventory?: (snap: InventorySnapshot) => void;
+    }) {
       onSnapshot = opts.onSnapshot;
+      onInventory = opts.onInventory;
     }
     start = vi.fn();
     stop = vi.fn();
@@ -85,10 +89,12 @@ const baseConfig = {
   marketHistoryBatchSize: 10,
   marketHistoryBatchDelaySec: 120,
   marketHistoryCoverageThreshold: 0.95,
+  wishCoinOverrides: [],
   language: "auto" as const,
 };
 
 let onSnapshot: ((snap: SaveSnapshot) => void) | undefined;
+let onInventory: ((snap: InventorySnapshot) => void) | undefined;
 
 function snap(level: number, mtime = 100, heroExp = 100): SaveSnapshot {
   return {
@@ -132,6 +138,7 @@ function wishLine(
 describe("TrackingService wish ingestion", () => {
   beforeEach(() => {
     onSnapshot = undefined;
+    onInventory = undefined;
     vi.clearAllMocks();
   });
 
@@ -145,8 +152,11 @@ describe("TrackingService wish ingestion", () => {
     expect(wish.itemCountTotal).toBe(0);
     expect(wish.itemsPerOffering).toBe(0);
     expect(wish.readerRequired).toBe(true);
-    expect(wish.gradeDistribution).toHaveLength(8);
+    expect(wish.gradeDistribution).toHaveLength(11);
     expect(wish.history).toEqual([]);
+    expect(wish.recentResults).toEqual([]);
+    expect(wish.coinGroups).toEqual([]);
+    expect(wish.unattributed).toEqual({ items: [] });
     svc.stop();
   });
 
@@ -454,6 +464,161 @@ describe("TrackingService wish ingestion", () => {
     ]) {
       expect(Number.isFinite(v)).toBe(true);
     }
+    svc.stop();
+  });
+
+  // —— Wish v2（T03）：save 帧差喂入 × 硬币归因接线 ——
+
+  /** 构造一条 inventory 帧（materialStacks 只填硬币）。 */
+  function invFrame(
+    mtime: number,
+    coins: Record<number, number> = {},
+    extra: Record<number, number> = {},
+  ): InventorySnapshot {
+    const stacks = new Map<number, number>();
+    for (const [k, v] of Object.entries(coins)) stacks.set(Number(k), v);
+    for (const [k, v] of Object.entries(extra)) stacks.set(Number(k), v);
+    return {
+      items: [],
+      chests: [],
+      saveMtime: mtime,
+      materialStacks: stacks,
+      inventoryCapacity: 0,
+      inventoryUsed: 0,
+    };
+  }
+
+  it("observed attribution when exactly one coin decreased within the window", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // 两帧：160001 从 10 → 9（唯一减少），saveMtime 相差 5s（容差 1.5×5=7.5s）。
+    // 事件 wallTime 落在 [beforeAt-tol, afterAt+tol]。
+    const before = Math.floor(Date.now() / 1000);
+    onInventory?.(invFrame(before - 4, { 160001: 10, 160002: 5 }));
+    const stamp = `观察${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp)]);
+    onInventory?.(invFrame(before + 1, { 160001: 9, 160002: 5 }));
+
+    // 归因在 feed 时计算 —— 需再喂一条同刻行（用 bracket 取前后帧）。
+    const stamp2 = `观察2${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp2)]);
+
+    const wish = svc.getStats().wish;
+    const entry = wish.history.find((h) => h.name === stamp2);
+    expect(entry?.coin?.confidence).toBe("observed");
+    expect(entry?.coin?.coinKey).toBe(160001);
+    expect(entry?.coin?.basis).toBe("diff:160001");
+    svc.stop();
+  });
+
+  it("bulk (initial) wish lines skip diff → no fabricated coinKey", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const t = Math.floor(Date.now() / 1000);
+    onInventory?.(invFrame(t - 4, { 160001: 10 }));
+    onInventory?.(invFrame(t + 1, { 160001: 9 }));
+
+    const stamp = `回灌${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp)], true); // bulk
+
+    const entry = svc.getStats().wish.history.find((h) => h.name === stamp);
+    expect(entry?.coin?.confidence).toBe("unknown");
+    expect(entry?.coin?.coinKey).toBeNull();
+    expect(entry?.coin?.basis).toBe("bulk-skip");
+    svc.stop();
+  });
+
+  it("no frame → unknown (never guessed)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const stamp = `无帧${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp)]);
+
+    const entry = svc.getStats().wish.history.find((h) => h.name === stamp);
+    expect(entry?.coin?.confidence).toBe("unknown");
+    expect(entry?.coin?.coinKey).toBeNull();
+    expect(entry?.coin?.basis).toBe("no-frame");
+    svc.stop();
+  });
+
+  it("two coins decreased in the window → unknown (multi-coin, never guessed)", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const t = Math.floor(Date.now() / 1000);
+    onInventory?.(invFrame(t - 4, { 160001: 10, 160003: 8 }));
+    onInventory?.(invFrame(t + 1, { 160001: 9, 160003: 7 }));
+
+    const stamp = `多枚${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp)]);
+
+    const entry = svc.getStats().wish.history.find((h) => h.name === stamp);
+    expect(entry?.coin?.confidence).toBe("unknown");
+    expect(entry?.coin?.basis).toBe("multi-coin");
+    svc.stop();
+  });
+
+  it("non-coin materialStacks are ignored by the diff window", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const t = Math.floor(Date.now() / 1000);
+    // 非硬币（如材料 200001）减少 —— 硬币不变 → no-decrease。
+    onInventory?.(invFrame(t - 4, { 160001: 10 }, { 200001: 99 }));
+    onInventory?.(invFrame(t + 1, { 160001: 10 }, { 200001: 50 }));
+
+    const stamp = `非硬币${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp)]);
+
+    const entry = svc.getStats().wish.history.find((h) => h.name === stamp);
+    expect(entry?.coin?.confidence).toBe("unknown");
+    expect(entry?.coin?.basis).toBe("no-decrease");
+    svc.stop();
+  });
+
+  it("session reset clears the diff window (W7): a stale pre-reset frame cannot attribute", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    const t = Math.floor(Date.now() / 1000);
+    onInventory?.(invFrame(t - 4, { 160001: 10 }));
+    // reset 前只喂一帧 —— 重置后旧帧必须清空。
+    svc.reset();
+    onInventory?.(invFrame(t + 1, { 160001: 9 }));
+
+    const stamp = `重置后${Date.now()}`;
+    svc.ingestAcquireBatch([wishLine(nextSeq(), stamp)]);
+
+    const entry = svc.getStats().wish.history.find((h) => h.name === stamp);
+    // 只剩 1 帧 → bracket 缺 before → no-frame。
+    expect(entry?.coin?.confidence).toBe("unknown");
+    expect(entry?.coin?.basis).toBe("no-frame");
+    svc.stop();
+  });
+
+  it("recentResults / coinGroups / unattributed are derived from history", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    svc.ingestAcquireBatch([wishLine(nextSeq(), `派生${Date.now()}`)]);
+
+    const wish = svc.getStats().wish;
+    expect(wish.recentResults).toHaveLength(1);
+    expect(wish.recentResults[0].name).toBe(wish.history[0].name);
+    expect(wish.recentResults[0].coin.confidence).toBe("unknown");
+    // 无 observed 归因 → 全部落入 unattributed。
+    expect(wish.coinGroups).toEqual([]);
+    expect(wish.unattributed.items).toHaveLength(1);
     svc.stop();
   });
 });

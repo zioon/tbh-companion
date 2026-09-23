@@ -184,6 +184,26 @@
 - **共享去重结果**：祈愿行只在**已通过 `ringSeq` 去重**的行上喂入（与 `recordLog` 完全同步），因此不会因 initial 批重灌而重复计数。同时复用已解析的 `raw` / 同一 `ts` / 同一 `initial`，非祈愿行**零副作用**。
 - **bulk 护栏**：`initial=true` 的批量回灌行以 `bulk: true` 喂入 —— 计入累计 / 会话 / 历史，但**不进滚动 1 小时窗口**（`*RecentPerHour`），避免 attach 瞬间把整段存量错误计成"近一小时"的高速率。
 - **识别规则（宁可漏不可错）**：`core/wishLine.ts` 用「多语言前缀白名单 + 严格结构兜底 + 排除表」，确保非祈愿行**零误报**（在 `app/test/core/wishLine.test.ts` 中以真实文案对 + 反例断言）。
+- **记录页分类同源（Wish v2，2026-09-23）**：renderer 记录页的「祈愿」分类筛选不再用本地 `WISH_RE = /^祈愿结果/`（仅 zh 简体前缀），改为调用 core 的 `isWishLine(raw)`（多语言前缀白名单 + 排除表 + 结构兜底），与 main 侧识别**完全同源**，避免两种语言下分类不一致（`app/src/renderer/tabs/RecordLog.tsx`）。
+- **祈愿行不进三桶拟合（Wish v2）**：`core/recordLogFit.ts` 的可拟合集合过滤在既有 `isHeroNotice` 之外，追加 `!isWishLine(a.acquireRaw ?? "")` 前置门 —— 祈愿行不得被 chest/open/clear 三桶误拟合（否则记录页会把它显示成宝箱/通关掉落）。这是与 `isHeroNotice` 同型的"未命中拟合行"处理。
 - **诊断**：每次 ingest 的 `log.info` 日志追加 `wish=N`（本批识别为祈愿行的条数），与既有 `recordLog total=…` 同一行输出。
 
 **下游**：`WishTracker`（`core/wishTracker.ts`）→ `buildStats(..., wishTracker)` 输出 `Stats.wish` → renderer「祈愿」tab（`app/src/renderer/tabs/Wish.tsx`，tab id = `wish`）。长期累计另由 `WishRecordService` 归档到 `userData/wish_record.json`（**不随会话重置清空**）。
+
+**Wish v2 硬币归因接入（2026-09-23）**：祈愿行命中后，`TrackingService.attributeWishCoin` 计算硬币归因（帧差分 → 候选兜底 → 未知，三层降级，绝不伪造 `coinKey`），作为 `wishTracker.feed` 的第 4 参传入。帧差分数据来自 **save 轮询的独立通道**：save 解析出 `materialStacks` 后由 `onInventory` 包装回调 `feedWishDiffFrame` 把 10 枚硬币堆叠值 push 进 `WishCoinDiffWindow`（保留最近 2 帧）。容差动态取 `1.5 × pollIntervalSeconds`。详见 [`14-wish-record.md §26.8`](./14-wish-record.md)。
+
+```mermaid
+flowchart LR
+  subgraph acquire["acquire 通道（~10ms）"]
+    A["ingestAcquireBatch"] --> B["parseWishLine 命中"]
+    B --> C["attributeWishCoin(ts,bulk)"]
+    C --> D["wishTracker.feed(..., attribution)"]
+  end
+  subgraph save["save 轮询通道（~5s）"]
+    E["onInventory(snap)"] --> F["feedWishDiffFrame"]
+    F --> G["WishCoinDiffWindow.push(2 帧)"]
+  end
+  G -. "bracket(wallTime)" .-> C
+  D --> H["Stats.wish（含 recentResults / coinGroups / unattributed）"]
+```
+

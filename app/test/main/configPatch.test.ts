@@ -39,6 +39,7 @@ function baseConfig(): AppConfig {
     marketHistoryBatchSize: 10,
     marketHistoryBatchDelaySec: 120,
     marketHistoryCoverageThreshold: 0.95,
+    wishCoinOverrides: [],
     language: "auto",
   };
 }

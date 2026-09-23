@@ -20,7 +20,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 
 import { WishTracker } from "../../src/core/wishTracker";
 import type { WishLineItem } from "../../src/core/wishLine";
-import type { WishGrade } from "../../shared/types";
+import type { WishCoinAttribution, WishGrade } from "../../shared/types";
 
 /** 构造一个解析结果（默认单件）。 */
 function item(name: string, grade: WishGrade = "COMMON", count = 1): WishLineItem {
@@ -109,7 +109,7 @@ describe("WishTracker — 基本累计 / 双计数（§5.6 不变量 1）", () =
 });
 
 describe("WishTracker — gradeDistribution / breakdown 口径（§5.6 不变量 2、3）", () => {
-  it("gradeDistribution 恒为 8 桶且顺序固定", () => {
+  it("gradeDistribution 恒为 11 桶且顺序固定（UNKNOWN 置末尾）", () => {
     const t = new WishTracker();
     const s = t.getStats(0);
     expect(s.gradeDistribution.map((r) => r.grade)).toEqual([
@@ -120,8 +120,23 @@ describe("WishTracker — gradeDistribution / breakdown 口径（§5.6 不变量
       "IMMORTAL",
       "ARCANA",
       "CELESTIAL",
+      "BEYOND",
+      "DIVINE",
+      "COSMIC",
       "UNKNOWN",
     ]);
+    expect(s.gradeDistribution).toHaveLength(11);
+  });
+
+  it("新增桶 BEYOND / DIVINE / COSMIC 可被计入", () => {
+    const t = new WishTracker();
+    feed(t, item("A", "BEYOND", 2), 1000);
+    feed(t, item("B", "DIVINE", 1), 1001);
+    feed(t, item("C", "COSMIC", 3), 1002);
+    const s = t.getStats(0);
+    expect(s.gradeDistribution.find((r) => r.grade === "BEYOND")!.count).toBe(2);
+    expect(s.gradeDistribution.find((r) => r.grade === "DIVINE")!.count).toBe(1);
+    expect(s.gradeDistribution.find((r) => r.grade === "COSMIC")!.count).toBe(3);
   });
 
   it("不变量 2：gradeDistribution 各桶件数之和 === itemCountTotal", () => {
@@ -615,5 +630,112 @@ describe("WishTracker — readerRequired / 边界字段", () => {
 
   it("gameOfferingItemCount 恒为 null（P1-3 未接入）", () => {
     expect(new WishTracker().getStats(0).gameOfferingItemCount).toBeNull();
+  });
+});
+
+describe("WishTracker — 硬币归因（Wish v2）", () => {
+  const observed = (coinKey: number): WishCoinAttribution => ({
+    confidence: "observed",
+    coinKey,
+    candidates: [],
+    basis: `diff:${coinKey}`,
+  });
+
+  it("空 tracker：recentResults / coinGroups 为空，unattributed 空组", () => {
+    const s = new WishTracker().getStats(0);
+    expect(s.recentResults).toEqual([]);
+    expect(s.coinGroups).toEqual([]);
+    expect(s.unattributed).toEqual({ items: [] });
+  });
+
+  it("feed 第 4 参写入 entry.coin；getStats 派生 recentResults（含 coin）", () => {
+    const t = new WishTracker();
+    t.feed(item("木盾", "COMMON"), 1000, { raw: "祈愿结果：获得 木盾。" }, observed(160001));
+    const s = t.getStats(0);
+    expect(s.recentResults).toHaveLength(1);
+    expect(s.recentResults[0]!.coin.confidence).toBe("observed");
+    expect(s.recentResults[0]!.coin.coinKey).toBe(160001);
+    expect(s.history[0]!.coin?.coinKey).toBe(160001);
+  });
+
+  it("缺省归因（3 参调用）→ entry.coin undefined，recentResults 归 unknown", () => {
+    const t = new WishTracker();
+    feed(t, item("铁剑", "RARE"), 1000);
+    const s = t.getStats(0);
+    expect(s.history[0]!.coin).toBeUndefined();
+    expect(s.recentResults[0]!.coin.confidence).toBe("unknown");
+    expect(s.recentResults[0]!.coin.coinKey).toBeNull();
+  });
+
+  it("recentResults 倒序（最新在前）且上限 WISH_RECENT_VISIBLE=20", () => {
+    const t = new WishTracker();
+    for (let i = 0; i < 45; i++) {
+      feed(t, item(`N${i}`, "COMMON"), 1000 + i);
+    }
+    const s = t.getStats(0);
+    expect(s.recentResults).toHaveLength(20);
+    expect(s.recentResults[0]!.name).toBe("N44");
+    expect(s.recentResults[19]!.name).toBe("N25");
+  });
+
+  it("coinGroups 按 observed 归因分组；unattributed 收未知条目", () => {
+    const t = new WishTracker();
+    t.feed(item("木盾", "COMMON", 2), 1000, { raw: "a" }, observed(160001));
+    t.feed(item("铁剑", "RARE"), 1001, { raw: "b" }, observed(160003));
+    t.feed(item("幽灵", "UNKNOWN"), 1002, { raw: "c" });
+    const s = t.getStats(0);
+    expect(s.coinGroups.map((g) => g.coinKey)).toEqual([160001, 160003]);
+    expect(s.coinGroups.find((g) => g.coinKey === 160001)!.itemCount).toBe(2);
+    expect(s.unattributed.items.map((i) => i.name)).toEqual(["幽灵"]);
+  });
+
+  it("setLookupDeps 注入 coinMeta 后 coinGroups 带硬币名与品质", () => {
+    const t = new WishTracker();
+    t.setLookupDeps({
+      coinMeta: (coinKey) =>
+        coinKey === 160001 ? { name: "Kingdom 1st", grade: "COMMON" } : undefined,
+    });
+    t.feed(item("木盾", "COMMON"), 1000, { raw: "a" }, observed(160001));
+    const s = t.getStats(0);
+    expect(s.coinGroups[0]!.coinName).toBe("Kingdom 1st");
+    expect(s.coinGroups[0]!.grade).toBe("COMMON");
+  });
+
+  it("setLookupDeps / getLookupDeps 往返一致", () => {
+    const t = new WishTracker();
+    const fn = (n: string) => (n === "x" ? 1 : undefined);
+    t.setLookupDeps({ nameToItemKey: fn, offerings: [] });
+    const deps = t.getLookupDeps();
+    expect(deps.nameToItemKey).toBe(fn);
+    expect(deps.offerings).toEqual([]);
+  });
+
+  it("归因随快照往返保留（entry.coin 持久化）", () => {
+    const src = new WishTracker();
+    src.feed(item("木盾", "COMMON"), 1000, { raw: "a" }, observed(160001));
+    const dst = new WishTracker();
+    dst.applySnapshot(src.captureSnapshot());
+    const s = dst.getStats(0);
+    expect(s.history[0]!.coin?.coinKey).toBe(160001);
+    expect(s.coinGroups[0]!.coinKey).toBe(160001);
+  });
+
+  it("旧快照（无 coin 字段、无新桶）恢复不崩：新桶置 0、归因按 unknown", () => {
+    const t = new WishTracker();
+    t.applySnapshot({
+      offeringCount: 1,
+      itemCount: 1,
+      countsByName: { Legacy: 1 },
+      gradeByName: { Legacy: "COMMON" },
+      history: [{ wallTime: 1000, name: "Legacy", grade: "COMMON", count: 1, raw: "x" }],
+    });
+    const s = t.getStats(0);
+    // 新桶置 0。
+    expect(s.gradeDistribution.find((r) => r.grade === "BEYOND")!.count).toBe(0);
+    expect(s.gradeDistribution.find((r) => r.grade === "DIVINE")!.count).toBe(0);
+    expect(s.gradeDistribution.find((r) => r.grade === "COSMIC")!.count).toBe(0);
+    // 旧 history 无 coin → recentResults 归 unknown，unattributed 收该条目。
+    expect(s.recentResults[0]!.coin.confidence).toBe("unknown");
+    expect(s.unattributed.items.map((i) => i.name)).toEqual(["Legacy"]);
   });
 });
