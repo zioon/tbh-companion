@@ -120,6 +120,46 @@ const ENRICHMENT_FIELDS: readonly FieldCheck[] = [
 
 const ALL_FIELDS: readonly FieldCheck[] = [...CRITICAL_FIELDS, ...ENRICHMENT_FIELDS];
 
+/**
+ * The offsets that a detected box-open ("开箱") event can plausibly unlock.
+ *
+ * The box-open event exists because the `BoxOpenLog` class (and the
+ * `ELogType.GetItemWithBoxOpen` dictionary key) is only instantiated once the
+ * player opens their first box, so a first extraction on a fresh session can
+ * legitimately miss these three. Seeing the first box-open therefore justifies
+ * one more extraction attempt.
+ *
+ * They are deliberately a SUBSET of {@link ENRICHMENT_FIELDS}: several other
+ * enrichment fields are NOT derivable on some versions (e.g. the
+ * `player.boxData` / `boxData.boxTypes` / `boxData.boxQuantity` trio on
+ * v1.01.02+ where the save is an ES3 byte stream). Waiting for those would keep
+ * re-triggering a ~48 s extraction (a GA scan plus up to two whole-address-space
+ * class scans) on every box-open event for zero benefit.
+ */
+const BOX_OPEN_FIELDS: readonly FieldCheck[] = [
+  {
+    path: "runtime.log.getItemWithBoxOpenTypeKey",
+    get: (o) => o.runtime.log.getItemWithBoxOpenTypeKey ?? 0,
+  },
+  {
+    path: "runtime.boxOpenLog.itemStringKey",
+    get: (o) => o.runtime.boxOpenLog?.itemStringKey ?? 0,
+  },
+  {
+    path: "runtime.boxOpenLog.itemGradeType",
+    get: (o) => o.runtime.boxOpenLog?.itemGradeType ?? 0,
+  },
+];
+
+/**
+ * Box-open-derived offsets that are still zero. Empty means a box-open event
+ * cannot change the table any more — the caller should skip the (expensive)
+ * enrichment re-extraction it would normally trigger.
+ */
+export function missingBoxOpenFields(o: LiveOffsets): string[] {
+  return BOX_OPEN_FIELDS.filter((f) => !isPresent(f.get(o))).map((f) => f.path);
+}
+
 function isPresent(v: number | bigint): boolean {
   return typeof v === "bigint" ? v !== 0n : v !== 0;
 }

@@ -8,6 +8,38 @@
 export interface MemoryReader {
   /** Read `size` bytes at `addr`, or null if the region is unreadable. */
   readBytes(addr: bigint, size: number): Buffer | null;
+  /**
+   * OPTIONAL zero-allocation read path for chunked region walks: read `size`
+   * bytes at `addr` into the caller-owned `buf` and return the number of bytes
+   * actually read (0 = unreadable). Implementations that own their memory (the
+   * real WinProcess) provide this so a traversal of hundreds of chunks reuses
+   * one buffer instead of allocating a multi-MiB Buffer per chunk. Readers that
+   * omit it (e.g. the unit-test fake) fall back to {@link readBytes}.
+   */
+  readInto?(addr: bigint, buf: Buffer, size: number): number;
+  /** OPTIONAL reusable chunk buffer of at least `size` bytes (see readInto). */
+  acquireScanBuffer?(size: number): Buffer;
+}
+
+/**
+ * Read one chunk of a region walk: `size` bytes at `addr`, returned as a view of
+ * exactly the bytes read (null when nothing was readable).
+ *
+ * Prefers the reader's reusable scan buffer — a region walk asks for a new
+ * partial-chunk size on every region, and allocating per chunk is what bloated
+ * the live-memory worker's RSS by ~350 MB per traversal (see
+ * `WinProcess.acquireScanBuffer`). Falls back to {@link MemoryReader.readBytes}
+ * for readers without the optional API.
+ */
+export function readChunk(reader: MemoryReader, addr: bigint, size: number): Buffer | null {
+  if (reader.readInto && reader.acquireScanBuffer) {
+    const buf = reader.acquireScanBuffer(size);
+    const read = reader.readInto(addr, buf, size);
+    if (read <= 0) return null;
+    return read === buf.length ? buf : buf.subarray(0, read);
+  }
+  const chunk = reader.readBytes(addr, size);
+  return chunk && chunk.length > 0 ? chunk : null;
 }
 
 /** Read a 64-bit pointer; null for short reads or implausibly-low values (< 0x10000). */

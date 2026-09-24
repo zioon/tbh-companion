@@ -13,6 +13,7 @@ import {
   hasCriticalOffsets,
   isOffsetTableComplete,
   mergeOffsets,
+  missingBoxOpenFields,
   missingOffsetFields,
 } from "../../core/liveMemory/offsetCompleteness";
 import { buildClassNameIndex, extractOffsets, EXTRACTOR_REVISION } from "./offsetExtractor";
@@ -553,6 +554,25 @@ export class LiveMemoryReader {
     const pending = this.boxOpenEventPending;
     this.boxOpenEventPending = false;
     return pending;
+  }
+
+  /**
+   * True when a pending box-open event is still worth acting on, i.e. at least
+   * one box-open-derived offset is still missing (see `missingBoxOpenFields`).
+   *
+   * The box-open event exists to re-run the extractor once the `BoxOpenLog`
+   * class/`GetItemWithBoxOpen` key becomes reachable (player opened a box). When
+   * all three of those offsets are already present — the common case on a
+   * version where a *different*, non-derivable enrichment field is what keeps
+   * `enrichmentComplete` false (v1.2.8: the `player.boxData` trio on the ES3
+   * byte-stream save layer) — re-running the extractor cannot change anything.
+   * Skipping it avoids a ~48 s stall (107 MB GA scan + up to two
+   * whole-address-space class-name scans) on every attach; before this guard the
+   * worker re-ran it on every attach and grew its RSS by ~350 MB each time.
+   */
+  get boxOpenHealWouldHelp(): boolean {
+    const o = this.offsets;
+    return o != null && missingBoxOpenFields(o).length > 0;
   }
 
   /**

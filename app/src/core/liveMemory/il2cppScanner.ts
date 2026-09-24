@@ -8,7 +8,14 @@
 // only serialization-stable names ("StageCache", "StageInfoData", "GetBoxLog",
 // "HeroList", "PetSaveData", …) are trusted as identifiers.
 
-import { readI32, readI64, readIl2CppString, readPtr, type MemoryReader } from "./memory";
+import {
+  readChunk,
+  readI32,
+  readI64,
+  readIl2CppString,
+  readPtr,
+  type MemoryReader,
+} from "./memory";
 import { decodeObscuredInt } from "./obscured";
 import { plausibleGold } from "./offsets";
 
@@ -407,7 +414,10 @@ export function collectClassEntries(
   for (const region of regions) {
     for (let off = 0; off < region.size; off += chunkSize) {
       const size = Math.min(chunkSize, region.size - off);
-      const buf = ctx.reader.readBytes(region.base + BigInt(off), size);
+      // `readChunk` reuses the reader's scan buffer when it has one: allocating
+      // a fresh multi-MiB Buffer per chunk is what left ~350 MB of native memory
+      // stranded per extraction (see `WinProcess.acquireScanBuffer`).
+      const buf = readChunk(ctx.reader, region.base + BigInt(off), size);
       if (!buf) continue;
       for (let i = 0; i + 8 <= buf.length; i += 8) {
         slotsScanned++;

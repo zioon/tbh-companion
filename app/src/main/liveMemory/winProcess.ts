@@ -29,6 +29,31 @@ function psapi(): ReturnType<typeof koffi.load> {
   return psapiLib;
 }
 
+/**
+ * Lazily declare an FFI function EXACTLY ONCE per process.
+ *
+ * `lib.func(name, ...)` builds a fresh native trampoline every time it is
+ * called and koffi retains it for the lifetime of the process — it is not
+ * reference-counted, so dropping the wrapper does not free the native memory,
+ * and the leak is invisible to V8 (`heapUsed`/`external` stay flat, so a forced
+ * GC cannot reclaim it). Measured with koffi on a single imported function:
+ *
+ *   declare once, call 500k times   → RSS +2.7 MB
+ *   declare + call 500k times       → RSS +83.8 MB   (~176 B retained per call)
+ *
+ * The live-memory worker reads game memory thousands of times per second (25 Hz
+ * frame + the 5 ms chest-tail and 10 ms acquire-ring pollers + offset scans), so
+ * declaring per call leaked roughly 1 GB per hour of play — the reported
+ * 300 MB → 1.5 GB growth. Every `func()` declaration in this module must go
+ * through this helper and be called as `Fn()(...)`, like before.
+ *
+ * Exported for unit testing (the declarer must run at most once).
+ */
+export function lazyFunc<T>(declare: () => T): () => T {
+  let cached: T | null = null;
+  return () => (cached ??= declare());
+}
+
 const TH32CS_SNAPPROCESS = 0x00000002;
 const TH32CS_SNAPMODULE = 0x00000008;
 const TH32CS_SNAPMODULE32 = 0x00000010;
@@ -89,32 +114,46 @@ const MEMORY_BASIC_INFORMATION = koffi.struct("MEMORY_BASIC_INFORMATION", {
   Type: "uint32",
 });
 
-const CreateToolhelp32Snapshot = () =>
-  kernel32().func("CreateToolhelp32Snapshot", "void *", ["uint32", "uint32"]);
-const Process32FirstW = () => kernel32().func("Process32FirstW", "bool", ["void *", "void *"]);
-const Process32NextW = () => kernel32().func("Process32NextW", "bool", ["void *", "void *"]);
-const Module32FirstW = () => kernel32().func("Module32FirstW", "bool", ["void *", "void *"]);
-const Module32NextW = () => kernel32().func("Module32NextW", "bool", ["void *", "void *"]);
-const CloseHandle = () => kernel32().func("CloseHandle", "bool", ["void *"]);
-const OpenProcess = () => kernel32().func("OpenProcess", "void *", ["uint32", "bool", "uint32"]);
-const ReadProcessMemory = () =>
+const CreateToolhelp32Snapshot = lazyFunc(() =>
+  kernel32().func("CreateToolhelp32Snapshot", "void *", ["uint32", "uint32"]),
+);
+const Process32FirstW = lazyFunc(() =>
+  kernel32().func("Process32FirstW", "bool", ["void *", "void *"]),
+);
+const Process32NextW = lazyFunc(() =>
+  kernel32().func("Process32NextW", "bool", ["void *", "void *"]),
+);
+const Module32FirstW = lazyFunc(() =>
+  kernel32().func("Module32FirstW", "bool", ["void *", "void *"]),
+);
+const Module32NextW = lazyFunc(() =>
+  kernel32().func("Module32NextW", "bool", ["void *", "void *"]),
+);
+const CloseHandle = lazyFunc(() => kernel32().func("CloseHandle", "bool", ["void *"]));
+const OpenProcess = lazyFunc(() =>
+  kernel32().func("OpenProcess", "void *", ["uint32", "bool", "uint32"]),
+);
+const ReadProcessMemory = lazyFunc(() =>
   kernel32().func("ReadProcessMemory", "bool", [
     "void *",
     "uintptr",
     "void *",
     "uintptr",
     "_Out_ uintptr *",
-  ]);
-const VirtualQueryEx = () =>
-  kernel32().func("VirtualQueryEx", "uintptr", ["void *", "uintptr", "void *", "uintptr"]);
-const GetExitCodeProcess = () =>
-  kernel32().func("GetExitCodeProcess", "bool", ["void *", "_Out_ uint32 *"]);
+  ]),
+);
+const VirtualQueryEx = lazyFunc(() =>
+  kernel32().func("VirtualQueryEx", "uintptr", ["void *", "uintptr", "void *", "uintptr"]),
+);
+const GetExitCodeProcess = lazyFunc(() =>
+  kernel32().func("GetExitCodeProcess", "bool", ["void *", "_Out_ uint32 *"]),
+);
 // GetModuleHandleW is used to detect whether the current process has been
 // injected by Sandboxie-Plus (sbiedll.dll). This is the "companion self-check"
 // half of multi-instance isolation: when multiple TBH processes coexist
 // (host + sandboxed), the companion only attaches to the one whose sandbox
 // state matches its own.
-const GetModuleHandleW = () => kernel32().func("GetModuleHandleW", "void *", ["str16"]);
+const GetModuleHandleW = lazyFunc(() => kernel32().func("GetModuleHandleW", "void *", ["str16"]));
 
 // psapi.dll — PSAPI module enumeration, used as a fallback when ToolHelp's
 // CreateToolhelp32Snapshot(TH32CS_SNAPMODULE) is blocked by sandbox software
@@ -124,31 +163,34 @@ const GetModuleHandleW = () => kernel32().func("GetModuleHandleW", "void *", ["s
 // privileges and does not shell out to a child process (unlike the PowerShell
 // fallback). On Win64, HMODULE is an 8-byte pointer.
 const LIST_MODULES_ALL = 0x03;
-const EnumProcessModulesEx = () =>
+const EnumProcessModulesEx = lazyFunc(() =>
   psapi().func("EnumProcessModulesEx", "bool", [
     "void *", // hProcess
     "void *", // lphModule (HMODULE[] — pass null to query size, Buffer to receive)
     "uint32", // cb (size in bytes)
     "_Out_ uint32 *", // lpcbNeeded
     "uint32", // dwFilterFlag
-  ]);
-const GetModuleFileNameExW = () =>
+  ]),
+);
+const GetModuleFileNameExW = lazyFunc(() =>
   psapi().func("GetModuleFileNameExW", "uint32", [
     "void *", // hProcess
     "uintptr", // hModule (HMODULE as uintptr — accepts bigint read from buffer)
     "void *", // lpFilename (wchar_t buffer — Buffer accepted as void *)
     "uint32", // cch
-  ]);
+  ]),
+);
 // MODULEINFO layout (Win64): lpBaseOfDll(8) + SizeOfImage(4) + 4-byte pad + EntryPoint(8) = 24 bytes.
 // Read via Buffer rather than a koffi struct to avoid alignment surprises.
 const MODULEINFO_SIZE = 24;
-const GetModuleInformation = () =>
+const GetModuleInformation = lazyFunc(() =>
   psapi().func("GetModuleInformation", "bool", [
     "void *", // hProcess
     "uintptr", // hModule
     "void *", // lpmodinfo (MODULEINFO buffer)
     "uint32", // cb
-  ]);
+  ]),
+);
 
 const STILL_ACTIVE = 259;
 
@@ -280,15 +322,35 @@ export class WinProcess implements MemoryReader {
   private handle: unknown;
   /**
    * Per-process buffer pool for {@link readBytes}. Reuses Buffers across the
-   * 25 Hz read loop and the 4 MiB-chunk memory scanner so V8 GC isn't flooded
-   * by millions of allocations/sec. Single-threaded utilityProcess → no lock.
-   * Callers that consume a buffer to completion (the chunked byte/pointer
-   * scanners) return it via {@link releaseReadBuffer}; transient `readPtr`/
-   * `readI32`-style reads do NOT release (their Buffers may be held by parsers
-   * and are left to GC). The pool also meaningfully helps on the 25 Hz loop's
-   * short reads and never-released paths, which self-release on failure.
+   * 25 Hz read loop so V8 GC isn't flooded by millions of short-lived
+   * allocations. Single-threaded utilityProcess → no lock.
+   *
+   * NOTE: whole-traversal scans do NOT use this pool — they borrow
+   * {@link scanBuffer} instead. See {@link acquireScanBuffer} for why.
    */
   private readonly bufPool = new BufferPool();
+
+  /**
+   * Single long-lived chunk buffer for the region walks in {@link scanBytes},
+   * {@link scanBytesInRange} and {@link resolveClassByName} Pass 2.
+   *
+   * Those loops consume each chunk immediately, so ONE buffer can back the whole
+   * traversal. They must not go through {@link BufferPool}: the pool keys its
+   * buckets by EXACT byte size, while a region walk asks for a new partial-chunk
+   * size on every region (the last chunk of a region is `regionSize % chunk`).
+   * ~20 regions therefore fill the pool's global cap (MAX_TOTAL_POOLED) with
+   * one-buffer buckets, after which `release()` drops every later buffer — the
+   * pool stops recycling in exactly the workload it was added for. A traversal
+   * of a multi-GB address space then becomes ~1000 fresh 4 MiB allocations.
+   *
+   * Measured on the real game (v1.2.8, ~3 GB readable memory): the worker starts
+   * at 42 MB RSS and sits at ~400 MB after a single attach, while `heapUsed`
+   * stays ~20 MB and `external` ~7 MB — and a forced full GC does not move RSS at
+   * all. The pages were freed by the allocator but never returned to the OS, so
+   * every attach leaked another ~350 MB (reported symptom: 300 MB → 1.5 GB).
+   * One reused buffer removes the burst entirely.
+   */
+  private scanBuffer: Buffer | null = null;
 
   private constructor(pid: number, name: string, handle: unknown) {
     this.pid = pid;
@@ -482,6 +544,9 @@ export class WinProcess implements MemoryReader {
       CloseHandle()(this.handle);
       this.handle = null;
     }
+    // Don't pin the scan buffer after detaching (the reader drops its WinProcess
+    // and re-attaches to a possibly different game process).
+    this.scanBuffer = null;
   }
 
   /** False when the game process has exited (handle is stale). */
@@ -709,14 +774,34 @@ export class WinProcess implements MemoryReader {
   }
 
   /**
-   * Release a buffer previously returned by {@link readBytes} back to the pool.
-   * Only safe for callers that have fully consumed the buffer and hold no alias
-   * to it (the chunked byte/pointer scanners). Must NOT be used by transient
-   * readers (`readPtr`/`readI32`/`readPtrArray`) whose buffers may outlive the
-   * call site.
+   * Borrow {@link scanBuffer}, grown to at least `size` bytes when needed.
+   * Contents are undefined — callers only interpret the range they just read
+   * into it (via {@link readInto}). Every region walk must take its buffer from
+   * here instead of {@link readBytes}, otherwise the traversal allocates one
+   * multi-MiB Buffer per chunk (see the field doc for the measured impact).
    */
-  releaseReadBuffer(buf: Buffer): void {
-    this.bufPool.release(buf);
+  acquireScanBuffer(size: number): Buffer {
+    const current = this.scanBuffer;
+    if (current != null && current.length >= size) return current;
+    const next = Buffer.allocUnsafe(size);
+    this.scanBuffer = next;
+    return next;
+  }
+
+  /**
+   * Read `size` bytes at `address` into a caller-owned buffer (which must be at
+   * least `size` bytes long). Returns the number of bytes actually read, or 0
+   * when the region is unreadable. Unlike {@link readBytes} this never
+   * allocates, so thousands of chunks can be read through one buffer.
+   */
+  readInto(address: bigint, buf: Buffer, size: number): number {
+    if (isInvalidHandle(this.handle)) return 0;
+    winProcessStats.readBytesCalls++;
+    winProcessStats.readBytesBytes += size;
+    const outLen = [0n];
+    const ok = ReadProcessMemory()(this.handle, address, buf, BigInt(size), outLen);
+    if (!ok) return 0;
+    return Number(outLen[0]);
   }
 }
 
@@ -725,25 +810,29 @@ export { MEM_COMMIT };
 /** Scan readable memory regions for a byte pattern. Returns addresses where the pattern starts. */
 export function scanBytes(proc: WinProcess, pattern: Buffer, maxMatches = 200): bigint[] {
   const results: bigint[] = [];
+  // 256 KB per read. One reusable buffer backs the whole walk — acquiring from
+  // the pool per chunk makes the pool stop recycling on partial chunks and
+  // leaks ~350 MB of never-returned native memory per traversal (see
+  // WinProcess.acquireScanBuffer).
+  const CHUNK = 256 * 1024;
+  const buf = proc.acquireScanBuffer(CHUNK);
   for (const region of proc.readableRegions()) {
     if (results.length >= maxMatches) break;
-    // Read the region in manageable chunks to avoid excessive memory
-    const CHUNK = 256 * 1024; // 256 KB per read
     let offset = 0n;
     while (offset < BigInt(region.size) && results.length < maxMatches) {
       const remaining = Number(BigInt(region.size) - offset);
       const chunkSize = Math.min(CHUNK, remaining);
-      const buf = proc.readBytes(region.baseAddress + offset, chunkSize);
-      if (!buf) {
-        offset += BigInt(chunkSize);
-        continue;
+      const read = proc.readInto(region.baseAddress + offset, buf, chunkSize);
+      if (read > 0) {
+        // Search only the bytes actually read: `buf` can be longer than `read`
+        // and still holds stale bytes from the previous chunk.
+        const chunk = read === buf.length ? buf : buf.subarray(0, read);
+        let pos = -1;
+        while ((pos = chunk.indexOf(pattern, pos + 1)) !== -1) {
+          results.push(region.baseAddress + offset + BigInt(pos));
+          if (results.length >= maxMatches) break;
+        }
       }
-      let pos = -1;
-      while ((pos = buf.indexOf(pattern, pos + 1)) !== -1) {
-        results.push(region.baseAddress + offset + BigInt(pos));
-        if (results.length >= maxMatches) break;
-      }
-      proc.releaseReadBuffer(buf);
       offset += BigInt(chunkSize);
     }
   }
@@ -764,21 +853,20 @@ export function scanBytesInRange(
 ): bigint[] {
   const results: bigint[] = [];
   const CHUNK = 1 << 22; // 4 MiB per read — large regions scan faster with bigger chunks
+  const buf = proc.acquireScanBuffer(Math.min(CHUNK, size));
   let offset = 0n;
   while (offset < BigInt(size) && results.length < maxMatches) {
     const remaining = size - Number(offset);
     const chunkSize = Math.min(CHUNK, remaining);
-    const buf = proc.readBytes(base + offset, chunkSize);
-    if (!buf) {
-      offset += BigInt(chunkSize);
-      continue;
+    const read = proc.readInto(base + offset, buf, chunkSize);
+    if (read > 0) {
+      const chunk = read === buf.length ? buf : buf.subarray(0, read);
+      let pos = -1;
+      while ((pos = chunk.indexOf(pattern, pos + 1)) !== -1) {
+        results.push(base + offset + BigInt(pos));
+        if (results.length >= maxMatches) break;
+      }
     }
-    let pos = -1;
-    while ((pos = buf.indexOf(pattern, pos + 1)) !== -1) {
-      results.push(base + offset + BigInt(pos));
-      if (results.length >= maxMatches) break;
-    }
-    proc.releaseReadBuffer(buf);
     offset += BigInt(chunkSize);
   }
   return results;
@@ -838,21 +926,28 @@ export function resolveClassByName(
 
   // Pass 2: single-pass scan of all readable regions for 8-aligned pointers
   // whose value is in nameAddrSet. One traversal covers every name address —
-  // no per-address re-scanning.
+  // no per-address re-scanning. The traversal runs through ONE reused buffer:
+  // a whole-address-space walk is ~1000 chunks on a real game, and allocating a
+  // fresh 4 MiB Buffer per chunk is what pushed the worker's RSS to ~400 MB
+  // (never returned to the OS — see WinProcess.acquireScanBuffer).
   const CHUNK = 1 << 22; // 4 MiB
+  const buf = proc.acquireScanBuffer(CHUNK);
   for (const region of proc.readableRegions()) {
     let off = 0n;
     while (off < BigInt(region.size)) {
       const remaining = Number(BigInt(region.size) - off);
       const chunkSize = Math.min(CHUNK, remaining);
-      const buf = proc.readBytes(region.baseAddress + off, chunkSize);
-      if (!buf) {
+      const read = proc.readInto(region.baseAddress + off, buf, chunkSize);
+      if (read <= 0) {
         off += BigInt(chunkSize);
         continue;
       }
+      // Only the bytes actually read are valid (the rest is stale data from an
+      // earlier chunk).
+      const chunk = read === buf.length ? buf : buf.subarray(0, read);
       // Check every 8-aligned slot in the chunk.
-      for (let i = 0; i + 8 <= buf.length; i += 8) {
-        const v = buf.readBigUInt64LE(i);
+      for (let i = 0; i + 8 <= chunk.length; i += 8) {
+        const v = chunk.readBigUInt64LE(i);
         if (!nameAddrSet.has(v)) continue;
         // `v` is a name-string address; the slot at `buf[i..i+8]` holds it.
         // The slot is at `Il2CppClass + 0x10`, so the class pointer is
@@ -870,7 +965,6 @@ export function resolveClassByName(
           }
         }
       }
-      proc.releaseReadBuffer(buf);
       off += BigInt(chunkSize);
     }
   }

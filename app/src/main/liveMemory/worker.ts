@@ -305,6 +305,20 @@ function maybeHealEnrichment(): void {
   // Path 1: event-driven immediate heal (only relevant while enrichment is
   // still incomplete — boxOpenLog struct offsets pending first box-open).
   if (!reader.enrichmentComplete && reader.consumeBoxOpenEvent()) {
+    // Only act when the event can still change the table: if every
+    // box-open-derived offset is already present, another extraction cannot
+    // help (the remaining gaps are fields this game version cannot derive at
+    // all), and running it costs ~48 s plus ~350 MB of never-returned RSS per
+    // attach. See LiveMemoryReader.boxOpenHealWouldHelp.
+    if (!reader.boxOpenHealWouldHelp) {
+      post({
+        type: "log",
+        message:
+          "box-open event: all box-open offsets already derived — skipping enrichment re-extraction",
+      });
+      enrichmentHealDueAt = 0;
+      return;
+    }
     reader.resetEnrichmentBudget();
     reader.healOffsets();
     postStatusIfChanged();
