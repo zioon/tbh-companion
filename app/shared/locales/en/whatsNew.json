@@ -3,6 +3,14 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.26.1": {
+      "title": "What's new in v1.26.1",
+      "bullets": [
+        "Fixed memory growth in Live tracking — the app used to creep from ~300 MB to 1.5 GB over a long session; it no longer grows as you keep playing.",
+        "Faster startup: when a game update leaves some offsets underivable, opening a box no longer re-runs a full memory scan on every launch (~48 s saved).",
+        "Web app: switching language after loading a save now refreshes the inventory as well as the catalog."
+      ]
+    },
     "1.26.0": {
       "title": "What's new in v1.26.0",
       "bullets": [
