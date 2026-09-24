@@ -12,25 +12,25 @@
 
 应用固定五个页面，顺序与桌面标签一致（`app/src/web/webTabs.ts` 的 `WEB_TAB_IDS`）：
 
-| 页面 | 对应桌面标签 | 数据来源 | 需要存档？ |
-| --- | --- | --- | --- |
-| Home 首页 | `live` | 存档 + 实时读取 | **是**（无存档时显示存档路径指引） |
-| Inventory 物品栏 | `inventory` | 存档 | **是** |
-| Chests 宝箱 | `chests` | 宝箱目录（`stage_boxes.json`）+ 存档（持有数 / 槽位） | 目录不需要，持有数需要 |
-| Lookup 图鉴 | `lookup` | `gamedata.json` + `lookup_items.json` + 价格快照 | 否 |
-| Trading 交易 | `trading` | 价格快照 + 目录 | 否 |
+| 页面             | 对应桌面标签 | 数据来源                                              | 需要存档？                         |
+| ---------------- | ------------ | ----------------------------------------------------- | ---------------------------------- |
+| Home 首页        | `live`       | 存档 + 实时读取                                       | **是**（无存档时显示存档路径指引） |
+| Inventory 物品栏 | `inventory`  | 存档                                                  | **是**                             |
+| Chests 宝箱      | `chests`     | 宝箱目录（`stage_boxes.json`）+ 存档（持有数 / 槽位） | 目录不需要，持有数需要             |
+| Lookup 图鉴      | `lookup`     | `gamedata.json` + `lookup_items.json` + 价格快照      | 否                                 |
+| Trading 交易     | `trading`    | 价格快照 + 目录                                       | 否                                 |
 
-| 能力 | 桌面版 | 网页版 | 原因 |
-| --- | --- | --- | --- |
-| 读取存档、解密、解析背包/宝箱 | ✅ | ✅ | 纯计算，WebCrypto 可替代 `node:crypto` |
-| 图鉴 / 宝箱目录 / 交易列表 | ✅ | ✅ | 全部为构建期内联的静态数据，见 §25.4 |
-| Steam 挂单价 | ✅（实时轮询） | ⚠️ 只读快照 | 浏览器无 CORS 直连 Steam；改用 CI 预生成的 `prices.json`，见 §25.6 |
-| 语言切换 | ✅ | ✅ | 复用同一份 locale，见 §25.10 |
-| 实时追踪（XP/gold 速率） | ✅ | ❌ | 需要 `fs.watch` 持续监听存档 |
-| LiveMemory 内存读取 | ✅ | ❌ | 需要 `koffi` FFI 附加游戏进程 |
-| 悬浮窗 / 置顶小窗 | ✅ | ❌ | 浏览器无法创建系统级悬浮窗 |
-| 自动更新 | ✅ | ❌ | 无安装包 |
-| 合成 EV 覆盖（soulstone / 纪念币） | ✅ | 部分 | 缺 `lookup_sources.json` / `offerings.json`，回落为品质基准值 |
+| 能力                               | 桌面版         | 网页版      | 原因                                                               |
+| ---------------------------------- | -------------- | ----------- | ------------------------------------------------------------------ |
+| 读取存档、解密、解析背包/宝箱      | ✅             | ✅          | 纯计算，WebCrypto 可替代 `node:crypto`                             |
+| 图鉴 / 宝箱目录 / 交易列表         | ✅             | ✅          | 全部为构建期内联的静态数据，见 §25.4                               |
+| Steam 挂单价                       | ✅（实时轮询） | ⚠️ 只读快照 | 浏览器无 CORS 直连 Steam；改用 CI 预生成的 `prices.json`，见 §25.6 |
+| 语言切换                           | ✅             | ✅          | 复用同一份 locale，见 §25.10                                       |
+| 实时追踪（XP/gold 速率）           | ✅             | ❌          | 需要 `fs.watch` 持续监听存档                                       |
+| LiveMemory 内存读取                | ✅             | ❌          | 需要 `koffi` FFI 附加游戏进程                                      |
+| 悬浮窗 / 置顶小窗                  | ✅             | ❌          | 浏览器无法创建系统级悬浮窗                                         |
+| 自动更新                           | ✅             | ❌          | 无安装包                                                           |
+| 合成 EV 覆盖（soulstone / 纪念币） | ✅             | 部分        | 缺 `lookup_sources.json` / `offerings.json`，回落为品质基准值      |
 
 **不变量一：存档内容不离开本机。** 解密与解析全部在浏览器内完成，不上传、无遥测。
 
@@ -75,11 +75,12 @@ flowchart TD
 
 - 顶部导航由 `WEB_TAB_IDS`（`home` / `inventory` / `chests` / `lookup` / `trading`）驱动，标签文案取自 `web` i18n 命名空间的 `nav.*`；
 - 右侧 `LanguageSwitcher`（§25.10）；
+- **视觉契约**（与桌面版共用 token，见 [`docs/STYLING.md`](../STYLING.md)）：吸顶页头（渐变品牌标 + `WEB` 徽章 + 居中导航）、`.atmosphere-glow`（顶部径向装饰光，`aria-hidden`，压在**不透明**页头之下所以只落在页头以下，永不覆盖数据面）、页脚（小号品牌行 + 免责声明 + 超大 ghost 字标）。内容宽度上限 `max-w-[1240px] px-5`（= 1200 内容宽），五页共用同一measure。
 - 每个页面是 `app/src/web/tabs/` 下的一个面板组件：
-  - `HomePanel` —— 品牌头、存档错误卡、`SavePicker` / 已载入摘要、`SaveLocationHelp`；**无存档时**额外渲染三步操作指引与三条快捷入口；底部 `DesktopOnlyPanel`（桌面能力导流）。
+  - `HomePanel` —— eyebrow（`home.eyebrow`）+ 左对齐 hero + 存档错误卡、`SavePicker` / 已载入摘要、`SaveLocationHelp`；**无存档时**额外渲染三步操作指引（编号芯片）与三条快捷入口（带箭头图标）；底部 `DesktopOnlyPanel`（桌面能力导流，3 列）。
   - `InventoryPanel` —— 无 `runtime.inventory` 时显示空状态（标题 / 正文 / 选择存档按钮 / 回首页）；有存档时渲染摘要卡 + 复用 renderer 的 `<Inventory />`。
   - `ChestsPanel` —— 从 `stage_boxes.json` 构建目录并分组（`chestCategoryFromKey`），目录**始终**渲染；仅当 `runtime.inventory?.chests` 非空时额外渲染「持有宝箱」区块。
-  - `TradingPanel` —— 由 `marketHashName(item) != null` 筛出可交易行，用 `resolveLookupPrice(item, snapshot, currency)` 取价；渲染 KPI（可交易 / 已定价 / 覆盖率）、快照时间与 `MissingPricesBanner`。
+  - `TradingPanel` —— 由 `marketHashName(item) != null` 筛出可交易行，用 `resolveLookupPrice(item, snapshot, currency)` 取价；渲染 KPI（可交易 / 已定价 / 覆盖率）、快照时间与 `MissingPricesBanner`。表格列为 **Item / Type / Grade / Lowest listing**（`Type` 用 `typeLabel(item.type)`，把原先过疏的三列撑满 1200 measure）。
 - **Lookup 页复用 renderer 的 `Lookup.tsx`**：网页版直接挂载 `<Lookup watchedOnlyDefault={false} showPollingStatus={false} />`。这两个 props 是**可选、增量**的（默认为 `true`，桌面行为不变）——`watchedOnlyDefault` 让网页版默认展示全部物品而非只看关注，`showPollingStatus` 关掉只有桌面轮询才有的状态行。
 
 **空状态契约**：Home 与 Inventory 必须给出指向 `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\` 的指引与「复制路径」按钮，而不是空白块或报错。
@@ -88,11 +89,11 @@ flowchart TD
 
 由 `app/vite.web.config.ts` 的 `tbh-browser-safe-core` 插件完成（`enforce: "pre"`，`resolveId` 钩子）。三处替换：
 
-| 原模块 | 替换为 | 解决的问题 |
-| --- | --- | --- |
-| `core/bundledData` | `core/bundledDataWeb` | 磁盘 `fs.readFileSync` → 内存目录 |
-| `core/es3` | `core/es3Web` | `node:crypto` → WebCrypto（PBKDF2 + AES-CBC 契约等价） |
-| `renderer/lib/iconSrc` | `src/web/iconSrcWeb.ts` | `tbh-asset://` 自定义协议 → 同源静态 PNG |
+| 原模块                 | 替换为                  | 解决的问题                                             |
+| ---------------------- | ----------------------- | ------------------------------------------------------ |
+| `core/bundledData`     | `core/bundledDataWeb`   | 磁盘 `fs.readFileSync` → 内存目录                      |
+| `core/es3`             | `core/es3Web`           | `node:crypto` → WebCrypto（PBKDF2 + AES-CBC 契约等价） |
+| `renderer/lib/iconSrc` | `src/web/iconSrcWeb.ts` | `tbh-asset://` 自定义协议 → 同源静态 PNG               |
 
 内存目录由 `src/web/dataSource.ts` 用 `?raw` 导入并注入（`setBundledDataTextSource`）。**只随包发 9 个文件**：`gamedata` / `stage_boxes` / `box_types` / `steam_market_fee` / `lookup_items` + 四语言 `locale_strings`。被省略的（`lookup_sources` 10 MB、`_game_locale_dump` 3 MB 等）在 `OMITTED` 集合里登记，命中时静默返回 `null`；**未登记的缺失名会打印警告**，避免目录缺项变成渲染中期的 `Bundled data file not found` 堆栈。
 
@@ -173,34 +174,34 @@ return `${base}icons/${encodeURIComponent(iconPath)}.png`;
 
 ## 25.11 错误处理
 
-| 场景 | 行为 |
-| --- | --- |
-| 密码错误 / 非存档文件 | `classifySaveFileError` → `runtime.error`，UI 显示可读文案；不解密、不推送 |
-| 目录文件缺失但已登记在 `OMITTED` | 静默返回 `null`，对应功能降级（如合成 EV 覆盖） |
-| 目录文件缺失且**未**登记 | `console.warn("[web] bundled data not shipped: <name>")` |
-| `prices.json` 404 / 载荷非法 | 快照降级为 `"missing"`，Trading / Lookup 仍渲染目录并显示 `MissingPricesBanner` |
-| 图标 404 | `<img onError>` 置 `visibility: hidden`，不影响布局 |
-| 某能力不支持 | shim 返回惰性空值，页面正常挂载并渲染桌面版导流卡片 |
+| 场景                             | 行为                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| 密码错误 / 非存档文件            | `classifySaveFileError` → `runtime.error`，UI 显示可读文案；不解密、不推送      |
+| 目录文件缺失但已登记在 `OMITTED` | 静默返回 `null`，对应功能降级（如合成 EV 覆盖）                                 |
+| 目录文件缺失且**未**登记         | `console.warn("[web] bundled data not shipped: <name>")`                        |
+| `prices.json` 404 / 载荷非法     | 快照降级为 `"missing"`，Trading / Lookup 仍渲染目录并显示 `MissingPricesBanner` |
+| 图标 404                         | `<img onError>` 置 `visibility: hidden`，不影响布局                             |
+| 某能力不支持                     | shim 返回惰性空值，页面正常挂载并渲染桌面版导流卡片                             |
 
 ## 25.12 关键文件速查
 
-| 模块 | 路径 |
-| --- | --- |
-| 构建配置（含三处 swap） | `app/vite.web.config.ts` |
-| 图标复制脚本 | `app/scripts/copy-web-icons.mjs` |
-| web 入口 / 五页壳 | `app/src/web/main.tsx`、`app/src/web/WebApp.tsx`、`app/src/web/webTabs.ts` |
-| 页面面板 | `app/src/web/tabs/{HomePanel,InventoryPanel,ChestsPanel,TradingPanel}.tsx` |
-| 共享 UI 片段 | `app/src/web/components/{SavePicker,SaveLocationHelp,DesktopOnlyPanel,LanguageSwitcher,MissingPricesBanner}.tsx` |
-| `window.tbh` shim | `app/src/web/webTbhApi.ts` |
-| 存档加载 | `app/src/web/webTbhApi.ts`（`loadWebSaveFile`）、`app/src/web/analyzeSave.ts` |
-| 价格快照 store | `app/src/web/pricesSnapshot.ts`、`app/src/web/lib/useWebPrices.ts` |
-| runtime 订阅 | `app/src/web/lib/useWebRuntime.ts` |
-| 内存数据目录 | `app/src/web/dataSource.ts` |
-| Web 图标 URL | `app/src/web/iconSrcWeb.ts` |
-| 错误分类 | `app/src/web/errors.ts` |
-| 外链常量 | `app/src/web/links.ts` |
-| web i18n 命名空间 | `app/shared/locales/*/web.json` |
-| 等价性守卫 | `app/test/web/es3Parity.test.ts`、`app/test/web/webPricesSnapshot.test.ts` |
-| 无存档渲染守卫 | `app/test/renderer-component/web-no-save.test.tsx` |
-| 端到端冒烟 | `app/scripts/smoke-app/smoke-web.cjs`（`pnpm smoke:web`） |
-| 部署说明 | `docs/DEPLOY-WEB.md` |
+| 模块                    | 路径                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 构建配置（含三处 swap） | `app/vite.web.config.ts`                                                                                         |
+| 图标复制脚本            | `app/scripts/copy-web-icons.mjs`                                                                                 |
+| web 入口 / 五页壳       | `app/src/web/main.tsx`、`app/src/web/WebApp.tsx`、`app/src/web/webTabs.ts`                                       |
+| 页面面板                | `app/src/web/tabs/{HomePanel,InventoryPanel,ChestsPanel,TradingPanel}.tsx`                                       |
+| 共享 UI 片段            | `app/src/web/components/{SavePicker,SaveLocationHelp,DesktopOnlyPanel,LanguageSwitcher,MissingPricesBanner}.tsx` |
+| `window.tbh` shim       | `app/src/web/webTbhApi.ts`                                                                                       |
+| 存档加载                | `app/src/web/webTbhApi.ts`（`loadWebSaveFile`）、`app/src/web/analyzeSave.ts`                                    |
+| 价格快照 store          | `app/src/web/pricesSnapshot.ts`、`app/src/web/lib/useWebPrices.ts`                                               |
+| runtime 订阅            | `app/src/web/lib/useWebRuntime.ts`                                                                               |
+| 内存数据目录            | `app/src/web/dataSource.ts`                                                                                      |
+| Web 图标 URL            | `app/src/web/iconSrcWeb.ts`                                                                                      |
+| 错误分类                | `app/src/web/errors.ts`                                                                                          |
+| 外链常量                | `app/src/web/links.ts`                                                                                           |
+| web i18n 命名空间       | `app/shared/locales/*/web.json`                                                                                  |
+| 等价性守卫              | `app/test/web/es3Parity.test.ts`、`app/test/web/webPricesSnapshot.test.ts`                                       |
+| 无存档渲染守卫          | `app/test/renderer-component/web-no-save.test.tsx`                                                               |
+| 端到端冒烟              | `app/scripts/smoke-app/smoke-web.cjs`（`pnpm smoke:web`）                                                        |
+| 部署说明                | `docs/DEPLOY-WEB.md`                                                                                             |
