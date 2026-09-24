@@ -33,7 +33,7 @@ import { WEB_DEFAULT_CONFIG } from "./defaultConfig";
 import {
   analyzeSaveFile,
   resolveWebInventory,
-  webPriceLookup,
+  webPriceContext,
   type AnalyzeResult,
 } from "./analyzeSave";
 import { classifySaveFileError } from "./errors";
@@ -43,7 +43,13 @@ import { loadLookupItems } from "../core/lookup/catalog";
 import { gameItemName } from "../core/gamedata";
 import { loadLocaleCatalog } from "../core/localeCatalog";
 import { resolveLanguage, type ResolvedLanguage } from "../../shared/language";
-import type { AppConfig, LookupItem, ResolvedInventory, TbhApi } from "../../shared/types";
+import type {
+  AppConfig,
+  LookupItem,
+  PriceStatus,
+  ResolvedInventory,
+  TbhApi,
+} from "../../shared/types";
 
 type Listener<T> = (value: T) => void;
 const NOOP_UNSUBSCRIBE = (): void => {};
@@ -57,6 +63,9 @@ interface WebRuntimeState {
   fileName: string | null;
   loading: boolean;
   error: string | null;
+  /** Steam Market display currency. Mirrors `config.currency` so panels can
+   *  react to a change without a config push channel. */
+  currency: string;
 }
 
 const runtime: WebRuntimeState = {
@@ -65,6 +74,7 @@ const runtime: WebRuntimeState = {
   fileName: null,
   loading: false,
   error: null,
+  currency: "USD",
 };
 
 // `useSyncExternalStore` compares successive `getSnapshot()` results with
@@ -74,17 +84,6 @@ const runtime: WebRuntimeState = {
 // therefore publishes a fresh shallow copy, and `webRuntime()` hands out the
 // most recent one — the identity changes exactly when the state does.
 let runtimeSnapshot: Readonly<WebRuntimeState> = { ...runtime };
-
-/**
- * Raw bytes (plus name / mtime) of the most recently *successfully* analyzed
- * save.
- *
- * A language change has to re-resolve the loaded inventory — its rows were
- * localised at load time — and re-reading a `File` handle after the fact is not
- * possible (keeping the `File` object itself is unreliable). The buffer is
- * ~220 KB, so retaining it is cheap. Cleared by `clearWebSave()`.
- */
-let lastSave: { buffer: ArrayBuffer; fileName: string; lastModified: number } | null = null;
 
 let config: AppConfig = {
   ...WEB_DEFAULT_CONFIG,
@@ -104,6 +103,14 @@ function resolveWebLanguage(cfg: AppConfig): ResolvedLanguage {
 }
 const inventoryListeners = new Set<Listener<ResolvedInventory>>();
 const runtimeSubscribers = new Set<() => void>();
+/** Lookup reads the display currency off `pricesStatus()`; pushed on change. */
+const priceStatusListeners = new Set<Listener<PriceStatus>>();
+
+/** Push the current (no-polling) status to every `onPriceStatus` subscriber. */
+function broadcastPriceStatus(): void {
+  const status = emptyPriceStatus(config.currency);
+  for (const cb of [...priceStatusListeners]) cb(status);
+}
 
 /** Current shim state, for the web UI shell. */
 export function webRuntime(): Readonly<WebRuntimeState> {
@@ -127,9 +134,6 @@ function notifyRuntime(): void {
 
 /** Clear the loaded save (used by the "load another file" action). */
 export function clearWebSave(): void {
-  // Drop the retained bytes too: otherwise a later language change would
-  // resurrect an inventory the user just cleared.
-  lastSave = null;
   runtime.inventory = null;
   runtime.analyze = null;
   runtime.fileName = null;
@@ -153,14 +157,12 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
       buffer,
       config.resolvedLanguage ?? "en",
       file.lastModified,
-      webPriceLookup(getWebPriceSnapshot()),
+      webPriceContext(getWebPriceSnapshot(), config.currency),
     );
     runtime.analyze = result;
     runtime.inventory = result.inventory;
     runtime.fileName = file.name;
-    // Retain the raw bytes so a later language change can re-resolve the rows
-    // without the original `File` handle.
-    lastSave = { buffer, fileName: file.name, lastModified: file.lastModified };
+    runtime.currency = config.currency;
     for (const cb of [...inventoryListeners]) cb(result.inventory);
     // The inventory is priced from the CI snapshot; make sure it is being
     // fetched so a save loaded before it arrives is re-priced on arrival.
@@ -176,65 +178,41 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
 }
 
 /**
- * Re-run the analyzer over the retained save with a new language, publishing the
- * re-resolved inventory to subscribers.
+ * Re-resolve the loaded save with the current language, Steam currency and
+ * price snapshot, republishing to subscribers.
  *
- * Called by `saveConfig` when the UI language changed: the loaded rows were
- * localised with the previous language, so they must follow the catalog. A
- * failure must never blank the page — the previous inventory is kept and
- * `runtime.error` is left untouched (switching language is not a save error);
- * only a warning is logged.
- */
-async function reanalyzeLoadedSave(language: ResolvedLanguage): Promise<void> {
-  if (!lastSave) return;
-  try {
-    const result = await analyzeSaveFile(
-      lastSave.buffer,
-      language,
-      lastSave.lastModified,
-      webPriceLookup(getWebPriceSnapshot()),
-    );
-    runtime.analyze = result;
-    runtime.inventory = result.inventory;
-    for (const cb of [...inventoryListeners]) cb(result.inventory);
-    notifyRuntime();
-  } catch (err) {
-    console.warn("[web] could not re-analyze the loaded save for the new language", err);
-  }
-}
-
-/**
- * Re-resolve the loaded save against the current price snapshot.
+ * The parse (`InventorySnapshot`) is language-, currency- and price-independent,
+ * so this never re-decrypts — only the resolve step reruns, which for a few
+ * hundred rows is effectively free. One entry point for all three triggers:
+ * the price snapshot arriving, the UI language changing, and the display
+ * currency changing.
  *
- * The snapshot arrives asynchronously (same-origin fetch), so a save loaded
- * before it lands is resolved unpriced; this re-runs the resolve — cheap, the
- * file is already parsed — and republishes. Subscribed below, so it also fires
- * if the snapshot is refreshed while the save is open.
+ * A language change used to re-decrypt the retained buffer; that was wasteful
+ * (nothing in the parse reads the language) and is why the parse result is now
+ * the thing that is retained.
  *
  * Deliberately never touches `runtime.error`: a missing or malformed snapshot
  * is not a save error, and the page must keep the rows it already has.
  */
-function repriceLoadedSave(): void {
+function republishLoadedInventory(): void {
   const analyze = runtime.analyze;
   if (!analyze) return;
-  const snapshot = getWebPriceSnapshot();
-  if (!snapshot) return;
   try {
     const inventory = resolveWebInventory(
       analyze.snapshot,
       config.resolvedLanguage ?? "en",
-      webPriceLookup(snapshot),
+      webPriceContext(getWebPriceSnapshot(), config.currency),
     );
     runtime.analyze = { ...analyze, inventory };
     runtime.inventory = inventory;
     for (const cb of [...inventoryListeners]) cb(inventory);
     notifyRuntime();
   } catch (err) {
-    console.warn("[web] could not apply Steam prices to the loaded inventory", err);
+    console.warn("[web] could not re-resolve the loaded inventory", err);
   }
 }
 
-subscribeWebPrices(() => repriceLoadedSave());
+subscribeWebPrices(() => republishLoadedInventory());
 
 const CONFIG_STORAGE_KEY = "tbh-web-config";
 
@@ -259,6 +237,9 @@ export function restoreWebConfig(): void {
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
     const merged = { ...config, ...parsed };
     config = { ...merged, resolvedLanguage: resolveWebLanguage(merged) };
+    // The runtime mirrors the persisted currency so the header switcher and the
+    // panels agree before the first save is loaded.
+    runtime.currency = config.currency;
   } catch {
     // Ignore corrupt payloads and fall back to defaults.
   }
@@ -310,18 +291,29 @@ function buildWebApi(): TbhApi {
     saveConfig: async (patch: Partial<AppConfig>) => {
       // `resolvedLanguage` is derived per-session, never persisted.
       const previousLanguage = config.resolvedLanguage;
+      const previousCurrency = config.currency;
       const merged = { ...config, ...patch };
       const nextLanguage = resolveWebLanguage(merged);
       config = { ...merged, resolvedLanguage: nextLanguage };
       persistConfig(config);
 
-      // A language change re-localizes the *loaded* inventory too, not just the
-      // catalog: its rows were resolved with the previous language. Only when the
-      // language actually changed AND a save is loaded; `setCurrency` etc. must
-      // not trigger a re-analysis. Awaited so the caller observes a consistent
-      // (config + data) pair when this resolves.
-      if (nextLanguage !== previousLanguage && lastSave) {
-        await reanalyzeLoadedSave(nextLanguage);
+      // A language change re-localizes the loaded inventory (its rows were
+      // resolved with the previous language); a currency change re-prices it
+      // through the snapshot's FX table. Both rerun only the resolve step — the
+      // parse is language- and currency-independent — so this stays synchronous
+      // and the caller observes a consistent (config, data) pair when it
+      // returns. Currency changes also have to reach Lookup, which reads the
+      // currency off `pricesStatus()`.
+      const languageChanged = nextLanguage !== previousLanguage;
+      const currencyChanged = config.currency !== previousCurrency;
+      if (currencyChanged) {
+        runtime.currency = config.currency;
+        broadcastPriceStatus();
+      }
+      if ((languageChanged || currencyChanged) && runtime.analyze) {
+        republishLoadedInventory();
+      } else if (currencyChanged) {
+        notifyRuntime();
       }
       return config;
     },
@@ -371,13 +363,28 @@ function buildWebApi(): TbhApi {
       Promise.resolve(emptyPriceRefreshResult(config.currency, "unavailable")),
     cancelPrices: () => undefined,
     setCurrency: (iso: string) => {
+      const changed = config.currency !== iso;
       config = { ...config, currency: iso };
       persistConfig(config);
+      runtime.currency = iso;
+      // Lookup reads the display currency off `pricesStatus()`, so a change has
+      // to be pushed to its subscribers as well as re-pricing the inventory.
+      broadcastPriceStatus();
+      if (changed && runtime.analyze) republishLoadedInventory();
+      else notifyRuntime();
       return Promise.resolve(emptyPriceStatus(iso));
     },
     setMarketAutoScanEnabled: unsupported,
     onPricesProgress: () => NOOP_UNSUBSCRIBE,
-    onPriceStatus: () => NOOP_UNSUBSCRIBE,
+    onPriceStatus: (cb: (status: PriceStatus) => void) => {
+      priceStatusListeners.add(cb);
+      // Push the current status on subscribe so a fresh `usePriceStatus()` has a
+      // value immediately instead of waiting for the next currency change.
+      cb(emptyPriceStatus(config.currency));
+      return () => {
+        priceStatusListeners.delete(cb);
+      };
+    },
     getLookupPrices: () => ensureWebPricesLoaded().then(getWebPriceSnapshot),
     onLookupPrices: (cb) => subscribeWebPrices(() => cb(getWebPriceSnapshot())),
     getLookupPricePollStatus: () => Promise.resolve(null),

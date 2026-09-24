@@ -8,6 +8,7 @@
     "trading": "交易"
   },
   "language": "语言",
+  "currency": "Steam 市场货币",
   "footer": "Task Bar Hero 的非官方开源工具。你的存档在本标签页本地处理，绝不上传。",
   "footerSource": "在 GitHub 上查看源码",
   "crashTitle": "TBH Companion 网页版渲染失败",

@@ -8,6 +8,7 @@
     "trading": "거래"
   },
   "language": "언어",
+  "currency": "Steam 마켓 통화",
   "footer": "Task Bar Hero용 비공식 오픈소스 도구입니다. 세이브 데이터는 이 탭에서 로컬로 처리되며 절대 업로드되지 않습니다.",
   "footerSource": "GitHub에서 소스 보기",
   "crashTitle": "TBH Companion 웹 렌더링에 실패했습니다",

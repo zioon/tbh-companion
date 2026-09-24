@@ -67,7 +67,8 @@ flowchart TD
 
 - 桌面主进程侧的 `SaveWatcher → es3.decrypt → parseInventory → resolveInventory → broadcast` 链条，在网页版被压成 `analyzeSaveFile` 一个函数，去掉了监听、IPC 与 worker。
 - 价格从「桌面版实时轮询 Steam」改为「同源读取 CI 快照」（§25.6）。
-- **物品栏价格**：`analyzeSaveFile` 接受可选的 `priceLookup`（由 `webPriceLookup(snapshot)` 从快照构造）传给 `resolveInventory`。快照是**异步**到达的，因此载入存档时若还没拿到就先按无价解析，`repriceLoadedSave()` 订阅快照 store、在快照就绪后用已解析的 `InventorySnapshot` **重算并重发**（不重新解密）。CI 快照**只有最低挂单价**（无中位数、无收购单），所以物品栏的「到手价 / 立即卖出 / 立即总价」在网页版恒为未加载态——这是浏览器拿不到的数据，不是缺陷；` Eternal *` 这类快照里为 `null` 的条目会如实显示「无挂单」。
+- **物品栏价格**：`analyzeSaveFile` 接受可选的 `price` 上下文（由 `webPriceContext(snapshot, currency)` 构造）传给 `resolveInventory`。快照是**异步**到达的，因此载入存档时若还没拿到就先按无价解析，`republishLoadedInventory()` 在快照就绪后用已解析的 `InventorySnapshot` **重算并重发**（不重新解密）。CI 快照**只有最低挂单价**（无中位数、无收购单），所以物品栏的「到手价 / 立即卖出 / 立即总价」在网页版恒为未加载态——这是浏览器拿不到的数据，不是缺陷；` Eternal *` 这类快照里为 `null` 的条目会如实显示「无挂单」。
+- **显示货币**：页头有 `CurrencySwitcher`，选项 = Steam 钱包货币 ∩ 快照 `fx` 表（快照没加载前只提供 USD，避免选了却静默回落）。`resolveInventory` 拿到的价格已经过 `fx` 换算并把 `inv.currency` 写成显示货币，所以物品栏的费率（Steam 最低费用随货币变化）与金额格式都跟着走；Trading 的 KPI 与表格、Lookup 的 `usePriceStatus()?.currency` 也读同一处。快照没有该货币汇率时回落 USD，绝不会出现「¥ 金额配 $ 前缀」。
 - **无存档分支**：`Drop` 之前的所有节点都不依赖存档——`Cat` / `Boxes` / `Prices` 三条线在页面挂载时即已就绪，因此 Lookup / Chests / Trading 无需存档即可渲染真实内容。
 
 ## 25.3 站点结构与五页壳
@@ -77,7 +78,7 @@ flowchart TD
 页面外壳是 `app/src/web/WebApp.tsx`：
 
 - 顶部导航由 `WEB_TAB_IDS`（`home` / `inventory` / `chests` / `lookup` / `trading`）驱动，标签文案取自 `web` i18n 命名空间的 `nav.*`；
-- 右侧 `LanguageSwitcher`（§25.10）；
+- 右侧 `CurrencySwitcher`（显示货币，经快照 `fx` 换算）+ `LanguageSwitcher`（§25.10）；
 - **视觉契约**（与桌面版共用 token，见 [`docs/STYLING.md`](../STYLING.md)）：吸顶页头（渐变品牌标 + `WEB` 徽章 + 居中导航）、`.atmosphere-glow`（顶部径向装饰光，`aria-hidden`，压在**不透明**页头之下所以只落在页头以下，永不覆盖数据面）、页脚（小号品牌行 + 免责声明 + 超大 ghost 字标）。内容宽度上限 `max-w-[1240px] px-5`（= 1200 内容宽），五页共用同一measure。
 - 每个页面是 `app/src/web/tabs/` 下的一个面板组件：
   - `HomePanel` —— eyebrow（`home.eyebrow`）+ 左对齐 hero + 存档错误卡、`SavePicker` / 已载入摘要、`SaveLocationHelp`；**无存档时**额外渲染三步操作指引（编号芯片）与三条快捷入口（带箭头图标）；底部 `DesktopOnlyPanel`（桌面能力导流，3 列）。
@@ -129,7 +130,7 @@ flowchart TD
 
 `app/src/web/lib/useWebPrices.ts` 是它的 `useSyncExternalStore` 封装，返回 `{ status, snapshot }`。
 
-**快照同时是物品栏的价格来源**：`analyzeSave.ts#webPriceLookup` 把 `prices`（market_hash_name → 最低挂单价，USD）映射成 `resolveInventory` 的 `PriceLookup`。快照不含中位数与收购单，因此网页版物品栏的到手价 / 立即卖出 / 立即总价恒为未加载；`webTbhApi.ts` 订阅该 store，快照就绪后用已解析的快照重算行（见 §25.2）。
+**快照同时是物品栏的价格来源**：`analyzeSave.ts#webPriceContext` 把 `prices`（market_hash_name → 最低挂单价，USD）连同 `fx` 表映射成 `resolveInventory` 的 `PriceLookup`，并按所选显示货币换算。快照不含中位数与收购单，因此网页版物品栏的到手价 / 立即卖出 / 立即总价恒为未加载；`webTbhApi.ts#republishLoadedInventory` 订阅该 store，快照就绪 / 语言切换 / 货币切换时用已解析的快照重算行（见 §25.2）。
 
 ## 25.7 图鉴目录本地化（易踩的坑）
 

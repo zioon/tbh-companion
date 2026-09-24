@@ -23,6 +23,7 @@ import { ItemIcon } from "../../renderer/design-system/primitives/ItemIcon/ItemI
 import { TabHeader } from "../../renderer/design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../../renderer/design-system/primitives/TabPage/TabPage";
 import { useWebPrices } from "../lib/useWebPrices";
+import { useWebRuntime } from "../lib/useWebRuntime";
 import { MissingPricesBanner } from "../components/MissingPricesBanner";
 
 function Kpi({ label, value }: { label: string; value: string }) {
@@ -44,8 +45,12 @@ export function TradingPanel() {
   const { t: tLookup } = useTranslation("lookup");
   const catalog = useLookupCatalog();
   const { snapshot } = useWebPrices();
+  const runtime = useWebRuntime();
 
-  const currency = snapshot?.baseCurrency ?? "USD";
+  // The user's display currency, not the snapshot's base: `resolveLookupPrice`
+  // converts through the snapshot's FX table, so every row and KPI follows the
+  // header switcher.
+  const currency = runtime.currency;
 
   // Tradable catalog rows, each resolved against the snapshot. Sorted priced
   // first (cheapest of the expensive → descending) then unpriced by name so the

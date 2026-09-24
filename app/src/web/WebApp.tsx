@@ -29,6 +29,7 @@ import { ErrorBoundary } from "../renderer/lib/ErrorBoundary";
 import { cn } from "../renderer/lib/cn";
 import { REPO_URL } from "./links";
 import { LanguageSwitcher } from "./components/LanguageSwitcher";
+import { CurrencySwitcher } from "./components/CurrencySwitcher";
 import { HomePanel } from "./tabs/HomePanel";
 import { InventoryPanel } from "./tabs/InventoryPanel";
 import { ChestsPanel } from "./tabs/ChestsPanel";
@@ -97,7 +98,10 @@ export function WebApp() {
               ))}
             </nav>
 
-            <LanguageSwitcher />
+            <div className="flex items-center gap-2">
+              <CurrencySwitcher />
+              <LanguageSwitcher />
+            </div>
           </div>
         </header>
 

@@ -8,6 +8,7 @@
     "trading": "取引"
   },
   "language": "言語",
+  "currency": "Steam マーケットの通貨",
   "footer": "Task Bar Hero の非公式オープンソースツールです。セーブデータはこのタブ内でローカルに処理され、アップロードされることはありません。",
   "footerSource": "GitHub でソースを見る",
   "crashTitle": "TBH Companion Web の描画に失敗しました",

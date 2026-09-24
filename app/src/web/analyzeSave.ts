@@ -14,6 +14,7 @@ import { decryptToText } from "../core/es3Web";
 import { gameItemName, indexById, type GameData, type GameItem } from "../core/gamedata";
 import { categoryFromBoxItemName } from "../core/liveMemory/chestSlots";
 import { loadLocaleCatalog, type LocaleCatalog } from "../core/localeCatalog";
+import { feeRatesForCurrency, TBH_MARKET_FEE_RATES } from "../core/steamMarketFee";
 import { formatMoney } from "../core/steamPrice";
 import {
   buildMaterialSynthesisPoints,
@@ -108,14 +109,14 @@ export async function analyzeSaveFile(
   file: ArrayBuffer | Uint8Array,
   language: ResolvedLanguage = "en",
   saveMtime = 0,
-  priceLookup?: PriceLookup,
+  price?: WebPriceContext,
 ): Promise<AnalyzeResult> {
   const byteSize = file.byteLength ?? 0;
 
   const text = await decryptToText(file);
   const snapshot = parseInventory(text, saveMtime, isMaterialItemKey, classifyBoxItemKey);
 
-  const inventory = resolveWebInventory(snapshot, language, priceLookup);
+  const inventory = resolveWebInventory(snapshot, language, price);
 
   return {
     inventory,
@@ -138,13 +139,18 @@ export async function analyzeSaveFile(
 export function resolveWebInventory(
   snapshot: InventorySnapshot,
   language: ResolvedLanguage,
-  priceLookup?: PriceLookup,
+  price?: WebPriceContext,
 ): ResolvedInventory {
   const catalog = loadLocaleCatalog(language);
   const { items } = webCatalog();
 
-  const resolved = resolveInventory(snapshot, (key) => items.get(key), true, priceLookup, {
+  const resolved = resolveInventory(snapshot, (key) => items.get(key), true, price?.lookup, {
     excludeItemKey,
+    // Steam's minimum fee is a fixed amount in the listing currency (¥0.01 in
+    // CNY vs $0.01 in USD), so it has to be recomputed for the currency the
+    // rows are denominated in. `Inventory` recomputes the composition the same
+    // way from `inv.currency`.
+    marketFeeRates: feeRatesForCurrency(TBH_MARKET_FEE_RATES, price?.currency ?? null),
   });
 
   // Synthesis points for materials (soulstones / memorial coins), matching the
@@ -168,42 +174,60 @@ export function resolveWebInventory(
     return points == null ? localized : { ...localized, synthesisPoints: points };
   });
 
-  return { ...resolved, rows };
+  return { ...resolved, rows, currency: price?.currency ?? null };
 }
 
 /**
- * Build the inventory `PriceLookup` from the same-origin CI snapshot.
+ * Build the inventory price context from the same-origin CI snapshot.
  *
- * The CI snapshot carries only the lowest active listing per market_hash_name —
- * recent-sale medians and buy orders come from the desktop's local polling,
- * which a browser cannot do. Rows priced from it therefore report the
- * "lowest listing" source and never a buy order; that is the honest ceiling of
- * what a browser can know without talking to Steam.
+ * The CI snapshot is USD-denominated with an FX table, and carries only the
+ * lowest active listing per market_hash_name — recent-sale medians and buy
+ * orders come from the desktop's local polling, which a browser cannot do.
+ * Rows priced from it therefore report the "lowest listing" source and never a
+ * buy order; that is the honest ceiling of what a browser can know without
+ * talking to Steam.
+ *
+ * `currency` is converted through the snapshot's FX table. When the snapshot
+ * has no rate for the requested currency the context falls back to USD, so a
+ * row never renders a ¥ amount with a $ prefix.
  *
  * Returns undefined when there is no snapshot, so callers keep whatever prices
  * they already had instead of wiping them.
  */
-export function webPriceLookup(
+export interface WebPriceContext {
+  lookup: PriceLookup;
+  /** Currency the resolved rows are denominated in (USD when no FX rate). */
+  currency: string;
+}
+
+export function webPriceContext(
   snapshot: LookupPriceSnapshot | null | undefined,
-): PriceLookup | undefined {
+  currency: string,
+): WebPriceContext | undefined {
   if (!snapshot?.prices) return undefined;
   const prices = snapshot.prices;
-  const currency = snapshot.baseCurrency;
-  return (hash): InventoryPriceInfo | undefined => {
-    const lowest = prices[hash];
-    if (lowest == null) return undefined;
-    return {
-      median: null,
-      lowest,
-      // The table renders from the raw Steam text, which the snapshot does not
-      // carry — format the number in the snapshot's (USD) base currency.
-      rawMedian: null,
-      rawLowest: formatMoney(lowest, currency),
-      buyOrder: null,
-      rawBuyOrder: null,
-      buyOrderQuantity: null,
-      buyOrderLevels: null,
-      buyOrderFetched: false,
-    };
+  const code = currency.toUpperCase();
+  const rate = snapshot.fx?.[code] ?? (code === "USD" ? 1 : null);
+  const out = rate == null ? "USD" : code;
+  return {
+    currency: out,
+    lookup: (hash): InventoryPriceInfo | undefined => {
+      const usd = prices[hash];
+      if (usd == null) return undefined;
+      const amount = usd * (rate ?? 1);
+      return {
+        median: null,
+        lowest: amount,
+        // The table renders from the raw Steam text, which the snapshot does not
+        // carry — format the converted number in the display currency.
+        rawMedian: null,
+        rawLowest: formatMoney(amount, out),
+        buyOrder: null,
+        rawBuyOrder: null,
+        buyOrderQuantity: null,
+        buyOrderLevels: null,
+        buyOrderFetched: false,
+      };
+    },
   };
 }

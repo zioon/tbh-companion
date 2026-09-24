@@ -8,6 +8,7 @@
     "trading": "Trading"
   },
   "language": "Language",
+  "currency": "Steam Market currency",
   "footer": "Unofficial, open-source tool for Task Bar Hero. Your save is processed locally in this tab and never uploaded.",
   "footerSource": "Source on GitHub",
   "crashTitle": "TBH Companion web failed to render",
