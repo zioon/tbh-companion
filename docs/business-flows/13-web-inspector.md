@@ -61,10 +61,13 @@ flowchart TD
   Prices[(data/prices.json<br/>CI 暂存 · 同源 fetch)] --> Snapshot[webPricesSnapshot]
   Snapshot --> Trading[Trading 页]
   Snapshot --> Lookup
+  Snapshot --> Reprice[按快照重算物品栏价格]
+  Reprice --> Inv
 ```
 
 - 桌面主进程侧的 `SaveWatcher → es3.decrypt → parseInventory → resolveInventory → broadcast` 链条，在网页版被压成 `analyzeSaveFile` 一个函数，去掉了监听、IPC 与 worker。
 - 价格从「桌面版实时轮询 Steam」改为「同源读取 CI 快照」（§25.6）。
+- **物品栏价格**：`analyzeSaveFile` 接受可选的 `priceLookup`（由 `webPriceLookup(snapshot)` 从快照构造）传给 `resolveInventory`。快照是**异步**到达的，因此载入存档时若还没拿到就先按无价解析，`repriceLoadedSave()` 订阅快照 store、在快照就绪后用已解析的 `InventorySnapshot` **重算并重发**（不重新解密）。CI 快照**只有最低挂单价**（无中位数、无收购单），所以物品栏的「到手价 / 立即卖出 / 立即总价」在网页版恒为未加载态——这是浏览器拿不到的数据，不是缺陷；` Eternal *` 这类快照里为 `null` 的条目会如实显示「无挂单」。
 - **无存档分支**：`Drop` 之前的所有节点都不依赖存档——`Cat` / `Boxes` / `Prices` 三条线在页面挂载时即已就绪，因此 Lookup / Chests / Trading 无需存档即可渲染真实内容。
 
 ## 25.3 站点结构与五页壳
@@ -125,6 +128,8 @@ flowchart TD
 - **所有失败都降级为 `"missing"`（`snapshot = null`）而非抛错或清空目录**：404、网络错误、或形状不符的载荷（含 `isSnapshot()` 结构校验，拒绝数组）都只让视图「无价格 + 顶部告警条」，`MissingPricesBanner` 会链接到 `lookup-prices.yml` 的工作流页面。
 
 `app/src/web/lib/useWebPrices.ts` 是它的 `useSyncExternalStore` 封装，返回 `{ status, snapshot }`。
+
+**快照同时是物品栏的价格来源**：`analyzeSave.ts#webPriceLookup` 把 `prices`（market_hash_name → 最低挂单价，USD）映射成 `resolveInventory` 的 `PriceLookup`。快照不含中位数与收购单，因此网页版物品栏的到手价 / 立即卖出 / 立即总价恒为未加载；`webTbhApi.ts` 订阅该 store，快照就绪后用已解析的快照重算行（见 §25.2）。
 
 ## 25.7 图鉴目录本地化（易踩的坑）
 

@@ -4,15 +4,17 @@
 // (`es3.decrypt` -> `parseInventory` -> `resolveInventory`, see
 // `docs/ARCHITECTURE.md` "Data flow (inventory)"), minus everything that needs
 // a running game: no file watching, no live-memory, no Steam price refresh.
-// Prices are simply absent, which the inventory table already renders as a
-// "not loaded" state.
+// Pricing comes from the same-origin CI snapshot instead (`webPriceLookup`), so
+// a save loaded before that fetch completes starts unpriced and is re-resolved
+// once the snapshot lands.
 
 import { parseInventory } from "../core/inventory/parse";
-import { resolveInventory } from "../core/inventory/resolve";
+import { resolveInventory, type PriceLookup } from "../core/inventory/resolve";
 import { decryptToText } from "../core/es3Web";
 import { gameItemName, indexById, type GameData, type GameItem } from "../core/gamedata";
 import { categoryFromBoxItemName } from "../core/liveMemory/chestSlots";
 import { loadLocaleCatalog, type LocaleCatalog } from "../core/localeCatalog";
+import { formatMoney } from "../core/steamPrice";
 import {
   buildMaterialSynthesisPoints,
   synthesisPointsForItemKeyByGear,
@@ -20,8 +22,14 @@ import {
 import { loadLookupItems } from "../core/lookup/catalog";
 import { installWebDataSource } from "./dataSource";
 import type { ResolvedLanguage } from "../../shared/language";
-import type { LookupItem, ResolvedInventory, ResolvedInventoryRow } from "../../shared/types";
-import type { InventorySnapshot } from "../../shared/types";
+import type {
+  InventoryPriceInfo,
+  InventorySnapshot,
+  LookupItem,
+  LookupPriceSnapshot,
+  ResolvedInventory,
+  ResolvedInventoryRow,
+} from "../../shared/types";
 import type { BoxCategory } from "../../shared/types";
 import { readBundledJson } from "../core/bundledData";
 
@@ -91,21 +99,51 @@ function localizeRow(row: ResolvedInventoryRow, catalog: LocaleCatalog): Resolve
 /**
  * Decrypt and analyze a save file. Throws `Es3Error` for a wrong password or a
  * non-save file — `err.message` is already user-facing.
+ *
+ * `priceLookup` is optional: without it the rows carry no prices (the table
+ * renders its "not loaded" state). The web layer passes the CI snapshot's
+ * lookup so the inventory is priced like the desktop's.
  */
 export async function analyzeSaveFile(
   file: ArrayBuffer | Uint8Array,
   language: ResolvedLanguage = "en",
   saveMtime = 0,
+  priceLookup?: PriceLookup,
 ): Promise<AnalyzeResult> {
   const byteSize = file.byteLength ?? 0;
 
   const text = await decryptToText(file);
   const snapshot = parseInventory(text, saveMtime, isMaterialItemKey, classifyBoxItemKey);
 
+  const inventory = resolveWebInventory(snapshot, language, priceLookup);
+
+  return {
+    inventory,
+    snapshot,
+    stats: {
+      itemCount: snapshot.items.length,
+      chestCount: snapshot.chests.reduce((sum, chest) => sum + chest.quantity, 0),
+      byteSize,
+    },
+  };
+}
+
+/**
+ * Resolve a parsed save into localized display rows.
+ *
+ * Split out of {@link analyzeSaveFile} so the web layer can re-run it when the
+ * Steam price snapshot arrives or the language changes, without re-decrypting
+ * the file — only the parse is expensive.
+ */
+export function resolveWebInventory(
+  snapshot: InventorySnapshot,
+  language: ResolvedLanguage,
+  priceLookup?: PriceLookup,
+): ResolvedInventory {
   const catalog = loadLocaleCatalog(language);
   const { items } = webCatalog();
 
-  const resolved = resolveInventory(snapshot, (key) => items.get(key), true, undefined, {
+  const resolved = resolveInventory(snapshot, (key) => items.get(key), true, priceLookup, {
     excludeItemKey,
   });
 
@@ -130,13 +168,42 @@ export async function analyzeSaveFile(
     return points == null ? localized : { ...localized, synthesisPoints: points };
   });
 
-  return {
-    inventory: { ...resolved, rows },
-    snapshot,
-    stats: {
-      itemCount: snapshot.items.length,
-      chestCount: snapshot.chests.reduce((sum, chest) => sum + chest.quantity, 0),
-      byteSize,
-    },
+  return { ...resolved, rows };
+}
+
+/**
+ * Build the inventory `PriceLookup` from the same-origin CI snapshot.
+ *
+ * The CI snapshot carries only the lowest active listing per market_hash_name —
+ * recent-sale medians and buy orders come from the desktop's local polling,
+ * which a browser cannot do. Rows priced from it therefore report the
+ * "lowest listing" source and never a buy order; that is the honest ceiling of
+ * what a browser can know without talking to Steam.
+ *
+ * Returns undefined when there is no snapshot, so callers keep whatever prices
+ * they already had instead of wiping them.
+ */
+export function webPriceLookup(
+  snapshot: LookupPriceSnapshot | null | undefined,
+): PriceLookup | undefined {
+  if (!snapshot?.prices) return undefined;
+  const prices = snapshot.prices;
+  const currency = snapshot.baseCurrency;
+  return (hash): InventoryPriceInfo | undefined => {
+    const lowest = prices[hash];
+    if (lowest == null) return undefined;
+    return {
+      median: null,
+      lowest,
+      // The table renders from the raw Steam text, which the snapshot does not
+      // carry — format the number in the snapshot's (USD) base currency.
+      rawMedian: null,
+      rawLowest: formatMoney(lowest, currency),
+      buyOrder: null,
+      rawBuyOrder: null,
+      buyOrderQuantity: null,
+      buyOrderLevels: null,
+      buyOrderFetched: false,
+    };
   };
 }

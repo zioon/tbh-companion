@@ -30,7 +30,12 @@ import {
   unavailableClearResult,
 } from "./webStubs";
 import { WEB_DEFAULT_CONFIG } from "./defaultConfig";
-import { analyzeSaveFile, type AnalyzeResult } from "./analyzeSave";
+import {
+  analyzeSaveFile,
+  resolveWebInventory,
+  webPriceLookup,
+  type AnalyzeResult,
+} from "./analyzeSave";
 import { classifySaveFileError } from "./errors";
 import { installWebDataSource } from "./dataSource";
 import { ensureWebPricesLoaded, getWebPriceSnapshot, subscribeWebPrices } from "./pricesSnapshot";
@@ -148,6 +153,7 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
       buffer,
       config.resolvedLanguage ?? "en",
       file.lastModified,
+      webPriceLookup(getWebPriceSnapshot()),
     );
     runtime.analyze = result;
     runtime.inventory = result.inventory;
@@ -156,6 +162,9 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
     // without the original `File` handle.
     lastSave = { buffer, fileName: file.name, lastModified: file.lastModified };
     for (const cb of [...inventoryListeners]) cb(result.inventory);
+    // The inventory is priced from the CI snapshot; make sure it is being
+    // fetched so a save loaded before it arrives is re-priced on arrival.
+    void ensureWebPricesLoaded();
     return result.inventory;
   } catch (err) {
     runtime.error = classifySaveFileError(err);
@@ -179,7 +188,12 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
 async function reanalyzeLoadedSave(language: ResolvedLanguage): Promise<void> {
   if (!lastSave) return;
   try {
-    const result = await analyzeSaveFile(lastSave.buffer, language, lastSave.lastModified);
+    const result = await analyzeSaveFile(
+      lastSave.buffer,
+      language,
+      lastSave.lastModified,
+      webPriceLookup(getWebPriceSnapshot()),
+    );
     runtime.analyze = result;
     runtime.inventory = result.inventory;
     for (const cb of [...inventoryListeners]) cb(result.inventory);
@@ -188,6 +202,39 @@ async function reanalyzeLoadedSave(language: ResolvedLanguage): Promise<void> {
     console.warn("[web] could not re-analyze the loaded save for the new language", err);
   }
 }
+
+/**
+ * Re-resolve the loaded save against the current price snapshot.
+ *
+ * The snapshot arrives asynchronously (same-origin fetch), so a save loaded
+ * before it lands is resolved unpriced; this re-runs the resolve — cheap, the
+ * file is already parsed — and republishes. Subscribed below, so it also fires
+ * if the snapshot is refreshed while the save is open.
+ *
+ * Deliberately never touches `runtime.error`: a missing or malformed snapshot
+ * is not a save error, and the page must keep the rows it already has.
+ */
+function repriceLoadedSave(): void {
+  const analyze = runtime.analyze;
+  if (!analyze) return;
+  const snapshot = getWebPriceSnapshot();
+  if (!snapshot) return;
+  try {
+    const inventory = resolveWebInventory(
+      analyze.snapshot,
+      config.resolvedLanguage ?? "en",
+      webPriceLookup(snapshot),
+    );
+    runtime.analyze = { ...analyze, inventory };
+    runtime.inventory = inventory;
+    for (const cb of [...inventoryListeners]) cb(inventory);
+    notifyRuntime();
+  } catch (err) {
+    console.warn("[web] could not apply Steam prices to the loaded inventory", err);
+  }
+}
+
+subscribeWebPrices(() => repriceLoadedSave());
 
 const CONFIG_STORAGE_KEY = "tbh-web-config";
 
