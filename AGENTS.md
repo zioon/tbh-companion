@@ -65,8 +65,12 @@ pnpm preview:web         # 本地预览 dist-web/（部署前冒烟）
   1. **动手前**：先查阅 [`docs/BUSINESS-FLOWS.md`](docs/BUSINESS-FLOWS.md) 的章节索引，定位并阅读 [`docs/business-flows/`](docs/business-flows/) 中承载该流程正文的子文件，理解现有数据流、服务边界与不变量，避免重复设计或破坏既有契约。
   2. **落地后**：在同一个 PR 内**同步更新**该流程所在的子文件（含数据流图、错误处理路径、关键文件路径速查表）。若新增了业务流程，在子目录追加新文件并在主索引的章节索引表中登记（章节编号按现有顺序递增，不重排已有编号）。
   3. **审查时**：PR 审查者需确认对应子文件与主索引已同步，未同步的 PR 不予合并。
-- **代码导航优先用 codegraph：** 涉及代码理解、定位、修改或调试的任务，第一步先通过 MCP 工具 `codegraph_explore` 查询相关符号/文件（`projectPath` 传仓库根 `d:\Project\TBH\tbh-companion`），其返回的源码视为已读；仅当 codegraph 未命中或需要文件级细节时，再回退 Read/Grep。
-- **codegraph 索引自动同步：** 仓库根 `.githooks/post-commit` 会在每次 commit 后自动执行 `codegraph sync -q` 增量更新索引（`core.hooksPath` 已指向 `.githooks`），无需手动维护。
+- **代码导航优先用 ripwire：** 涉及代码理解、定位、修改或调试的任务，先用 ripwire 查符号/文件，它返回的源码视为已读；仅当未命中或需要文件级细节时再回退 Read/Grep。仓库根 `.ripwire_notes` 收录了本项目的 gotcha，命中相关符号时会自动带出 `<note>`。
+  - **路径形式**：CLI（PowerShell / cmd / Git Bash）传 Windows 形式（`D:\Project\TBH\tbh-companion`）或 WSL 形式（`/mnt/d/Project/TBH/tbh-companion`）都可以，Windows 侧的 shim 会翻译；**但通过 MCP 调用时 `path` 必须传 WSL 形式**（MCP 直连 WSL 内的 Linux 二进制，不经过 shim 的翻译）。
+  - **常用起点**：`--for="<用你自己的话说要做什么>"`（任务透镜）、`--expand=符号`（单个符号正文）、`--callers=符号` / `--impact=符号`（影响面）、`--pack-task="<任务>"`（一次拿全）。首次调用会解析并缓存，之后是热调用。
+  - **索引盲区**：`data/` 下 7 个超过 256 KB 上限的 JSON（含 `lookup_sources.json`）以及 `.mermaid` / `.css` / `.assets` 不被索引，这些文件仍要 rg / Read。
+  - **沉淀 gotcha**：学到「非显然、会反复踩」的事实时，用 `ripwire <root> --note-add="<符号或路径>: <决定与原因>"` 追加到 `.ripwire_notes`（文件保持排序，便于合并）。
+- **codegraph（可选补充）：** 装了 codegraph MCP 的环境仍可用它交叉验证。仓库根 `.githooks/post-commit` 只在该命令可用时才执行 `codegraph sync -q`，不可用时跳过（本机实测：shim 在但 Git sh 缺 `sed` / `dirname`，会打印一段报错，不影响提交结果）。
 - `app/` 内全部使用 TypeScript。保持 `core/` 不引入 Electron/React 依赖，以维持其可单元测试性。
 - **开始 `app/` 工作前：** 先阅读 [`docs/agent/SKILLS.md`](docs/agent/SKILLS.md)（路由）与 [`docs/agent/CODING-GUIDELINES.md`](docs/agent/CODING-GUIDELINES.md)。
 - **完成的定义：** 通过 [`docs/agent/QA.md`](docs/agent/QA.md) —— 而不仅是测试全绿。
