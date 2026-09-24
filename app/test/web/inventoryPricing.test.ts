@@ -29,7 +29,7 @@ describe("webPriceLookup", () => {
   it("maps a listed hash to a lowest-only price info", () => {
     const lookup = webPriceLookup(SNAPSHOT);
     expect(lookup).toBeDefined();
-    expect(lookup("Copper Coin")).toEqual({
+    expect(lookup?.("Copper Coin")).toEqual({
       median: null,
       lowest: 1.23,
       rawMedian: null,
