@@ -83,7 +83,7 @@ flowchart TD
 - 每个页面是 `app/src/web/tabs/` 下的一个面板组件：
   - `HomePanel` —— eyebrow（`home.eyebrow`）+ 左对齐 hero + 存档错误卡、`SavePicker` / 已载入摘要、`SaveLocationHelp`；**无存档时**额外渲染三步操作指引（编号芯片）与三条快捷入口（带箭头图标）；底部 `DesktopOnlyPanel`（桌面能力导流，3 列）。
   - `InventoryPanel` —— 无 `runtime.inventory` 时显示空状态（标题 / 正文 / 选择存档按钮 / 回首页）；有存档时渲染摘要卡 + 复用 renderer 的 `<Inventory />`。
-  - `ChestsPanel` —— 从 `stage_boxes.json` 构建目录并分组（`chestCategoryFromKey`），目录**始终**渲染；仅当 `runtime.inventory?.chests` 非空时额外渲染「持有宝箱」区块。该区块**必须经过 `resolveChestHoldings` 聚合**（与桌面同一函数）：原始 holdings 是「每个宝箱实例一条、`quantity: 1`」，直接渲染会变成一堆 ×1；聚合后按类别分组展示，未知类别不带标题排在末尾（与桌面一致）。
+  - `ChestsPanel` —— 从 `stage_boxes.json` 构建目录并分组（`chestCategoryFromKey`），目录**始终**渲染；仅当 `runtime.inventory?.chests` 非空时额外渲染「持有宝箱」区块。该区块**必须经过 `resolveChestHoldings` 聚合**（与桌面同一函数）：原始 holdings 是「每个宝箱实例一条、`quantity: 1`」，直接渲染会变成一堆 ×1；聚合后按类别分组展示，未知类别不带标题排在末尾（与桌面一致）。**筛选与桌面同构**：多选类别 chip + 宝箱等级区间滑块（`filterCategoryLabel` / `filterLevelLabel` / `filterSelectAll` / `filterClear` / `filterNoMatch`）。**目录卡可点开侧栏详情**，渲染的就是桌面的 `BoxDetailCard`（数据见 §25.4 的 `box-sources.json`），点掉落物可继续导航到物品详情；payload 未就绪时显示加载中 / 不可用，而不是空白。
   - `TradingPanel` —— 由 `marketHashName(item) != null` 筛出可交易行，用 `resolveLookupPrice(item, snapshot, currency)` 取价；渲染 KPI（可交易 / 已定价 / 覆盖率）、快照时间与 `MissingPricesBanner`。表格列为 **Item / Type / Grade / Lowest listing**（`Type` 用 `typeLabel(item.type)`，把原先过疏的三列撑满 1200 measure）。**物品名是 `ItemLink`**（与图鉴同一组件）：点击经 `useEntityPanel().open()` 打开侧栏详情，悬停出小卡。网页版侧栏会如实降级——掉落来源 / 合成 / 用途区块需要 `lookup_sources.json`（10 MB，不随网页发），`ItemDetailCard` 对 `sources === undefined` 全部兜底，所以这些区块直接不渲染，物品的图鉴信息（名称 / 品质 / 类型 / 等级 / 属性 / 市场链接）照常显示。
 - **Lookup 页复用 renderer 的 `Lookup.tsx`**：网页版直接挂载 `<Lookup watchedOnlyDefault={false} showPollingStatus={false} />`。这两个 props 是**可选、增量**的（默认为 `true`，桌面行为不变）——`watchedOnlyDefault` 让网页版默认展示全部物品而非只看关注，`showPollingStatus` 关掉只有桌面轮询才有的状态行。
 
@@ -102,6 +102,8 @@ flowchart TD
 内存目录由 `src/web/dataSource.ts` 用 `?raw` 导入并注入（`setBundledDataTextSource`）。**只随包发 9 个文件**：`gamedata` / `stage_boxes` / `box_types` / `steam_market_fee` / `lookup_items` + 四语言 `locale_strings`。被省略的（`lookup_sources` 10 MB、`_game_locale_dump` 3 MB 等）在 `OMITTED` 集合里登记，命中时静默返回 `null`；**未登记的缺失名会打印警告**，避免目录缺项变成渲染中期的 `Bundled data file not found` 堆栈。
 
 > **这些 JSON 是在构建期内联进 bundle 的**，因此站点**没有** `website/data/gamedata.json` / `stage_boxes.json` 这类目录副本，也**不需要任何拷贝或同步脚本**：更新 `data/` 后提交推送，`pages.yml`（`paths` 含 `data/**`）会重建站点，站点数据自动跟随。站点唯一的**运行时**数据是 `website/data/prices.json`。
+>
+> **例外：宝箱掉落数据走「构建期抽取 + 懒加载」**。宝箱详情（掉落列表 / 农场关卡 / 首通关卡）需要 `lookup_sources.json` 的 `boxes` 子树，但整份 10.8 MB 不能随网页发。`app/scripts/build-web-box-sources.mjs`（`build:web` 的第三步）把它抽成 `dist-web/data/box-sources.json`——**588 KB 原始 / 76 KB gzip**，做法是把每条掉落缩减成 `[itemKey, dropPct]`（名字与品质由网页端已打包的 `lookup_items.json` 还原，构建脚本已验证 ~34k 条 0 失配；不在目录里的 14 条保留在 `extras`）。`pages.yml` 把它暂存到 `website/data/box-sources.json`，由 `src/web/boxSourcesSnapshot.ts` **只在宝箱页需要时**懒加载并还原成 `LookupBoxSources`，交给桌面同一份 `BoxDetailCard` 渲染。任何失败都降级为「不可用」：目录照常渲染，宝箱卡只是不可点。
 >
 > **改动 `core/es3` 的加解密契约时必须同时核对 `core/es3Web`**：`app/test/web/es3Parity.test.ts` 是等价性守卫。
 
@@ -191,23 +193,24 @@ return `${base}icons/${encodeURIComponent(iconPath)}.png`;
 
 ## 25.12 关键文件速查
 
-| 模块                    | 路径                                                                                                             |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 构建配置（含三处 swap） | `app/vite.web.config.ts`                                                                                         |
-| 图标复制脚本            | `app/scripts/copy-web-icons.mjs`                                                                                 |
-| web 入口 / 五页壳       | `app/src/web/main.tsx`、`app/src/web/WebApp.tsx`、`app/src/web/webTabs.ts`                                       |
-| 页面面板                | `app/src/web/tabs/{HomePanel,InventoryPanel,ChestsPanel,TradingPanel}.tsx`                                       |
-| 共享 UI 片段            | `app/src/web/components/{SavePicker,SaveLocationHelp,DesktopOnlyPanel,LanguageSwitcher,MissingPricesBanner}.tsx` |
-| `window.tbh` shim       | `app/src/web/webTbhApi.ts`                                                                                       |
-| 存档加载                | `app/src/web/webTbhApi.ts`（`loadWebSaveFile`）、`app/src/web/analyzeSave.ts`                                    |
-| 价格快照 store          | `app/src/web/pricesSnapshot.ts`、`app/src/web/lib/useWebPrices.ts`                                               |
-| runtime 订阅            | `app/src/web/lib/useWebRuntime.ts`                                                                               |
-| 内存数据目录            | `app/src/web/dataSource.ts`                                                                                      |
-| Web 图标 URL            | `app/src/web/iconSrcWeb.ts`                                                                                      |
-| 错误分类                | `app/src/web/errors.ts`                                                                                          |
-| 外链常量                | `app/src/web/links.ts`                                                                                           |
-| web i18n 命名空间       | `app/shared/locales/*/web.json`                                                                                  |
-| 等价性守卫              | `app/test/web/es3Parity.test.ts`、`app/test/web/webPricesSnapshot.test.ts`                                       |
-| 无存档渲染守卫          | `app/test/renderer-component/web-no-save.test.tsx`                                                               |
-| 端到端冒烟              | `app/scripts/smoke-app/smoke-web.cjs`（`pnpm smoke:web`）                                                        |
-| 部署说明                | `docs/DEPLOY-WEB.md`                                                                                             |
+| 模块                     | 路径                                                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| 构建配置（含三处 swap）  | `app/vite.web.config.ts`                                                                                         |
+| 图标复制脚本             | `app/scripts/copy-web-icons.mjs`                                                                                 |
+| 宝箱掉落数据抽取 / store | `app/scripts/build-web-box-sources.mjs`、`app/src/web/boxSourcesSnapshot.ts`                                     |
+| web 入口 / 五页壳        | `app/src/web/main.tsx`、`app/src/web/WebApp.tsx`、`app/src/web/webTabs.ts`                                       |
+| 页面面板                 | `app/src/web/tabs/{HomePanel,InventoryPanel,ChestsPanel,TradingPanel}.tsx`                                       |
+| 共享 UI 片段             | `app/src/web/components/{SavePicker,SaveLocationHelp,DesktopOnlyPanel,LanguageSwitcher,MissingPricesBanner}.tsx` |
+| `window.tbh` shim        | `app/src/web/webTbhApi.ts`                                                                                       |
+| 存档加载                 | `app/src/web/webTbhApi.ts`（`loadWebSaveFile`）、`app/src/web/analyzeSave.ts`                                    |
+| 价格快照 store           | `app/src/web/pricesSnapshot.ts`、`app/src/web/lib/useWebPrices.ts`                                               |
+| runtime 订阅             | `app/src/web/lib/useWebRuntime.ts`                                                                               |
+| 内存数据目录             | `app/src/web/dataSource.ts`                                                                                      |
+| Web 图标 URL             | `app/src/web/iconSrcWeb.ts`                                                                                      |
+| 错误分类                 | `app/src/web/errors.ts`                                                                                          |
+| 外链常量                 | `app/src/web/links.ts`                                                                                           |
+| web i18n 命名空间        | `app/shared/locales/*/web.json`                                                                                  |
+| 等价性守卫               | `app/test/web/es3Parity.test.ts`、`app/test/web/webPricesSnapshot.test.ts`                                       |
+| 无存档渲染守卫           | `app/test/renderer-component/web-no-save.test.tsx`                                                               |
+| 端到端冒烟               | `app/scripts/smoke-app/smoke-web.cjs`（`pnpm smoke:web`）                                                        |
+| 部署说明                 | `docs/DEPLOY-WEB.md`                                                                                             |

@@ -96,5 +96,7 @@
     "dropped": "已掉落",
     "configureLink": "在“宝箱”标签页配置"
   },
-  "orphanExcluded": "已排除 {{count}} 个跨游戏会话遗留的章节 Boss 箱条目（游戏内已不可见）"
+  "orphanExcluded": "已排除 {{count}} 个跨游戏会话遗留的章节 Boss 箱条目（游戏内已不可见）",
+  "detailLoading": "正在载入宝箱内容…",
+  "detailUnavailable": "宝箱内容暂时无法获取。"
 }

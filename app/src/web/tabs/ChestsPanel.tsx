@@ -1,27 +1,42 @@
 // Web shell: Chests page.
 //
-// The desktop Chests tab can't be reused: its catalog is driven by
+// The desktop Chests tab can't be reused wholesale: its catalog is driven by
 // `lookup_sources.json` (10 MB, deliberately not shipped to the browser) and its
 // slot/capacity/auto-open sections are desktop + live-memory concepts. The web
 // panel therefore rebuilds the catalog from the bundled `stage_boxes.json`
 // (shipped, 46 KB) and renders the *save* side from `ResolvedInventory.chests`.
 //
+// What IS shared with the desktop is the chest detail card: the slim
+// `box-sources.json` payload (built from `lookup_sources.json` at build time,
+// fetched lazily by `boxSourcesSnapshot.ts`) rehydrates into the exact
+// `LookupBoxSources` shape `BoxDetailCard` consumes, so clicking a chest opens
+// the same drop list / farm stages view the desktop shows.
+//
+// Filters mirror the desktop catalog: multi-select category chips plus a level
+// range slider.
+//
 // Both ends degrade safely:
 //   - No save: the full obtainable-chest catalog still renders.
-//   - Old saves (where `ChestHolding.type` is a 0..5 boxType, not a gamedata id):
-//     the catalog intersection is empty, so no badges appear, but every held row
-//     is still listed in the "held in this save" section as label × quantity.
+//   - Missing payload: the catalog renders, chest cards stop being clickable.
+//   - Old saves (where `ChestHolding.type` is a 0..5 boxType, not a gamedata
+//     id): the catalog intersection is empty, so no badges appear, but every
+//     held row is still listed in the "held in this save" section.
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { loadStageBoxCatalogFile, type StageBoxCatalogItem } from "../../core/stageBoxTracker";
 import { loadBoxTypeCatalog, resolveChestHoldings } from "../../core/boxes";
-import type { LookupBoxCategory, ResolvedChestRow } from "../../../shared/types";
+import type { LookupBoxSources, LookupItem, ResolvedChestRow } from "../../../shared/types";
 import { Badge } from "../../renderer/design-system/primitives/Badge/Badge";
+import { Button } from "../../renderer/design-system/primitives/Button/Button";
 import { Card } from "../../renderer/design-system/primitives/Card/Card";
 import { ItemIcon } from "../../renderer/design-system/primitives/ItemIcon/ItemIcon";
+import { RangeSlider } from "../../renderer/design-system/primitives/RangeSlider/RangeSlider";
+import { SidePanel } from "../../renderer/design-system/primitives/SidePanel/SidePanel";
 import { TabHeader } from "../../renderer/design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../../renderer/design-system/primitives/TabPage/TabPage";
+import { BoxDetailCard } from "../../renderer/components/lookup/BoxDetailCard";
+import { ItemDetailCard } from "../../renderer/components/lookup/ItemDetailCard";
 import { boxIconPath } from "../../renderer/lib/boxIconPath";
 import { localizedBoxName, localizeDifficultyWords } from "../../renderer/lib/boxDisplay";
 import {
@@ -33,10 +48,14 @@ import {
 import { gradeColor } from "../../renderer/lib/gradeColor";
 import { gradeLabel } from "../../renderer/lib/itemLabels";
 import { iconSrc } from "../../renderer/lib/iconSrc";
+import { cn } from "../../renderer/lib/cn";
+import type { LookupNavNode } from "../../renderer/lib/useLookupNav";
+import { loadLookupItems } from "../../core/lookup/catalog";
+import { ensureBoxSourcesLoaded, useBoxSources } from "../boxSourcesSnapshot";
 import { useWebRuntime } from "../lib/useWebRuntime";
 
 /** Map a stage-box item key to the lookup display category used for its name. */
-function categoryForKey(itemKey: number): LookupBoxCategory {
+function categoryForKey(itemKey: number): LookupBoxSources["category"] {
   switch (chestCategoryFromKey(itemKey)) {
     case "common":
       return "common";
@@ -49,7 +68,15 @@ function categoryForKey(itemKey: number): LookupBoxCategory {
   }
 }
 
-function WebChestCard({ box, heldQuantity }: { box: StageBoxCatalogItem; heldQuantity: number }) {
+function WebChestCard({
+  box,
+  heldQuantity,
+  onOpen,
+}: {
+  box: StageBoxCatalogItem;
+  heldQuantity: number;
+  onOpen: () => void;
+}) {
   const { t } = useTranslation("chests");
   const { t: tLookup } = useTranslation("lookup");
   const name = localizedBoxName(
@@ -62,26 +89,38 @@ function WebChestCard({ box, heldQuantity }: { box: StageBoxCatalogItem; heldQua
     : null;
 
   return (
-    <Card padding="none" className="relative flex h-full items-center gap-3 p-3.5">
-      {heldQuantity > 0 ? (
-        <Badge className="absolute -top-2 right-2 z-10">
-          {t("catalogHeldQty", { count: heldQuantity })}
-        </Badge>
-      ) : null}
-      <ItemIcon src={iconSrc(boxIconPath(box.id))} color={gradeColor(box.grade)} size="md" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="m-0 truncate text-[12.5px] font-medium text-fg">{name}</p>
-        <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-          <span style={{ color: gradeColor(box.grade) }}>{gradeLabel(box.grade, tLookup)}</span>
-          {rangeLabel ? <span className="text-muted">{rangeLabel}</span> : null}
-        </p>
-      </div>
-    </Card>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full cursor-pointer text-left"
+      aria-label={name}
+    >
+      <Card
+        padding="none"
+        className="relative flex h-full w-full items-center gap-3 p-3.5 transition-colors hover:border-accent/50"
+      >
+        {heldQuantity > 0 ? (
+          <Badge className="absolute -top-2 right-2 z-10">
+            {t("catalogHeldQty", { count: heldQuantity })}
+          </Badge>
+        ) : null}
+        <ItemIcon src={iconSrc(boxIconPath(box.id))} color={gradeColor(box.grade)} size="md" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="m-0 truncate text-[12.5px] font-medium text-fg">{name}</p>
+          <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+            <span style={{ color: gradeColor(box.grade) }}>{gradeLabel(box.grade, tLookup)}</span>
+            {rangeLabel ? <span className="text-muted">{rangeLabel}</span> : null}
+          </p>
+        </div>
+      </Card>
+    </button>
   );
 }
 
 export function ChestsPanel() {
   const { t } = useTranslation("chests");
+  const { t: tLookup } = useTranslation("lookup");
+  const { t: tCommon } = useTranslation("common");
   const runtime = useWebRuntime();
 
   // `stage_boxes.json` is bundled, so this works with or without a save.
@@ -95,6 +134,21 @@ export function ChestsPanel() {
     }
   }, []);
 
+  // The bundled item catalog feeds the detail panel's hover cards and item
+  // navigation.
+  const lookupItems = useMemo<LookupItem[]>(() => {
+    try {
+      return loadLookupItems();
+    } catch {
+      return [];
+    }
+  }, []);
+  const itemIndex = useMemo(
+    () => new Map(lookupItems.map((item) => [item.id, item])),
+    [lookupItems],
+  );
+  const stageBoxById = useMemo(() => new Map(catalog.map((box) => [box.id, box])), [catalog]);
+
   const groups = useMemo(() => {
     const byGroup = new Map<ChestGroupCategory, StageBoxCatalogItem[]>();
     for (const cat of CHEST_GROUPS) byGroup.set(cat, []);
@@ -105,6 +159,51 @@ export function ChestsPanel() {
     for (const rows of byGroup.values()) rows.sort((a, b) => a.id - b.id);
     return byGroup;
   }, [catalog]);
+
+  // --- Filters (mirrors the desktop ChestCatalogSection) -------------------
+
+  const [selectedCategories, setSelectedCategories] = useState<Set<ChestGroupCategory>>(
+    () => new Set(CHEST_GROUPS),
+  );
+  const levelBounds = useMemo(() => {
+    const levels = catalog
+      .map((box) => box.level)
+      .filter((level): level is number => level != null);
+    return levels.length > 0 ? { min: Math.min(...levels), max: Math.max(...levels) } : null;
+  }, [catalog]);
+  const [levelRange, setLevelRange] = useState<[number, number] | null>(null);
+
+  const hasCategoryFilter = selectedCategories.size !== CHEST_GROUPS.length;
+  const hasLevelFilter = levelRange != null && levelBounds != null;
+
+  const toggleCategory = (cat: ChestGroupCategory): void => {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
+  const visible = useMemo(() => {
+    const out: Array<{ cat: ChestGroupCategory; rows: StageBoxCatalogItem[] }> = [];
+    let total = 0;
+    for (const cat of CHEST_GROUPS) {
+      if (hasCategoryFilter && !selectedCategories.has(cat)) continue;
+      const rows = (groups.get(cat) ?? []).filter((box) => {
+        if (!hasLevelFilter) return true;
+        const [lo, hi] = levelRange!;
+        // A chest with no annotated level cannot be placed in a range.
+        return box.level != null && box.level >= lo && box.level <= hi;
+      });
+      if (rows.length === 0) continue;
+      total += rows.length;
+      out.push({ cat, rows });
+    }
+    return { groups: out, total };
+  }, [groups, selectedCategories, hasCategoryFilter, hasLevelFilter, levelRange]);
+
+  // --- Held chests ---------------------------------------------------------
 
   // Held quantity keyed by `ChestHolding.type`. On v1.2.2+ saves this is the
   // gamedata id (matches `stage_boxes.json` ids); on older saves it is a
@@ -156,6 +255,50 @@ export function ChestsPanel() {
     const leftover = rows.filter((r) => !CHEST_GROUPS.includes(r.category as ChestGroupCategory));
     return { known, leftover };
   }, [runtime.inventory]);
+
+  // --- Chest detail side panel --------------------------------------------
+
+  // Warm the payload when the page mounts so the first click opens instantly.
+  useEffect(() => {
+    void ensureBoxSourcesLoaded();
+  }, []);
+
+  const { status: boxStatus, boxes: boxSources } = useBoxSources();
+  const [panelNode, setPanelNode] = useState<LookupNavNode | null>(null);
+
+  const labelFor = useCallback(
+    (node: LookupNavNode): string => {
+      if (node.type === "item") {
+        return itemIndex.get(node.id)?.name ?? tCommon("entityPanel.itemFallback", { id: node.id });
+      }
+      const stageBox = stageBoxById.get(node.id);
+      if (stageBox) {
+        return localizedBoxName(
+          tLookup,
+          { name: stageBox.name, category: categoryForKey(node.id), level: stageBox.level },
+          node.id,
+        );
+      }
+      return (
+        boxSources?.[String(node.id)]?.name ?? tCommon("entityPanel.boxFallback", { id: node.id })
+      );
+    },
+    [itemIndex, stageBoxById, boxSources, tCommon, tLookup],
+  );
+
+  const peekItem = useCallback((id: number) => itemIndex.get(id), [itemIndex]);
+
+  /** Box detail payload, enriched with the chest level from `stage_boxes.json`. */
+  const boxFor = useCallback(
+    (id: number): LookupBoxSources | null => {
+      const box = boxSources?.[String(id)];
+      if (!box) return null;
+      return { ...box, level: stageBoxById.get(id)?.level ?? null };
+    },
+    [boxSources, stageBoxById],
+  );
+
+  const title = panelNode ? labelFor(panelNode) : t("tabTitle");
 
   return (
     <TabPage className="gap-6">
@@ -214,14 +357,81 @@ export function ChestsPanel() {
         </section>
       ) : null}
 
-      <section aria-labelledby="chest-catalog-heading" className="flex flex-col gap-5">
-        <h2 id="chest-catalog-heading" className="m-0 text-[15.5px] font-semibold text-fg">
-          {t("catalogHeading")}
-        </h2>
-        {CHEST_GROUPS.map((cat) => {
-          const rows = groups.get(cat)!;
-          if (rows.length === 0) return null;
-          return (
+      <section aria-labelledby="chest-catalog-heading" className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 id="chest-catalog-heading" className="m-0 text-[15.5px] font-semibold text-fg">
+            {t("catalogHeading")}
+          </h2>
+          <p className="m-0 text-xs text-muted">{t("catalogIntro")}</p>
+        </div>
+
+        {/* Filters — same shape as the desktop catalog: multi-select category
+            chips plus a chest-level range. */}
+        <div className="flex flex-col gap-3 rounded-lg border border-border bg-panel/50 p-3">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-fg/80">{t("filterCategoryLabel")}</span>
+              <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedCategories(new Set(CHEST_GROUPS));
+                    setLevelRange(null);
+                  }}
+                >
+                  {t("filterSelectAll")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedCategories(new Set());
+                    setLevelRange(null);
+                  }}
+                >
+                  {t("filterClear")}
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {CHEST_GROUPS.map((cat) => {
+                const selected = selectedCategories.has(cat);
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => toggleCategory(cat)}
+                    className={cn(
+                      "cursor-pointer rounded-full border px-2.5 py-0.5 text-[11px] font-semibold leading-snug transition-colors",
+                      selected
+                        ? "border-accent bg-ideal/15 text-accent"
+                        : "border-border bg-card text-muted hover:border-muted hover:text-fg",
+                    )}
+                  >
+                    {t(chestCategoryLabelKey(cat))}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {levelBounds ? (
+            <RangeSlider
+              min={levelBounds.min}
+              max={levelBounds.max}
+              step={1}
+              value={levelRange ?? [levelBounds.min, levelBounds.max]}
+              onValueChange={setLevelRange}
+              label={t("filterLevelLabel")}
+            />
+          ) : null}
+        </div>
+
+        {visible.groups.length === 0 ? (
+          <p className="m-0 text-xs text-muted">{t("filterNoMatch")}</p>
+        ) : (
+          visible.groups.map(({ cat, rows }) => (
             <div key={cat} className="flex flex-col gap-2.5">
               <h3 className="m-0 text-[11px] font-semibold tracking-[0.06em] uppercase text-fg/70">
                 {t(chestCategoryLabelKey(cat))}
@@ -231,13 +441,56 @@ export function ChestsPanel() {
               </h3>
               <div className="grid grid-cols-1 items-stretch gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                 {rows.map((box) => (
-                  <WebChestCard key={box.id} box={box} heldQuantity={heldByType.get(box.id) ?? 0} />
+                  <WebChestCard
+                    key={box.id}
+                    box={box}
+                    heldQuantity={heldByType.get(box.id) ?? 0}
+                    onOpen={() => setPanelNode({ type: "box", id: box.id })}
+                  />
                 ))}
               </div>
             </div>
-          );
-        })}
+          ))
+        )}
       </section>
+
+      <SidePanel
+        open={panelNode != null}
+        onOpenChange={(open) => !open && setPanelNode(null)}
+        title={title}
+      >
+        {panelNode == null ? null : panelNode.type === "box" ? (
+          boxFor(panelNode.id) ? (
+            <BoxDetailCard
+              box={boxFor(panelNode.id) as LookupBoxSources}
+              boxItemKey={panelNode.id}
+              onNavigate={setPanelNode}
+              peekItem={peekItem}
+            />
+          ) : boxStatus === "loading" ? (
+            <p className="m-0 text-xs text-muted">{t("detailLoading")}</p>
+          ) : (
+            <p className="m-0 text-xs text-muted">{t("detailUnavailable")}</p>
+          )
+        ) : (
+          (() => {
+            const item = itemIndex.get(panelNode.id);
+            if (!item) {
+              return (
+                <p className="m-0 text-xs text-muted">{tLookup("entityDetail.itemNotFound")}</p>
+              );
+            }
+            return (
+              <ItemDetailCard
+                item={item}
+                onNavigate={setPanelNode}
+                peekItem={peekItem}
+                peekBox={(id) => boxSources?.[String(id)]}
+              />
+            );
+          })()
+        )}
+      </SidePanel>
     </TabPage>
   );
 }

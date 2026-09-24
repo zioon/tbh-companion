@@ -11,6 +11,7 @@ on:
       # deployed artifact.
       - "app/src/**"
       - "app/shared/**"
+      - "app/scripts/**"
       - "app/package.json"
       - "app/pnpm-lock.yaml"
       - "app/vite.web.config.ts"
@@ -92,6 +93,12 @@ jobs:
           cp -r dist-web/index.html website/index.html
           cp -r dist-web/assets     website/assets
           cp -r dist-web/icons      website/icons
+          # Chest detail payload, built from lookup_sources.json at build time
+          # (`build-web-box-sources.mjs`) and fetched lazily by the Chests page.
+          if [ -f dist-web/data/box-sources.json ]; then
+            mkdir -p website/data
+            cp dist-web/data/box-sources.json website/data/box-sources.json
+          fi
           if [ -f dist-web/favicon.png ]; then cp dist-web/favicon.png website/favicon.png; fi
           # Notification sounds are desktop-only; the web build never plays them.
           rm -f website/assets/*.wav

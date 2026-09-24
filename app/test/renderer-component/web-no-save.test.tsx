@@ -105,6 +105,28 @@ describe("web shell without a save file — real bundled catalog", () => {
     expectNoSaveGate(container);
   });
 
+  it("opens the chest detail side panel from a chest card", async () => {
+    const { container } = render(<ChestsPanel />);
+
+    const section = container.querySelector('section[aria-labelledby="chest-catalog-heading"]');
+    await waitFor(() => {
+      expect(section!.querySelectorAll("img").length).toBeGreaterThan(0);
+    });
+
+    // Every catalog chest card is a <button> inside the card grid (the filter
+    // chips above it are also buttons, hence the grid-scoped query); clicking
+    // one must open the side detail panel. This is the interaction that was
+    // missing when the panel rendered cards as plain <div>s.
+    const card = section!.querySelector("div.grid > button");
+    expect(card).not.toBeNull();
+    fireEvent.click(card as HTMLElement);
+
+    // The payload 404s in this suite, so the panel shows its degradation
+    // message rather than the drop list — but it must still OPEN, which is the
+    // interaction under test.
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
   it("renders real tradable rows and warns when the price snapshot is missing", async () => {
     const { container } = render(
       <TbhProvider>

@@ -96,5 +96,7 @@
     "dropped": "Dropped",
     "configureLink": "Configure on Chests tab"
   },
-  "orphanExcluded": "Excluded {{count}} act boss chest entries left over from a previous game session (no longer visible in game)"
+  "orphanExcluded": "Excluded {{count}} act boss chest entries left over from a previous game session (no longer visible in game)",
+  "detailLoading": "Loading chest contents…",
+  "detailUnavailable": "Chest contents are unavailable right now."
 }

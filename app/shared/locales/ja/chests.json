@@ -96,5 +96,7 @@
     "dropped": "ドロップ済み",
     "configureLink": "宝箱タブで設定"
   },
-  "orphanExcluded": "前のゲームセッションから引き継がれた章ボス箱エントリ {{count}} 件を除外しました（ゲーム内には表示されません）"
+  "orphanExcluded": "前のゲームセッションから引き継がれた章ボス箱エントリ {{count}} 件を除外しました（ゲーム内には表示されません）",
+  "detailLoading": "チェストの内容を読み込み中…",
+  "detailUnavailable": "チェストの内容を取得できません。"
 }
