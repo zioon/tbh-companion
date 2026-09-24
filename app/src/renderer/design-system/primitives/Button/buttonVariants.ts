@@ -15,12 +15,13 @@ import { cva, type VariantProps } from "../../lib/variants";
  * boundary detection (react-refresh/only-export-components).
  */
 export const buttonVariants = cva(
-  "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md border disabled:cursor-not-allowed disabled:opacity-50",
+  "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border disabled:cursor-not-allowed disabled:opacity-50",
   {
     variants: {
       variant: {
-        default: "bg-card border-border text-fg hover:border-accent",
-        primary: "bg-accent border-accent text-accent-fg font-semibold hover:brightness-[1.08]",
+        default: "bg-card border-border text-fg hover:border-accent hover:bg-raised",
+        primary:
+          "bg-accent border-accent text-accent-fg font-semibold shadow-[0_4px_16px_-6px_color-mix(in_oklab,var(--color-accent)_70%,transparent)] hover:brightness-[1.08]",
         danger: "bg-card border-danger text-danger-fg hover:border-danger",
         ghost: "border-border bg-transparent text-muted hover:border-muted hover:text-fg",
         success:

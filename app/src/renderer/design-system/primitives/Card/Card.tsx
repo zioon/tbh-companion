@@ -1,16 +1,26 @@
 import { forwardRef, type ElementType, type HTMLAttributes } from "react";
 import { cn, cva, type VariantProps } from "../../lib/variants";
 
-const cardVariants = cva("rounded-lg border border-border bg-card", {
-  variants: {
-    padding: {
-      default: "p-3",
-      compact: "p-2.5",
-      none: "",
+/**
+ * Surface primitive for every grouped block.
+ *
+ * The inset top highlight is what separates two stacked dark surfaces without a
+ * heavier border: the 1px edge reads as light catching the top of the panel.
+ * Kept as an inset shadow (not a border-top) so `rounded-xl` corners stay clean.
+ */
+const cardVariants = cva(
+  "rounded-xl border border-border bg-card shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--color-fg)_5%,transparent)]",
+  {
+    variants: {
+      padding: {
+        default: "p-3",
+        compact: "p-2.5",
+        none: "",
+      },
     },
+    defaultVariants: { padding: "default" },
   },
-  defaultVariants: { padding: "default" },
-});
+);
 
 type CardElement = "div" | "li";
 

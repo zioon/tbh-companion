@@ -5,7 +5,7 @@ export function HintBanner({ children, className }: { children: ReactNode; class
   return (
     <div
       className={cn(
-        "rounded-md border border-border border-l-[3px] border-l-gold bg-card px-3 py-2 text-[13px]",
+        "rounded-lg border border-border border-l-[3px] border-l-gold bg-gold/[0.05] px-3.5 py-2.5 text-[12.5px]",
         className,
       )}
     >

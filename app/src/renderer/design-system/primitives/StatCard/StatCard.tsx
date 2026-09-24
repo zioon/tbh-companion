@@ -27,7 +27,9 @@ const valueVariants = cva("", {
   variants: {
     variant: {
       default: "text-lg font-semibold tabular-nums",
-      highlight: "text-[32px] font-bold leading-none text-accent",
+      /* Headline money figure: monospaced so its decimal points line up with the
+         after-fees line rendered directly beneath it. */
+      highlight: "font-mono text-[28px] font-medium leading-none text-accent",
     },
   },
   defaultVariants: { variant: "default" },

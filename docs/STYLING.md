@@ -4,42 +4,56 @@ The renderer uses **Tailwind CSS v4**. Components live under `app/src/renderer/d
 
 ## Migration status
 
-| Phase | Scope | Status |
-| ----- | ----- | ------ |
-| 1 | Tailwind setup, primitives, Settings/Market/About | Done (PR #20) |
-| 2 | Live, Chests, Inventory, chrome, overlays; trim legacy CSS | Done (PR #21) |
-| 3 | `Card`, `ToolbarButton`, Badge variants, panel `Accordion`; agent docs | Done (PR #22) |
-| 4 | Status color tokens; app chrome extraction; `Card` adoption in Live + box tracker | Done (PR #23) |
-| 5 | `ideal` token; remove remaining inline hex in Button + box tracker | Done |
-| 6 | `DataList` for Live tables; Inventory table `Card` shell | Done |
-| 7 | `StatCard` on `Card`; migration complete | Done |
-| 8 | Design system (Base UI + Storybook) migration — `components/ui/` ported to `design-system/primitives/` behind Base UI where it adds real a11y value (focus trap, keyboard nav, portal positioning); see the **design-system** skill | Done (PRs #68–#75, plus this PR) |
+| Phase | Scope                                                                                                                                                                                                                               | Status                           |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| 1     | Tailwind setup, primitives, Settings/Market/About                                                                                                                                                                                   | Done (PR #20)                    |
+| 2     | Live, Chests, Inventory, chrome, overlays; trim legacy CSS                                                                                                                                                                          | Done (PR #21)                    |
+| 3     | `Card`, `ToolbarButton`, Badge variants, panel `Accordion`; agent docs                                                                                                                                                              | Done (PR #22)                    |
+| 4     | Status color tokens; app chrome extraction; `Card` adoption in Live + box tracker                                                                                                                                                   | Done (PR #23)                    |
+| 5     | `ideal` token; remove remaining inline hex in Button + box tracker                                                                                                                                                                  | Done                             |
+| 6     | `DataList` for Live tables; Inventory table `Card` shell                                                                                                                                                                            | Done                             |
+| 7     | `StatCard` on `Card`; migration complete                                                                                                                                                                                            | Done                             |
+| 8     | Design system (Base UI + Storybook) migration — `components/ui/` ported to `design-system/primitives/` behind Base UI where it adds real a11y value (focus trap, keyboard nav, portal positioning); see the **design-system** skill | Done (PRs #68–#75, plus this PR) |
 
 ## Stack
 
-| Piece              | Location                                                                  |
-| ------------------ | ------------------------------------------------------------------------- |
-| Tailwind entry     | `@import "tailwindcss"` at top of `styles.css`                            |
-| Design tokens      | `@theme { ... }` in `styles.css`                                          |
-| Class merge helper | `app/src/renderer/lib/cn.ts`                                              |
+| Piece              | Location                                                                   |
+| ------------------ | -------------------------------------------------------------------------- |
+| Tailwind entry     | `@import "tailwindcss"` at top of `styles.css`                             |
+| Design tokens      | `@theme { ... }` in `styles.css`                                           |
+| Class merge helper | `app/src/renderer/lib/cn.ts`                                               |
 | UI primitives      | `app/src/renderer/design-system/primitives/` (see **design-system** skill) |
-| Legacy CSS         | `styles.css` — base layer + `.overlay` / `.no-drag` / `.drag-handle` only |
+| Legacy CSS         | `styles.css` — base layer + `.overlay` / `.no-drag` / `.drag-handle` only  |
 
 ## Design tokens
 
-| Token          | Tailwind                          |
-| -------------- | --------------------------------- |
-| Background     | `bg-bg`                           |
-| Panel / card   | `bg-panel`, `bg-card`             |
-| Border         | `border-border`                   |
-| Text           | `text-fg`, `text-muted`           |
-| Primary action | `bg-accent`, `text-accent-fg`     |
-| Danger         | `border-danger`, `text-danger-fg` |
-| Warning / XP   | `text-gold`                       |
-| Status info    | `text-status-info`, `border-status-info-border` |
-| Status success | `text-status-success`, `border-status-success-border` |
-| Status danger  | `bg-status-danger`                |
-| Ideal stage    | `text-ideal`, `bg-ideal/15`, `shadow-ideal/25` (box tracker) |
+| Token          | Tailwind                                                             |
+| -------------- | -------------------------------------------------------------------- |
+| Background     | `bg-bg`                                                              |
+| Surface ladder | `bg-panel` → `bg-card` → `bg-raised` (hover / selected)              |
+| Border         | `border-border`; `border-border-soft` for dividers between rungs     |
+| Text           | `text-fg`, `text-muted`, `text-faint`                                |
+| Numerals       | `font-mono` — money, counts, save paths (always with `tabular-nums`) |
+| Primary action | `bg-accent`, `text-accent-fg`                                        |
+| Danger         | `border-danger`, `text-danger-fg`                                    |
+| Warning / XP   | `text-gold`                                                          |
+| Status info    | `text-status-info`, `border-status-info-border`                      |
+| Status success | `text-status-success`, `border-status-success-border`                |
+| Status danger  | `bg-status-danger`                                                   |
+| Ideal stage    | `text-ideal`, `bg-ideal/15`, `shadow-ideal/25` (box tracker)         |
+
+Depth comes from the **surface ladder + hairline borders**, not from drop shadows: each rung is
+deliberately ~4–6 lightness points from its neighbour, and `Card` adds a 1px inset top highlight
+(`shadow-[inset_0_1px_0_0_color-mix(in_oklab,var(--color-fg)_5%,transparent)]`) that reads as light
+catching a panel edge. Prefer moving a node up or down a rung over inventing a shadow.
+
+`--font-sans` names `Inter` first but does **not** bundle it (the web build's CSP forbids remote
+fonts), so a machine without Inter falls back to the OS UI face — the design is specified to survive
+that fallback. Same for `--font-mono` (`JetBrains Mono` → `Cascadia Mono` → `Consolas`).
+
+> **These tokens are shared by the desktop renderer and the web build** (`app/src/web/` imports the
+> same `styles.css` and `design-system/primitives/*`). A token or primitive change therefore restyles
+> **both** targets; when only the site should change, keep the edit inside `app/src/web/`.
 
 Status accents for box tracker and chest badges use `@theme` tokens above — do not invent new hex colors in tabs.
 

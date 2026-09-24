@@ -11,7 +11,7 @@ describe("HintBanner", () => {
 
   it("merges a custom className onto the base styling", () => {
     render(<HintBanner className="border-l-muted text-muted">Hint</HintBanner>);
-    expect(screen.getByText("Hint")).toHaveClass("border-l-muted", "text-muted", "rounded-md");
+    expect(screen.getByText("Hint")).toHaveClass("border-l-muted", "text-muted", "rounded-lg");
   });
 
   it("has no detectable accessibility violations", async () => {

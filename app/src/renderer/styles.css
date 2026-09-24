@@ -1,27 +1,38 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0f1117;
-  --color-panel: #171a23;
-  --color-card: #1d212c;
-  --color-border: #2a2f3d;
-  --color-fg: #e8eaf0;
-  --color-muted: #8b93a7;
+  /* Surface ladder. Each step is deliberately ~4-6 lightness points apart so
+     nested panels stay readable on dark displays without relying on shadows.
+     `raised` is the hover/selected step for cards and toolbar buttons. */
+  --color-bg: #0a0c11;
+  --color-panel: #10141c;
+  --color-card: #14171e;
+  --color-raised: #181d27;
+  --color-border: #252b39;
+  --color-border-soft: #1e2431;
+  --color-fg: #edeff5;
+  --color-muted: #8e98ac;
+  --color-faint: #6a7386;
   --color-accent: #5ad17a;
-  --color-accent-fg: #0c0f14;
-  --color-danger: #d15a5a;
+  --color-accent-fg: #08130b;
+  --color-danger: #e07866;
   --color-danger-fg: #f0a0a0;
   --color-gold: #e8c45a;
-  --color-status-info: #5a9fd1;
+  --color-status-info: #4aa3ff;
   --color-status-info-border: #3a6a8a;
-  --color-status-success: #6fcf97;
+  --color-status-success: #7dd9a6;
   --color-status-success-border: #3d6b52;
-  --color-status-warning: #d1a05a;
+  --color-status-warning: #e8b85a;
   --color-status-warning-border: #8a6a3a;
-  --color-status-danger: #c94a4a;
-  --color-status-muted: #9aa3b5;
+  --color-status-danger: #e07866;
+  --color-status-muted: #8e98ac;
   --color-ideal: #4aa3ff;
-  --font-sans: "Segoe UI", system-ui, sans-serif;
+  /* Inter is preferred but not bundled (the web build's CSP forbids remote
+     fonts); on a machine without it this degrades to the OS UI face. */
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* Numerals, save paths and save-file names. Tabular by construction, so
+     money columns stop jittering between rows. */
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
   /* 交易页刷新状态亮环：呼吸式发光，用于「当前批次」黄色高亮。 */
   --animate-ring-glow: ring-glow 1.6s ease-in-out infinite;
@@ -87,6 +98,19 @@
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+}
+
+/* Ambient accent halo bleeding down from the top of a page. Purely decorative:
+   it gives the dark canvas depth without tinting any content-bearing surface.
+   Applied by the web shell header, which sits above an opaque header bar so the
+   glow only reads below it. */
+.atmosphere-glow {
+  background-image: radial-gradient(
+    110% 340px at 50% -120px,
+    color-mix(in oklab, var(--color-accent) 18%, transparent) 0%,
+    color-mix(in oklab, var(--color-accent) 5%, transparent) 55%,
+    transparent 78%
+  );
 }
 
 /* Electron frameless window drag regions (Mini overlay + box tracker). */
