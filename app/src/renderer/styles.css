@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+/*
+ * Pin the content scan to the whole app source tree.
+ *
+ * Tailwind v4 auto-detects sources, but it resolves the scan base from the CSS
+ * file and the web build reaches `styles.css` through `src/web/`, so utilities
+ * that appear *only* under `src/renderer/` — every shared primitive in
+ * `design-system/primitives/`, plus the components the site renders by reuse —
+ * were left out of the generated web CSS and silently rendered as no-ops.
+ * (Symptom: the deployed stylesheet was ~20 KB while the desktop build of the
+ * same tokens was ~61 KB, and `rounded-xl` / Card's inset shadow were absent.)
+ *
+ * Listing the sources explicitly makes both builds see every class.
+ */
+@source "../**/*.{ts,tsx}";
+@source "../../shared/**/*.{ts,tsx}";
+
 @theme {
   /* Surface ladder. Each step is deliberately ~4-6 lightness points apart so
      nested panels stay readable on dark displays without relying on shadows.
