@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { installWebDataSource } from "../../src/web/dataSource";
 import { installWebTbhApi } from "../../src/web/webTbhApi";
 import { TbhProvider } from "../../src/renderer/context/TbhProvider";
 import { EntityPanelProvider } from "../../src/renderer/context/EntityPanelProvider";
+import { GlobalEntityPanel } from "../../src/renderer/components/GlobalEntityPanel";
 import { Lookup } from "../../src/renderer/tabs/Lookup";
 import { ChestsPanel } from "../../src/web/tabs/ChestsPanel";
 import { TradingPanel } from "../../src/web/tabs/TradingPanel";
@@ -107,7 +108,11 @@ describe("web shell without a save file — real bundled catalog", () => {
   it("renders real tradable rows and warns when the price snapshot is missing", async () => {
     const { container } = render(
       <TbhProvider>
-        <TradingPanel />
+        {/* The real shell wraps every page in this provider; the item links on
+            each row read it to open the side detail panel. */}
+        <EntityPanelProvider>
+          <TradingPanel />
+        </EntityPanelProvider>
       </TbhProvider>,
     );
 
@@ -122,5 +127,35 @@ describe("web shell without a save file — real bundled catalog", () => {
     // still renders.
     expect(await screen.findByText(/Prices are unavailable/)).toBeInTheDocument();
     expectNoSaveGate(container);
+  }, 30000);
+
+  it("opens the item detail side panel from a trading row", async () => {
+    const { container } = render(
+      <TbhProvider>
+        <EntityPanelProvider>
+          <TradingPanel />
+          <GlobalEntityPanel />
+        </EntityPanelProvider>
+      </TbhProvider>,
+    );
+
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll("tbody tr").length).toBeGreaterThan(0);
+      },
+      { timeout: 25000 },
+    );
+
+    // Every row's item cell is an entity link (a <button>); clicking the first
+    // one must open the shared side detail panel. This is the interaction that
+    // regressed when the web panel rendered a plain <span> instead.
+    const firstLink = container.querySelector("tbody button");
+    expect(firstLink).not.toBeNull();
+    fireEvent.click(firstLink as HTMLElement);
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    // The panel is the item detail, not a bare error: it renders at least one
+    // section heading beyond the sr-only title.
+    expect(screen.getByRole("dialog").textContent?.length ?? 0).toBeGreaterThan(0);
   }, 30000);
 });

@@ -84,7 +84,7 @@ flowchart TD
   - `HomePanel` —— eyebrow（`home.eyebrow`）+ 左对齐 hero + 存档错误卡、`SavePicker` / 已载入摘要、`SaveLocationHelp`；**无存档时**额外渲染三步操作指引（编号芯片）与三条快捷入口（带箭头图标）；底部 `DesktopOnlyPanel`（桌面能力导流，3 列）。
   - `InventoryPanel` —— 无 `runtime.inventory` 时显示空状态（标题 / 正文 / 选择存档按钮 / 回首页）；有存档时渲染摘要卡 + 复用 renderer 的 `<Inventory />`。
   - `ChestsPanel` —— 从 `stage_boxes.json` 构建目录并分组（`chestCategoryFromKey`），目录**始终**渲染；仅当 `runtime.inventory?.chests` 非空时额外渲染「持有宝箱」区块。该区块**必须经过 `resolveChestHoldings` 聚合**（与桌面同一函数）：原始 holdings 是「每个宝箱实例一条、`quantity: 1`」，直接渲染会变成一堆 ×1；聚合后按类别分组展示，未知类别不带标题排在末尾（与桌面一致）。
-  - `TradingPanel` —— 由 `marketHashName(item) != null` 筛出可交易行，用 `resolveLookupPrice(item, snapshot, currency)` 取价；渲染 KPI（可交易 / 已定价 / 覆盖率）、快照时间与 `MissingPricesBanner`。表格列为 **Item / Type / Grade / Lowest listing**（`Type` 用 `typeLabel(item.type)`，把原先过疏的三列撑满 1200 measure）。
+  - `TradingPanel` —— 由 `marketHashName(item) != null` 筛出可交易行，用 `resolveLookupPrice(item, snapshot, currency)` 取价；渲染 KPI（可交易 / 已定价 / 覆盖率）、快照时间与 `MissingPricesBanner`。表格列为 **Item / Type / Grade / Lowest listing**（`Type` 用 `typeLabel(item.type)`，把原先过疏的三列撑满 1200 measure）。**物品名是 `ItemLink`**（与图鉴同一组件）：点击经 `useEntityPanel().open()` 打开侧栏详情，悬停出小卡。网页版侧栏会如实降级——掉落来源 / 合成 / 用途区块需要 `lookup_sources.json`（10 MB，不随网页发），`ItemDetailCard` 对 `sources === undefined` 全部兜底，所以这些区块直接不渲染，物品的图鉴信息（名称 / 品质 / 类型 / 等级 / 属性 / 市场链接）照常显示。
 - **Lookup 页复用 renderer 的 `Lookup.tsx`**：网页版直接挂载 `<Lookup watchedOnlyDefault={false} showPollingStatus={false} />`。这两个 props 是**可选、增量**的（默认为 `true`，桌面行为不变）——`watchedOnlyDefault` 让网页版默认展示全部物品而非只看关注，`showPollingStatus` 关掉只有桌面轮询才有的状态行。
 
 **空状态契约**：Home 与 Inventory 必须给出指向 `%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero\` 的指引与「复制路径」按钮，而不是空白块或报错。

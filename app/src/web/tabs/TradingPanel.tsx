@@ -10,16 +10,16 @@
 // is *missing* (404 / network error / bad shape) a yellow banner appears; while
 // it is still *loading* it does not.
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { resolveLookupPrice } from "../../core/lookupPrice";
 import { marketHashName } from "../../core/marketName";
 import { useLookupCatalog } from "../../renderer/lib/useLookupCatalog";
+import { useEntityPanel } from "../../renderer/context/entityPanelContext";
+import { ItemLink } from "../../renderer/components/ItemLink";
 import { gradeColor } from "../../renderer/lib/gradeColor";
 import { gradeLabel, typeLabel } from "../../renderer/lib/itemLabels";
-import { iconSrc } from "../../renderer/lib/iconSrc";
 import { Card } from "../../renderer/design-system/primitives/Card/Card";
-import { ItemIcon } from "../../renderer/design-system/primitives/ItemIcon/ItemIcon";
 import { TabHeader } from "../../renderer/design-system/primitives/TabHeader/TabHeader";
 import { TabPage } from "../../renderer/design-system/primitives/TabPage/TabPage";
 import { useWebPrices } from "../lib/useWebPrices";
@@ -75,6 +75,14 @@ export function TradingPanel() {
   const priced = rows.filter((row) => row.price.state === "priced").length;
   const coverage = rows.length > 0 ? Math.round((priced / rows.length) * 100) : 0;
 
+  // Feeds the hover peek card on the item link, same as the Lookup tab.
+  const itemIndex = useMemo(
+    () => new Map((catalog ?? []).map((item) => [item.id, item])),
+    [catalog],
+  );
+  const peekItem = useCallback((id: number) => itemIndex.get(id), [itemIndex]);
+  const { open } = useEntityPanel();
+
   const updatedLabel = useMemo(() => {
     if (!snapshot?.generatedUtc) return t("trading.updatedUnknown");
     const date = new Date(snapshot.generatedUtc);
@@ -115,14 +123,20 @@ export function TradingPanel() {
               {rows.map(({ item, price }) => (
                 <tr key={item.id} className="border-t border-border-soft">
                   <td className="px-4 py-2.5">
-                    <span className="flex items-center gap-2.5">
-                      <ItemIcon
-                        src={iconSrc(item.iconPath)}
-                        color={gradeColor(item.grade)}
-                        size="sm"
-                      />
-                      <span className="truncate text-fg">{item.name}</span>
-                    </span>
+                    {/* Same entity link the Lookup tab uses: click opens the
+                        side detail panel, hover shows the mini item card. The
+                        panel itself degrades gracefully on the web — the drop /
+                        crafting sections need lookup_sources.json, which is
+                        deliberately not shipped, so those sections simply don't
+                        render. */}
+                    <ItemLink
+                      node={{ type: "item", id: item.id }}
+                      name={item.name}
+                      grade={item.grade}
+                      iconPath={item.iconPath}
+                      onNavigate={open}
+                      peekItem={peekItem}
+                    />
                   </td>
                   <td className="px-4 py-2.5 text-muted">{typeLabel(item.type, tLookup)}</td>
                   <td className="px-4 py-2.5" style={{ color: gradeColor(item.grade) }}>
