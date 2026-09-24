@@ -20,7 +20,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/13-web-inspector.md",
     "docs/business-flows/14-wish-record.md"
   ],
-  "generatedAt": "2026-09-23T13:54:27.728Z",
+  "generatedAt": "2026-09-24T11:18:53.538Z",
   "flows": [
     {
       "number": 18,
@@ -4525,7 +4525,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "2 数据流",
           "subsection": null,
-          "mermaid": "flowchart TD\n  Drop[用户拖入 .es3] --> Load[loadWebSaveFile]\n  Load --> Analyze[analyzeSaveFile]\n  Analyze --> Dec[decryptToText — core/es3Web]\n  Dec --> Parse[parseInventory]\n  Parse --> Resolve[resolveInventory]\n  Cat[(webCatalog<br/>gamedata + lookup_items)] --> Parse\n  Cat --> Resolve\n  Loc[(loadLocaleCatalog)] --> Resolve\n  Resolve --> Inv[ResolvedInventory]\n  Inv --> Push[runtime.inventory + notify]\n  Push --> Home[Home / Inventory 页]\n  Push --> ChestsHeld[Chests 持有数]\n\n  Cat --> LookupCat[getLookupCatalog]\n  LookupCat --> LookupCtx[useLookupCatalog]\n  LookupCtx --> Lookup[Lookup 页]\n  LookupCtx --> Icons[iconSrcWeb → icons/name.png]\n  Boxes[(stage_boxes.json)] --> ChestsCat[Chests 目录]\n  Prices[(data/prices.json<br/>CI 暂存 · 同源 fetch)] --> Snapshot[webPricesSnapshot]\n  Snapshot --> Trading[Trading 页]\n  Snapshot --> Lookup",
+          "mermaid": "flowchart TD\n  Drop[用户拖入 .es3] --> Load[loadWebSaveFile]\n  Load --> Analyze[analyzeSaveFile]\n  Analyze --> Dec[decryptToText — core/es3Web]\n  Dec --> Parse[parseInventory]\n  Parse --> Resolve[resolveInventory]\n  Cat[(webCatalog<br/>gamedata + lookup_items)] --> Parse\n  Cat --> Resolve\n  Loc[(loadLocaleCatalog)] --> Resolve\n  Resolve --> Inv[ResolvedInventory]\n  Inv --> Push[runtime.inventory + notify]\n  Push --> Home[Home / Inventory 页]\n  Push --> ChestsHeld[Chests 持有数]\n\n  Cat --> LookupCat[getLookupCatalog]\n  LookupCat --> LookupCtx[useLookupCatalog]\n  LookupCtx --> Lookup[Lookup 页]\n  LookupCtx --> Icons[iconSrcWeb → icons/name.png]\n  Boxes[(stage_boxes.json)] --> ChestsCat[Chests 目录]\n  Prices[(data/prices.json<br/>CI 暂存 · 同源 fetch)] --> Snapshot[webPricesSnapshot]\n  Snapshot --> Trading[Trading 页]\n  Snapshot --> Lookup\n  Snapshot --> Reprice[按快照重算物品栏价格]\n  Reprice --> Inv",
           "nodes": [
             {
               "id": "Analyze",
@@ -4598,6 +4598,10 @@ window.TBH_FLOW_VIZ = {
             {
               "id": "Push",
               "label": "runtime.inventory + notify"
+            },
+            {
+              "id": "Reprice",
+              "label": "按快照重算物品栏价格"
             },
             {
               "id": "Resolve",
@@ -4682,12 +4686,20 @@ window.TBH_FLOW_VIZ = {
               "to": "Home"
             },
             {
+              "from": "Reprice",
+              "to": "Inv"
+            },
+            {
               "from": "Resolve",
               "to": "Inv"
             },
             {
               "from": "Snapshot",
               "to": "Lookup"
+            },
+            {
+              "from": "Snapshot",
+              "to": "Reprice"
             },
             {
               "from": "Snapshot",
