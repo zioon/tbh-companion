@@ -1,8 +1,11 @@
 #!/bin/sh
 # Keep the CodeGraph index in sync after every commit.
-# Incremental sync; -q keeps commits quiet. Silent no-op if codegraph is absent.
+# Incremental sync; -q keeps commits quiet. Silent no-op if codegraph is absent
+# or unusable -- a successful `command -v` only proves a shim exists on PATH, so
+# the failure of the sync itself is swallowed too: a git hook must never spill
+# its own diagnostics into an unrelated commit.
 if ! command -v codegraph >/dev/null 2>&1; then
   exit 0
 fi
-codegraph sync -q
+codegraph sync -q >/dev/null 2>&1 || true
 exit 0
