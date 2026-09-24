@@ -16,7 +16,7 @@ import { resolveLookupPrice } from "../../core/lookupPrice";
 import { marketHashName } from "../../core/marketName";
 import { useLookupCatalog } from "../../renderer/lib/useLookupCatalog";
 import { gradeColor } from "../../renderer/lib/gradeColor";
-import { gradeLabel } from "../../renderer/lib/itemLabels";
+import { gradeLabel, typeLabel } from "../../renderer/lib/itemLabels";
 import { iconSrc } from "../../renderer/lib/iconSrc";
 import { Card } from "../../renderer/design-system/primitives/Card/Card";
 import { ItemIcon } from "../../renderer/design-system/primitives/ItemIcon/ItemIcon";
@@ -27,9 +27,13 @@ import { MissingPricesBanner } from "../components/MissingPricesBanner";
 
 function Kpi({ label, value }: { label: string; value: string }) {
   return (
-    <Card padding="compact" className="flex flex-col gap-0.5">
-      <span className="text-[11px] uppercase tracking-wide text-muted">{label}</span>
-      <span className="text-lg font-semibold tabular-nums text-fg">{value}</span>
+    <Card padding="none" className="flex flex-col gap-1.5 p-4">
+      <span className="text-[10.5px] font-medium tracking-[0.06em] uppercase text-muted">
+        {label}
+      </span>
+      <span className="font-mono text-[26px] leading-none font-medium tabular-nums text-accent">
+        {value}
+      </span>
     </Card>
   );
 }
@@ -74,12 +78,12 @@ export function TradingPanel() {
   }, [snapshot, t, i18n.language]);
 
   return (
-    <TabPage>
+    <TabPage className="gap-5">
       <TabHeader title={tTabs("trading")} intro={t("trading.intro")} />
 
       <MissingPricesBanner />
 
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Kpi label={t("trading.kpiTradable")} value={rows.length.toLocaleString()} />
         <Kpi label={t("trading.kpiPriced")} value={priced.toLocaleString()} />
         <Kpi label={t("trading.kpiCoverage")} value={`${coverage}%`} />
@@ -88,41 +92,45 @@ export function TradingPanel() {
       <p className="m-0 text-xs text-muted">{updatedLabel}</p>
 
       {rows.length === 0 ? (
-        <Card padding="compact" className="text-muted">
+        <Card padding="none" className="p-4 text-muted">
           {t("trading.empty")}
         </Card>
       ) : (
-        <table className="w-full border-collapse text-xs">
-          <thead>
-            <tr className="text-left text-muted">
-              <th className="py-1.5 pr-2 font-medium">{t("trading.colItem")}</th>
-              <th className="py-1.5 pr-2 font-medium">{t("trading.colGrade")}</th>
-              <th className="py-1.5 text-right font-medium">{t("trading.colPrice")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(({ item, price }) => (
-              <tr key={item.id} className="border-t border-border/50">
-                <td className="py-1.5 pr-2">
-                  <span className="flex items-center gap-2">
-                    <ItemIcon
-                      src={iconSrc(item.iconPath)}
-                      color={gradeColor(item.grade)}
-                      size="sm"
-                    />
-                    <span className="truncate text-fg">{item.name}</span>
-                  </span>
-                </td>
-                <td className="py-1.5 pr-2" style={{ color: gradeColor(item.grade) }}>
-                  {gradeLabel(item.grade, tLookup)}
-                </td>
-                <td className="py-1.5 text-right tabular-nums">
-                  {price.display ?? <span className="text-muted">{t("trading.never")}</span>}
-                </td>
+        <Card padding="none" className="overflow-hidden">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="bg-panel text-left text-muted">
+                <th className="px-4 py-3 font-medium">{t("trading.colItem")}</th>
+                <th className="px-4 py-3 font-medium">{t("trading.colType")}</th>
+                <th className="px-4 py-3 font-medium">{t("trading.colGrade")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("trading.colPrice")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map(({ item, price }) => (
+                <tr key={item.id} className="border-t border-border-soft">
+                  <td className="px-4 py-2.5">
+                    <span className="flex items-center gap-2.5">
+                      <ItemIcon
+                        src={iconSrc(item.iconPath)}
+                        color={gradeColor(item.grade)}
+                        size="sm"
+                      />
+                      <span className="truncate text-fg">{item.name}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-muted">{typeLabel(item.type, tLookup)}</td>
+                  <td className="px-4 py-2.5" style={{ color: gradeColor(item.grade) }}>
+                    {gradeLabel(item.grade, tLookup)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right font-mono tabular-nums">
+                    {price.display ?? <span className="text-muted">{t("trading.never")}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
     </TabPage>
   );

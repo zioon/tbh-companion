@@ -43,14 +43,14 @@ export function SaveLocationHelp() {
   }
 
   return (
-    <Card className="text-xs leading-relaxed text-muted">
-      <p className="m-0 mb-1.5 font-semibold text-fg">{t("savePath.title")}</p>
+    <Card padding="none" className="flex flex-col gap-2.5 p-4 text-xs leading-relaxed text-muted">
+      <p className="m-0 text-[13.5px] font-semibold text-fg">{t("savePath.title")}</p>
       <p className="m-0">{t("savePath.body", { path: SAVE_DIR, file: SAVE_FILE })} </p>
-      <p className="m-0 mt-1.5">
-        <code className="break-all rounded bg-panel px-1 py-0.5 text-[11px]">{SAVE_DIR}</code>
-      </p>
-      <div className="mt-2 flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => void onCopy()}>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <code className="min-w-[240px] flex-1 rounded-lg border border-border-soft bg-bg px-3 py-2 font-mono text-[11.5px] break-all text-accent">
+          {SAVE_DIR}
+        </code>
+        <Button variant="default" size="sm" onClick={() => void onCopy()}>
           {t("savePath.copy")}
         </Button>
         {status !== "idle" ? (

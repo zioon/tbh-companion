@@ -7,12 +7,16 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { LuUpload } from "react-icons/lu";
 import { Button } from "../../renderer/design-system/primitives/Button/Button";
 import { cn } from "../../renderer/lib/cn";
 import { loadWebSaveFile } from "../webTbhApi";
 import { useWebRuntime } from "../lib/useWebRuntime";
 
 const ACCEPT = ".es3,.json,application/octet-stream";
+
+/** Literal file name shared by every locale's `home.dropTitle`. */
+const SAVE_FILE_NAME = "SaveFile_Live.es3";
 
 /**
  * Dashed drag-and-drop / click target that loads a `.es3` save locally.
@@ -45,16 +49,17 @@ export function SavePicker({ compact = false }: { compact?: boolean }) {
         onFiles(e.dataTransfer.files);
       }}
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-center transition-colors",
-        dragging ? "border-accent bg-accent/5" : "border-border bg-card/40",
-        compact && "p-4",
+        "flex flex-col items-center justify-center gap-3.5 rounded-2xl border border-dashed px-6 py-9 text-center transition-colors",
+        dragging ? "border-accent bg-accent/10" : "border-accent/30 bg-accent/[0.04]",
+        compact && "px-5 py-5",
       )}
     >
-      <p className="m-0 text-sm font-semibold text-fg">
-        {runtime.loading ? t("home.dropReading") : t("home.dropTitle")}
+      <LuUpload aria-hidden className="size-[26px] text-accent" strokeWidth={1.8} />
+      <p className="m-0 text-[15.5px] font-semibold text-fg">
+        <DropTitle text={runtime.loading ? t("home.dropReading") : t("home.dropTitle")} />
       </p>
       {!compact && (
-        <p className="m-0 max-w-prose text-xs leading-relaxed text-muted">
+        <p className="m-0 max-w-[620px] text-xs leading-relaxed text-muted">
           {t("home.dropPrivacy")}
         </p>
       )}
@@ -77,6 +82,25 @@ export function SavePicker({ compact = false }: { compact?: boolean }) {
         {t("home.choose")}
       </Button>
     </div>
+  );
+}
+
+/**
+ * The drop title with its embedded file name set in mono/accent.
+ *
+ * Every locale's `home.dropTitle` embeds the literal `SaveFile_Live.es3`, so
+ * splitting on it is locale-safe; when a translation happens to omit the name
+ * we fall back to plain text rather than rendering a half-empty string.
+ */
+function DropTitle({ text }: { text: string }) {
+  const [before, after] = text.split(SAVE_FILE_NAME);
+  if (after === undefined) return <>{text}</>;
+  return (
+    <>
+      {before}
+      <span className="font-mono text-accent">{SAVE_FILE_NAME}</span>
+      {after}
+    </>
   );
 }
 

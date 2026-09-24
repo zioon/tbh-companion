@@ -12,6 +12,7 @@
   "footerSource": "GitHub でソースを見る",
   "crashTitle": "TBH Companion Web の描画に失敗しました",
   "home": {
+    "eyebrow": "Task Bar Hero コンパニオン",
     "title": "TBH Companion",
     "tagline": "アイテム図鑑、チェストのドロップ、Steam マーケット価格を閲覧し、自分のセーブデータを解析できます。すべてブラウザ内で動作します。",
     "dropTitle": "SaveFile_Live.es3 をここにドロップ",
@@ -61,6 +62,7 @@
     "updatedUnknown": "価格スナップショットを利用できません",
     "colItem": "アイテム",
     "colGrade": "レア度",
+    "colType": "種別",
     "colPrice": "最低出品価格",
     "never": "—",
     "empty": "カタログに取引可能なアイテムがありません。"

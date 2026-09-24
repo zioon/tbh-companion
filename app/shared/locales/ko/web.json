@@ -12,6 +12,7 @@
   "footerSource": "GitHub에서 소스 보기",
   "crashTitle": "TBH Companion 웹 렌더링에 실패했습니다",
   "home": {
+    "eyebrow": "Task Bar Hero 컴패니언",
     "title": "TBH Companion",
     "tagline": "아이템 도감, 상자 드롭, Steam 마켓 가격을 살펴보고 자신의 세이브를 분석하세요. 모든 것이 브라우저 안에서 실행됩니다.",
     "dropTitle": "SaveFile_Live.es3을 여기에 놓으세요",
@@ -61,6 +62,7 @@
     "updatedUnknown": "가격 스냅샷을 사용할 수 없음",
     "colItem": "아이템",
     "colGrade": "등급",
+    "colType": "유형",
     "colPrice": "최저 판매 등록가",
     "never": "—",
     "empty": "카탈로그에 거래 가능한 아이템이 없습니다."

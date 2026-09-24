@@ -17,27 +17,29 @@ export function DesktopOnlyPanel() {
 
   return (
     <>
-      <Card className="border-accent/30 bg-accent/5">
-        <p className="m-0 mb-1 text-sm font-semibold text-fg">{t("desktop.title")}</p>
+      <Card padding="none" className="flex flex-col gap-2 border-accent/25 bg-accent/[0.05] p-4">
+        <p className="m-0 text-sm font-semibold text-fg">{t("desktop.title")}</p>
         <p className="m-0 text-xs leading-relaxed text-muted">{t("desktop.body")}</p>
       </Card>
 
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
         {ITEMS.map((key) => (
-          <Card as="li" key={key}>
-            <p className="m-0 mb-0.5 text-[13px] font-semibold text-accent">
+          <Card as="li" key={key} padding="none" className="flex flex-col gap-1.5 p-4">
+            <p className="m-0 text-[12.5px] font-semibold text-accent">
               {t(`desktop.${key}.title`)}
             </p>
-            <p className="m-0 text-xs leading-relaxed text-muted">{t(`desktop.${key}.body`)}</p>
+            <p className="m-0 text-[11.5px] leading-relaxed text-muted">
+              {t(`desktop.${key}.body`)}
+            </p>
           </Card>
         ))}
       </ul>
 
-      <div className="flex flex-wrap justify-center gap-2 pt-1">
+      <div className="flex flex-wrap justify-center gap-2.5">
         <ButtonLink variant="primary" href={RELEASES_URL}>
           {t("desktop.download")}
         </ButtonLink>
-        <ButtonLink variant="ghost" href={REPO_URL}>
+        <ButtonLink variant="default" href={REPO_URL}>
           {t("desktop.viewSource")}
         </ButtonLink>
       </div>

@@ -12,6 +12,7 @@
   "footerSource": "在 GitHub 上查看源码",
   "crashTitle": "TBH Companion 网页版渲染失败",
   "home": {
+    "eyebrow": "Task Bar Hero 伴侣工具",
     "title": "TBH Companion",
     "tagline": "浏览物品图鉴、宝箱掉落与 Steam 市场价格，再解析你自己的存档。一切都在浏览器内完成。",
     "dropTitle": "把 SaveFile_Live.es3 拖到这里",
@@ -61,6 +62,7 @@
     "updatedUnknown": "价格快照不可用",
     "colItem": "物品",
     "colGrade": "品质",
+    "colType": "类型",
     "colPrice": "最低挂牌价",
     "never": "—",
     "empty": "目录中没有可交易物品。"

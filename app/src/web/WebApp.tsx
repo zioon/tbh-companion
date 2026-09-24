@@ -8,9 +8,19 @@
 // Keeping the shell separate from `App.tsx` means the desktop tab bar, overlays,
 // and window controls stay untouched. All copy comes from the `web` i18n
 // namespace — no hard-coded English.
+//
+// Visual contract (redesign):
+//   * `atmosphere-glow` is a decorative radial accent bleeding down from the top
+//     edge. It is `aria-hidden` and sits *behind* the opaque header bar, so the
+//     glow only reads below it — no accent tint ever lands on a data surface.
+//   * The header is sticky and the single place the brand mark appears at size;
+//     the footer repeats it small, then closes on an oversized ghost wordmark.
+//   * Content is capped at 1240px with 20px gutters (= 1200px of content), so
+//     the five pages share one measure on wide displays.
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { LuTrendingUp } from "react-icons/lu";
 import { Lookup } from "../renderer/tabs/Lookup";
 import { TbhProvider } from "../renderer/context/TbhProvider";
 import { EntityPanelProvider } from "../renderer/context/EntityPanelProvider";
@@ -25,6 +35,23 @@ import { ChestsPanel } from "./tabs/ChestsPanel";
 import { TradingPanel } from "./tabs/TradingPanel";
 import { WEB_TAB_IDS, type WebTabId } from "./webTabs";
 
+/** The brand chip: gradient tile + trend glyph, shared by header and footer. */
+function BrandMark({ size = 30 }: { size?: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{ width: size, height: size, borderRadius: Math.round(size * 0.3) }}
+      className="flex shrink-0 items-center justify-center bg-gradient-to-br from-[#74e394] to-[#3bae63] shadow-[0_2px_14px_-4px_color-mix(in_oklab,var(--color-accent)_60%,transparent)]"
+    >
+      <LuTrendingUp
+        style={{ width: Math.round(size * 0.57), height: Math.round(size * 0.57) }}
+        className="text-accent-fg"
+        strokeWidth={2.6}
+      />
+    </span>
+  );
+}
+
 export function WebApp() {
   const { t } = useTranslation("web");
   const { t: tTabs } = useTranslation("tabs");
@@ -32,15 +59,24 @@ export function WebApp() {
 
   return (
     <EntityPanelProvider>
-      <div className="flex min-h-dvh flex-col bg-bg">
-        <header className="border-b border-border bg-bg">
-          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
-            <span className="text-sm font-semibold text-fg">TBH Companion</span>
-            <span className="rounded bg-panel px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-              {t("badge")}
-            </span>
+      <div className="relative flex min-h-dvh flex-col bg-bg">
+        <div
+          aria-hidden
+          className="atmosphere-glow pointer-events-none absolute inset-x-0 top-0 h-[360px]"
+        />
+
+        <header className="sticky top-0 z-30 border-b border-border-soft bg-bg">
+          <div className="mx-auto flex h-[62px] w-full max-w-[1240px] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5">
+            <div className="flex items-center gap-2.5">
+              <BrandMark />
+              <span className="text-[14.5px] font-semibold text-fg">TBH Companion</span>
+              <span className="rounded-[5px] bg-accent/15 px-1.5 py-0.5 text-[9.5px] font-semibold tracking-[0.08em] text-accent uppercase">
+                {t("badge")}
+              </span>
+            </div>
+
             <nav
-              className="flex flex-wrap items-center gap-1"
+              className="flex flex-wrap items-center gap-0.5"
               aria-label={tTabs("mainTabsAriaLabel")}
             >
               {WEB_TAB_IDS.map((id) => (
@@ -49,8 +85,10 @@ export function WebApp() {
                   type="button"
                   onClick={() => setTab(id)}
                   className={cn(
-                    "rounded px-2.5 py-1 text-xs font-semibold transition-colors",
-                    tab === id ? "bg-accent/15 text-accent" : "text-muted hover:text-fg",
+                    "rounded-lg px-3 py-1.5 text-[12.5px] transition-colors",
+                    tab === id
+                      ? "bg-accent/15 font-semibold text-accent"
+                      : "font-medium text-muted hover:text-fg",
                   )}
                   aria-current={tab === id ? "page" : undefined}
                 >
@@ -58,13 +96,12 @@ export function WebApp() {
                 </button>
               ))}
             </nav>
-            <div className="ml-auto">
-              <LanguageSwitcher />
-            </div>
+
+            <LanguageSwitcher />
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-4">
+        <main className="mx-auto w-full max-w-[1240px] flex-1 px-5 py-9">
           <ErrorBoundary title={t("crashTitle")}>
             {tab === "home" && <HomePanel onNavigate={setTab} />}
             {tab === "inventory" && <InventoryPanel onNavigate={setTab} />}
@@ -74,13 +111,33 @@ export function WebApp() {
           </ErrorBoundary>
         </main>
 
-        <footer className="border-t border-border px-5 py-3">
-          <p className="mx-auto m-0 max-w-5xl text-[11px] leading-relaxed text-muted">
-            {t("footer")}{" "}
-            <a className="underline hover:text-fg" href={REPO_URL} rel="noopener noreferrer">
-              {t("footerSource")}
-            </a>
-          </p>
+        <footer className="relative overflow-hidden border-t border-border-soft bg-[#08090d]">
+          <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 px-5 pt-7 pb-1">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <span className="flex items-center gap-2">
+                <BrandMark size={20} />
+                <span className="text-[12.5px] font-semibold text-fg/75">TBH Companion</span>
+              </span>
+              <a
+                className="text-xs font-medium text-accent hover:underline"
+                href={REPO_URL}
+                rel="noopener noreferrer"
+              >
+                {t("footerSource")}
+              </a>
+            </div>
+
+            <p className="m-0 max-w-[860px] text-[11.5px] leading-relaxed text-faint">
+              {t("footer")}
+            </p>
+
+            <span
+              aria-hidden
+              className="select-none text-[76px] leading-none font-bold tracking-[-0.02em] text-fg/[0.04]"
+            >
+              TBH COMPANION
+            </span>
+          </div>
         </footer>
 
         <GlobalEntityPanel />

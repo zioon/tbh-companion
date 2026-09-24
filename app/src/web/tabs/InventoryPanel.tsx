@@ -22,9 +22,9 @@ export function InventoryPanel({ onNavigate }: { onNavigate: (tab: WebTabId) => 
 
   if (!runtime.inventory) {
     return (
-      <TabPage>
+      <TabPage className="gap-5">
         {runtime.error ? (
-          <Card className="border-danger/40 bg-danger/5">
+          <Card padding="none" className="border-danger/40 bg-danger/[0.06] p-4">
             <p className="m-0 mb-1 text-sm font-semibold text-danger">{t("home.saveError")}</p>
             <p className="m-0 whitespace-pre-line text-xs leading-relaxed text-muted">
               {runtime.error}
@@ -32,10 +32,10 @@ export function InventoryPanel({ onNavigate }: { onNavigate: (tab: WebTabId) => 
           </Card>
         ) : null}
 
-        <Card>
-          <p className="m-0 mb-1 text-sm font-semibold text-fg">{t("inventoryEmpty.title")}</p>
+        <Card padding="none" className="flex flex-col gap-2 p-4">
+          <p className="m-0 text-sm font-semibold text-fg">{t("inventoryEmpty.title")}</p>
           <p className="m-0 text-xs leading-relaxed text-muted">{t("inventoryEmpty.body")}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2.5">
             <ChooseSaveButton label={t("home.choose")} variant="primary" size="sm" />
             <Button variant="ghost" size="sm" onClick={() => onNavigate("home")}>
               {t("inventoryEmpty.goHome")}
@@ -47,9 +47,12 @@ export function InventoryPanel({ onNavigate }: { onNavigate: (tab: WebTabId) => 
   }
 
   return (
-    <TabPage>
-      <Card padding="compact" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span className="font-semibold text-fg">{runtime.fileName}</span>
+    <TabPage className="gap-5">
+      <Card
+        padding="none"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5 text-xs"
+      >
+        <span className="font-mono text-[12.5px] font-medium text-fg">{runtime.fileName}</span>
         {runtime.analyze ? (
           <span className="text-muted">
             {t("home.loadedSummary", {
