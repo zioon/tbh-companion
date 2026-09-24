@@ -39,13 +39,28 @@ import {
 import { classifySaveFileError } from "./errors";
 import { installWebDataSource } from "./dataSource";
 import { ensureWebPricesLoaded, getWebPriceSnapshot, subscribeWebPrices } from "./pricesSnapshot";
-import { loadLookupItems } from "../core/lookup/catalog";
+import {
+  ensureBoxSourcesLoaded,
+  getWebBoxSources,
+} from "./boxSourcesSnapshot";
+import {
+  ensureItemSourcesLoaded,
+  getWebItemSources,
+  getWebStages,
+} from "./itemSourcesSnapshot";
+import {
+  loadLookupItems,
+  loadOfferings,
+  loadSynthesisModel,
+} from "../core/lookup/catalog";
 import { gameItemName } from "../core/gamedata";
 import { loadLocaleCatalog } from "../core/localeCatalog";
 import { resolveLanguage, type ResolvedLanguage } from "../../shared/language";
 import type {
   AppConfig,
+  ChestState,
   LookupItem,
+  PetState,
   PriceStatus,
   ResolvedInventory,
   TbhApi,
@@ -60,6 +75,10 @@ export type WebTabId = "inventory" | "chests" | "settings";
 interface WebRuntimeState {
   inventory: ResolvedInventory | null;
   analyze: AnalyzeResult | null;
+  /** Pet unlock progress from the loaded save (null until one is loaded). */
+  pets: PetState | null;
+  /** Chest slot/capacity state from the loaded save (null until one is loaded). */
+  chests: ChestState | null;
   fileName: string | null;
   loading: boolean;
   error: string | null;
@@ -71,6 +90,8 @@ interface WebRuntimeState {
 const runtime: WebRuntimeState = {
   inventory: null,
   analyze: null,
+  pets: null,
+  chests: null,
   fileName: null,
   loading: false,
   error: null,
@@ -102,6 +123,8 @@ function resolveWebLanguage(cfg: AppConfig): ResolvedLanguage {
   return resolveLanguage(cfg.language, navigator.language, cfg.resolvedLanguage ?? null);
 }
 const inventoryListeners = new Set<Listener<ResolvedInventory>>();
+const petsListeners = new Set<Listener<PetState>>();
+const chestsListeners = new Set<Listener<ChestState>>();
 const runtimeSubscribers = new Set<() => void>();
 /** Lookup reads the display currency off `pricesStatus()`; pushed on change. */
 const priceStatusListeners = new Set<Listener<PriceStatus>>();
@@ -136,6 +159,8 @@ function notifyRuntime(): void {
 export function clearWebSave(): void {
   runtime.inventory = null;
   runtime.analyze = null;
+  runtime.pets = null;
+  runtime.chests = null;
   runtime.fileName = null;
   runtime.error = null;
   notifyRuntime();
@@ -161,9 +186,13 @@ export async function loadWebSaveFile(file: File): Promise<ResolvedInventory | n
     );
     runtime.analyze = result;
     runtime.inventory = result.inventory;
+    runtime.pets = result.pets;
+    runtime.chests = result.chests;
     runtime.fileName = file.name;
     runtime.currency = config.currency;
     for (const cb of [...inventoryListeners]) cb(result.inventory);
+    for (const cb of [...petsListeners]) cb(result.pets);
+    for (const cb of [...chestsListeners]) cb(result.chests);
     // The inventory is priced from the CI snapshot; make sure it is being
     // fetched so a save loaded before it arrives is re-priced on arrival.
     void ensureWebPricesLoaded();
@@ -336,14 +365,30 @@ function buildWebApi(): TbhApi {
     // so `marketHashName()` still derives English Steam hashes.
     getLookupCatalog: () => Promise.resolve(webLookupCatalog()),
     getLocaleData: () => Promise.resolve(null),
-    // The web bundle ships only the catalogs the inventory analyzer reads
-    // (lookup_items / gamedata / locales). Loot-source, synthesis-model and
-    // offering data are desktop-only, so these answer with empty shells rather
-    // than rejecting — a tab that merely peeks at them still mounts.
-    getLookupSources: () => Promise.resolve({ items: {}, boxes: {}, stages: {} }),
-    getLookupSynthesisModel: () =>
-      Promise.resolve({ gradeWeights: {}, recipesByType: {}, buckets: {} }),
-    getOfferings: () => Promise.resolve([]),
+    // The full item/box/stage source graph is served as slim same-origin
+    // payloads (`data/box-sources.json` + `data/item-sources.json`, built from
+    // `lookup_sources.json` at CI time and fetched lazily). Both requests are
+    // awaited here so the Lookup tab receives the exact `LookupSources` shape
+    // the desktop returns — synthesis paths, used-in, offerings and box
+    // details light up with zero UI changes. A missing payload degrades to an
+    // empty subtree rather than rejecting.
+    getLookupSources: () =>
+      Promise.all([ensureBoxSourcesLoaded(), ensureItemSourcesLoaded()]).then(() => ({
+        items: getWebItemSources() ?? {},
+        boxes: getWebBoxSources() ?? {},
+        stages: getWebStages() ?? {},
+      })),
+    // `synthesis_model.json` and `offerings.json` ship in the web bundle
+    // (`dataSource.ts`), so the same core loaders the desktop uses answer
+    // here — the item detail's synthesis-path card renders for real.
+    getLookupSynthesisModel: () => {
+      installWebDataSource();
+      return Promise.resolve(loadSynthesisModel());
+    },
+    getOfferings: () => {
+      installWebDataSource();
+      return Promise.resolve(loadOfferings());
+    },
     getCatalogStatus: () => Promise.resolve(DEFAULT_CATALOG_STATUS),
     onCatalogStatus: () => NOOP_UNSUBSCRIBE,
     refreshCatalog: () =>
@@ -413,9 +458,19 @@ function buildWebApi(): TbhApi {
     onLiveMemory: () => NOOP_UNSUBSCRIBE,
     onLiveMemoryStatus: () => NOOP_UNSUBSCRIBE,
 
-    // --- Chest timers: cooldowns only exist while the game runs ---
-    getChests: () => Promise.resolve(null),
-    onChests: () => NOOP_UNSUBSCRIBE,
+    // --- Chest slots: computed from the loaded save (`analyzeSave.ts`) ---
+    // No live cooldowns (that needs the running game), but the slot/capacity
+    // cards on the web Chests page are the real `ChestState`. Subscribers get
+    // an immediate callback when data is already loaded — the web has no push
+    // channel, and `useChests()` is a `getChests()` → `onChests()` two-step.
+    getChests: () => Promise.resolve(runtime.chests),
+    onChests: (cb: Listener<ChestState>) => {
+      chestsListeners.add(cb);
+      if (runtime.chests) cb(runtime.chests);
+      return () => {
+        chestsListeners.delete(cb);
+      };
+    },
     getBoxTimers: () => Promise.resolve(emptyBoxTimerState()),
     onBoxTimers: () => NOOP_UNSUBSCRIBE,
     markBoxDropped: () => Promise.resolve(emptyBoxTimerState()),
@@ -428,9 +483,19 @@ function buildWebApi(): TbhApi {
     setBoxTrackerNotify: () => Promise.resolve(emptyBoxTimerState()),
     setBoxTrackerSortOrder: () => Promise.resolve(emptyBoxTimerState()),
 
-    // --- Pets / loot history: driven by save watching and live memory ---
-    getPets: () => Promise.resolve(null),
-    onPets: () => NOOP_UNSUBSCRIBE,
+    // --- Pets: resolved from the loaded save (`analyzeSave.ts`) ---
+    // The web has no save watcher or live memory, so pets publish exactly
+    // once per loaded save. Subscribers get an immediate callback when data
+    // is already present (`usePets()` is a `getPets()` → `onPets()` two-step
+    // and the immediate callback keeps the two observations consistent).
+    getPets: () => Promise.resolve(runtime.pets),
+    onPets: (cb: Listener<PetState>) => {
+      petsListeners.add(cb);
+      if (runtime.pets) cb(runtime.pets);
+      return () => {
+        petsListeners.delete(cb);
+      };
+    },
     getRecordLogPage: (_page: number, pageSize = 0) =>
       Promise.resolve(emptyRecordLogPage(pageSize)),
     getAcquireRing: () => Promise.resolve(null),

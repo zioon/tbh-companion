@@ -1,10 +1,13 @@
 // Web shell: Chests page.
 //
 // The desktop Chests tab can't be reused wholesale: its catalog is driven by
-// `lookup_sources.json` (10 MB, deliberately not shipped to the browser) and its
-// slot/capacity/auto-open sections are desktop + live-memory concepts. The web
-// panel therefore rebuilds the catalog from the bundled `stage_boxes.json`
+// `lookup_sources.json` (10 MB, deliberately not shipped to the browser). The
+// web panel therefore rebuilds the catalog from the bundled `stage_boxes.json`
 // (shipped, 46 KB) and renders the *save* side from `ResolvedInventory.chests`.
+// The slot/capacity/auto-open cards ARE shared, though: `analyzeSave.ts`
+// computes the full `ChestState` (holdings + rune bonuses) with the same core
+// resolver the desktop uses, and both surfaces render the extracted
+// `ChestCategoryCard`.
 //
 // What IS shared with the desktop is the chest detail card: the slim
 // `box-sources.json` payload (built from `lookup_sources.json` at build time,
@@ -53,6 +56,8 @@ import type { LookupNavNode } from "../../renderer/lib/useLookupNav";
 import { loadLookupItems } from "../../core/lookup/catalog";
 import { ensureBoxSourcesLoaded, useBoxSources } from "../boxSourcesSnapshot";
 import { useWebRuntime } from "../lib/useWebRuntime";
+import { useChests } from "../../renderer/lib/useChests";
+import { ChestCategoryCard } from "../../renderer/components/chests/ChestCategoryCard";
 
 /** Map a stage-box item key to the lookup display category used for its name. */
 function categoryForKey(itemKey: number): LookupBoxSources["category"] {
@@ -122,6 +127,10 @@ export function ChestsPanel() {
   const { t: tLookup } = useTranslation("lookup");
   const { t: tCommon } = useTranslation("common");
   const runtime = useWebRuntime();
+  // Slot/capacity/auto-open state, computed from the loaded save by the same
+  // core resolver the desktop Chest tab uses (`analyzeSave.ts` →
+  // `buildChestState`). Null until a save is loaded.
+  const chests = useChests();
 
   // `stage_boxes.json` is bundled, so this works with or without a save.
   const catalog = useMemo<StageBoxCatalogItem[]>(() => {
@@ -303,6 +312,62 @@ export function ChestsPanel() {
   return (
     <TabPage className="gap-6">
       <TabHeader title={t("tabTitle")} intro={t("catalogIntro")} />
+
+      {/* Slot / capacity cards — the six categories the desktop Chest tab
+          shows, fed by the save's chest holdings plus the rune-purchase
+          capacity and auto-open bonuses. Only rendered once a save with a
+          `ChestState` is loaded. */}
+      {chests ? (
+        <section aria-labelledby="web-chest-slots-heading" className="flex flex-col gap-3">
+          <h2 id="web-chest-slots-heading" className="m-0 text-[15.5px] font-semibold text-fg">
+            {t("chestSlotsHeading")}
+          </h2>
+          <div className="grid grid-cols-3 items-stretch gap-2.5 max-[720px]:grid-cols-1">
+            <ChestCategoryCard
+              title={t("category.common")}
+              slot={chests.common}
+              breakdown={chests.capacity.common}
+              autoOpenSeconds={chests.autoOpen.common}
+              fillVariant="gray"
+            />
+            <ChestCategoryCard
+              title={t("category.stageBoss")}
+              slot={chests.stageBoss}
+              breakdown={chests.capacity.stageBoss}
+              autoOpenSeconds={chests.autoOpen.stageBoss}
+              fillVariant="blue"
+            />
+            <ChestCategoryCard
+              title={t("category.actBoss")}
+              slot={chests.actBoss}
+              breakdown={chests.capacity.actBoss}
+              autoOpenSeconds={chests.autoOpen.actBoss}
+              fillVariant="red"
+            />
+            <ChestCategoryCard
+              title={t("category.plagueCommon")}
+              slot={chests.plagueCommon}
+              breakdown={chests.capacity.plagueCommon}
+              autoOpenSeconds={chests.autoOpen.plagueCommon}
+              fillVariant="green"
+            />
+            <ChestCategoryCard
+              title={t("category.plagueRare")}
+              slot={chests.plagueRare}
+              breakdown={chests.capacity.plagueRare}
+              autoOpenSeconds={chests.autoOpen.plagueRare}
+              fillVariant="green"
+            />
+            <ChestCategoryCard
+              title={t("category.plagueAct")}
+              slot={chests.plagueAct}
+              breakdown={chests.capacity.plagueAct}
+              autoOpenSeconds={chests.autoOpen.plagueAct}
+              fillVariant="green"
+            />
+          </div>
+        </section>
+      ) : null}
 
       {heldGroups.known.length > 0 || heldGroups.leftover.length > 0 ? (
         <section className="flex flex-col gap-3">

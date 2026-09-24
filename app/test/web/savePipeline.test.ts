@@ -27,6 +27,12 @@ describe("web save pipeline", () => {
     expect(WEB_DATA_FILES).toContain("lookup_items.json");
     expect(WEB_DATA_FILES).toContain("box_types.json");
     expect(WEB_DATA_FILES).toContain("locale_strings_zh-CN.json");
+    // Pets page + chest capacity cards + synthesis/offerings (#1 batch).
+    expect(WEB_DATA_FILES).toContain("pets.json");
+    expect(WEB_DATA_FILES).toContain("rune_box_cap.json");
+    expect(WEB_DATA_FILES).toContain("rune_auto_open.json");
+    expect(WEB_DATA_FILES).toContain("synthesis_model.json");
+    expect(WEB_DATA_FILES).toContain("offerings.json");
   });
 
   it("rejects a file that is too small", async () => {
@@ -58,6 +64,37 @@ describe("web save pipeline", () => {
     for (const row of result.inventory.rows) {
       expect(row.count).toBeGreaterThan(0);
       expect(row.inventoryCount + row.stashCount + row.tradingCount).toBeLessThanOrEqual(row.count);
+    }
+
+    // Pet progress resolves from the same decryption pass: the catalog is
+    // fully rendered and the save's kill counts / equipped pet are reflected.
+    expect(result.pets.pets.length).toBeGreaterThan(0);
+    expect(result.pets.unlockKillCount).toBeGreaterThan(0);
+    expect(result.pets.saveMtime).toBeGreaterThan(0);
+    const equipped = result.pets.pets.filter((p) => p.equipped);
+    expect(equipped.length).toBeLessThanOrEqual(1);
+
+    // Chest slots resolve from the same pass: six capacity categories with
+    // sane values, and the held total matching the save's chest holdings.
+    expect(result.chests.capacity.common.base).toBeGreaterThan(0);
+    expect(result.chests.saveMtime).toBeGreaterThan(0);
+    const capacityTotal =
+      result.chests.capacity.common.base + result.chests.capacity.common.runeBonus;
+    expect(result.chests.common.capacity).toBe(capacityTotal);
+    expect(result.chests.totalHeld).toBe(
+      result.snapshot.chests.reduce((sum, chest) => sum + chest.quantity, 0),
+    );
+    for (const slot of [
+      result.chests.common,
+      result.chests.stageBoss,
+      result.chests.actBoss,
+      result.chests.plagueCommon,
+      result.chests.plagueRare,
+      result.chests.plagueAct,
+    ]) {
+      // A save can hold more than the capacity (overfull), so only bound below.
+      expect(slot.quantity).toBeGreaterThanOrEqual(0);
+      expect(slot.capacity).toBeGreaterThan(0);
     }
   });
 });

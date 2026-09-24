@@ -4,6 +4,7 @@
     "home": "Home",
     "inventory": "Inventory",
     "chests": "Chests",
+    "pets": "Pets",
     "lookup": "Lookup",
     "trading": "Trading"
   },
@@ -92,7 +93,7 @@
     },
     "liveMemory": {
       "title": "Read-only live memory",
-      "body": "Reads stage clears, chest drops, and DPS straight from the running game for second-accurate data."
+      "body": "Reads stage clears, chest drops, and DPS straight from the running game for second-accurate data, and streams real-time wish (offering) results."
     },
     "overlay": {
       "title": "Chest tracker & always-on-top overlay",
@@ -103,8 +104,8 @@
       "body": "Prices your whole inventory in one pass and totals it after market fees."
     },
     "extras": {
-      "title": "Pet progress, loot history, notifications",
-      "body": "Tracks what dropped, when, and alerts you when a chest is ready."
+      "title": "Loot history & auto-classify, wish history, notifications",
+      "body": "Tracks what dropped, auto-classifies loot, follows your wish results, and alerts you when a chest is ready."
     }
   }
 }

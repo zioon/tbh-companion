@@ -22,6 +22,14 @@ import localeEn from "../../../data/locale_strings_en.json?raw";
 import localeZhCN from "../../../data/locale_strings_zh-CN.json?raw";
 import localeJa from "../../../data/locale_strings_ja.json?raw";
 import localeKo from "../../../data/locale_strings_ko.json?raw";
+// Small catalogs the Pets page and the chest capacity / synthesis features
+// read through the same core loaders the desktop uses (all well under 1 MB
+// except synthesis_model / offerings, which the Lookup tab needs in full).
+import pets from "../../../data/pets.json?raw";
+import runeBoxCap from "../../../data/rune_box_cap.json?raw";
+import runeAutoOpen from "../../../data/rune_auto_open.json?raw";
+import synthesisModel from "../../../data/synthesis_model.json?raw";
+import offerings from "../../../data/offerings.json?raw";
 
 const FILES: Record<string, string> = {
   "gamedata.json": gamedata,
@@ -33,6 +41,11 @@ const FILES: Record<string, string> = {
   "locale_strings_zh-CN.json": localeZhCN,
   "locale_strings_ja.json": localeJa,
   "locale_strings_ko.json": localeKo,
+  "pets.json": pets,
+  "rune_box_cap.json": runeBoxCap,
+  "rune_auto_open.json": runeAutoOpen,
+  "synthesis_model.json": synthesisModel,
+  "offerings.json": offerings,
 };
 
 /** Files the web bundle does not ship — requested names are logged so a missing
@@ -41,12 +54,7 @@ const FILES: Record<string, string> = {
 const OMITTED = new Set([
   "lookup_sources.json",
   "_game_locale_dump.json",
-  "synthesis_model.json",
-  "offerings.json",
-  "rune_box_cap.json",
-  "rune_auto_open.json",
   "rune_wave.json",
-  "pets.json",
   "steam_item_nameids.json",
   "level_curve.json",
 ]);

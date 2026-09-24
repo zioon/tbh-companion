@@ -1,9 +1,10 @@
 // Web shell: the browser-side app frame.
 //
-// The web bundle is a real five-page companion app: a Home page that owns the
-// local save drop zone, plus Inventory / Chests / Lookup / Trading. Three of the
-// five (Chests, Lookup, Trading) render real data with no save at all; the two
-// save-driven pages show a readable empty state instead of blanking out.
+// The web bundle is a real six-page companion app: a Home page that owns the
+// local save drop zone, plus Inventory / Chests / Pets / Lookup / Trading. Four
+// of the six (Chests, Pets, Lookup, Trading) render real data with no save at
+// all; the save-driven pages show a readable empty state instead of blanking
+// out.
 //
 // Keeping the shell separate from `App.tsx` means the desktop tab bar, overlays,
 // and window controls stay untouched. All copy comes from the `web` i18n
@@ -22,6 +23,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LuTrendingUp } from "react-icons/lu";
 import { Lookup } from "../renderer/tabs/Lookup";
+import { Pets } from "../renderer/tabs/Pets";
 import { TbhProvider } from "../renderer/context/TbhProvider";
 import { EntityPanelProvider } from "../renderer/context/EntityPanelProvider";
 import { GlobalEntityPanel } from "../renderer/components/GlobalEntityPanel";
@@ -110,6 +112,7 @@ export function WebApp() {
             {tab === "home" && <HomePanel onNavigate={setTab} />}
             {tab === "inventory" && <InventoryPanel onNavigate={setTab} />}
             {tab === "chests" && <ChestsPanel />}
+            {tab === "pets" && <Pets />}
             {tab === "lookup" && <Lookup watchedOnlyDefault={false} showPollingStatus={false} />}
             {tab === "trading" && <TradingPanel />}
           </ErrorBoundary>

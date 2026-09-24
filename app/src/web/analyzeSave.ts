@@ -20,14 +20,30 @@ import {
   buildMaterialSynthesisPoints,
   synthesisPointsForItemKeyByGear,
 } from "../core/synthesisPoints";
-import { loadLookupItems } from "../core/lookup/catalog";
+import { loadLookupItems, loadOfferings } from "../core/lookup/catalog";
+import {
+  buildChestState,
+  loadBoxTypeCatalog,
+  loadRuneAutoOpenCatalog,
+  loadRuneBoxCapCatalog,
+  parseRuneSaveData,
+} from "../core/boxes";
+import {
+  buildPetState,
+  loadPetCatalog,
+  parseArrangedPetKey,
+  parseMonsterKillCounts,
+  parsePetSaveData,
+} from "../core/pets";
 import { installWebDataSource } from "./dataSource";
 import type { ResolvedLanguage } from "../../shared/language";
 import type {
+  ChestState,
   InventoryPriceInfo,
   InventorySnapshot,
   LookupItem,
   LookupPriceSnapshot,
+  PetState,
   ResolvedInventory,
   ResolvedInventoryRow,
 } from "../../shared/types";
@@ -37,6 +53,10 @@ import { readBundledJson } from "../core/bundledData";
 export interface AnalyzeResult {
   inventory: ResolvedInventory;
   snapshot: InventorySnapshot;
+  /** Pet unlock progress, resolved from the same decryption pass. */
+  pets: PetState;
+  /** Chest holdings + slot capacities, resolved from the same decryption pass. */
+  chests: ChestState;
   /** Counts surfaced in the UI so users can sanity-check a load. */
   stats: { itemCount: number; chestCount: number; byteSize: number };
 }
@@ -118,9 +138,37 @@ export async function analyzeSaveFile(
 
   const inventory = resolveWebInventory(snapshot, language, price);
 
+  // Pet progress and chest slots come from the same decryption pass — the save
+  // is only ever decrypted once, everything downstream reads `text`.
+  const pets = buildPetState(
+    loadPetCatalog(),
+    parsePetSaveData(text),
+    parseMonsterKillCounts(text),
+    parseArrangedPetKey(text),
+    saveMtime,
+  );
+
+  // Chest slot states, computed by the same core resolver the desktop Chest
+  // tab uses. One deliberate downgrade from the desktop `ChestService`
+  // (src/renderer/services/ChestService.ts act-ghost-session filter): the
+  // desktop suppresses act-boss holdings that belong to a *previous* live
+  // session before counting them toward capacity, which requires cross-run
+  // state from the box tracker. A web load is a one-shot read of a single
+  // save file with no session memory, so all act-boss holdings count.
+  const chests = buildChestState(
+    snapshot.chests,
+    parseRuneSaveData(text),
+    saveMtime,
+    loadBoxTypeCatalog(),
+    loadRuneBoxCapCatalog(),
+    loadRuneAutoOpenCatalog(),
+  );
+
   return {
     inventory,
     snapshot,
+    pets,
+    chests,
     stats: {
       itemCount: snapshot.items.length,
       chestCount: snapshot.chests.reduce((sum, chest) => sum + chest.quantity, 0),
@@ -154,12 +202,15 @@ export function resolveWebInventory(
   });
 
   // Synthesis points for materials (soulstones / memorial coins), matching the
-  // desktop Inventory tab's `rowSynthesisPoints`. Both `boxDrops` and
-  // `offerings` need catalogs the web build does not ship (lookup_sources.json /
-  // offerings.json), so soulstone and coin rows fall back to the plain
-  // grade-based value instead of an expected-value override.
+  // desktop Inventory tab's `rowSynthesisPoints`. `offerings.json` is bundled
+  // on the web build (`dataSource.ts`), so memorial-coin rows get the exact
+  // expected value computed from their offer loot table. The soulstone ACT-box
+  // overrides need the box graph from `lookup_sources.json`, which stays
+  // un-shipped — those rows keep the plain grade-based fallback until the slim
+  // box-sources payload feeds them here too.
   const materialPoints = buildMaterialSynthesisPoints({
     itemByKey: (itemKey) => webCatalog().lookup.get(itemKey),
+    offerings: loadOfferings(),
   });
 
   const rows = resolved.rows.map((row) => {
