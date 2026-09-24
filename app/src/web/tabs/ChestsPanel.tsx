@@ -15,7 +15,8 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { loadStageBoxCatalogFile, type StageBoxCatalogItem } from "../../core/stageBoxTracker";
-import type { LookupBoxCategory } from "../../../shared/types";
+import { loadBoxTypeCatalog, resolveChestHoldings } from "../../core/boxes";
+import type { LookupBoxCategory, ResolvedChestRow } from "../../../shared/types";
 import { Badge } from "../../renderer/design-system/primitives/Badge/Badge";
 import { Card } from "../../renderer/design-system/primitives/Card/Card";
 import { ItemIcon } from "../../renderer/design-system/primitives/ItemIcon/ItemIcon";
@@ -117,33 +118,99 @@ export function ChestsPanel() {
     return m;
   }, [runtime.inventory]);
 
-  const heldRows = runtime.inventory?.chests ?? [];
+  // Held chests, aggregated exactly the way the desktop Chest tab aggregates
+  // them (`resolveChestHoldings`): the raw holdings are one entry per chest
+  // instance, each with `quantity: 1`, so rendering them directly produced a
+  // ×1 row per chest instead of one row per box type with the total.
+  // Grouped by category to match what the section intro promises; categories
+  // outside the known six trail without a heading, as on desktop.
+  const heldGroups = useMemo(() => {
+    const chests = runtime.inventory?.chests ?? [];
+    if (chests.length === 0) return { known: [], leftover: [] };
+
+    let rows: ResolvedChestRow[];
+    try {
+      rows = resolveChestHoldings(chests, loadBoxTypeCatalog());
+    } catch {
+      // Data source not installed (isolated render) — fall back to a plain
+      // aggregate so the quantities are still correct.
+      const byType = new Map<number, ResolvedChestRow>();
+      for (const c of chests) {
+        const prev = byType.get(c.type);
+        if (prev) prev.quantity += c.quantity;
+        else
+          byType.set(c.type, {
+            boxType: c.type,
+            label: c.label ?? `Type ${c.type}`,
+            category: c.category ?? "unclassified",
+            quantity: c.quantity,
+          });
+      }
+      rows = [...byType.values()];
+    }
+
+    const known = CHEST_GROUPS.flatMap((cat) => {
+      const group = rows.filter((r) => r.category === cat);
+      return group.length > 0 ? [{ cat, rows: group }] : [];
+    });
+    const leftover = rows.filter((r) => !CHEST_GROUPS.includes(r.category as ChestGroupCategory));
+    return { known, leftover };
+  }, [runtime.inventory]);
 
   return (
     <TabPage className="gap-6">
       <TabHeader title={t("tabTitle")} intro={t("catalogIntro")} />
 
-      {heldRows.length > 0 ? (
+      {heldGroups.known.length > 0 || heldGroups.leftover.length > 0 ? (
         <section className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <h2 className="m-0 text-[15.5px] font-semibold text-fg">{t("heldHeading")}</h2>
             <p className="m-0 text-xs text-muted">{t("heldIntro")}</p>
           </div>
-          <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 lg:grid-cols-3">
-            {heldRows.map((row, index) => (
-              <Card
-                as="li"
-                key={row.uniqueId ?? `${row.type}-${index}`}
-                padding="none"
-                className="flex items-center justify-between gap-3 px-3.5 py-2.5"
-              >
-                <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-fg">
-                  {row.label ?? `#${row.type}`}
+
+          {heldGroups.known.map(({ cat, rows }) => (
+            <div key={cat} className="flex flex-col gap-2.5">
+              <h3 className="m-0 text-[11px] font-semibold tracking-[0.06em] uppercase text-fg/70">
+                {t(chestCategoryLabelKey(cat))}
+                <span className="ml-1.5 font-mono text-[11px] normal-case tracking-normal text-muted">
+                  {t("catalogItemsCount", { count: rows.length })}
                 </span>
-                <Badge>{t("heldQty", { count: row.quantity })}</Badge>
-              </Card>
-            ))}
-          </ul>
+              </h3>
+              <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 lg:grid-cols-3">
+                {rows.map((row) => (
+                  <Card
+                    as="li"
+                    key={row.boxType}
+                    padding="none"
+                    className="flex items-center justify-between gap-3 px-3.5 py-2.5"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-fg">
+                      {row.label}
+                    </span>
+                    <Badge>{t("heldQty", { count: row.quantity })}</Badge>
+                  </Card>
+                ))}
+              </ul>
+            </div>
+          ))}
+
+          {heldGroups.leftover.length > 0 ? (
+            <ul className="m-0 grid list-none grid-cols-1 gap-2.5 p-0 sm:grid-cols-2 lg:grid-cols-3">
+              {heldGroups.leftover.map((row) => (
+                <Card
+                  as="li"
+                  key={row.boxType}
+                  padding="none"
+                  className="flex items-center justify-between gap-3 px-3.5 py-2.5"
+                >
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-fg">
+                    {row.label}
+                  </span>
+                  <Badge>{t("heldQty", { count: row.quantity })}</Badge>
+                </Card>
+              ))}
+            </ul>
+          ) : null}
         </section>
       ) : null}
 
