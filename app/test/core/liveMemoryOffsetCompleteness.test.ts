@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  missingBoxOpenFields,
   missingOffsetFields,
   hasCriticalOffsets,
   isOffsetTableComplete,
@@ -44,6 +45,51 @@ function withAllEnrichment(o: LiveOffsets): LiveOffsets {
     },
   };
 }
+
+describe("missingBoxOpenFields", () => {
+  // The box-open ("开箱") heal is only worth re-running while one of these three
+  // offsets is still missing. Reporting the non-derivable player.boxData trio
+  // here would re-trigger a ~48 s extraction on every box-open event (v1.2.8:
+  // boxData is on the ES3 byte-stream save layer), which is exactly the
+  // regression that grew the live-memory worker's RSS to 1.5 GB.
+  it("reports all three box-open offsets on the bundled v1.00.21 table", () => {
+    expect(missingBoxOpenFields(BASE)).toEqual([
+      "runtime.log.getItemWithBoxOpenTypeKey",
+      "runtime.boxOpenLog.itemStringKey",
+      "runtime.boxOpenLog.itemGradeType",
+    ]);
+  });
+
+  it("reports nothing once the box-open offsets are derived", () => {
+    expect(missingBoxOpenFields(withAllEnrichment(BASE))).toEqual([]);
+  });
+
+  it("ignores the non-derivable player.boxData trio", () => {
+    const onlyBoxDataMissing: LiveOffsets = withAllEnrichment(BASE);
+    const padded: LiveOffsets = {
+      ...onlyBoxDataMissing,
+      player: { ...onlyBoxDataMissing.player, boxData: 0 },
+      boxData: { boxTypes: 0, boxQuantity: 0 },
+    };
+    // player.boxData / boxData.* are still listed by the *complete* check …
+    expect(missingOffsetFields(padded, "full")).toEqual(
+      expect.arrayContaining(["player.boxData", "boxData.boxTypes", "boxData.boxQuantity"]),
+    );
+    // … but they must NOT justify another box-open heal.
+    expect(missingBoxOpenFields(padded)).toEqual([]);
+  });
+
+  it("still reports the gaps when a box-open offset regresses to zero", () => {
+    const degraded: LiveOffsets = {
+      ...withAllEnrichment(BASE),
+      runtime: {
+        ...withAllEnrichment(BASE).runtime,
+        boxOpenLog: { ...withAllEnrichment(BASE).runtime.boxOpenLog, itemStringKey: 0 },
+      },
+    };
+    expect(missingBoxOpenFields(degraded)).toEqual(["runtime.boxOpenLog.itemStringKey"]);
+  });
+});
 
 describe("missingOffsetFields", () => {
   it("reports logManager and monsterSpawnManager as gaps in the bundled v1.00.21 table", () => {
