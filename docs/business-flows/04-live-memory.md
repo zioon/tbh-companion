@@ -208,7 +208,7 @@ type WorkerMessage =
 
 | 路径                                                | 触发条件                                                                     | 是否重置预算                                                  | 是否受预算 cap | 防死循环依据                                                                                                                                                                                                      |
 | --------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Path 1** box-open event                           | `consumeBoxOpenEvent()` 返回 true（0→>0 转换）                               | 是（`resetEnrichmentBudget`）                                 | 否             | 一次性 flag，被 consume 后清零，不会重复触发                                                                                                                                                                      |
+| **Path 1** box-open event                           | `consumeBoxOpenEvent()` 返回 true（0→>0 转换）**且 `boxOpenHealWouldHelp === true`**（三个 box-open 派生偏移仍有一个为 0） | 是（`resetEnrichmentBudget`）                                 | 否             | 一次性 flag，被 consume 后清零，不会重复触发；2026-09-24 起再加「事件有效性」门（见 5.4.6）                                                                                                                      |
 | **Path 1.5** cache pollution                        | `needsForcedReextract === true`                                              | 是（同时重置 critical + enrichment，见 5.8.3）                | 否（绕过 cap） | `forceExtractorNextHeal` 是 one-shot，extractor 跑完即清零                                                                                                                                                        |
 | **Path 1.6** StageManager transition（Rev 13 新增） | `consumeSmTransition()` 返回 true（玩家进入关卡，StageManager 单例从无到有） | **是（仅重置 critical 预算，不动 enrichment）**               | 否             | `smTransitionPending` 是一次性 flag，consume 后清零；玩家进关卡的 transition 是离散事件不会重复触发                                                                                                               |
 | **Path 2** enrichment fallback timer                | `!enrichmentComplete` && 30s 到期                                            | **仅当 `!enrichmentAlreadyAttempted` 时重置 enrichment**      | 是             | 一旦 extractor 跑过（`_extractorRev` 存在），不再重置预算；预算耗尽 → `resolveOffsets` 短路 → `healOffsets` 几毫秒返回                                                                                            |
@@ -225,6 +225,16 @@ type WorkerMessage =
   - **防御**：Path 1.5 一次性 flag → extractor 跑一次 → flag 清零。即使 extractor 没修好，也不会重复触发，直到下一次 60s 失败 streak 重新检测。
 - **场景 D**（Rev 13 新增）：游戏小版本更新后，fallback 表的 LogManager TypeInfo RVA 失效（指向错误 class），25Hz 读取持续返回 "LogManager singleton unresolved"。
   - **防御**：cache-pollution 检测器（5.8.3）正则扩展为 `/LogManager singleton unresolved|dict lookup failed|list not walkable/i`，60s 持续失败 → Path 1.5 触发。同时 `read()` 内首次检测到此 status → 设置 `logManagerNameScanPending` → worker 调 `runLogManagerNameScan()`（5.8.4）按类名直接定位 LogManager 单例，绕过 stale RVA。两条 fallback 互补：name-scan 立即恢复日志读取，cache-pollution 异步让 extractor 重新派生 RVA 写入 cache。
+- **场景 E**（2026-09-24 修复）：enrichment 永远不 complete，box-open 事件在**每次 attach** 都重跑一次完整 extractor（实测 v1.2.8：47.7 s 的 GA 扫描 + 两台全地址空间类名扫描），而这次重跑**不可能改变结果**。
+  - **成因**：`ENRICHMENT_FIELDS` 里的 `player.boxData` / `boxData.boxTypes` / `boxData.boxQuantity` 在 v1.01.02+ 的 ES3 字节流存档层上**不可派生**（见 5.7.2），于是 `enrichmentComplete` 恒为 false；`read()` 因此在「BoxOpenLog 计数 0→>0」时置 `boxOpenEventPending`（attach 那一刻计数已有值、`boxOpenCountPrev` 尚为 0，所以**每次 attach 必然命中一次**），Path 1 随即 `resetEnrichmentBudget()` 把 `MAX_ENRICHMENT_ATTEMPTS=1` 重新打开 → 重跑 extractor。
+  - **防御**：新增 `LiveMemoryReader.boxOpenHealWouldHelp`（`liveReader.ts`）= `missingBoxOpenFields(offsets).length > 0`，即**只看** box-open 事件真正能解锁的三个偏移（`runtime.log.getItemWithBoxOpenTypeKey`、`runtime.boxOpenLog.itemStringKey`、`runtime.boxOpenLog.itemGradeType`，定义在 `offsetCompleteness.ts` 的 `BOX_OPEN_FIELDS`）。三者都已有值 → worker 记一条 log 并跳过重跑（flag 照常消费）。首开箱真需要那次重跑时（三个偏移都为 0）行为完全不变。
+
+### 5.4.6 box-open 事件有效性门（2026-09-24）
+
+**场景 E**：enrichment 永远不 complete 时，box-open 事件在**每次 attach** 都重跑一次完整 extractor（实测 v1.2.8：47.7 s 的 GA 扫描 + 两台全地址空间类名扫描），而这次重跑**不可能改变结果**。
+
+- **成因**：`ENRICHMENT_FIELDS` 里的 `player.boxData` / `boxData.boxTypes` / `boxData.boxQuantity` 在 v1.01.02+ 的 ES3 字节流存档层上**不可派生**（见 5.8.5），于是 `enrichmentComplete` 恒为 false；`read()` 因此在「BoxOpenLog 计数 0→>0」时置 `boxOpenEventPending`（attach 那一刻计数已有值、`boxOpenCountPrev` 尚为 0，所以**每次 attach 必然命中一次**），Path 1 随即 `resetEnrichmentBudget()` 把 `MAX_ENRICHMENT_ATTEMPTS=1` 重新打开 → 重跑 extractor。
+- **防御**：`LiveMemoryReader.boxOpenHealWouldHelp`（`liveReader.ts`）= `missingBoxOpenFields(offsets).length > 0`，即**只看** box-open 事件真正能解锁的三个偏移（`runtime.log.getItemWithBoxOpenTypeKey`、`runtime.boxOpenLog.itemStringKey`、`runtime.boxOpenLog.itemGradeType`，定义在 `offsetCompleteness.ts` 的 `BOX_OPEN_FIELDS`）。三者都已有值 → worker 记一条 log 并跳过重跑（flag 照常消费）。首开箱真需要那次重跑时（三个偏移都为 0）行为完全不变。
 
 ### 5.5 worker 25Hz 轮询
 
@@ -305,7 +315,8 @@ worker.read() → LiveMemorySnapshot 对象（Inventory/Pets 仅在低频重读�
 - `bufPool.acquire(size)` 优先复用之前 `release` 的同尺寸 buffer；用 `allocUnsafe`（不零填充）。
 - 失败的 read（`ReadProcessMemory` 返回 false 或 0 字节）→ `release(buf)` 归还。
 - 短读（部分字节）→ 也 `release` 并返回 null，避免 subarray 越界。
-- 成功返回的 buffer 不归还（caller 可能持有），池主要帮助扫描器（4MiB chunk 反复读同尺寸）而非 25Hz 小读取。
+- 成功返回的 buffer 不归还（caller 可能持有），所以池服务的是 **25Hz 小读取**里的失败/短读路径与重复尺寸读。
+- **⚠️ 更正（2026-09-24）**：池**帮不了区域扫描器**。它按**精确字节数**分桶，而一次区域遍历每个区域的最后一块长度都不同（`regionSize % chunk`），约 20 个区域就把 `MAX_TOTAL_POOLED=20` 填满，之后 `release()` 全部丢弃 → 一次全地址空间遍历仍是 ~1000 次 4 MiB 分配/释放。扫描因此改用 `WinProcess.acquireScanBuffer()`（每进程一块）——见 5.12。
 
 ### 5.7 TrackingService.ingestLiveFrame 处理流程
 
@@ -606,3 +617,14 @@ else                              → "attached"
 ```
 
 `LiveMemoryStatus` 关键字段：`running / attached / pid / gameVersion / supported / note / scanning / offsetHealth`。`offsetHealth` 包含 `complete / missing / source / extractionAttempts / fallbackFromVersion`。
+
+### 5.12 worker 内存不变量（2026-09-24）
+
+用户报告「软件内存从 ~300 MB 涨到 1.5 GB」。在真实游戏（v1.2.8，两个实例，可读地址空间数 GB）上直接跑起 worker 实测，定位到**两个独立的原生内存问题**。它们都不在 V8 堆上——`heapUsed`/`external`/`arrayBuffers` 全程平稳，`global.gc()` 强制回收后 RSS 一动不动：
+
+| 问题 | 证据 | 修复 |
+| --- | --- | --- |
+| **FFI 声明泄漏**（主因）：`winProcess.ts` 把每个系统调用的声明写在调用点里（`const ReadProcessMemory = () => kernel32().func(...)`），于是**每次读内存都重新声明一次** `lib.func()`，而 koffi 会为每次声明建一个原生跳板并保留到进程结束（不受引用计数/GC 影响）。 | 隔离微基准（同一个 koffi 函数、同样 50 万次调用）：**声明一次 → RSS +2.7 MB**；**每次声明 → RSS +83.8 MB**（≈176 B/次）。worker 每秒数千次读内存（25Hz 帧 + 5 ms chest tail + 10 ms acquire tail + 扫描）⇒ **约 1 GB/小时**，与「游玩一段时间后 1.5 GB」吻合。 | 所有 `kernel32().func(...)` / `psapi().func(...)` 一律经 `lazyFunc()` 包装，**每进程只声明一次**（调用点语法 `Fn()(...)` 不变）。回归守卫：`test/main/winProcessScanBuffer.test.ts` 的 `lazyFunc` 用例。 |
+| **扫描缓冲区抖动**：三个区域遍历（`scanBytes` / `scanBytesInRange` / `resolveClassByName` Pass 2）与 GA 类索引扫描（`collectClassEntries`）**每个分块都新分配一块 4 MiB Buffer**。`BufferPool` 救不了（原因见 5.6）。 | 实测 worker 启动 42 MB RSS，**一次 attach 后停在 ~400 MB** 且不再回落（`heapUsed` ~20 MB、`external` ~7 MB、强制 GC 无效）。 | `WinProcess.acquireScanBuffer(size)` 提供**每进程一块**可复用扫描缓冲（配合 `readInto()` 零分配读入），四个遍历全部改用它；`close()` 时释放，避免 `detach` 后还被钉住。回归守卫：`test/core/liveMemoryMemory.test.ts` 的 `readChunk` 用例（断言一次遍历只分配 1 块）+ `winProcessScanBuffer.test.ts`。 |
+
+**纪律**：`MemoryReader` 只要求 `readBytes`；新增的 `readInto(addr, buf, size)` / `acquireScanBuffer(size)` 是**可选**能力，`core` 侧统一走 `readChunk()`（有则复用、无则回落 `readBytes`），因此纯函数单测用的 `FakeMemory` 无需改动。**新增任何区域遍历时必须复用扫描缓冲，不得按分块 `readBytes`；新增任何系统调用必须经 `lazyFunc()` 声明。**

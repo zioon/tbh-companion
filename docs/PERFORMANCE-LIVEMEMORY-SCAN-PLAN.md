@@ -1,5 +1,14 @@
 # UtilityProcess 内存扫描修复计划
 
+> **⚠️ 2026-09-24 实测更正（先读这段）**：本计划把内存问题归因于「扫描期间的 Buffer 分配 + V8 堆上限/GC 不够积极」，据此提出的 **Task 4（`--max-old-space-size` + `global.gc()`）对本症状无效**，请勿实施：在真实游戏（v1.2.8，数 GB 可读地址空间）上直接跑起 worker 实测，`heapUsed`/`external`/`arrayBuffers` 全程平稳（~20 MB / ~7 MB / ~4 MB），**`global.gc()` 强制回收后 RSS 一动不动**（406 MB → 406 MB），说明膨胀发生在 V8 之外的原生分配上，堆上限与 GC 都碰不到它。
+>
+> 真正的两个根因与修复见 [`docs/business-flows/04-live-memory.md`](business-flows/04-live-memory.md) **§5.12 worker 内存不变量**，摘要：
+>
+> 1. **FFI 声明泄漏（主因，约 1 GB/小时）**——`winProcess.ts` 把 `kernel32().func(...)` 写在**调用点**里，每次读内存都重新声明一次；koffi 为每次声明建原生跳板并保留到进程结束，且不受引用计数/GC 影响。隔离微基准：同样 50 万次调用，**声明一次 → RSS +2.7 MB；每次声明 → RSS +83.8 MB**。修法：全部经 `lazyFunc()` 每进程只声明一次。
+> 2. **扫描缓冲区抖动**——区域遍历按分块各分配一块 4 MiB Buffer（`BufferPool` 按精确尺寸分桶，在「每个区域一块不同长度的尾块」这种访问模式下会失效）。修法：`WinProcess.acquireScanBuffer()` 每进程一块复用。
+>
+> 实测对照（同一台机器、同一个正在运行的游戏、同样的 200 秒）：修复前 **41 MB → 442 MB 且仍在 +18 MB/分钟 稳定攀升**；修复后见 §5.12。Task 1/2/3/5 的方向仍然成立，可继续参考。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 消除 UtilityProcess 因 `resolveClassByName` 全进程地址空间扫描导致的 3GB+ 内存峰值，将扫描内存占用降至 200MB 以内。
