@@ -3,6 +3,16 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.0": {
+      "title": "What's new in v1.27.0",
+      "bullets": [
+        "New Pets page on the web — passives, unlock progress, kill counts and best farm stages, straight from your save, no desktop app needed.",
+        "Web Lookup details are now complete: crafting paths, used-in recipes, offering loot and drop sources; chest details show per-tier drop rates and farm stages.",
+        "The web Chests page now shows held-capacity cards — rune bonuses, free slots and auto-open time, computed exactly like the desktop app.",
+        "The web Trading page gained Lookup-style filters: search, type, grade, sort, plus a priced-only toggle.",
+        "Bundled catalog updated to game v1.2.8."
+      ]
+    },
     "1.26.1": {
       "title": "What's new in v1.26.1",
       "bullets": [
