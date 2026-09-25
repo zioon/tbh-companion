@@ -39,20 +39,9 @@ import {
 import { classifySaveFileError } from "./errors";
 import { installWebDataSource } from "./dataSource";
 import { ensureWebPricesLoaded, getWebPriceSnapshot, subscribeWebPrices } from "./pricesSnapshot";
-import {
-  ensureBoxSourcesLoaded,
-  getWebBoxSources,
-} from "./boxSourcesSnapshot";
-import {
-  ensureItemSourcesLoaded,
-  getWebItemSources,
-  getWebStages,
-} from "./itemSourcesSnapshot";
-import {
-  loadLookupItems,
-  loadOfferings,
-  loadSynthesisModel,
-} from "../core/lookup/catalog";
+import { ensureBoxSourcesLoaded, getWebBoxSources } from "./boxSourcesSnapshot";
+import { ensureItemSourcesLoaded, getWebItemSources, getWebStages } from "./itemSourcesSnapshot";
+import { loadLookupItems, loadOfferings, loadSynthesisModel } from "../core/lookup/catalog";
 import { gameItemName } from "../core/gamedata";
 import { loadLocaleCatalog } from "../core/localeCatalog";
 import { resolveLanguage, type ResolvedLanguage } from "../../shared/language";
