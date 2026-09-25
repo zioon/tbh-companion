@@ -67,7 +67,10 @@
     "colType": "유형",
     "colPrice": "최저 판매 등록가",
     "never": "—",
-    "empty": "카탈로그에 거래 가능한 아이템이 없습니다."
+    "empty": "카탈로그에 거래 가능한 아이템이 없습니다.",
+    "filtersPricedOnly": "가격 있는 항목만",
+    "sortPrice": "가격",
+    "filtersEmpty": "필터와 일치하는 아이템이 없습니다."
   },
   "loadAnother": "다른 파일 선택",
   "clear": "지우기",

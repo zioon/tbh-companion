@@ -67,7 +67,10 @@
     "colType": "Type",
     "colPrice": "Lowest listing",
     "never": "—",
-    "empty": "No tradable items in the catalog."
+    "empty": "No tradable items in the catalog.",
+    "filtersPricedOnly": "Priced only",
+    "sortPrice": "Price",
+    "filtersEmpty": "No items match the current filters."
   },
   "loadAnother": "Choose another file",
   "clear": "Clear",

@@ -67,7 +67,10 @@
     "colType": "種別",
     "colPrice": "最低出品価格",
     "never": "—",
-    "empty": "カタログに取引可能なアイテムがありません。"
+    "empty": "カタログに取引可能なアイテムがありません。",
+    "filtersPricedOnly": "価格ありのみ",
+    "sortPrice": "価格",
+    "filtersEmpty": "フィルターに一致するアイテムはありません。"
   },
   "loadAnother": "別のファイルを選択",
   "clear": "クリア",

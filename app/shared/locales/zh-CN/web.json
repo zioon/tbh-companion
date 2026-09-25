@@ -67,7 +67,10 @@
     "colType": "类型",
     "colPrice": "最低挂牌价",
     "never": "—",
-    "empty": "目录中没有可交易物品。"
+    "empty": "目录中没有可交易物品。",
+    "filtersPricedOnly": "仅有价",
+    "sortPrice": "价格",
+    "filtersEmpty": "没有符合当前筛选条件的物品。"
   },
   "loadAnother": "重新选择文件",
   "clear": "清除",
