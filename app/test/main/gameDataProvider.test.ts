@@ -145,10 +145,10 @@ describe("GameDataProvider", () => {
       (process as ProcessWithResources).resourcesPath = emptyTmp;
       const provider = new GameDataProvider();
       provider.load(emptyTmp);
-      // The bundled 1.2.6 catalog is filtered to obtainable items (1954 rows
+      // The bundled 1.2.8 catalog is filtered to obtainable items (1954 rows
       // + stage boxes), so it no longer carries the full pre-filter 6000+ rows.
       expect(provider.itemCount()).toBeGreaterThan(1500);
-      expect(provider.getVersion()).toBe("1.2.6");
+      expect(provider.getVersion()).toBe("1.2.8");
     } finally {
       (process as ProcessWithResources).resourcesPath = tempResources;
       rmSync(emptyTmp, { recursive: true, force: true });

@@ -38,11 +38,12 @@ python scripts/dump_game_locale.py
 ### 步骤 1：运行管道2，重新生成全部富数据
 
 ```powershell
-python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
+python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle] [--no-website]
 ```
 
 - `--no-oracle`：跳过从旧 `data/` 推导派生规则（stat 除数、合成等级等），换游戏数据源时建议带上；常规更新不带。
 - `--game-version`：默认从安装目录的 `Version.txt` **自动探测**（与运行时 `detectGameVersion` 同源），仅在探测失败或需要强行覆盖时才手动指定。运行时会打印解析结果 `game version: X.Y.Z (from ...)`，务必核对。
+- `--no-website`：跳过站点副本同步（见下）。**常规更新不要带**。
 - **注意**：脚本会**覆盖** `data/` 下 6 个 JSON，先 `git status` 确认无未提交改动。
 
 产物（`data/` 下）：
@@ -55,6 +56,8 @@ python scripts/build_tbh_data.py [--game-dir DIR] [--out DIR] [--no-oracle]
 | `synthesis_model.json` | 合成权重、配方、掉落桶 |
 | `lookup_items.json` | 图鉴条目（stats、gearGroups、iconPath、来源） |
 | `stage_boxes.json` | STAGEBOX 目录 + 追踪元数据 |
+
+**站点数据无需拷贝（构建期内联）**：网页版在 `pnpm build:web` 的**构建期**用 `?raw` 把 `data/` 下的文件内联进 bundle —— `app/src/web/dataSource.ts` 注册的是 `gamedata.json`、`stage_boxes.json`、`lookup_items.json`、`box_types.json`、`steam_market_fee.json` 与 4 份 `locale_strings_*.json`。所以**站点直接消费 `data/`，不存在需要同步的目录副本**：提交推送里带上 `data/**` 就会触发 `pages.yml` 重建（其 `paths` 已包含 `data/**`），站点自动跟随。站点唯一的**运行时**数据是 `website/data/prices.json`，由 `pages.yml` 从滚动 release 自动暂存（见 [`docs/DEPLOY-WEB.md`](DEPLOY-WEB.md) §2.2）。
 
 ### 步骤 1.5：符文数据（`rune_box_cap.json` / `rune_auto_open.json` / `box_types.json`）
 
@@ -177,6 +180,16 @@ git diff --stat website/data
 1. **`Version.txt` 才是版本真源。** 本次 `--game-version` 的默认常量还是 `1.2.2`，忘传参会把新数据打上旧版本号 → app 侧 `getStatus().stale` 判定失准、用户端反复重新提取。已改为**从安装目录 `Version.txt` 自动探测**（与运行时 `detectGameVersion` 同源，可 `--game-version` 覆盖），运行日志会打印 `game version: X.Y.Z (from ...)`。
 2. **Windows 下脚本写出 CRLF。** `open(..., "w")` 文本模式在 Windows 写 `\r\n`，与 `.gitattributes` 的 `* text=auto eol=lf` 冲突：`git diff` 看不出来（git 会自动规范化，只显示真实行改动），但 `git ls-files --eol data/<file>` 会暴露 `w/crlf`，并且 `website/data/` 的拷贝会连带 CRLF。已在 `build_tbh_data.py` / `dump_game_locale.py` 加 `newline="\n"`；**更新后请用 `git ls-files --eol data/` 复核为 `w/lf`**。
 
+### v1.2.8 更新实战（2026-09-23）
+
+游戏更新到 **Ver 1.2.8**（`Version.txt` 9/22 20:11 重写）。本次是**纯版本号型更新**，管道2 产物与 v1.2.6 **几乎逐字节相同**：
+
+- **`ItemInfoData` 无变化**：仍 1954 项；逐条比对 `id / name / grade / type / marketTradable / level / gearType`，**新增 0、字段变化 0**。`lookup_items.json`（1,725 条）/ `offerings.json` / `lookup_sources.json` / `synthesis_model.json` **内容零改动**（`git diff --numstat` 为空），`gamedata.json` / `stage_boxes.json` 只有 `gameVersion` / `fetchedUtc` / `source` 三行头部变化。
+- **图标 0 新增**（`extract_icons.py` → `exported 0 new icons`），审计全过：`audit_catalog` = 1954 项 / 空名 0 / 仍为 raw `ItemName_` 0；`check_icons` = `1725/1725 ok, missing_png=0`。
+- **本地化转储只有 16 行变化**（`_game_locale_dump.json`），无新语言、无表结构变化。
+- **站点数据在本版前后均为「零拷贝」**：`0647230`（serve the real web app at the site root）之后站点根目录直接跑真实 web 应用，物品目录由 `pnpm build:web` 在构建期用 `?raw` 内联 `data/`（`app/src/web/dataSource.ts`）。所以**更新富数据后只需把 `data/` 提交推送**，`pages.yml` 因 `data/**` 触发重建，站点自动跟上 —— 既不用手工 `Copy-Item`，也不需要任何同步脚本。（历史上曾经存在的 `website/data/{gamedata,stage_boxes}.json` 手工/脚本副本随该重构一并作废。）
+- **注意**：`app/test/main/gameDataProvider.test.ts` 的版本断言必须同步改成 `1.2.8`（否则 `pnpm test` / Release 的 QA gate 必挂）。
+
 ## 6. 快速参考
 
 ```powershell
@@ -188,10 +201,9 @@ python scripts/audit_catalog.py
 python scripts/audit_unresolved.py
 python scripts/check_icons.py
 
-# 站点副本（易漏）+ 行尾复核
-Copy-Item data\gamedata.json    website\data\gamedata.json -Force
-Copy-Item data\stage_boxes.json website\data\stage_boxes.json -Force
+# 站点数据：无需同步（网页版构建期内联 data/，见 §3 末）
 git ls-files --eol data/gamedata.json      # 期望 w/lf
+git diff --numstat -- data                 # 确认变更范围
 
 # 符文数据（非管道2产物，游戏符文系统变化时手动提取，见步骤 1.5）
 #   python scripts/dump_rune_tables.py  →  更新 rune_box_cap.json / rune_auto_open.json / box_types.json / rune_wave.json
@@ -207,6 +219,7 @@ pnpm build
 
 - 管道2 脚本：`scripts/build_tbh_data.py`
 - 本地化转储：`scripts/dump_game_locale.py`
+- 站点数据：构建期内联 `data/`（`app/src/web/dataSource.ts`）+ 运行时 `website/data/prices.json`（CI 暂存）
 - 符文表转储：`scripts/dump_rune_tables.py`
 - 图标提取/校验：`scripts/extract_icons.py`、`scripts/check_icons.py`、`scripts/verify_icons.py`
 - 运行时提取：`app/src/core/unityAssets/catalogExtractor.ts`（`CATALOG_SCHEMA_VERSION`）
