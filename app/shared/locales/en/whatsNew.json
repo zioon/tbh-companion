@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.1": {
+      "title": "What's new in v1.27.1",
+      "bullets": [
+        "Fixed: opening ordinary chests in the Plaguelands could be counted as chapter-boss chests — and opening several at once mislabelled the whole batch.",
+        "Chest matching now filters by map family first: Plaguelands loot only matches plague chests, normal maps only match normal chests. When the map isn't known yet it no longer guesses and defers to save reconciliation instead."
+      ]
+    },
     "1.27.0": {
       "title": "What's new in v1.27.0",
       "bullets": [
