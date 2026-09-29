@@ -68,6 +68,14 @@ function makeService(
      * transitions. Takes precedence over `inventoryStatus`.
      */
     inventoryStatusRef?: { value: { used: number; capacity: number } | null };
+    /**
+     * Whether the player's CURRENT map is a plague (Contaminated) map.
+     * `true`/`false` = known family; `null` = unknown. Defaults to `false`
+     * (known normal map) so every pre-existing test keeps its semantics — they
+     * all use normal-map stages (1105). Only tests that exercise the
+     * plague/normal map-family gate need to set it.
+     */
+    isPlagueMap?: () => boolean | null;
   } = {},
 ) {
   const broadcasts: Array<{ channel: string; payload: unknown }> = [];
@@ -104,6 +112,9 @@ function makeService(
     actBossRoutes: () => opts.actBossRoutes ?? ACT_BOSS_ROUTES,
     commonRoutes: () => opts.commonRoutes ?? COMMON_ROUTES,
     getCurrentStageKey: () => opts.currentStageKey ?? null,
+    // `??` would collapse the tri-state's `null` ("unknown") into `false`
+    // ("normal map") — presence-check instead so `null` survives.
+    isPlagueMap: () => (opts.isPlagueMap ? opts.isPlagueMap() : false),
     getInventoryStatus: () => {
       if (opts.inventoryStatusRef) return opts.inventoryStatusRef.value;
       return opts.inventoryStatus ?? null;
@@ -4597,5 +4608,240 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
     const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey.startsWith("plagueRare"))).toBeTruthy();
     expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Map-family burst gate (regression): plague ordinary chests must never be
+// matched to, nor counted as, chapter-boss (act) chests.
+//
+// Live evidence (sandbox instance, 2026-09-29 22:19:40):
+//   map-time diag: rawStageKey=201406 feedStage=201406   ← plague map
+//   (autoClassify) matched 8 items to queued boxKey=act
+//     (burstMs=…, autoOpenAtMs=…, delta=1259ms)
+// Eight plague-common drops were reclassified to bare `act` and the act slot
+// was decremented, purely because a placeholder for an act-boss chest the
+// player was *holding* (backfilled by `reconcileWithChestSlots` Step 4, since
+// act chests are opened manually and accumulate across maps) happened to have
+// an `autoOpenAtMs` inside the ±5000ms grace window.
+//
+// A chest only ever drops on a map of its own family, so the burst's map
+// family (`isPlagueMap`) is hard evidence about which queue items can
+// legitimately be its source. Cross-family bursts must fall through to the
+// pending path, where the save's slot-count delta decides the category.
+// ---------------------------------------------------------------------------
+describe("AutoClassifyService map-family burst gate (plague vs normal)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Contaminated (plague) map — `isPlagueStage(201406) === true`. */
+  const PLAGUE_STAGE = 201406;
+  /** Normal map — `isPlagueStage(1105) === false`. */
+  const NORMAL_STAGE = 1105;
+
+  const zeroSlots = () => ({
+    common: 0,
+    rare: 0,
+    act: 0,
+    plagueCommon: 0,
+    plagueRare: 0,
+    plagueAct: 0,
+  });
+
+  /** Info-log lines emitted when a burst is matched to a queued item. */
+  const matchLogs = (): string[] =>
+    logMocks.info.mock.calls
+      .map(([m]) => m)
+      .filter((m): m is string => typeof m === "string" && m.includes("to queued boxKey="));
+
+  /** Any boxKey belonging to the act-boss family. */
+  const isActKey = (boxKey: string): boolean => boxKey === "act" || boxKey.startsWith("act:");
+
+  it("[plague] does NOT let an act placeholder swallow a plague burst", () => {
+    const { service, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 54, // real act countdown seen in the live log
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: PLAGUE_STAGE,
+      isPlagueMap: () => true,
+    });
+
+    // The save reports 1 act-boss chest the player is HOLDING (farmed on a
+    // normal map, carried here, opened manually). Step 4 backfills a
+    // placeholder anchored to now: autoOpenAtMs = 10000 + 54_000 = 64000.
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+    let snap = service.getQueueSnapshot();
+    expect(snap.items.map((i) => i.boxKey)).toEqual(["act"]); // bare: no act route for 2014xx
+    expect(snap.liveSlots?.act).toBe(1);
+
+    // A plague common chest auto-opens at wallTime=66.3s → burstMs=66300,
+    // delta = |64000 - 66300| = 2300ms → inside the ±5000ms grace window,
+    // mirroring the live 1259ms near-miss.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 66.3);
+    boxOpenTracker.flushUnclassified();
+
+    snap = service.getQueueSnapshot();
+    expect(matchLogs()).toHaveLength(0); // no cross-family match
+    expect(snap.totalQueued).toBe(1); // placeholder NOT consumed
+    expect(snap.items[0]!.boxKey).toBe("act");
+    expect(snap.pendingBurstsCount).toBe(1); // burst waits for save reconcile
+    // Symptom ① guard: the plague open must not touch the act slot count.
+    expect(snap.liveSlots?.act).toBe(1);
+    // Symptom ② guard: the plague loot is NOT attributed to act.
+    const stats = boxOpenTracker.getStats(null);
+    expect(stats.find((s) => isActKey(s.boxKey))).toBeFalsy();
+  });
+
+  it("[plague] a pended plague burst classifies as plagueCommon from the save delta", () => {
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 54,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: PLAGUE_STAGE,
+      isPlagueMap: () => true,
+    });
+
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 66.3);
+    boxOpenTracker.flushUnclassified();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
+
+    // The chest the burst came from was obtained live on this map, so liveSlots
+    // holds it while the save (which cannot see an already-opened chest) does
+    // not → the delta proves the open was a plagueCommon open.
+    chestDropTracker.recordLiveChestDrop("plagueCommon", 66.3);
+    expect(service.getQueueSnapshot().liveSlots?.plagueCommon).toBe(1);
+
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+
+    const stats = boxOpenTracker.getStats(null);
+    expect(stats.find((s) => s.boxKey.startsWith("plagueCommon"))).toBeTruthy();
+    expect(stats.find((s) => isActKey(s.boxKey))).toBeFalsy();
+    expect(service.getQueueSnapshot().pendingBurstsCount).toBe(0);
+  });
+
+  it("[normal] does NOT let a plague placeholder swallow a normal burst (symmetric)", () => {
+    const { service, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: NORMAL_STAGE,
+      isPlagueMap: () => false,
+    });
+
+    // The player holds a plague common chest and walks onto a normal map; Step 4
+    // backfills a placeholder (level inferred from the current stage) anchored
+    // to now: autoOpenAtMs = 10000 + 600_000 = 610000.
+    service.reconcileWithChestSlots({ ...zeroSlots(), plagueCommon: 1 });
+    const snap0 = service.getQueueSnapshot();
+    expect(snap0.items.map((i) => i.boxKey)).toEqual(["plagueCommon:5"]);
+    // autoOpenAtMs = 10_000 (FIXED_NOW_MS) + 600_000 → 600_000 remaining.
+    expect(snap0.items[0]!.autoOpenInMs).toBe(600_000);
+
+    // A normal common burst lands 2300ms after the placeholder's timer.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 612.3);
+    boxOpenTracker.flushUnclassified();
+
+    const snap = service.getQueueSnapshot();
+    expect(matchLogs()).toHaveLength(0);
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.boxKey).toBe("plagueCommon:5");
+    expect(snap.pendingBurstsCount).toBe(1);
+    // The normal burst must NOT be attributed to the plague placeholder.
+    expect(
+      boxOpenTracker.getStats(null).find((s) => s.boxKey.startsWith("plagueCommon")),
+    ).toBeFalsy();
+  });
+
+  it("[plague] still prefers the head over a closer tail WITHIN the family (FIFO preserved)", () => {
+    // Plague analogue of the M2 audit fix: the gate must filter by family
+    // without weakening head priority inside that family.
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 60,
+        plagueCommon: 600,
+        plagueRare: 601, // crafted so both land inside one 5s window
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: PLAGUE_STAGE,
+      isPlagueMap: () => true,
+    });
+    service.reconcileWithChestSlots(zeroSlots());
+
+    // Queue: plagueCommon@610000 (head), plagueRare@611000 (tail).
+    chestDropTracker.recordLiveChestDrop("plagueCommon", 10);
+    chestDropTracker.recordLiveChestDrop("plagueRare", 10);
+    let snap = service.getQueueSnapshot();
+    expect(snap.items.map((i) => i.boxKey)).toEqual(["plagueCommon", "plagueRare"]);
+
+    // Burst at 610900: head delta = 900ms, tail delta = 100ms (closer).
+    boxOpenTracker.recordOpen("unclassified", 200, "Ring", "RARE", 1, 610.9);
+    boxOpenTracker.flushUnclassified();
+
+    expect(matchLogs()[0]).toContain("boxKey=plagueCommon");
+    snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.items[0]!.boxKey).toBe("plagueRare");
+  });
+
+  it("[unknown map] refuses to match instead of guessing a family", () => {
+    const { service, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: {
+        common: 300,
+        stageBoss: 600,
+        actBoss: 54,
+        plagueCommon: 600,
+        plagueRare: 1200,
+        plagueAct: 120,
+      },
+      catalog: CATALOG,
+      currentStageKey: null, // no live frame / save snapshot yet
+      isPlagueMap: () => null,
+    });
+
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+    // autoOpenAtMs = 10_000 (FIXED_NOW_MS) + 54_000 → 54_000 remaining.
+    expect(service.getQueueSnapshot().items[0]!.autoOpenInMs).toBe(54_000);
+
+    // Without the tri-state this delta (2300ms) would consume the placeholder.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 66.3);
+    boxOpenTracker.flushUnclassified();
+
+    const snap = service.getQueueSnapshot();
+    expect(matchLogs()).toHaveLength(0);
+    expect(snap.totalQueued).toBe(1);
+    expect(snap.pendingBurstsCount).toBe(1);
   });
 });

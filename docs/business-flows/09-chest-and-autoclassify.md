@@ -167,7 +167,7 @@ flowchart TD
   AnchorPause --> Enqueue[enqueue 串行链式计算 autoOpenAtMs]
   AnchorWall --> Enqueue
   Enqueue --> LiveSlot[liveSlots 自增]
-  HandleEvent --> Match{findBurstMatch ±15s?}
+  HandleEvent --> Match{findBurstMatch 同族 ±5s?}
   Match -- 是 --> Reclassify[reclassifyItem + liveSlots-- + resetSlotTimersForCategory]
   Match -- 否 --> QEmpty{队列空?}
   QEmpty -- 是 --> Prompt[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]
@@ -221,7 +221,8 @@ flowchart TD
 flowchart TD
   Proc[processEvent itemKeys, burstWallTimeSec] --> QPrompt{已有 pending prompt?}
   QPrompt -- 是 --> Accum[累加 itemKeys 不重复 broadcast return]
-  QPrompt -- 否 --> Match{findBurstMatch ±15s?}
+  QPrompt -- 否 --> Match{findBurstMatch 同族 ±5s?}
+  Match -- Stage0 地图族门跨族候选出局 --> Pending
   Match -- Stage1 head 匹配 --> Hit[匹配成功]
   Match -- Stage2 全队列搜索 --> Hit
   Match -- 未匹配 --> QEmpty{队列空?}
@@ -238,8 +239,9 @@ flowchart TD
 1. 若已有 pending prompt → 累加 itemKeys（不重复 broadcast），return。
 2. `burstMs = burstWallTimeSec * 1000`。
 3. `match = findBurstMatch(burstMs)`：
-   - Stage 1：head-first match — 全局 head 的 `autoOpenAtMs` 在 ±15s（`BURST_MATCH_GRACE_MS`）内 → match。
-   - Stage 2：全队列搜索最近的 ±15s 内 item。
+   - **Stage 0：地图族门（2026-09-29 修复）** — `isPlagueMap()` 为 `null`（地图不可知）→ 直接返回 null；否则与队列项的 `isPlagueCategory(categoryFromBoxKey(q.boxKey))` 不一致的候选**出局**。跨族 burst 不匹配，改由 pending 路径按 save 槽位 delta 分类。详见 §14.8。
+   - Stage 1：head-first match — 全局 head 的 `autoOpenAtMs` 在 ±5s（`BURST_MATCH_GRACE_MS`）内**且同族** → match。
+   - Stage 2：全队列搜索最近的 ±5s 内**同族** item。
 4. **匹配成功**：
    - 从 queue 移除该 item。
    - 对每个 itemKey 调用 `boxOpenTracker.reclassifyItem(UNCLASSIFIED_BOX_KEY, itemKey, item.boxKey)`。
@@ -331,3 +333,50 @@ flowchart TD
 ### 14.7 getQueueSnapshot()
 
 返回 `AutoClassifyStatePayload`：`{ enabled, totalQueued, byCategory: [{category, count, nextAutoOpenInMs, lastAutoOpenInMs}], items, liveSlots, paused: inventoryFullSinceMs != null, pendingBurstsCount }`。renderer 在 auto-classify enabled 时 1Hz 调用。
+
+### 14.8 地图族门：burst 只能匹配同族队列项（2026-09-29 修复）
+
+#### 缺陷（用户报：瘟疫普通宝箱被错算成「章节首领宝箱」）
+
+两个症状：①开瘟疫普通宝箱会改动「章节首领宝箱(act)」的**数量**；②一次开多个瘟疫普通宝箱时掉落被**归类为章节首领宝箱**。
+
+**根因**：`findBurstMatch` 只用**时间邻近**做证据——`|queueItem.autoOpenAtMs - burstMs| <= BURST_MATCH_GRACE_MS`，对队列项的类别/地图族**没有任何约束**。而 `reconcileWithChestSlots` Step 4 会为**玩家仅仅是持有**的箱子补 placeholder（act 箱不自动开启，玩家跨地图累积后手动逐个开），这些 placeholder 带着完整倒计时长期驻留队列。于是瘟疫图上的瘟疫 burst 一旦落进某个 act placeholder 的 ±5s 窗口，就被判成该 act 箱的开启：
+
+```
+22:19:33.939  map-time diag: rawStageKey=201406 feedStage=201406   ← 瘟疫图
+22:19:40.892  (autoClassify) matched 8 items to queued boxKey=act (delta=1259ms)
+22:19:40.892  (autoClassify) calibrated act slot timers after burst match (anchor=burstMs + 54s)
+```
+
+8 件瘟疫掉落被 `reclassifyItem(unclassified, …, "act")` 成裸 `act`，并连带 `liveSlots.act--`（进而触发 Step 4 的 act 补位 → 队列长期在 11-14/15 波动）。`delta=1259ms` 说明触发的唯一依据就是"时间凑得近"。
+
+**不变量**：宝箱只会在**自己所属地图族**上掉落——瘟疫箱只在瘟疫图掉、普通箱只在普通图掉（§13.6 的 `isPlagueStage` / `resolveLiveDropCategory` 已依赖这条）。因此 burst 发生的**地图族**是关于"它可能来自哪些队列项"的硬证据。
+
+#### 修复
+
+`findBurstMatch(burstMs)` 前置 **Stage 0 地图族门**（`AutoClassifyServiceDeps.isPlagueMap`，由 `appState.ts` 接线 `() => isPlagueStage(tracking.getCurrentStageKey())`）：
+
+- `isPlagueMap()` 与 `isPlagueCategory(categoryFromBoxKey(q.boxKey))`（`core/chestDropTracker.ts` 新增导出）不等 → 该候选**直接出局**。
+- **三态**：`true` = 瘟疫图、`false` = 普通图、`null` = 地图不可知（尚无 live frame / save snapshot，或 stageKey ≤ 0）。`null` **不等于**"普通图"——此时无任何候选可被验证，`findBurstMatch` 直接返回 null，让 burst 走 pending 由 save 槽位 delta 分类。这与本类既有的"输入缺失就不猜"一致（同 `inferLevelFromStage` 宁返回 category-only boxKey 也不编造 level）。
+- 命中判定顺序不变：Stage 1 全局 head（须同族）→ Stage 2 全族内取 delta 最小。**族内 FIFO 队首优先（M2）语义保持不变**——M2 的原场景（`common` 队首抢 `act` burst）两者同属非瘟疫族，行为不受影响。
+- 未匹配 → 走既有 pending 路径，由 `classifyPendingBursts` 用 save 的槽位 delta 归类（本例瘟疫图 `liveSlots.plagueCommon > save.plagueCommon` → `plagueCommon`）。
+
+#### 与「1 category decreased → 所有 pending burst 归该类」的关系
+
+`classifyPendingBursts` 的 `decreased.length === 1` 分支会把**当窗内所有** pending burst 归到该类别（§14.4 第 3 条，为"手动开全部被拆成多 burst"设计）。本修复让更多 burst 走 pending，但这**不会放大误归类**：跨族候选被拒后，pending 的分类依据是 save 槽位 delta（证据）而非时间邻近（猜测）；两个族同时 decrease → `decreased.length >= 2` → 走 ambiguous 分支**保持 unclassified**（安全）。
+
+#### 路由表污染（本次**未**修改，已实测无影响）
+
+三张 tracker 路由表（`loadStageBoxTrackerRoutes` / `loadActBossTrackerRoutes` / `loadCommonChestTrackerRoutes`）只按 `grade`/`obtainable`/`tracker.canonical` 过滤，**未按 item id 前缀剔除瘟疫行**（`915xxx`/`925xxx`/`935xxx`），与 `appState.ts buildBackfillBoxRoutes` 注释「Plague categories intentionally absent」（只保证**无 plague 键**）不一致。实测（`data/stage_boxes.json`）：
+
+| 表             | 行数 | 正常行 | 瘟疫行 |
+| -------------- | ---- | ------ | ------ |
+| RARE           | 71   | 11     | 60     |
+| LEGENDARY(act) | 20   | 11     | 9      |
+| COMMON         | 23   | 11     | 12     |
+
+三张表中 `dropStageKeys` 的 **SHARED stage keys = NONE**——瘟疫行只新增瘟疫专属 stage key（`201xxx` / `21xx`-`23xx`），**从不改写普通地图的等级推断**。且 level 只影响显示标签（`autoOpenForBoxKey` 只看 category，不看 level）。叠加本门之后，瘟疫 stage key 上的跨族匹配已被拒绝。故本次不改路由表，避免无谓回归面。
+
+#### 回归测试
+
+`app/test/main/autoClassifyService.test.ts` → `describe("AutoClassifyService map-family burst gate (plague vs normal)")`，5 例：瘟疫图 act placeholder 不得吞瘟疫 burst、被 pending 的瘟疫 burst 按 save delta 归为 `plagueCommon`、普通图对称（瘟疫 placeholder 不得吞普通 burst）、族内仍保持队首优先（FIFO 不回归）、地图不可知时拒绝匹配。其中 4 例在关掉该门后必红。

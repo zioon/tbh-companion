@@ -20,7 +20,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/13-web-inspector.md",
     "docs/business-flows/14-wish-record.md"
   ],
-  "generatedAt": "2026-09-24T11:47:47.027Z",
+  "generatedAt": "2026-09-29T18:01:59.149Z",
   "flows": [
     {
       "number": 18,
@@ -3543,7 +3543,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "流程图",
           "subsection": "流程图",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  subgraph inputs [两条入口]\n    ChestDrop[chestDropTracker.onDrop] --> HandleDrop[AutoClassifyService.handleChestDrop]\n    Unclass[boxOpenTracker.onUnclassified] --> Group[groupBoxOpenEvents 按 2s gap 分组]\n    Group --> HandleEvent[processEvent]\n  end\n  HandleDrop --> Recalib[maybeRecalibrateQueue 漂移检测]\n  Recalib --> Resolve[resolveDropBoxKey common/rare/act 推断 level]\n  Resolve --> QFull{inventory full?}\n  QFull -- 是 --> AnchorPause[droppedAtMs 锚定 pauseStart]\n  QFull -- 否 --> AnchorWall[droppedAtMs = event.wallTime]\n  AnchorPause --> Enqueue[enqueue 串行链式计算 autoOpenAtMs]\n  AnchorWall --> Enqueue\n  Enqueue --> LiveSlot[liveSlots 自增]\n  HandleEvent --> Match{findBurstMatch ±15s?}\n  Match -- 是 --> Reclassify[reclassifyItem + liveSlots-- + resetSlotTimersForCategory]\n  Match -- 否 --> QEmpty{队列空?}\n  QEmpty -- 是 --> Prompt[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]\n  QEmpty -- 否 --> PendingBurst[PendingBurst 5 分钟 TTL]\n  subgraph tickLoop [1Hz tick]\n    Tick[AutoClassifyService.tick] --> QPause{inventory 满?}\n    QPause -- 是 --> Shift[shiftQueueTimes 暂停]\n    QPause -- 否 --> Decrement[autoOpenAtMs <= now 的 item liveSlots-- + WeakSet]\n    Decrement --> Prune[pruneExpired + prompt 超时 + pendingBursts TTL]\n  end\n  class ChestDrop,Unclass,Group,HandleDrop,HandleEvent,Recalib,Resolve,AnchorPause,AnchorWall,Enqueue,LiveSlot,Reclassify,Prompt,PendingBurst,Tick,Shift,Decrement,Prune data\n  class QFull,Match,QEmpty,QPause dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  subgraph inputs [两条入口]\n    ChestDrop[chestDropTracker.onDrop] --> HandleDrop[AutoClassifyService.handleChestDrop]\n    Unclass[boxOpenTracker.onUnclassified] --> Group[groupBoxOpenEvents 按 2s gap 分组]\n    Group --> HandleEvent[processEvent]\n  end\n  HandleDrop --> Recalib[maybeRecalibrateQueue 漂移检测]\n  Recalib --> Resolve[resolveDropBoxKey common/rare/act 推断 level]\n  Resolve --> QFull{inventory full?}\n  QFull -- 是 --> AnchorPause[droppedAtMs 锚定 pauseStart]\n  QFull -- 否 --> AnchorWall[droppedAtMs = event.wallTime]\n  AnchorPause --> Enqueue[enqueue 串行链式计算 autoOpenAtMs]\n  AnchorWall --> Enqueue\n  Enqueue --> LiveSlot[liveSlots 自增]\n  HandleEvent --> Match{findBurstMatch 同族 ±5s?}\n  Match -- 是 --> Reclassify[reclassifyItem + liveSlots-- + resetSlotTimersForCategory]\n  Match -- 否 --> QEmpty{队列空?}\n  QEmpty -- 是 --> Prompt[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]\n  QEmpty -- 否 --> PendingBurst[PendingBurst 5 分钟 TTL]\n  subgraph tickLoop [1Hz tick]\n    Tick[AutoClassifyService.tick] --> QPause{inventory 满?}\n    QPause -- 是 --> Shift[shiftQueueTimes 暂停]\n    QPause -- 否 --> Decrement[autoOpenAtMs <= now 的 item liveSlots-- + WeakSet]\n    Decrement --> Prune[pruneExpired + prompt 超时 + pendingBursts TTL]\n  end\n  class ChestDrop,Unclass,Group,HandleDrop,HandleEvent,Recalib,Resolve,AnchorPause,AnchorWall,Enqueue,LiveSlot,Reclassify,Prompt,PendingBurst,Tick,Shift,Decrement,Prune data\n  class QFull,Match,QEmpty,QPause dec",
           "nodes": [
             {
               "id": "AnchorPause",
@@ -3583,7 +3583,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "Match",
-              "label": "findBurstMatch ±15s?"
+              "label": "findBurstMatch 同族 ±5s?"
             },
             {
               "id": "PendingBurst",
@@ -3730,7 +3730,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "14.3 processEvent(itemKeys, burstWallTimeSec)",
           "subsection": "14.3 processEvent(itemKeys, burstWallTimeSec)",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Proc[processEvent itemKeys, burstWallTimeSec] --> QPrompt{已有 pending prompt?}\n  QPrompt -- 是 --> Accum[累加 itemKeys 不重复 broadcast return]\n  QPrompt -- 否 --> Match{findBurstMatch ±15s?}\n  Match -- Stage1 head 匹配 --> Hit[匹配成功]\n  Match -- Stage2 全队列搜索 --> Hit\n  Match -- 未匹配 --> QEmpty{队列空?}\n  QEmpty -- 是 --> Broadcast[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]\n  QEmpty -- 否 --> Pending[创建 PendingBurst 5 分钟 TTL 等下次 reconcile]\n  Hit --> Remove[从 queue 移除]\n  Remove --> Reclass[reclassifyItem 每个 itemKey]\n  Reclass --> LiveDec[liveSlots-- WeakSet 防双减]\n  LiveDec --> Reslot[resetSlotTimersForCategory 重排链式 autoOpenAtMs]\n  class Proc,Accum,Remove,Reclass,LiveDec,Reslot,Broadcast,Pending data\n  class QPrompt,Match,QEmpty dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Proc[processEvent itemKeys, burstWallTimeSec] --> QPrompt{已有 pending prompt?}\n  QPrompt -- 是 --> Accum[累加 itemKeys 不重复 broadcast return]\n  QPrompt -- 否 --> Match{findBurstMatch 同族 ±5s?}\n  Match -- Stage0 地图族门跨族候选出局 --> Pending\n  Match -- Stage1 head 匹配 --> Hit[匹配成功]\n  Match -- Stage2 全队列搜索 --> Hit\n  Match -- 未匹配 --> QEmpty{队列空?}\n  QEmpty -- 是 --> Broadcast[broadcast LOOT_PROMPT_CLASSIFY + pending prompt 60s]\n  QEmpty -- 否 --> Pending[创建 PendingBurst 5 分钟 TTL 等下次 reconcile]\n  Hit --> Remove[从 queue 移除]\n  Remove --> Reclass[reclassifyItem 每个 itemKey]\n  Reclass --> LiveDec[liveSlots-- WeakSet 防双减]\n  LiveDec --> Reslot[resetSlotTimersForCategory 重排链式 autoOpenAtMs]\n  class Proc,Accum,Remove,Reclass,LiveDec,Reslot,Broadcast,Pending data\n  class QPrompt,Match,QEmpty dec",
           "nodes": [
             {
               "id": "Accum",
@@ -3750,7 +3750,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "Match",
-              "label": "findBurstMatch ±15s?"
+              "label": "findBurstMatch 同族 ±5s?"
             },
             {
               "id": "Pending",
@@ -3797,6 +3797,10 @@ window.TBH_FLOW_VIZ = {
             {
               "from": "Match",
               "to": "Hit"
+            },
+            {
+              "from": "Match",
+              "to": "Pending"
             },
             {
               "from": "Match",

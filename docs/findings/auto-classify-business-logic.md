@@ -51,9 +51,10 @@
 
 ### 4.2 容差匹配判定
 - `burstMs = burst wallTime * 1000`
-- `findBurstMatch`：在 queue 中寻找 `autoOpenAtMs` 在 ±5s（`BURST_MATCH_GRACE_MS`）内的 item
-  - 优先 head match
-  - head 不在窗口内则全队列搜索最近的
+- **地图族门（2026-09-29）**：`isPlagueMap()` 为 `null`（地图不可知）→ 不匹配，直接返回 null；否则只考虑 `isPlagueCategory(categoryFromBoxKey(boxKey)) === isPlagueMap()` 的候选（宝箱只在同族地图掉落）。详见 `docs/business-flows/09-chest-and-autoclassify.md` §14.8。
+- `findBurstMatch`：在 queue 的**同族** item 中寻找 `autoOpenAtMs` 在 ±5s（`BURST_MATCH_GRACE_MS`）内的 item
+  - 优先 head match（head 须同族）
+  - head 不在窗口内（或跨族被滤）则全队列搜索最近的同族 item
 
 ### 4.3 容差内匹配成功
 1. **减去对应 slot 数量**：`liveSlots[cat]--`（跳过已 decrement 的避免双重计数）
@@ -169,7 +170,7 @@
 | 2.1 实时掉落递增 | `handleChestDrop`: `this.liveSlots[cat]++` | ✅ |
 | 2.2 初始 backfill | `reconcileWithChestSlots`: deficit → `enqueue` backfill | ✅ |
 | 3.1 掉落 enqueue + liveSlots++ | `handleChestDrop` | ✅ |
-| 4.2 容差判定 ±15s | `findBurstMatch` + `BURST_MATCH_GRACE_MS` | ✅ |
+| 4.2 容差判定 ±5s + 地图族门 | `findBurstMatch` + `BURST_MATCH_GRACE_MS` + `deps.isPlagueMap` | ✅ |
 | 4.3 容差内匹配：减 slot | `processEvent`: `liveSlots[cat]--` + WeakSet 防双重 | ✅ |
 | 4.3 容差内匹配：dequeue | `processEvent`: `this.queue.filter` | ✅ |
 | 4.3 容差内匹配：reclassify | `processEvent`: `reclassifyItem` | ✅ |

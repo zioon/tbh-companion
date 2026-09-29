@@ -6,7 +6,11 @@ import type {
   BoxTimerCatalogEntry,
 } from "../../../shared/types";
 import { IPC } from "../../../shared/ipc";
-import type { ChestDropCategory, ChestDropTracker } from "../../core/chestDropTracker";
+import {
+  isPlagueCategory,
+  type ChestDropCategory,
+  type ChestDropTracker,
+} from "../../core/chestDropTracker";
 import type { BoxOpenTracker } from "../../core/boxOpenTracker";
 import { categoryFromBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { inferLevelFromStage, type StageBoxTrackerRoute } from "../../core/stageBoxTracker";
@@ -180,6 +184,29 @@ export interface AutoClassifyServiceDeps {
    * RARE Lv4/5/7), so they need their own route table. */
   commonRoutes: () => ReadonlyArray<StageBoxTrackerRoute>;
   getCurrentStageKey: () => number | null;
+  /**
+   * Whether the player's CURRENT map is a plague (Contaminated) map.
+   *
+   * A chest only ever drops on a map of its own family — plague boxes on
+   * plague maps, normal boxes on normal maps — so a burst that just happened
+   * on a plague map can only be the open of a plague-family chest, and vice
+   * versa. `findBurstMatch` uses this to reject cross-family candidates, which
+   * is the fix for the reported "plague common chests being counted as
+   * chapter-boss (act) chests" bug: `reconcileWithChestSlots` Step 4 backfills
+   * placeholders for chests the player is merely *holding* (an act-boss chest
+   * carried over from a normal-map farm run sits in the queue with a full
+   * countdown), and time proximity alone let such a placeholder swallow a
+   * plague burst.
+   *
+   * Returns `null` when the current stage is unknown/unreadable (before the
+   * first live frame or save snapshot). Unknown is NOT the same as "normal
+   * map": with no family information no candidate can be validated, so
+   * `findBurstMatch` refuses to match and the burst is pended for save-reconcile
+   * classification. This follows the same "never guess when the input is
+   * missing" rule as `inferLevelFromStage`, which returns a category-only
+   * boxKey rather than inventing a level.
+   */
+  isPlagueMap: () => boolean | null;
   /**
    * Latest inventory (item bag) used/capacity from the save. When `used >=
    * capacity` the game pauses all chest auto-open timers (it cannot drop
@@ -1456,17 +1483,31 @@ export class AutoClassifyService {
 
   /**
    * Find the queue item whose `autoOpenAtMs` is closest to `burstMs` and
-   * within the ±{@link BURST_MATCH_GRACE_MS} grace window. Two-stage match
-   * to avoid cross-category misclassification (audit M2):
+   * within the ±{@link BURST_MATCH_GRACE_MS} grace window, restricted to the
+   * burst's map family. Three stages, in priority order:
    *
-   *   Stage 1 — if the global head is within the grace window, match it.
-   *     The head is the per-category timer's current target under the
-   *     serial-queue model, so consuming it first preserves FIFO order and
+   *   Stage 0 — map-family gate (`isPlagueMap`). A chest drops only on a map
+   *     of its own family, so on a plague map every legitimate candidate is a
+   *     plague-family box and on a normal map every legitimate candidate is a
+   *     normal-family box. Cross-family candidates are dropped from
+   *     consideration entirely. Without this gate, `reconcileWithChestSlots`
+   *     Step 4's placeholders for chests the player is merely HOLDING (e.g. an
+   *     act-boss chest accumulated on normal maps and carried to a plague map)
+   *     were matched to plague bursts on time proximity alone, reclassifying
+   *     the plague loot as `act` — the reported "plague common chests counted
+   *     as chapter-boss chests" bug. Cross-family bursts now fall through to
+   *     `processEvent`'s pending path and are classified from the save's
+   *     slot-count delta, which is evidence rather than a guess.
+   *
+   *   Stage 1 — if the global head is in the grace window AND same-family,
+   *     match it. The head is the per-category timer's current target under
+   *     the serial-queue model, so consuming it first preserves FIFO order and
    *     avoids a near-simultaneous tail item from a different category
    *     "stealing" the burst. Covers case (c) normal auto-open of head.
    *
-   *   Stage 2 — head is NOT in window, expand search to the full queue and
-   *     pick the closest item within the grace window. Covers:
+   *   Stage 2 — head is NOT in window (or is cross-family, hence filtered):
+   *     expand the search to the full queue and pick the closest same-family
+   *     item within the grace window. Covers:
    *     (a) manual opens of a non-head chest (head's autoOpenAtMs is far
    *         in the future; the manually-opened chest's autoOpenAtMs is
    *         closest to the burst time),
@@ -1474,26 +1515,36 @@ export class AutoClassifyService {
    *         autoOpenAtMs no longer matches the real auto-open moment;
    *         recalibration should have fixed it, but this is the safety net).
    *
-   * Returns `{ idx, delta }` for the matched item, or `null` if no item is
-   * within the grace window. The caller (`processEvent`) pends the burst for
-   * save-reconcile classification when `null` is returned (or broadcasts a
-   * prompt if the queue is empty) — it does NOT fall back to dequeuing the
-   * head, since guessing wrong would misclassify the burst's items.
+   * Returns `{ idx, delta }` for the matched item, or `null` if no same-family
+   * item is within the grace window. The caller (`processEvent`) pends the
+   * burst for save-reconcile classification when `null` is returned (or
+   * broadcasts a prompt if the queue is empty) — it does NOT fall back to
+   * dequeuing the head, since guessing wrong would misclassify the burst's
+   * items.
    */
   private findBurstMatch(burstMs: number): { idx: number; delta: number } | null {
-    // Stage 1: head-first match.
+    // Stage 0: map-family gate.
+    const burstOnPlagueMap = this.deps.isPlagueMap();
+    // Unknown map family — no candidate can be validated (see the dep doc).
+    // Refuse to match so the burst is classified from the save's slot delta.
+    if (burstOnPlagueMap === null) return null;
+    const sameFamily = (q: QueueItem): boolean =>
+      isPlagueCategory(categoryFromBoxKey(q.boxKey)) === burstOnPlagueMap;
+    // Stage 1: head-first match (FIFO priority, same family only).
     if (this.queue.length > 0) {
       const head = this.queue[0]!;
       const headDelta = Math.abs(head.autoOpenAtMs - burstMs);
-      if (headDelta <= BURST_MATCH_GRACE_MS) {
+      if (headDelta <= BURST_MATCH_GRACE_MS && sameFamily(head)) {
         return { idx: 0, delta: headDelta };
       }
     }
-    // Stage 2: head not in window — search the full queue for the closest.
+    // Stage 2: head not in window — search the full queue for the closest
+    // same-family item.
     let matchedIdx = -1;
     let matchedDelta = Infinity;
     for (let i = 0; i < this.queue.length; i++) {
       const candidate = this.queue[i]!;
+      if (!sameFamily(candidate)) continue;
       const delta = Math.abs(candidate.autoOpenAtMs - burstMs);
       if (delta <= BURST_MATCH_GRACE_MS && delta < matchedDelta) {
         matchedDelta = delta;

@@ -1,4 +1,5 @@
 import type {
+  BoxCategory,
   ChestDropBreakdownRow,
   ChestDropCategory,
   ChestDropHistoryEntry,
@@ -135,6 +136,19 @@ function toPlagueCategory(base: "common" | "rare" | "act"): ChestDropCategory {
     case "act":
       return "plagueAct";
   }
+}
+
+/**
+ * Whether `cat` is a plague-family (Contaminated) box category.
+ *
+ * Plague boxes drop only on plague maps and normal boxes only on normal maps
+ * (`isPlagueStage`), so the plague-ness of a box's category IS its map family.
+ * Callers use this to reject cross-family pairings — matching a chest to a map
+ * it could not have dropped on. `null`/`undefined`/`"unclassified"` are all
+ * "not plague".
+ */
+export function isPlagueCategory(cat: BoxCategory | null | undefined): boolean {
+  return cat === "plagueCommon" || cat === "plagueRare" || cat === "plagueAct";
 }
 
 /**

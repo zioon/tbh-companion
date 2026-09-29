@@ -34,6 +34,7 @@ import { LiveMemoryService } from "../services/LiveMemoryService";
 import { CatalogRefreshService } from "../catalogRefreshService";
 import { AutoClassifyService } from "../services/AutoClassifyService";
 import { loadActBossTrackerRoutes, loadCommonChestTrackerRoutes } from "../../core/stageBoxTracker";
+import { isPlagueStage } from "../../core/chestDropTracker";
 import type { BackfillBoxRoutes } from "../../core/boxOpenBackfill";
 import { broadcast } from "../services/broadcast";
 import { applyConfigPatch } from "../ipc/configPatch";
@@ -475,6 +476,23 @@ export function startTracking(): SessionUiSnapshot {
     actBossRoutes: () => loadActBossTrackerRoutes(),
     commonRoutes: () => loadCommonChestTrackerRoutes(),
     getCurrentStageKey: () => tracking.getCurrentStageKey(),
+    // Map family of the CURRENT map. `findBurstMatch` uses it to refuse
+    // cross-family matches: on a plague map only plague-family chests can be
+    // opened, so a normal-family placeholder in the queue (Step 4 backfills one
+    // for every act/common chest the player is merely holding) must never be
+    // matched to a plague burst on time proximity alone. `isPlagueStage` is a
+    // pure lookup over the bundled stage-box catalog — it does not depend on
+    // any tracker state, so there is no chicken-and-egg with `tracking.start()`
+    // having already run above.
+    //
+    // `null` = stage not known yet (before the first live frame / save
+    // snapshot) — a distinct answer from "normal map", so the service declines
+    // to match instead of guessing.
+    isPlagueMap: () => {
+      const stageKey = tracking.getCurrentStageKey();
+      if (stageKey == null || stageKey <= 0) return null;
+      return isPlagueStage(stageKey);
+    },
     // Inventory (item bag) used/capacity from the save. When `used >=
     // capacity` the game pauses all chest auto-open timers (it cannot drop
     // loot into a full bag); AutoClassifyService freezes effectiveNow at

@@ -71,6 +71,9 @@ function makeService(opts: { currentStageKey?: number | null } = {}) {
     actBossRoutes: () => ACT_BOSS_ROUTES,
     commonRoutes: () => COMMON_ROUTES,
     getCurrentStageKey: () => opts.currentStageKey ?? 1101,
+    // This suite only exercises normal-map stages (1101/1105), so the
+    // cross-family burst gate is a no-op here.
+    isPlagueMap: () => false,
     getInventoryStatus: () => null,
     broadcast: () => {},
   });
