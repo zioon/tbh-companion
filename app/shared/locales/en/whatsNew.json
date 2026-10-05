@@ -3,6 +3,14 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.2": {
+      "title": "What's new in v1.27.2",
+      "bullets": [
+        "Fixed: opening several chests at once lost part of the batch — the Loot tab and auto-classify no longer drop items from the same burst.",
+        "Fixed: the chapter-boss chest count could climb past its own slot cap (e.g. 20 / 15) — stale entries are no longer re-counted as fresh drops.",
+        "Fixed: live gold could stay permanently unavailable — after a game update the wallet no longer keeps reusing the previous build's address."
+      ]
+    },
     "1.27.1": {
       "title": "What's new in v1.27.1",
       "bullets": [
