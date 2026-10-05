@@ -210,15 +210,36 @@ function detectGameVersion(p: WinProcess): { version: string; installDir: string
 }
 
 /**
- * True when `offsets` carries a `_fallbackFromVersion` marker AND its critical
- * RVAs (stageManager / stageCacheManager) still match the original bundled
- * fallback baseline AND the extractor has NOT confirmed them via
+ * Names of the fallback-tracked anchors still sitting on the baseline table.
+ * Diagnostics only — tells the log which RVA the critical re-derivation is
+ * being forced for (e.g. `["currencyManager"]` when only the wallet is stale,
+ * the 2026-10-05 live-gold deadlock).
+ */
+function staleAnchorNames(offsets: LiveOffsets | null): string[] {
+  if (!offsets?._fallbackFromVersion) return [];
+  const baseline = offsetsForVersion(offsets._fallbackFromVersion);
+  if (!baseline) return [];
+  const pairs: [string, bigint, bigint][] = [
+    ["stageManager", offsets.typeInfoRva.stageManager, baseline.typeInfoRva.stageManager],
+    [
+      "stageCacheManager",
+      offsets.typeInfoRva.stageCacheManager,
+      baseline.typeInfoRva.stageCacheManager,
+    ],
+    ["currencyManager", offsets.typeInfoRva.currencyManager, baseline.typeInfoRva.currencyManager],
+  ];
+  return pairs.filter(([, o, b]) => o === b).map(([name]) => name);
+}
+
+/**
+ * True when `offsets` carries a `_fallbackFromVersion` marker AND at least one
+ * RVA the extractor is responsible for still matches the original bundled
+ * fallback baseline AND the extractor has NOT confirmed the critical set via
  * `_criticalRvasValidated`.
  *
  * When true, the extractor has not yet re-derived fresh anchors for the
  * current build — live reads may resolve to wrong classes (returning null).
- * When false (either RVAs differ from baseline, OR `_criticalRvasValidated`
- * is true), the table is safe to use without forcing the critical path again.
+ * When false the table is safe to use without forcing the critical path again.
  *
  * Replaces the old `_extractorRev`-based trust check. The old check had a
  * deadlock: extractor ran once (even on failure / null return when
@@ -231,6 +252,18 @@ function detectGameVersion(p: WinProcess): { version: string; installDir: string
  * an unconditional 30s timer, avoiding the "scanning every 30s" infinite
  * loop.
  *
+ * `currencyManager` MUST be part of the comparison (2026-10-05). The gold
+ * probe is the least reliable of the three: it can fail while the wallet is
+ * still initializing right after a game start, and the extractor then keeps
+ * `0`, so `mergeOffsets` preserves the stale baseline RVA. Because the check
+ * only compared stageManager/stageCacheManager — which a later successful
+ * run DID re-derive — it returned false and the critical path was never
+ * re-armed. Combined with the enrichment budget being spent on the box-open
+ * heal, `currencyManager` stayed pinned to the v1.2.4 RVA forever and live
+ * gold read `null` on every frame, permanently degrading the gold readout to
+ * the save snapshot. Measured on v1.2.8: cache held `0x5f4a068` (the v1.2.4
+ * baseline) while a re-run derived `0x5f67e10` in the same session.
+ *
  * Pure (no `this`), so it can be called from `resolveOffsets` before
  * `this.offsets` is updated.
  */
@@ -240,9 +273,12 @@ function isCriticalStaleOnBaseline(offsets: LiveOffsets | null): boolean {
   if (offsets._criticalRvasValidated) return false;
   const baseline = offsetsForVersion(offsets._fallbackFromVersion);
   if (!baseline) return false;
+  // Any not-yet-re-derived anchor re-arms the critical path. Anchors the
+  // extractor did move off the baseline are already fresh and are ignored.
   return (
-    offsets.typeInfoRva.stageManager === baseline.typeInfoRva.stageManager &&
-    offsets.typeInfoRva.stageCacheManager === baseline.typeInfoRva.stageCacheManager
+    offsets.typeInfoRva.stageManager === baseline.typeInfoRva.stageManager ||
+    offsets.typeInfoRva.stageCacheManager === baseline.typeInfoRva.stageCacheManager ||
+    offsets.typeInfoRva.currencyManager === baseline.typeInfoRva.currencyManager
   );
 }
 
@@ -893,16 +929,29 @@ export class LiveMemoryReader {
     // of this function sees a stable value (it is cleared after the extractor
     // runs, see below).
     const forceReextract = this.forceExtractorNextHeal;
-    if (complete && !forceExtractForCatalogDump && !forceReextract) {
+
+    // A table can be structurally COMPLETE and still carry a stale anchor: the
+    // completeness check deliberately ignores `currencyManager` (see
+    // CRITICAL_FIELDS in offsetCompleteness.ts — the gold probe is allowed to
+    // fail without declaring the reader unsupported). So a cache where only
+    // the wallet RVA is still on the fallback baseline passes the
+    // complete-table short-circuit below and would be trusted forever, leaving
+    // live gold permanently null (2026-10-05). Compute the staleness verdict
+    // up front and let it bypass the short-circuit, so the critical path gets
+    // one budgeted chance to re-derive the wallet.
+    const criticalStale = isFallbackTable && isCriticalStaleOnBaseline(base);
+    if (complete && !forceExtractForCatalogDump && !forceReextract && !criticalStale) {
       this.log(`resolve: table complete (source=${source})`);
       return { table: base, source, classIndex: null };
     }
 
-    if (complete && (forceExtractForCatalogDump || forceReextract)) {
+    if (complete && (forceExtractForCatalogDump || forceReextract || criticalStale)) {
       this.log(
-        forceReextract
-          ? `resolve: table complete (source=${source}) — re-running extractor (cache pollution detected: boxOpenLog dict lookup failing)`
-          : `resolve: table complete (source=${source}) — re-running extractor for catalog dump`,
+        criticalStale
+          ? `resolve: table complete (source=${source}) — re-running extractor (fallback anchor still on baseline: ${staleAnchorNames(base).join(", ")})`
+          : forceReextract
+            ? `resolve: table complete (source=${source}) — re-running extractor (cache pollution detected: boxOpenLog dict lookup failing)`
+            : `resolve: table complete (source=${source}) — re-running extractor for catalog dump`,
       );
     } else {
       const missing = base ? missingOffsetFields(base).join(", ") : "entire table";
@@ -912,15 +961,14 @@ export class LiveMemoryReader {
     if (ga && version && cacheDir) {
       const isSupported = base != null && hasCriticalOffsets(base);
       // Force the extractor to run the FULL critical path (enrichmentOnly=false)
-      // ONLY when the base carries a `_fallbackFromVersion` marker AND its
-      // critical RVAs still match the stale baseline. Once a prior session's
-      // extractor has re-derived fresh RVAs and merged them into the cache,
-      // `isCriticalStaleOnBaseline(base)` returns false — the cache is trusted
-      // and the extractor (if still needed for enrichment gaps) takes the
-      // cheaper enrichment-only path. This is the key change that lets a
-      // fallback version's second launch skip the ~8s critical extraction.
-      const forceCriticalPath = isFallbackTable && isCriticalStaleOnBaseline(base);
-      const useCriticalBudget = !isSupported || forceCriticalPath;
+      // when the base carries a `_fallbackFromVersion` marker AND at least one
+      // tracked anchor is still on the stale baseline (`criticalStale`, computed
+      // above so it can also bypass the complete-table short-circuit). Once a
+      // prior session's extractor has re-derived every anchor, the cache is
+      // trusted and the extractor (if still needed for enrichment gaps) takes
+      // the cheaper enrichment-only path. This is what lets a fallback
+      // version's second launch skip the ~8s critical extraction.
+      const useCriticalBudget = !isSupported || criticalStale;
       // Enrichment and critical extractions have independent attempt budgets.
       // Critical (unsupported) scans are bounded by MAX_EXTRACTION_ATTEMPTS;
       // enrichment (supported) scans are bounded by MAX_ENRICHMENT_ATTEMPTS so
@@ -958,7 +1006,7 @@ export class LiveMemoryReader {
             forceReextract
               ? `resolve: running extractor (forced — cache pollution)`
               : useCriticalBudget
-                ? `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})${forceCriticalPath ? " — fallback table, re-deriving critical anchors" : ""}`
+                ? `resolve: running extractor (attempt ${extractionAttempts(cacheDir, version, appBuild)}/${MAX_EXTRACTION_ATTEMPTS})${criticalStale ? ` — fallback table, re-deriving anchors still on baseline: ${staleAnchorNames(base).join(", ")}` : ""}`
                 : `resolve: running extractor for enrichment (attempt ${enrichmentAttempts(cacheDir, version, appBuild)}/${MAX_ENRICHMENT_ATTEMPTS})`,
           );
           const derived = extractOffsets(

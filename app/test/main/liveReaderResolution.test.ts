@@ -715,6 +715,73 @@ describe("LiveMemoryReader disk cache reuse for bundled/fallback versions", () =
     expect(reader.isCriticalStaleOnFallback).toBe(true);
   });
 
+  it("DOES force critical path when only currencyManager is still on the baseline (2026-10-05 gold deadlock)", async () => {
+    // Regression: the staleness check compared ONLY stageManager and
+    // stageCacheManager. The gold probe is the flakiest of the three — it
+    // fails while the wallet is still initializing right after a game start,
+    // and the extractor then keeps currencyManager=0, so mergeOffsets
+    // preserves the stale baseline RVA.
+    //
+    // Once a later run DID re-derive stageManager + stageCacheManager, those
+    // two stopped matching the baseline, so the `&&` comparison returned
+    // false → forceCriticalPath=false → the critical budget was never
+    // re-armed. With the enrichment budget already spent on the box-open
+    // heal, currencyManager stayed pinned to the fallback RVA forever and
+    // live gold read `null` on every snapshot (measured: cache held the
+    // v1.2.4 baseline 0x5f4a068 while a re-run derived 0x5f67e10 in the
+    // same session) — the gold readout degraded to the save snapshot with
+    // no way to recover.
+    //
+    // Fix: currencyManager participates in the comparison, so a table whose
+    // only un-re-derived anchor is the wallet re-arms the critical path.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        // Freshly derived — these two must NOT make the table look trusted.
+        stageManager: baseline.typeInfoRva.stageManager + 0x1000n,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager + 0x100n,
+        // Still the stale fallback value (gold probe failed previously).
+        currencyManager: baseline.typeInfoRva.currencyManager,
+      },
+    };
+
+    const reader = await attachFresh();
+
+    expect(reader.isCriticalStaleOnFallback).toBe(true);
+    // Critical budget consumed (not enrichment) so the wallet gets re-probed.
+    expect(stubs.recordCalls).toBe(1);
+    expect(stubs.enrichmentRecordCalls).toBe(0);
+  });
+
+  it("does NOT force critical path when every baseline-tracked RVA was re-derived", async () => {
+    // The flip side of the fix: once ALL THREE anchors (stageManager,
+    // stageCacheManager, currencyManager) have moved off the baseline, the
+    // table is genuinely fresh and the critical path must not be forced —
+    // otherwise every 30s heal tick would re-run the ~8s extractor.
+    stubs.version = "1.01.02";
+    const baseline = offsetsForVersion("1.01.01")!;
+    stubs.cached = {
+      ...COMPLETE,
+      gameVersion: "1.01.02",
+      _fallbackFromVersion: "1.01.01",
+      typeInfoRva: {
+        ...COMPLETE.typeInfoRva,
+        stageManager: baseline.typeInfoRva.stageManager + 0x1000n,
+        stageCacheManager: baseline.typeInfoRva.stageCacheManager + 0x100n,
+        currencyManager: baseline.typeInfoRva.currencyManager + 0x2000n,
+      },
+    };
+
+    const reader = await attachFresh();
+
+    expect(reader.isCriticalStaleOnFallback).toBe(false);
+  });
+
   it("enrichmentAlreadyAttempted is true when cache has _extractorRev but enrichment still incomplete", async () => {
     // Bug: when the extractor ran in a prior session but failed to derive
     // some enrichment fields (e.g. BoxOpenLog struct offsets — scanner
