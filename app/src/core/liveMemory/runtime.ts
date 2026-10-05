@@ -2369,8 +2369,9 @@ export function peekBoxOpenLogCount(
  *   - `ok`:    decoded a deliverable entry.
  *   - `skip`:  slot not decodable this tick and NOT a new-region mid-write —
  *              leave it; a later overscan re-read recovers it (bounded).
- *   - `park`:  a NEW-region mid-write — stop the tail at this index so the
- *              next tick retries it (box-open / chest semantics).
+ *   - `park`:  a NEW-region mid-write — remember the index so the next tick
+ *              retries it. Does NOT stop the current scan: later slots in the
+ *              same burst are still decoded and delivered (2026-10-05 fix).
  * `bad` classifies the rejection for debug counters (null-ptr / bad-itemKey).
  */
 type SlotDecode<T> =
@@ -2512,6 +2513,12 @@ function scanLogBucket<T>(
   let badItemKey = 0;
   let dedupSkipped = 0;
   const forcedIndexes: number[] = [];
+  /**
+   * The EARLIEST new-region mid-write index seen this pass, with its consecutive
+   * failure count. Park no longer aborts the scan (2026-10-05 batch-open fix) —
+   * see the `park` branch below.
+   */
+  let parked: { index: number; consecutive: number } | null = null;
   for (let i = start; i < count; i++) {
     const isNew = i >= lastCountBefore;
     scanned++;
@@ -2536,43 +2543,48 @@ function scanLogBucket<T>(
       // overscan re-read may recover it once the writer commits (bounded).
       continue;
     }
-    // `park`: a NEW-region mid-write. Do NOT advance the tail past it (that would
-    // drop it permanently). Stop at this index so the next tick re-reads the same
-    // entry after the writer finishes. If the same index keeps failing for
-    // `maxRetries` ticks it's a corrupt slot — force-skip it so we can't wedge
-    // the tail forever. (Not delivered, so an overscan re-read can still recover
-    // a later commit.)
+    // `park`: a NEW-region mid-write. Record it and KEEP SCANNING.
+    //
+    // 2026-10-05 (batch-open fix): this used to `return` immediately, so a
+    // mid-write slot anywhere in the batch ABORTED the rest of the frame. On an
+    // 8-chest open that meant `range=[439,444) scanned=5` delivered only 5 of 8
+    // new slots; the remaining ones were never examined, yet the next tick found
+    // them already inside the dedup set (`scanned=7 parsed=0 dedup=7`) and
+    // suppressed them forever — a permanently lost drop. Measured: the 14:29:12
+    // burst lost 永恒靴 while the acquire ring (an independent channel) recorded
+    // all 8, which is exactly the Record-vs-Loot divergence users report.
+    //
+    // Parking only means "re-read this index next tick". Continuing lets every
+    // later slot in the same burst be decoded and delivered now, so correctness
+    // no longer depends on the overscan window being large enough to cover the
+    // whole batch.
     const sameAsLast = state.retryFrom === i;
-    state.retryConsecutive = sameAsLast ? state.retryConsecutive + 1 : 1;
-    state.retryFrom = i;
-    if (state.retryConsecutive > cfg.maxRetries) {
-      state.retryFrom = null;
-      state.retryConsecutive = 0;
+    const consecutive = sameAsLast ? state.retryConsecutive + 1 : 1;
+    if (consecutive > cfg.maxRetries) {
+      // Corrupt slot — force-skip it so the tail can never wedge on it. Not
+      // delivered, so an overscan re-read can still recover a later commit.
       forcedIndexes.push(i);
       continue;
     }
-    state.lastCount = Math.min(state.lastCount, i);
-    state.retryFrom = i;
-    return {
-      mode: "scan",
-      added,
-      scanned,
-      parsed,
-      nullEntry,
-      badItemKey,
-      dedupSkipped,
-      count,
-      lastCountBefore,
-      start,
-      retryFrom: i,
-      retryConsecutive: state.retryConsecutive,
-    };
+    // Keep the EARLIEST park: `retryFrom` must point at the first index whose
+    // retry budget is still being consumed, otherwise the slots between it and
+    // this one would never be re-read.
+    if (parked == null) parked = { index: i, consecutive };
   }
-  state.retryFrom = null;
-  state.retryConsecutive = 0;
-  state.lastCount = count;
+  if (parked != null) {
+    // Do not advance the tail past an uncommitted slot: the next tick restarts
+    // from `parked.index` (via `retryFrom`) and re-reads it as new-region.
+    state.lastCount = Math.min(state.lastCount, parked.index);
+    state.retryFrom = parked.index;
+    state.retryConsecutive = parked.consecutive;
+  } else {
+    state.retryFrom = null;
+    state.retryConsecutive = 0;
+    state.lastCount = count;
+  }
   // Keep the dedup set bounded: only indices that could still be re-scanned by a
-  // future overscan matter.
+  // future overscan matter. Runs on the parked path too — slots at or above
+  // `parked.index` were just delivered, and the threshold sits well below them.
   deliver.pruneDelivered(Math.max(state.tailBase, count - cfg.overscan - 8));
   return {
     mode: "scan",
@@ -2586,6 +2598,7 @@ function scanLogBucket<T>(
     count,
     lastCountBefore,
     start,
+    ...(parked != null ? { retryFrom: parked.index, retryConsecutive: parked.consecutive } : {}),
   };
 }
 

@@ -1312,6 +1312,114 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(pin.retryConsecutive).toBe(0);
   });
 
+  // 2026-10-05 regression (batch open). A park used to `return` immediately,
+  // aborting the REST of the frame. On a multi-chest open the slots after the
+  // mid-write one were never examined, yet the next tick found them already in
+  // the dedup set and suppressed them forever → permanently lost drops.
+  //
+  // Measured on v1.2.8 (14:29:12, 8 chests opened at once): the primary channel
+  // delivered 7 of 8 (missing 永恒靴) while the independent acquire ring logged
+  // all 8 — the exact Record-vs-Loot divergence users report. The scanner must
+  // deliver every decodable slot in the batch AND still park the mid-write one
+  // for a later retry.
+  it("delivers later slots of a batch after a mid-write park instead of aborting the frame", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
+
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+
+    // Slot 1 is mid-write: allocated but itemKey still 0 after all samples.
+    const midEntry = 0xeb0100n;
+    m.writePtr(first + 8n, midEntry);
+    m.writeI32(midEntry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 0);
+
+    // Slots 2..4 are already fully committed — the rest of the burst.
+    const laterKeys = [530018, 530019, 530020];
+    for (let k = 0; k < laterKeys.length; k++) {
+      const entry = 0xeb0200n + BigInt(k * 0x100);
+      m.writePtr(first + BigInt((2 + k) * 8), entry);
+      m.writeI32(entry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), laterKeys[k]!);
+    }
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 5);
+
+    const r1 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+
+    // The three committed slots MUST be delivered in this very frame.
+    expect(r1.opens).toHaveLength(3);
+    expect(r1.opens!.map((o) => o.itemKey)).toEqual(laterKeys);
+
+    // ...and the mid-write slot is still parked for a later retry (lastCount
+    // held at 1 so index 1 is re-read as new-region next tick).
+    expect(pin.retryFrom).toBe(1);
+    expect(pin.retryConsecutive).toBe(1);
+    expect(pin.lastCount).toBe(1);
+
+    // The writer commits slot 1 → next tick recovers it. Total across both
+    // ticks = 4, i.e. every slot of the batch was recorded exactly once.
+    m.writeI32(midEntry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 530021);
+    const r2 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r2.opens).toHaveLength(1);
+    expect(r2.opens![0].itemKey).toBe(530021);
+    expect(pin.lastCount).toBe(5);
+    expect(pin.retryFrom).toBeNull();
+
+    // Idempotency: a third tick must not re-deliver anything.
+    const r3 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r3.opens).toEqual([]);
+  });
+
+  // Companion case: when SEVERAL slots are mid-write in one batch, `retryFrom`
+  // must point at the EARLIEST one. Pointing at a later index would leave the
+  // in-between slots un-retryable, since the next frame restarts from
+  // `retryFrom` and anything below `lastCountBefore` is never new again.
+  it("parks the EARLIEST mid-write index when several slots in a batch are uncommitted", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
+
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+
+    // Slots 1 and 3 both mid-write; slots 2 and 4 committed.
+    for (const idx of [1, 3]) {
+      const entry = 0xeb0000n + BigInt(idx * 0x100);
+      m.writePtr(first + BigInt(idx * 8), entry);
+      m.writeI32(entry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 0);
+    }
+    for (const [idx, itemKey] of [
+      [2, 530018],
+      [4, 530019],
+    ] as const) {
+      const entry = 0xeb0000n + BigInt(idx * 0x100);
+      m.writePtr(first + BigInt(idx * 8), entry);
+      m.writeI32(entry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), itemKey);
+    }
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 5);
+
+    const r1 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+
+    // Both committed slots delivered despite two parks in the same frame.
+    expect(r1.opens!.map((o) => o.itemKey)).toEqual([530018, 530019]);
+    // retryFrom points at the EARLIEST uncommitted slot (1, not 3).
+    expect(pin.retryFrom).toBe(1);
+
+    // Commit slot 1 only. Next tick recovers it and parks slot 3.
+    // `lastCount` stays at 1 (never advances past an uncommitted slot), so the
+    // following tick re-reads from `retryFrom=3` as new-region.
+    m.writeI32(0xeb0000n + 0x100n + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 530020);
+    const r2 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r2.opens!.map((o) => o.itemKey)).toEqual([530020]);
+    expect(pin.retryFrom).toBe(3);
+    expect(pin.lastCount).toBe(1);
+
+    // Commit slot 3 → tail finally reaches the end.
+    m.writeI32(0xeb0000n + 0x300n + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), 530021);
+    const r3 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r3.opens!.map((o) => o.itemKey)).toEqual([530021]);
+    expect(pin.lastCount).toBe(5);
+    expect(pin.retryFrom).toBeNull();
+  });
+
   // Regression: v1.00.28 stores itemStringKey as a System.String pointer.
   // readI32 on the pointer's low 4 bytes returns a non-negative garbage int
   // (e.g. 0x65909340 = 1703973696) that is NOT a plausible catalog itemKey.
