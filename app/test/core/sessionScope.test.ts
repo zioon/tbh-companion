@@ -147,19 +147,102 @@ describe("applySessionScope", () => {
     expect(prev.sessionId).toBe("");
   });
 
-  it("prunes stale-session entries first when over the cap", () => {
+  it("prunes uids that left the save before considering the cap", () => {
+    const prev: SessionScopeState = {
+      ...emptySessionScopeState(),
+      sessionId: "s2",
+      act: { gone1: "s1", gone2: "s1", a1: "s2" },
+    };
+    const d = applySessionScope([actHolding("a1")], prev, "s2");
+    expect(d.state.act).toEqual({ a1: "s2" });
+    expect(d.state.act["gone1"]).toBeUndefined();
+    expect(d.state.act["gone2"]).toBeUndefined();
+    expect(d.actMapChanged).toBe(true);
+  });
+
+  it("tombstones live uids evicted over the cap so they stay excluded", () => {
+    // Every entry is still present in the save, so tier 1 cannot reclaim
+    // anything; the over-cap fallback must evict stale-session uids into
+    // `retired` rather than forgetting them.
     const act: Record<string, string> = {};
     for (let i = 0; i < 300; i++) act[`old${i}`] = "s1";
+    const holdings = [actHolding("new1"), ...Object.keys(act).map((u) => actHolding(u))];
     const prev: SessionScopeState = { ...emptySessionScopeState(), sessionId: "s2", act };
-    const d = applySessionScope([actHolding("new1")], prev, "s2");
+    const d = applySessionScope(holdings, prev, "s2");
     const keys = Object.keys(d.state.act);
-    // Trimmed to the cap (256): the 45 oldest stale entries are gone first,
-    // the newest stale entries and the current-session entry survive.
-    expect(keys).toHaveLength(256);
-    expect(keys[0]).toBe("old45");
+    expect(keys.length).toBeLessThanOrEqual(256);
+    // The current session's real drop survives.
     expect(d.state.act["new1"]).toBe("s2");
+    // An evicted ghost is remembered as retired, not silently forgotten.
     expect(d.state.act["old0"]).toBeUndefined();
-    expect(d.actMapChanged).toBe(true);
+    expect(d.state.retired).toContain("old0");
+    expect(d.chests).toHaveLength(1);
+    expect(d.chests[0]!.uniqueId).toBe("new1");
+  });
+
+  // 2026-10-05 regression: the single-tier prune deleted live ghost uids, so
+  // the next parse saw an unknown uid, recorded it under the CURRENT session,
+  // and counted the ghost as held — the act card read 20/15, over its own cap.
+  it("does not resurrect a ghost across repeated parses once the map is at the cap", () => {
+    const act: Record<string, string> = {};
+    for (let i = 0; i < 300; i++) act[`ghost${i}`] = "s1";
+    const ghostUids = Object.keys(act);
+    let state: SessionScopeState = {
+      ...emptySessionScopeState(),
+      sessionId: "s2",
+      act,
+    };
+    const holdings = ghostUids.map((u) => actHolding(u));
+
+    // Run several parses: the count must stay pinned at 0 the whole time.
+    for (let pass = 0; pass < 5; pass++) {
+      const d = applySessionScope(holdings, state, "s2");
+      expect(d.chests).toHaveLength(0);
+      state = { ...d.state, sessionId: "s2" };
+    }
+    // Every ghost is accounted for — either still mapped to s1, or tombstoned.
+    for (const uid of ghostUids) {
+      const mapped = state.act[uid];
+      const retired = state.retired?.includes(uid) ?? false;
+      expect(mapped === "s1" || retired).toBe(true);
+    }
+  });
+
+  it("keeps a ghost excluded after its act entry is tombstoned", () => {
+    const prev: SessionScopeState = {
+      ...emptySessionScopeState(),
+      sessionId: "s2",
+      act: {},
+      retired: ["a1"],
+    };
+    const d = applySessionScope([actHolding("a1")], prev, "s2");
+    expect(d.chests).toEqual([]);
+    expect(d.excludedActUids).toEqual(["a1"]);
+    // A tombstoned uid is never re-admitted to the map.
+    expect(d.state.act["a1"]).toBeUndefined();
+  });
+
+  it("drops a tombstone once its uid leaves the save", () => {
+    const prev: SessionScopeState = {
+      ...emptySessionScopeState(),
+      sessionId: "s2",
+      act: {},
+      retired: ["gone1", "a1"],
+    };
+    const d = applySessionScope([actHolding("a1")], prev, "s2");
+    expect(d.state.retired).toEqual(["a1"]);
+  });
+
+  it("counts a genuinely new act drop as held", () => {
+    const prev: SessionScopeState = {
+      ...emptySessionScopeState(),
+      sessionId: "s2",
+      act: { ghost1: "s1" },
+    };
+    const d = applySessionScope([actHolding("ghost1"), actHolding("fresh")], prev, "s2");
+    expect(d.chests).toEqual([actHolding("fresh")]);
+    expect(d.excludedActUids).toEqual(["ghost1"]);
+    expect(d.state.act["fresh"]).toBe("s2");
   });
 });
 

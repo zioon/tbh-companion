@@ -23,7 +23,7 @@ import type { ChestHolding } from "../../../shared/types";
 
 /** Persisted state shape (main layer stores this as JSON in userData). */
 export interface SessionScopeState {
-  version: 1;
+  version: 2;
   /** Current game-session id. Empty string = 首次运行（尚无任何观测）。 */
   sessionId: string;
   /** Last observed save mtime (seconds), for game-restart gap detection. */
@@ -41,6 +41,15 @@ export interface SessionScopeState {
   lastGameAnchor?: number;
   /** act chest UniqueId → sessionId it was first seen in. */
   act: Record<string, string>;
+  /**
+   * Tombstones for act uids evicted from {@link act} while still present in the
+   * save (the over-cap fallback in {@link applySessionScope}). A uid listed here
+   * is known to predate the current session, so it stays excluded forever even
+   * after its `act` entry is gone — without this, forgetting a uid turned it
+   * back into a "first observation" and the ghost was counted as held, which
+   * is how the act slot card ended up reading 20/15 (2026-10-05).
+   */
+  retired?: string[];
 }
 
 /** Sentinel sessionId for entries first seen before filtering was enabled. */
@@ -49,11 +58,14 @@ export const LEGACY_SESSION_ID = "legacy";
 /** Save mtime gap (seconds) that implies the game was closed and restarted. */
 export const SESSION_GAP_SEC = 30 * 60;
 
-/** Hard cap on the act uid map (defensive; pruned entries are all stale). */
+/** Hard cap on the act uid map (defensive; pruned — see applySessionScope). */
 const ACT_MAP_CAP = 256;
 
+/** Hard cap on the ghost tombstone list (oldest-first eviction). */
+const RETIRED_CAP = 512;
+
 export function emptySessionScopeState(): SessionScopeState {
-  return { version: 1, sessionId: "", lastSaveMtime: 0, lastGameVersion: "", act: {} };
+  return { version: 2, sessionId: "", lastSaveMtime: 0, lastGameVersion: "", act: {} };
 }
 
 /**
@@ -151,11 +163,26 @@ export interface SessionScopeDecision {
  * - Holdings of categories other than "act" always pass through.
  * - "act" holdings WITHOUT a uniqueId (legacy BoxData path) pass through —
  *   the filter is only defined for the v1.2.2+ per-instance path.
+ * - "act" holdings whose uid is tombstoned in `retired` are always excluded
+ *   (they were evicted from `act` while still in the save — see
+ *   {@link SessionScopeState.retired}).
  * - "act" holdings with a uniqueId are kept only when they were first seen
  *   in the CURRENT session. On the very first parse after enabling the filter
  *   (empty state), pre-existing entries are recorded under the legacy sentinel
  *   and excluded — their provenance is unknowable and the v1.2.4 reality is
  *   that they are ghosts.
+ *
+ * Pruning (2026-10-05 fix): the cap is enforced in two tiers, and the ORDER is
+ * load-bearing. Uids absent from this parse's holdings are pruned first — they
+ * left the save, so the entry is pure garbage. Only when those run out do we
+ * evict still-present uids, and those go to the `retired` tombstone list.
+ *
+ * The previous single-tier prune ("stale sessions first, then oldest-inserted")
+ * deleted live ghost uids outright. Their next parse saw an unknown uid, treated
+ * it as a first observation, recorded it under the CURRENT session, and counted
+ * the ghost as held — so the act card climbed past its own slot cap (measured
+ * 20 held vs capacity 15) while the log showed the excluded set draining from 10
+ * down to 3.
  */
 export function applySessionScope(
   chests: ChestHolding[],
@@ -164,12 +191,15 @@ export function applySessionScope(
 ): SessionScopeDecision {
   const state: SessionScopeState = {
     ...prevState,
+    version: 2,
     act: { ...prevState.act },
   };
+  const retired = new Set(prevState.retired ?? []);
   const isFirstRun = !prevState.sessionId;
   const chestsOut: ChestHolding[] = [];
   const excludedActUids: string[] = [];
   let actMapChanged = false;
+  const seenActUids = new Set<string>();
 
   for (const c of chests) {
     if (c.category !== "act" || c.uniqueId == null || c.uniqueId === "") {
@@ -177,6 +207,12 @@ export function applySessionScope(
       continue;
     }
     const uid = c.uniqueId;
+    seenActUids.add(uid);
+    // Tombstoned: evicted from `act` while still in the save. Always a ghost.
+    if (retired.has(uid)) {
+      excludedActUids.push(uid);
+      continue;
+    }
     const seenIn = state.act[uid];
     if (seenIn === undefined) {
       // First observation of this uid. On the very first run of the filter,
@@ -200,28 +236,46 @@ export function applySessionScope(
     chestsOut.push(c);
   }
 
-  // Prune the uid map when over cap: stale sessions first (they are excluded
-  // anyway and can never return — uids are unique), then oldest-inserted.
-  const keys = Object.keys(state.act);
-  const excess = keys.length - ACT_MAP_CAP;
+  // Tier 1 — prune uids that left the save. Their entries can never matter
+  // again (a uid is unique), so this is always safe and usually reclaims the
+  // whole map on the first pass after the game cleans up. Tombstones are
+  // swept too — a retired uid absent from the save can never come back.
+  for (const uid of Object.keys(state.act)) {
+    if (seenActUids.has(uid)) continue;
+    delete state.act[uid];
+    actMapChanged = true;
+  }
+  for (const uid of [...retired]) {
+    if (seenActUids.has(uid)) continue;
+    retired.delete(uid);
+    actMapChanged = true;
+  }
+
+  // Tier 2 — still over cap with live uids only. Evict the oldest-inserted
+  // entries into the tombstone list so they stay excluded once forgotten.
+  let excess = Object.keys(state.act).length - ACT_MAP_CAP;
   if (excess > 0) {
-    let removed = 0;
-    for (const k of keys) {
-      if (removed >= excess) break;
-      if (state.act[k] !== sessionId) {
-        delete state.act[k];
-        removed++;
-        actMapChanged = true;
-      }
+    for (const uid of Object.keys(state.act)) {
+      if (excess <= 0) break;
+      if (state.act[uid] === sessionId) continue; // never evict this session's real drops
+      delete state.act[uid];
+      retired.add(uid);
+      actMapChanged = true;
+      excess--;
     }
-    for (const k of keys) {
-      if (removed >= excess) break;
-      if (state.act[k] === sessionId) {
-        delete state.act[k];
-        removed++;
-        actMapChanged = true;
-      }
-    }
+  }
+
+  // Bound the tombstone list (oldest-first). Overflow is unreachable in
+  // practice: it needs more than ACT_MAP_CAP live act rows, which the game's
+  // own slot cap prevents.
+  if (retired.size > RETIRED_CAP) {
+    const keep = [...retired].slice(-RETIRED_CAP);
+    retired.clear();
+    for (const uid of keep) retired.add(uid);
+    actMapChanged = true;
+  }
+  if (retired.size > 0 || prevState.retired != null) {
+    state.retired = [...retired];
   }
 
   return { chests: chestsOut, state, excludedActUids, actMapChanged };

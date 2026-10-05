@@ -287,9 +287,25 @@ export class ChestService {
     try {
       const path = this.sessionScopePath();
       if (!existsSync(path)) return;
-      const raw = JSON.parse(readFileSync(path, "utf-8")) as SessionScopeState;
-      if (raw && typeof raw === "object" && raw.version === 1 && typeof raw.act === "object") {
-        this.sessionScope = raw;
+      // Cast to a permissive shape on purpose: the persisted `version` is a
+      // discriminant we must be able to compare against the OLD value, so it
+      // cannot be typed as the current literal.
+      const raw = JSON.parse(readFileSync(path, "utf-8")) as Omit<SessionScopeState, "version"> & {
+        version: number;
+      };
+      // v2 (2026-10-05) adds the `retired` tombstone list. A v1 file is not
+      // migrated on purpose: its act map may already be corrupted by the
+      // prune-resurrection bug (live ghost uids deleted, then re-recorded as
+      // current-session on the next parse), and there is no way to tell which
+      // entries are affected. Discarding it makes the next parse a first run,
+      // which conservatively treats every pre-existing act row as a ghost —
+      // the correct direction, since v1.2.4+ never restores them in-game.
+      if (raw && typeof raw === "object" && raw.version === 2 && typeof raw.act === "object") {
+        this.sessionScope = { ...raw, version: 2 };
+      } else if (raw && typeof raw === "object" && raw.version === 1) {
+        log.info(
+          `${CHEST_SESSION_SCOPE_FILE} is v1 (pre-2026-10-05 ghost-resurrection fix); discarding so act holdings re-baseline conservatively`,
+        );
       }
     } catch (err) {
       log.warn(`Could not read ${CHEST_SESSION_SCOPE_FILE}: ${(err as Error).message}`);
