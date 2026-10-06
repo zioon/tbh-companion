@@ -3,6 +3,12 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.4": {
+      "title": "What's new in v1.27.4",
+      "bullets": [
+        "Chest level is no longer resolved from the map you are standing on: a chest carried to another map and opened there keeps the level it dropped with, so the per-box-type loot breakdown no longer shifts."
+      ]
+    },
     "1.27.3": {
       "title": "What's new in v1.27.3",
       "bullets": [
