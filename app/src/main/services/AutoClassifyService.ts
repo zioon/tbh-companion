@@ -160,6 +160,12 @@ interface PendingDropRecovery {
   dueAtMs: number;
   /** Tracker session epoch at stash time; the recovery is discarded if it moved. */
   epoch: number;
+  /**
+   * Map the recovered chest dropped on, resolved at stash time so the level
+   * stays pinned even if the player changes map during the grace window.
+   * Undefined when unknown (no recorded drop and no live stage).
+   */
+  stageKey?: number;
 }
 
 export interface AutoClassifyServiceDeps {
@@ -562,12 +568,19 @@ export class AutoClassifyService {
     category: ChestDropCategory;
     wallTime: number;
     itemKey?: number;
+    stageKey?: number;
   }): void {
     if (!this.enabled || this.suppressingHandleChestDrop) return;
     // Drift check first: if autoOpenSeconds changed since last drop / save,
     // recompute queued items so the new chest chains onto an accurate tail.
     this.maybeRecalibrateQueue();
-    const stageKey = this.deps.getCurrentStageKey() ?? 0;
+    // A chest's level is fixed at DROP time, so the level must come from the
+    // map the chest dropped on — `event.stageKey`, which the drop path stamps
+    // from the reader frame that saw the drop. `getCurrentStageKey()` is only
+    // a fallback for callers that can't supply the drop frame (tests, the
+    // reconcile-recovered path); reading the live map here would relabel a
+    // chest the player carried across a map change.
+    const stageKey = event.stageKey ?? this.deps.getCurrentStageKey() ?? 0;
     const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
     const boxKey = this.resolveDropBoxKey(event, stageKey);
     if (!boxKey) {
@@ -832,7 +845,10 @@ export class AutoClassifyService {
       }
       if (queueCount >= slotCount) continue;
       const deficit = slotCount - queueCount;
-      const stageKey = this.deps.getCurrentStageKey() ?? 0;
+      // Placeholders stand for chests the player is merely HOLDING, which may
+      // have dropped on a different map than the one they're standing on now —
+      // resolve the level from the drop-time map, not the live one.
+      const stageKey = this.stageKeyForCategory(category);
       const autoOpen = this.deps.chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN;
       const boxKey = this.resolveDropBoxKey({ category }, stageKey);
       if (boxKey) {
@@ -897,6 +913,10 @@ export class AutoClassifyService {
                 count: stashCount,
                 dueAtMs: Date.now() + RECOVERY_GRACE_MS,
                 epoch: this.deps.chestDropTracker.getSessionEpoch(),
+                // Pin the drop-time map now: the player may change map during
+                // the grace window, and the recovered drop's level must not
+                // follow them.
+                stageKey: this.stageKeyForCategory(category) || undefined,
               });
               log.info(
                 `reconcile: deferred ${stashCount} ${category} drop recovery(s) ` +
@@ -966,6 +986,7 @@ export class AutoClassifyService {
               recovery.category,
               wallTimeSec,
               "reconcile",
+              recovery.stageKey,
             );
           }
         } finally {
@@ -1147,7 +1168,9 @@ export class AutoClassifyService {
    * path fired.
    */
   private classifyAllPendingBursts(cat: BoxCategory, signal: string): void {
-    const stageKey = this.deps.getCurrentStageKey() ?? 0;
+    // The burst is an OPEN of a chest dropped earlier — possibly on a map the
+    // player has since left. Use the drop-time map for the level.
+    const stageKey = this.stageKeyForCategory(cat);
     const toBoxKey = this.resolveDropBoxKey({ category: cat }, stageKey);
     let reclassified = 0;
     if (toBoxKey) {
@@ -1176,11 +1199,15 @@ export class AutoClassifyService {
       this.suppressingHandleChestDrop = true;
       try {
         const wallTimeSec = this.getEffectiveNow() / 1000;
+        // Stamp the same drop-time map used to classify these opens, so the
+        // recovered drop history agrees with the boxKey assigned above.
+        const dropStageKey = stageKey > 0 ? stageKey : this.stageKeyForCategory(cat) || undefined;
         for (let i = 0; i < toBackfill; i++) {
           this.deps.chestDropTracker.recordLiveChestDrop(
             cat as ChestDropCategory,
             wallTimeSec,
             "reconcile",
+            dropStageKey,
           );
         }
       } finally {
@@ -1288,8 +1315,12 @@ export class AutoClassifyService {
       );
       return;
     }
-    const stageKey = this.deps.getCurrentStageKey();
-    const level = this.levelForStage(stageKey ?? 0);
+    // The prompt resolves an OPEN of a chest the service never saw drop (that is
+    // why there was nothing to match), so the level must come from the last
+    // recorded drop of that category — the map it dropped on — rather than
+    // wherever the player happens to be standing when they answer.
+    const stageKey = this.stageKeyForCategory(payload.category);
+    const level = this.levelForStage(stageKey);
     const toBoxKey =
       level != null && payload.category !== "unclassified"
         ? `${payload.category}:${level}`
@@ -1658,6 +1689,25 @@ export class AutoClassifyService {
       `recalibrated queue (${this.queue.length} items): ` +
         `autoOpen common=${autoOpen.common} stageBoss=${autoOpen.stageBoss} actBoss=${autoOpen.actBoss}`,
     );
+  }
+
+  /**
+   * The map whose level table should classify `cat` — i.e. the map the chest
+   * was DROPPED on, not the map the player is on now.
+   *
+   * A chest's level is fixed the moment it drops, so the drop-time stageKey
+   * recorded on the drop history is the authoritative input. Falling back to
+   * the live stage is only correct when NO drop of this category was ever
+   * observed (app launched mid-session with chests already held, or the live
+   * reader missed every GetBox burst) — there the current map is the only
+   * evidence available, and a category-only boxKey would lose the level
+   * entirely. Whenever a drop-time map IS known it wins, which is what keeps a
+   * chest carried across a map change labelled with the level it dropped with.
+   */
+  private stageKeyForCategory(cat: BoxCategory): number {
+    const dropStageKey =
+      cat === "unclassified" ? null : this.deps.chestDropTracker.lastDropStageKey(cat);
+    return dropStageKey ?? this.deps.getCurrentStageKey() ?? 0;
   }
 
   private resolveDropBoxKey(

@@ -54,6 +54,13 @@ function makeService(
     actBossRoutes?: StageBoxTrackerRoute[];
     commonRoutes?: StageBoxTrackerRoute[];
     currentStageKey?: number | null;
+    /**
+     * Mutable ref for the CURRENT stageKey, letting a test simulate the player
+     * changing maps mid-session (drop a chest on one map, then move to another)
+     * while the drop-time map stays pinned. Takes precedence over
+     * `currentStageKey`.
+     */
+    currentStageKeyRef?: { value: number | null };
     broadcast?: (channel: string, payload: unknown) => void;
     /**
      * Inventory (item bag) used/capacity injected into AutoClassifyService
@@ -111,7 +118,7 @@ function makeService(
     stageBoxCatalog: () => opts.catalog ?? [],
     actBossRoutes: () => opts.actBossRoutes ?? ACT_BOSS_ROUTES,
     commonRoutes: () => opts.commonRoutes ?? COMMON_ROUTES,
-    getCurrentStageKey: () => opts.currentStageKey ?? null,
+    getCurrentStageKey: () => opts.currentStageKeyRef?.value ?? opts.currentStageKey ?? null,
     // `??` would collapse the tri-state's `null` ("unknown") into `false`
     // ("normal map") — presence-check instead so `null` survives.
     isPlagueMap: () => (opts.isPlagueMap ? opts.isPlagueMap() : false),
@@ -4843,5 +4850,136 @@ describe("AutoClassifyService map-family burst gate (plague vs normal)", () => {
     expect(matchLogs()).toHaveLength(0);
     expect(snap.totalQueued).toBe(1);
     expect(snap.pendingBurstsCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A chest's LEVEL is fixed when it drops. Inferring it from the player's
+// CURRENT map at classification time relabels every chest carried across a map
+// change — e.g. an act boss chest farmed on Normal 2-10 (Lv20) but opened while
+// standing on Torment 3-10 would be filed as `act:90`, corrupting the loot
+// breakdown in the Loot tab.
+//
+// Every level-resolving path must therefore prefer the drop-time stageKey
+// stamped on the drop (`ChestDropTracker.lastDropStageKey`), falling back to
+// the live map only when no drop of that category was ever observed.
+// ---------------------------------------------------------------------------
+describe("AutoClassifyService drop-time level pinning", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const AUTO_OPEN = {
+    common: 300,
+    stageBoss: 600,
+    actBoss: 60,
+    plagueCommon: 600,
+    plagueRare: 1200,
+    plagueAct: 120,
+  };
+
+  const zeroSlots = () => ({
+    common: 0,
+    rare: 0,
+    act: 0,
+    plagueCommon: 0,
+    plagueRare: 0,
+    plagueAct: 0,
+  });
+
+  /** Act-boss drop on Normal 2-10 → Lv20; the same category on Torment 3-10 → Lv90. */
+  const LV20_MAP = 1210;
+  const LV90_MAP = 4310;
+
+  it("uses the drop's own map, not the live one, when the live frame has already advanced", () => {
+    // The reader polls at ~25 Hz while the game advances the stage between
+    // frames, so the live stageKey can already have moved on by the time the
+    // drop callback runs. The drop's own stamp must win.
+    const stageRef = { value: LV90_MAP as number | null };
+    const { chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKeyRef: stageRef,
+      isPlagueMap: () => false,
+    });
+
+    // The GetBox burst was read on a frame still reporting the Lv20 map, but
+    // the live stage has since advanced to the Lv90 map.
+    chestDropTracker.recordLiveChestDrop("act", 1.0, "live", LV20_MAP);
+    expect(chestDropTracker.getStats(3600).actTotal).toBe(1);
+
+    // The chest opens 60s later (actBoss=60) → must stay `act:20`.
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 61.0);
+    boxOpenTracker.flushUnclassified();
+
+    const stats = boxOpenTracker.getStats(null);
+    expect(stats.find((s) => s.boxKey === "act:20")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "act:90")).toBeFalsy();
+  });
+
+  it("backfills held-chest placeholders using the drop-time map of that category", () => {
+    const stageRef = { value: LV90_MAP as number | null };
+    const { service, chestDropTracker } = makeService({
+      enabled: false,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKeyRef: stageRef,
+      isPlagueMap: () => false,
+    });
+
+    // The drop history knows an act chest dropped on the Lv20 map, but the
+    // queue is empty — e.g. the drop was recorded while auto-classify was off,
+    // or its queue entry was already consumed. Seed the history directly.
+    chestDropTracker.recordLiveChestDrop("act", 1.0, "live", LV20_MAP);
+    service.setEnabled(true);
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
+
+    // The player is now on the Lv90 map and the save reports the chest in hand
+    // → Step 4 backfills a placeholder, which must use the Lv20 map.
+    stageRef.value = LV90_MAP;
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+
+    const items = service.getQueueSnapshot().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]!.boxKey).toBe("act:20");
+  });
+
+  it("falls back to the live map only when no drop of that category was ever seen", () => {
+    // App launched mid-session: the player already holds an act chest, so the
+    // save reports a slot but no drop history exists. The live map is then the
+    // only evidence available and must still be used.
+    const { service } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: LV90_MAP,
+      isPlagueMap: () => false,
+    });
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+    expect(service.getQueueSnapshot().items[0]!.boxKey).toBe("act:90");
+  });
+
+  it("ignores drops from OTHER categories when pinning a category's level", () => {
+    const stageRef = { value: LV90_MAP as number | null };
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKeyRef: stageRef,
+      isPlagueMap: () => false,
+    });
+
+    // Only a COMMON chest was seen, dropped on the Lv90 map. There is no act
+    // evidence at all, so the live map (also Lv90 here) is the fallback —
+    // the common drop's map must not be borrowed for the act placeholder.
+    chestDropTracker.recordLiveChestDrop("common", 1.0, "live", LV90_MAP);
+    service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
+    expect(service.getQueueSnapshot().items[0]!.boxKey).toBe("act:90");
   });
 });

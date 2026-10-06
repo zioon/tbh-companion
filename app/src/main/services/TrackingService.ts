@@ -1699,7 +1699,18 @@ export class TrackingService {
         baseCategory === "common" || baseCategory === "rare" || baseCategory === "act"
           ? resolveLiveDropCategory(currentStageKey, baseCategory)
           : baseCategory;
-      if (this.chestDropTracker.recordLiveChestDrop(category, chestAt)) {
+      // Pass the drop-time map so the chest's LEVEL is fixed at the moment it
+      // drops. Auto-classify must never re-derive it from the player's current
+      // map later: a chest carried across a map change would be relabelled with
+      // the new map's level.
+      if (
+        this.chestDropTracker.recordLiveChestDrop(
+          category,
+          chestAt,
+          "live",
+          currentStageKey ?? undefined,
+        )
+      ) {
         if (baseCategory === "rare") {
           // A delayed flush may land on a tick whose snap has no stageKey
           // (e.g. reader between battles); fall back to the last live stage.

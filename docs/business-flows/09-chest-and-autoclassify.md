@@ -233,7 +233,7 @@ flowchart TD
 
 - **`handleChestDrop(event)`**：`chestDropTracker.onDrop` 触发。
   1. `maybeRecalibrateQueue()` — 检测 autoOpenSeconds 漂移。
-  2. `stageKey = getCurrentStageKey() ?? 0`。
+  2. `stageKey = event.stageKey ?? getCurrentStageKey() ?? 0` — **优先用掉落那一刻的地图**（见 §14.9「宝箱等级在掉落时固定」）。`event.stageKey` 由掉落路径（`TrackingService` 的 reader 帧）盖章，`getCurrentStageKey()` 只是拿不到时的兜底。
   3. `autoOpen = chestService.getAutoOpenSeconds() ?? FALLBACK_AUTO_OPEN`。
   4. `boxKey = resolveDropBoxKey(event, stageKey)`：common → commonRoutes 推断 level；rare → BoxTimer catalog 推断 level；act → actBossRoutes 推断 level。**stageKey 未知（≤0）或匹配不到任何 route 时返回 category-only boxKey（`common`/`rare`/`act`，无 `:level` 后缀）**，绝不回退到最低等级 —— 避免在关卡信息缺失瞬间把后期掉落错误归类成 `common:1`/`act:1`（2026-08-28 修复）。
   5. **重复抑制（`outstandingReconcileCredits` 信用消费），必须在任何 queue/slot 变更之前（2026-09-23 修复）**：`cat = categoryFromBoxKey(boxKey)`；若 `liveSlots` 存在且 `cat` 有效，则在 `outstandingReconcileCredits` 中查一条 `category === cat && expiresAtMs > Date.now()` 的信用：
@@ -416,3 +416,31 @@ flowchart TD
 #### 回归测试
 
 `app/test/main/autoClassifyService.test.ts` → `describe("AutoClassifyService map-family burst gate (plague vs normal)")`，5 例：瘟疫图 act placeholder 不得吞瘟疫 burst、被 pending 的瘟疫 burst 按 save delta 归为 `plagueCommon`、普通图对称（瘟疫 placeholder 不得吞普通 burst）、族内仍保持队首优先（FIFO 不回归）、地图不可知时拒绝匹配。其中 4 例在关掉该门后必红。
+
+### 14.9 宝箱等级在**掉落时**固定（2026-10-06 修复）
+
+**不变量**：宝箱的 `:level` 由它**掉落时所在地图**唯一决定，掉落之后永不改变。因此**任何**在开箱/对账时刻推断 level 的路径，都**不允许**读玩家的**当前地图**——否则被带到另一张图的箱子会被贴上新地图的等级，污染 Loot 页的按箱型战利品统计。
+
+#### 曾经的缺陷
+
+`getCurrentStageKey()`（= 最近一帧的地图）被 4 处当作 level 的输入，其中 3 处发生在**掉落之后**：
+
+| 位置                             | 触发时刻         | 后果                                                         |
+| -------------------------------- | ---------------- | ------------------------------------------------------------ |
+| `handleChestDrop`                | 掉落瞬间         | reader 帧与回调之间地图已推进 → 贴错等级（off-by-one 地图） |
+| `reconcileWithChestSlots` Step 4 | 对账补 placeholder | placeholder 代表**手上持有**的箱子，可能来自另一张图       |
+| `classifyAllPendingBursts`       | pending burst 归类 | burst 是**更早**掉落的箱子的打开事件                       |
+| `resolvePrompt`                  | 用户回答 prompt  | 回答时玩家可能早已换图                                     |
+
+根因是**掉落时的地图从未被记录**：`ChestDropTrackerCallbacks.onDrop` 虽声明了 `stageKey?: number`，但 `recordLiveChestDrop` 从未传过它。
+
+#### 修复
+
+1. **记录**：`ChestDropHistoryEntry` 新增可选 `stageKey`；`recordLiveChestDrop` / `recordLogDrop` 接受并写入它，同时透传给 `onDrop`。`TrackingService` 在喂掉落时把该 reader 帧的 `currentStageKey` 一起盖章。
+2. **读取**：新增 `ChestDropTracker.lastDropStageKey(category)` —— 反向扫描 history，返回该类别**最近一次带 stageKey 的掉落**地图；没有则 `null`（Player.log 掉落无线索、或本局从未掉过该类别）。
+3. **消费**：新增私有 `stageKeyForCategory(cat)` = `lastDropStageKey(cat) ?? getCurrentStageKey() ?? 0`，并把上表后三处与 `handleChestDrop` 统一改为经它取 stageKey。`PendingDropRecovery` 增带 `stageKey`，在 stash 时就钉住，避免 grace 窗口内换图；open-backfill / drop recovery 补记的掉落也盖同一个章，保持历史与 boxKey 自洽。
+4. **兜底语义**：只有在**该类别从未有过带地图的掉落**（如启动时手上已有箱子、reader 全程漏读）时才回落到当前地图——那时它确实是唯一线索；回落总比退化成 category-only 丢掉等级更实用。与 `inferLevelFromStage` / `levelFromRoutes`「输入缺失宁返回 category-only 也不编造 level」并不冲突：**有线索时永远用线索**。
+
+#### 回归测试
+
+`describe("AutoClassifyService drop-time level pinning")`，4 例：①live 帧已推进时仍用掉落自带地图；②placeholder 补齐用该类别的掉落地图；③该类别无任何掉落线索时才回落当前地图；④不借用**其他类别**的掉落地图。前 2 例在回退修复后必红（得到 `act:90` 而非 `act:20`），后 2 例锁住兜底语义。

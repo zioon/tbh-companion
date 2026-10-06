@@ -78,6 +78,18 @@ export interface ChestDropHistoryEntry {
   itemKey: number;
   name: string;
   category: ChestDropCategory;
+  /**
+   * stageKey of the map the chest dropped ON, captured at drop time.
+   *
+   * A chest's level is fixed when it drops, so this is the only correct input
+   * for inferring a level later (auto-classify queue, pending-burst
+   * classification, prompt resolution). Reading the player's *current* map at
+   * classification time mislabels every chest that was carried across a map
+   * change. Absent on legacy/restored entries and on Player.log drops (the log
+   * line carries no map) — callers must treat undefined as "unknown", never as
+   * "the current map".
+   */
+  stageKey?: number;
 }
 
 export interface ChestDropStats {

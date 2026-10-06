@@ -733,6 +733,7 @@ export class ChestDropTracker {
     category: ChestDropCategory,
     wallTime = nowSeconds(),
     source: "live" | "reconcile" = "live",
+    stageKey?: number,
   ): boolean {
     const itemKey = LIVE_CHEST_KEY[category];
     const key = String(itemKey);
@@ -748,10 +749,10 @@ export class ChestDropTracker {
       if (overflow > 0) credits.splice(0, overflow);
     }
 
-    this.appendHistory({ wallTime, itemKey, name, category });
+    this.appendHistory({ wallTime, itemKey, name, category, stageKey });
     this.breakdownCache = null;
     this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
-    this.callbacks?.onDrop?.({ category, wallTime });
+    this.callbacks?.onDrop?.({ category, wallTime, stageKey });
     return true;
   }
 
@@ -796,7 +797,7 @@ export class ChestDropTracker {
     return covered;
   }
 
-  recordLogDrop(itemKey: number, wallTime = nowSeconds()): boolean {
+  recordLogDrop(itemKey: number, wallTime = nowSeconds(), stageKey?: number): boolean {
     const resolved = resolveStageBoxDrop(itemKey);
     if (!resolved) return false;
 
@@ -810,6 +811,7 @@ export class ChestDropTracker {
       itemKey: resolved.itemKey,
       name: resolved.name,
       category: resolved.category,
+      stageKey,
     });
 
     this.breakdownCache = null;
@@ -818,6 +820,7 @@ export class ChestDropTracker {
       category: resolved.category,
       wallTime,
       itemKey: resolved.itemKey,
+      stageKey,
     });
     return true;
   }
@@ -1087,6 +1090,31 @@ export class ChestDropTracker {
       normalMapSeconds: this.normalMapSec,
       plagueMapSeconds: this.plagueMapSec,
     };
+  }
+
+  /**
+   * stageKey of the most recent drop of `category` whose stageKey is known.
+   *
+   * This is the drop-time map, never the player's current map. Auto-classify
+   * uses it to classify an open whose originating drop it never saw live (the
+   * app was launched mid-session, or the live reader missed the GetBox burst):
+   * the chest in hand was dropped on the map recorded here, which may differ
+   * from the map the player is on now. Returns null when no recorded drop of
+   * this category carries a stageKey (Player.log-only drops, or a category
+   * never dropped this session) — callers must then fall back to a
+   * category-only boxKey rather than inventing a level.
+   *
+   * Scans `history` backwards and stops at the first match; called only on
+   * low-frequency classification events (pending bursts, prompt resolution),
+   * not on the 25 Hz frame path.
+   */
+  lastDropStageKey(category: ChestDropCategory): number | null {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const entry = this.history[i]!;
+      if (entry.category !== category) continue;
+      if (entry.stageKey != null && entry.stageKey > 0) return entry.stageKey;
+    }
+    return null;
   }
 
   /**
