@@ -1420,6 +1420,103 @@ describe("readRuntimeBoxOpenLog", () => {
     expect(pin.retryFrom).toBeNull();
   });
 
+  // 2026-10-06 regression #2 (overscan clipping of the NEW region).
+  //
+  // The scan window used to be ONE start for both regions, so
+  // `lastCountBefore - overscan` also clipped slots the game had just added.
+  // A 7-chest burst appended 69 slots in a single frame; with
+  // BOX_OPEN_OVERSCAN=64 the first 5 new slots fell outside the window and were
+  // never examined at all. The next tick found them already in the dedup set
+  // and suppressed them forever — measured live as
+  // `scanned=69 parsed=5 dedup=64` (69-64=5 exactly) while the independent
+  // acquire ring had recorded all 7.
+  //
+  // New slots are first deliveries: there is no later chance for them, so the
+  // whole new region must be scanned regardless of batch size.
+  it("scans the entire new region when a single frame adds more slots than the overscan window", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
+
+    // Append 70 committed slots in one frame — deliberately larger than
+    // BOX_OPEN_OVERSCAN (64), which is what a 7-chest burst produced live.
+    const BATCH = 70;
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+    const expected: number[] = [];
+    for (let k = 0; k < BATCH; k++) {
+      const entry = 0xf00000n + BigInt(k * 0x100);
+      m.writePtr(first + BigInt((1 + k) * 8), entry);
+      const itemKey = 600000 + k;
+      m.writeI32(entry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), itemKey);
+      expected.push(itemKey);
+    }
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 1 + BATCH);
+
+    // Every one of the 70 new slots must be delivered in this single pass.
+    const r1 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r1.opens).toHaveLength(BATCH);
+    expect(r1.opens!.map((o) => o.itemKey)).toEqual(expected);
+    expect(pin.lastCount).toBe(1 + BATCH);
+    expect(pin.retryFrom).toBeNull();
+
+    // Idempotency: the following pass must not re-deliver any of them, even
+    // though the dedup set is pruned to a bounded window.
+    const r2 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r2.opens).toEqual([]);
+  });
+
+  // Companion to the case above: a batch that both overflows the overscan
+  // window AND contains an uncommitted slot. The uncommitted slot must be
+  // parked (tail held) while every committed sibling is still delivered, and
+  // the recovered slot must not be delivered twice.
+  it("delivers a whole oversized batch and still parks + recovers its one uncommitted slot exactly once", () => {
+    const pin = makeBoxOpenPinState();
+    const m = seedBoxOpenChain(new FakeMemory(), [{ itemKey: 530017, boxType: 1 }]);
+    readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin); // prime (lastCount=1)
+
+    const BATCH = 70;
+    const first = BOX_OPEN_ARR + BigInt(BOX_LOG_O.container.arrayFirst);
+    // Slot 40 is mid-write; the other 69 commit immediately.
+    const midIdx = 40;
+    const expected: number[] = [];
+    for (let k = 0; k < BATCH; k++) {
+      const entry = 0xf00000n + BigInt(k * 0x100);
+      m.writePtr(first + BigInt((1 + k) * 8), entry);
+      const itemKey = 600000 + k;
+      if (1 + k !== midIdx) {
+        m.writeI32(entry + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey), itemKey);
+        expected.push(itemKey);
+      }
+    }
+    m.writeI32(BOX_OPEN_LIST + BigInt(BOX_LOG_O.container.listSize), 1 + BATCH);
+
+    const r1 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+
+    // 69 committed siblings delivered, the mid-write one excluded.
+    expect(r1.opens).toHaveLength(BATCH - 1);
+    expect(r1.opens!.map((o) => o.itemKey)).toEqual(expected);
+    // Parked at the uncommitted slot. `retryFrom` points AT it (so the next
+    // pass re-reads it as new-region), while `lastCount` stays at its previous
+    // value — the tail never advances past an uncommitted slot.
+    expect(pin.retryFrom).toBe(midIdx);
+    expect(pin.lastCount).toBe(1);
+
+    // Writer commits it → next pass recovers exactly that one, no re-delivery
+    // of the 69 already delivered.
+    m.writeI32(
+      0xf00000n + BigInt((midIdx - 1) * 0x100) + BigInt(BOX_LOG_O.runtime.boxOpenLog.itemStringKey),
+      600000 + (midIdx - 1),
+    );
+    const r2 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r2.opens).toHaveLength(1);
+    expect(r2.opens![0].itemKey).toBe(600000 + (midIdx - 1));
+    expect(pin.lastCount).toBe(1 + BATCH);
+    expect(pin.retryFrom).toBeNull();
+
+    const r3 = readRuntimeBoxOpenLog(m, GA_BASE, GA_SIZE, BOX_LOG_O, pin);
+    expect(r3.opens).toEqual([]);
+  });
+
   // Regression: v1.00.28 stores itemStringKey as a System.String pointer.
   // readI32 on the pointer's low 4 bytes returns a non-negative garbage int
   // (e.g. 0x65909340 = 1703973696) that is NOT a plausible catalog itemKey.

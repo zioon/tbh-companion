@@ -2500,12 +2500,35 @@ function scanLogBucket<T>(
     };
   }
 
-  // Overscan: besides the new entries [lastCount, count), also re-read the last
-  // `overscan` already-scanned slots so an entry that was force-skipped or still
-  // half-written on its first pass can be recovered once it commits. Re-reads of
-  // already-delivered slots are suppressed (dedup); the window never goes below
-  // tailBase (the attach backlog / post-shrink data is out of scope).
-  const start = state.retryFrom ?? Math.max(state.tailBase, lastCountBefore - cfg.overscan);
+  // Scan window.
+  //
+  // Two regions with DIFFERENT contracts:
+  //
+  //  - NEW slots `[lastCountBefore, count)`: first delivery. A slot the game has
+  //    not handed us yet is either delivered or park/skip — there is no third
+  //    outcome — so this region must be scanned IN FULL, unconditionally.
+  //  - OLD slots (`< lastCountBefore`): re-read only as a recovery net for
+  //    entries that were force-skipped or still half-written on their first
+  //    pass. The `overscan` window bounds this net, since the entries of
+  //    interest are always at the recent tail.
+  //
+  // 2026-10-06 (batch-open fix #2): these used to share ONE start, so
+  // `lastCountBefore - overscan` also clipped the new region. A 7-chest burst
+  // added 69 slots in one frame; with BOX_OPEN_OVERSCAN=64 the first 5 new
+  // slots fell outside the window and were never examined at all. The next
+  // tick found them already in the dedup set and suppressed them forever
+  // (measured: scanned=69 parsed=5 dedup=64 — 69-64=5 exactly, while the
+  // independent acquire ring had recorded all 7). "Scan the whole frame" was
+  // not enough: clipping the new region silently drops first deliveries.
+  //
+  // So the window is now split — the new region is always entered at
+  // `lastCountBefore`, and the overscan net reaches back from there for old
+  // slots only. `retryFrom` (a parked new-region index) is at or above
+  // `lastCountBefore` and stays authoritative: parking pins the tail so the
+  // uncommitted slot is re-read as new-region next tick.
+  const overscanStart = Math.max(state.tailBase, lastCountBefore - cfg.overscan);
+  const start =
+    state.retryFrom != null ? state.retryFrom : Math.min(lastCountBefore, overscanStart);
   const added: { index: number; entry: T }[] = [];
   let scanned = 0;
   let parsed = 0;
