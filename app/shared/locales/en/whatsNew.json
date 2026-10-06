@@ -3,6 +3,12 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.3": {
+      "title": "What's new in v1.27.3",
+      "bullets": [
+        "Continues the batch chest-open fix from 1.27.2: the scan window was also clipping freshly appended entries, so no first delivery is dropped no matter how large the batch."
+      ]
+    },
     "1.27.2": {
       "title": "What's new in v1.27.2",
       "bullets": [
