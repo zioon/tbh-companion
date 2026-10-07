@@ -112,6 +112,30 @@ const RECENT_MIN_WINDOW_SEC = 300;
  */
 const ROLLING_HOUR_SEC = 3600;
 
+/**
+ * Maximum interval credited to map-farming time by a single {@link
+ * ChestDropTracker.noteMapTime} sample. The live reader polls at ~25 Hz, so a
+ * healthy gap is ~40 ms; anything beyond this bound means no frames arrived at
+ * all (game suspended/minimised, live-memory worker crashed, machine slept),
+ * and the wall-clock time in between was NOT spent farming.
+ *
+ * Without this cap, the first frame after such a stall credits the ENTIRE gap
+ * to `normalMapSec` / `rollingNormalSec`. Measured consequences (2026-10-07):
+ * a 40-minute stall recorded 3000s of map time for 600s of real farming, an
+ * 8-hour sleep recorded 28860s for 60s real, and a 2-hour stall pushed
+ * `rollingNormalSec` to 7800s — breaking out of the {@link ROLLING_HOUR_SEC}
+ * window it is supposed to be bounded by. `normalMapSec` only ever grows, so
+ * the session rate and the Live tab's "normal maps" annotation are polluted
+ * until the next reset/restore.
+ *
+ * `TrackingService` uses the same 5 s bound (`LIVE_FRAME_FRESH_MS`) to decide
+ * a cached frame went stale, so 5 s is the project's established "the reader is
+ * no longer live" threshold. Frames still arriving are trusted up to that
+ * bound; beyond it we credit only the threshold itself, so a stall degrades
+ * into "a few seconds of map time" rather than "hours of map time".
+ */
+const MAX_MAP_TIME_GAP_SEC = 5;
+
 function nowSeconds(): number {
   return Date.now() / 1000;
 }
@@ -597,6 +621,11 @@ export class ChestDropTracker {
    * undefined frames (menus, transitions) aren't attributed to either bucket.
    * Call once per live frame with the frame's wall-clock `at` (seconds);
    * monotonic samples produce the per-bucket deltas.
+   *
+   * Gaps longer than {@link MAX_MAP_TIME_GAP_SEC} mean the reader produced no
+   * frames in between (stall / crash / machine sleep), so the gap is credited
+   * as at most that threshold. See the constant for the measured impact of the
+   * uncapped behaviour.
    */
   noteMapTime(stageKey: number | null | undefined, at: number): void {
     const type: "normal" | "plague" | "none" =
@@ -606,17 +635,22 @@ export class ChestDropTracker {
     // active during it (the previous sample's type), then record the new type
     // for the next interval.
     if (this.lastMapSampleAt != null && at >= this.lastMapSampleAt) {
-      const dt = at - this.lastMapSampleAt;
-      if (dt > 0 && this.lastMapType !== "none") {
+      const gap = at - this.lastMapSampleAt;
+      if (gap > 0 && this.lastMapType !== "none") {
+        // Clamp the credited interval. The segment's `start` is derived from
+        // the CREDITED duration (not the raw gap) so `pruneMapSegments` — which
+        // subtracts `end - start` — subtracts exactly what was added above.
+        const credited = Math.min(gap, MAX_MAP_TIME_GAP_SEC);
+        const segStart = at - credited;
         if (this.lastMapType === "plague") {
-          this.plagueMapSec += dt;
-          this.rollingPlagueSec += dt;
+          this.plagueMapSec += credited;
+          this.rollingPlagueSec += credited;
         } else {
-          this.normalMapSec += dt;
-          this.rollingNormalSec += dt;
+          this.normalMapSec += credited;
+          this.rollingNormalSec += credited;
         }
         this.mapSegments.push({
-          start: this.lastMapSampleAt,
+          start: segStart,
           end: at,
           plague: this.lastMapType === "plague",
         });
@@ -700,8 +734,20 @@ export class ChestDropTracker {
     this.recentEntries = kept;
   }
 
-  /** Rebuild all incremental caches by replaying the current history. */
-  private rebuildIncrementalCaches(): void {
+  /**
+   * Rebuild all incremental caches by replaying the current history.
+   *
+   * `recentSinceSec` bounds which entries feed the rolling 1-hour numerator
+   * ({@link recentEntries} / {@link recentCounts}). Omit it to replay the whole
+   * history into the rolling window (correct after a plain {@link reset},
+   * where the session restarts from empty). Pass a cutoff after
+   * {@link applySnapshot}: the rolling window's denominator (`rollingNormalSec`
+   * / `rollingPlagueSec`) is rebuilt from zero on restore, so a numerator
+   * carrying pre-restore drops would describe a longer span than the
+   * denominator and inflate `*RecentPerHour`. See the restore-side comment
+   * there.
+   */
+  private rebuildIncrementalCaches(recentSinceSec?: number): void {
     this.lastRareWallTime = null;
     this.rareInHistory = 0;
     this.recentEntries = [];
@@ -711,6 +757,7 @@ export class ChestDropTracker {
         this.rareInHistory++;
         this.lastRareWallTime = entry.wallTime;
       }
+      if (recentSinceSec !== undefined && entry.wallTime < recentSinceSec) continue;
       this.recentEntries.push({ wallTime: entry.wallTime, category: entry.category });
       this.recentCounts[entry.category]++;
     }
@@ -1189,7 +1236,18 @@ export class ChestDropTracker {
           ? Math.min(savedAnchor, oldestHistory)
           : savedAnchor
         : oldestHistory;
-    this.rebuildIncrementalCaches();
+    // Rolling 1-hour numerator starts EMPTY at restore. The rolling denominator
+    // is rebuilt from the new session's live frames (rollingNormalSec = 0
+    // below), so carrying pre-restore drops into `recentEntries` would compare
+    // a numerator spanning "before + after the restart" against a denominator
+    // covering only "after" — inflating `*RecentPerHour`. Measured 2026-10-07:
+    // 60 drops in the pre-restore hour plus 5 min of post-restore farming
+    // rendered 708/hr for a true 60/hr (11.8x). Passing the restore instant
+    // keeps both sides on the same window; the rate then climbs from 0 as
+    // post-restore drops accumulate, instead of decaying toward the truth.
+    // Session totals / `*PerHour` are unaffected — those legitimately span the
+    // whole restored session (normalMapSec above IS restored).
+    this.rebuildIncrementalCaches(nowSeconds());
     // Restored sessions carry no live credits; clear any so the first
     // post-restore reconcile doesn't discount against pre-restore drops.
     this.liveCreditsByCategory = emptyLiveCredits();

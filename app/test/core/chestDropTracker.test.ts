@@ -7,6 +7,29 @@ import {
   resolveLiveDropCategory,
 } from "../../src/core/chestDropTracker";
 
+/**
+ * Feed `noteMapTime` the way the live reader does: ~25 Hz frames, each carrying
+ * the elapsed wall-clock delta. Tests that want "N seconds of map farming" must
+ * step through frames rather than pass one large `dt` — `noteMapTime` clamps any
+ * gap beyond its live-frame threshold to that threshold (a reader stall is not
+ * farming time), so a single `dt: 1800` call no longer represents 30 minutes.
+ */
+function farmMap(
+  tracker: ChestDropTracker,
+  stageKey: number | null,
+  fromSec: number,
+  toSec: number,
+  frameSec = 1,
+): void {
+  // Seed the anchor first — the first noteMapTime call only records the sample
+  // time, it does not credit an interval.
+  tracker.noteMapTime(stageKey, fromSec);
+  for (let at = fromSec + frameSec; at < toSec; at += frameSec) {
+    tracker.noteMapTime(stageKey, at);
+  }
+  tracker.noteMapTime(stageKey, toSec);
+}
+
 describe("resolveStageBoxDrop", () => {
   it("resolves common and rare stage boxes from catalog", () => {
     const common = resolveStageBoxDrop(910151);
@@ -359,10 +382,8 @@ describe("ChestDropTracker", () => {
       const stats = tracker.getStats(3600);
       const history = tracker.captureSnapshot().history;
 
-      const cutoff = 100_000 - 3600;
-      let common = 0;
-      let rare = 0;
-      let act = 0;
+      // lastRareDropWallTime still reflects the restored history: it feeds the
+      // mini-overlay boss ring, not the rolling rate.
       let lastRare: number | null = null;
       for (let i = history.length - 1; i >= 0; i--) {
         if (history[i].category === "rare") {
@@ -370,19 +391,13 @@ describe("ChestDropTracker", () => {
           break;
         }
       }
-      for (const e of history) {
-        if (e.wallTime < cutoff) continue;
-        if (e.category === "common") common++;
-        else if (e.category === "rare") rare++;
-        else act++;
-      }
-
       expect(stats.lastRareDropWallTime).toBe(lastRare);
-      // 90_000 is outside the window; rare(96_400)+act(97_000) are in it, with
-      // earliest = 96_400 (exactly the cutoff → 1h window).
-      expect(stats.commonRecentPerHour).toBe(common);
-      expect(stats.rareRecentPerHour).toBe(rare);
-      expect(stats.actRecentPerHour).toBe(act);
+      // The rolling 1h numerator starts EMPTY on restore — its denominator
+      // (rollingNormalSec) is rebuilt from zero, so pre-restore drops must not
+      // be compared against post-restore-only map time.
+      expect(stats.commonRecentPerHour).toBe(0);
+      expect(stats.rareRecentPerHour).toBe(0);
+      expect(stats.actRecentPerHour).toBe(0);
     } finally {
       vi.useRealTimers();
     }
@@ -814,12 +829,10 @@ describe("ChestDropTracker map-type-aware rate denominator", () => {
       vi.setSystemTime(BASE * 1000);
       const tracker = new ChestDropTracker();
       // 30 min on a normal map → 1 common → 1 / 0.5h = 2/hr
-      tracker.noteMapTime(1, BASE);
-      tracker.noteMapTime(1, BASE + 1800);
+      farmMap(tracker, 1, BASE, BASE + 1800);
       tracker.recordLiveChestDrop("common", BASE);
       // 30 min on a plague map → 1 plagueCommon → 1 / 0.5h = 2/hr
-      tracker.noteMapTime(201201, BASE + 1800);
-      tracker.noteMapTime(201201, BASE + 3600);
+      farmMap(tracker, 201201, BASE + 1800, BASE + 3600);
       tracker.recordLiveChestDrop("plagueCommon", BASE + 1800);
 
       // Total elapsed is 1h → the old single denominator would give both 1/hr,
@@ -838,11 +851,9 @@ describe("ChestDropTracker map-type-aware rate denominator", () => {
       vi.setSystemTime(BASE * 1000);
       const tracker = new ChestDropTracker();
       // 30 min normal + 30 min plague, each with 1 recent drop.
-      tracker.noteMapTime(1, BASE - 3600);
-      tracker.noteMapTime(1, BASE - 1800);
+      farmMap(tracker, 1, BASE - 3600, BASE - 1800);
       tracker.recordLiveChestDrop("common", BASE - 900);
-      tracker.noteMapTime(201201, BASE - 1800);
-      tracker.noteMapTime(201201, BASE);
+      farmMap(tracker, 201201, BASE - 1800, BASE);
       tracker.recordLiveChestDrop("plagueCommon", BASE - 900);
 
       const stats = tracker.getStats(3600);
@@ -879,14 +890,11 @@ describe("ChestDropTracker map-type-aware rate denominator", () => {
       vi.setSystemTime(BASE * 1000);
       const tracker = new ChestDropTracker();
       // >1h ago: 1800s normal (will be pruned).
-      tracker.noteMapTime(1, BASE - 7200);
-      tracker.noteMapTime(1, BASE - 5400);
+      farmMap(tracker, 1, BASE - 7200, BASE - 5400);
       // >1h ago: 1800s plague (will be pruned).
-      tracker.noteMapTime(201201, BASE - 5400);
-      tracker.noteMapTime(201201, BASE - 3600);
+      farmMap(tracker, 201201, BASE - 5400, BASE - 3600);
       // Within 1h: 600s normal (kept) → 1 drop / (600/3600)h = 6/hr.
-      tracker.noteMapTime(1, BASE - 3600);
-      tracker.noteMapTime(1, BASE - 3000);
+      farmMap(tracker, 1, BASE - 3600, BASE - 3000);
       tracker.recordLiveChestDrop("common", BASE - 600);
 
       const stats = tracker.getStats(3600);
@@ -924,11 +932,9 @@ describe("ChestDropTracker map-type-aware rate denominator", () => {
       vi.setSystemTime(BASE * 1000);
       const tracker = new ChestDropTracker();
       // 30 min normal + 30 min plague, one drop each → 2/hr each on restore.
-      tracker.noteMapTime(1, BASE);
-      tracker.noteMapTime(1, BASE + 1800);
+      farmMap(tracker, 1, BASE, BASE + 1800);
       tracker.recordLiveChestDrop("common", BASE);
-      tracker.noteMapTime(201201, BASE + 1800);
-      tracker.noteMapTime(201201, BASE + 3600);
+      farmMap(tracker, 201201, BASE + 1800, BASE + 3600);
       tracker.recordLiveChestDrop("plagueCommon", BASE + 1800);
       const snap = tracker.captureSnapshot();
 
@@ -937,6 +943,156 @@ describe("ChestDropTracker map-type-aware rate denominator", () => {
       const stats = restored.getStats(3600);
       expect(stats.commonPerHour).toBeCloseTo(1 / (1800 / 3600), 5); // 2/hr
       expect(stats.plagueCommonPerHour).toBeCloseTo(1 / (1800 / 3600), 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("ChestDropTracker live-frame gap cap", () => {
+  const BASE = 1_700_000_000;
+
+  it("does not credit a reader stall to map-farming time", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // 10 min of live farming.
+      tracker.noteMapTime(1, BASE);
+      tracker.noteMapTime(1, BASE + 600);
+      // Reader produced no frames for 40 min (game suspended / worker crashed),
+      // then resumes. The gap is not farming time.
+      tracker.noteMapTime(1, BASE + 600 + 2400);
+      // Without the cap this read 3000s for 600s of real farming, which also
+      // pushed the rolling denominator past the 1h window it is bounded by.
+      expect(tracker.getStats(3000).normalMapSeconds).toBeLessThanOrEqual(600 + 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("caps an overnight sleep to the threshold instead of hours", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.noteMapTime(1, BASE);
+      tracker.noteMapTime(1, BASE + 60);
+      // Machine sleeps 8h; first frame after wake.
+      tracker.noteMapTime(1, BASE + 60 + 8 * 3600);
+      // Uncapped this recorded 28860s for 60s of real farming, and since
+      // normalMapSec only grows the pollution survived until the next reset.
+      expect(tracker.getStats(8 * 3600).normalMapSeconds).toBeLessThanOrEqual(60 + 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the rolling denominator inside the 1h window after a long stall", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      tracker.noteMapTime(1, BASE - 3600);
+      tracker.noteMapTime(1, BASE);
+      for (let i = 0; i < 6; i++) tracker.recordLiveChestDrop("common", BASE - 300 + i);
+      // 2h stall: the credited segment must not outlive ROLLING_HOUR_SEC, so
+      // the rate can't be divided by a denominator wider than its own window.
+      tracker.noteMapTime(1, BASE + 7200);
+      const stats = tracker.getStats(8000);
+      const impliedWindowSec = (6 / stats.commonRecentPerHour) * 3600;
+      expect(impliedWindowSec).toBeLessThanOrEqual(3600);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("credits healthy sub-threshold gaps in full", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // 4s is under the cap — a merely jittery reader must not lose real time.
+      tracker.noteMapTime(1, BASE);
+      tracker.noteMapTime(1, BASE + 4);
+      expect(tracker.getStats(4).normalMapSeconds).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("ChestDropTracker rolling numerator after restore", () => {
+  const BASE = 1_700_000_000;
+
+  it("starts the rolling 1h rate at 0 after restore instead of carrying pre-restart drops", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      // Pre-restore: a full hour of normal farming with 60 common drops
+      // (true pace 60/hr).
+      farmMap(tracker, 1, BASE - 3600, BASE);
+      for (let i = 0; i < 60; i++) tracker.recordLiveChestDrop("common", BASE - 3550 + i * 59);
+      const snap = tracker.captureSnapshot();
+
+      vi.setSystemTime((BASE + 60) * 1000);
+      const restored = new ChestDropTracker();
+      restored.applySnapshot(snap);
+      // Only 5 min of post-restore farming. The rolling denominator covers
+      // just those 5 min, so the numerator must not still hold the 60
+      // pre-restart drops — that mismatch rendered 708/hr for a true 60/hr.
+      farmMap(restored, 1, BASE + 60, BASE + 360);
+      const stats = restored.getStats(360);
+      expect(stats.commonRecentPerHour).toBe(0);
+      // The pre-restart drops are still session-visible: cumulative totals and
+      // the whole-session rate legitimately span the restored session. The
+      // session denominator is the restored 3600s of map time PLUS the 300s
+      // farmed after restore → 60 drops / 3900s.
+      expect(stats.commonSession).toBe(60);
+      expect(stats.normalMapSeconds).toBe(3900);
+      expect(stats.commonPerHour).toBeCloseTo(60 / (3900 / 3600), 5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("climbs from 0 as post-restore drops accumulate", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      farmMap(tracker, 1, BASE - 3600, BASE);
+      for (let i = 0; i < 60; i++) tracker.recordLiveChestDrop("common", BASE - 3550 + i * 59);
+      const snap = tracker.captureSnapshot();
+
+      vi.setSystemTime((BASE + 60) * 1000);
+      const restored = new ChestDropTracker();
+      restored.applySnapshot(snap);
+      farmMap(restored, 1, BASE + 60, BASE + 600);
+      // 10 fresh drops over 9 min of post-restore farming.
+      for (let i = 0; i < 10; i++) restored.recordLiveChestDrop("common", BASE + 100 + i * 54);
+      const stats = restored.getStats(540);
+      // Only the 10 post-restore drops count, over the 540s actually farmed.
+      expect(stats.commonRecentPerHour).toBeCloseTo(10 / (540 / 3600), 3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reset() still replays the whole history into the rolling window", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(BASE * 1000);
+      const tracker = new ChestDropTracker();
+      farmMap(tracker, 1, BASE - 600, BASE);
+      for (let i = 0; i < 12; i++) tracker.recordLiveChestDrop("common", BASE - 300 + i);
+      // A plain reset starts a new session; history is cleared anyway, so the
+      // cutoff argument must stay optional on that path.
+      tracker.reset();
+      farmMap(tracker, 1, BASE, BASE + 300);
+      for (let i = 0; i < 4; i++) tracker.recordLiveChestDrop("common", BASE + 10 + i);
+      expect(tracker.getStats(300).commonRecentPerHour).toBeCloseTo(4 / (300 / 3600), 3);
     } finally {
       vi.useRealTimers();
     }
