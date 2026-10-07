@@ -2150,6 +2150,87 @@ describe("TrackingService box-open backfill", () => {
   });
 
   /**
+   * 2026-10-07 (gap detector): the game writes the acquire ring FIRST and appends
+   * the matching BoxOpenLog slots tens of ms later, so a 7-box open delivered only
+   * 4 items on the primary channel while the ring already held all 7. The repair
+   * then had to wait for the next interval pass, which lands anywhere up to ~23 s
+   * later (10 s interval, and the line must first age past the 20 s grace).
+   *
+   * The detector makes a pass HAPPEN sooner when the ring outruns the primary
+   * channel. It deliberately does NOT shorten the grace — double-count protection
+   * is unchanged — so the assertion is about *when a pass runs*, not about a line
+   * being judged while still young.
+   */
+  it("runs a backfill pass as soon as the acquire ring outruns the box-open channel", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // Primary channel delivers 1 item...
+    svc.ingestLiveFrame(openFrame(T0, DICE.id));
+
+    // ...while the ring reports 3 grants for the same burst. Two of them have no
+    // tracker counterpart yet — the game has not appended their slots.
+    svc.ingestAcquireBatch([
+      { seq: 910071, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+      { seq: 910072, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+      { seq: 910073, time: "17:45", message: "获得了<color=#519FFF>紫水晶</color>。" },
+    ]);
+
+    // Age past the grace so the lines are judgeable at all, but do NOT advance a
+    // full interval: if the detector works, the pass has already happened and the
+    // missing siblings are recovered here. Without it, the 1 Hz tick's own pass is
+    // still throttled and they would be missing.
+    vi.setSystemTime(T0 + 21_000);
+    svc.runBoxOpenBackfill(true);
+
+    const history = svc.getBoxOpenTracker().fitHistory();
+    const amethyst = history.filter((e) => e.itemName === "紫水晶");
+    // Both lost siblings recovered, and nothing was double-counted.
+    expect(amethyst).toHaveLength(2);
+    expect(amethyst.every((e) => e.itemKey === AMETHYST.id)).toBe(true);
+    expect(history.filter((e) => e.itemName === "骰子")).toHaveLength(1);
+
+    // See the note in the first test of this block — no stop(), nothing persisted.
+  });
+
+  /**
+   * The detector must not fire when the primary channel is keeping up: a burst
+   * whose items were all delivered normally has no gap, so nothing extra runs.
+   * Chest drop notices / stage clears in the ring are not open grants either and
+   * must not be counted as a shortfall.
+   */
+  it("does not force a pass when the box-open channel has caught up", () => {
+    const svc = new TrackingService(vi.fn());
+    svc.start(baseConfig);
+    svc.setLookupCatalog([DICE, AMETHYST]);
+    onSnapshot?.(snap(5, 1000, 100));
+
+    // Primary channel delivered the same item the ring reports → no gap.
+    svc.ingestLiveFrame(openFrame(T0, DICE.id));
+    svc.ingestAcquireBatch([
+      { seq: 910081, time: "17:45", message: "获得了<color=#E8695A>骰子</color>。" },
+    ]);
+
+    // A chest drop notice and a stage clear are NOT opens; they must not be read
+    // as "the ring is ahead".
+    svc.ingestLiveFrame({ ...openFrame(T0, DICE.id), boxOpens: [] });
+    svc.ingestAcquireBatch([
+      { seq: 910082, time: "17:45", message: "获得了<color=#A4A4A4>普通宝箱</color>。" },
+      { seq: 910083, time: "17:45", message: "通关了关卡 3-9。(4秒)" },
+    ]);
+
+    vi.setSystemTime(T0 + 21_000);
+    svc.runBoxOpenBackfill(true);
+
+    // Nothing new invented from the non-grant lines.
+    const history = svc.getBoxOpenTracker().fitHistory();
+    expect(history.filter((e) => e.itemName.includes("宝箱"))).toHaveLength(0);
+    expect(history.filter((e) => e.itemName.includes("通关了"))).toHaveLength(0);
+  });
+
+  /**
    * One chest granted two items; the box-open reader only committed the first.
    * The ring has both lines. Feeding that and letting the pass run should
    * recover the lost one — attributed to the surviving sibling's box.

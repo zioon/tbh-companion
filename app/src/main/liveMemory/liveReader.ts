@@ -126,9 +126,21 @@ const CHEST_BURST_WAIT = new Int32Array(new SharedArrayBuffer(4));
  * "opened 3 boxes, only 1 item recorded"). Re-poll the tail on ticks that show
  * box-open activity, mirroring CHEST_BURST_* so a burst's tail entries are caught
  * in the same window instead of being lost. Quiet ticks skip it entirely.
+ *
+ * 2026-10-07 (latency): the game commits to the acquire ring FIRST and appends the
+ * matching BoxOpenLog slots tens of milliseconds LATER. A 4 × 2 ms = 8 ms burst was
+ * simply shorter than that lag, so a 7-box open only delivered the 4-5 slots that
+ * happened to be appended by the time the burst gave up — the remaining items showed
+ * up ~23 s later via the independent-channel backfill instead. Measured 10:51:57:
+ * `opens=4 range=[349,352) count=352`, then `count=353` and no further growth for
+ * 20 s, with 7 grants in the acquire ring. Widened to ~50 ms so the first frame can
+ * outlast the game's commit lag. This is worker-local (a `Atomics.wait` on a private
+ * slot) and only runs on ticks that already saw box-open activity, so quiet ticks
+ * still cost nothing — but it DOES extend the frame on exactly the frames that just
+ * did work, which is why the rounds are bounded rather than "wait until settled".
  */
-const BOX_BURST_ROUNDS = 4;
-const BOX_BURST_GAP_MS = 2;
+const BOX_BURST_ROUNDS = 10;
+const BOX_BURST_GAP_MS = 5;
 
 /**
  * Transitional catch-up burst for the StageClearLog tail. Clearing stages back

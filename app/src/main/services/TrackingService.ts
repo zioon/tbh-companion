@@ -128,6 +128,17 @@ const BACKFILL_GRACE_SEC = 20;
  */
 const BACKFILL_INTERVAL_MS = 10_000;
 /**
+ * Minimum gap between two gap-detector-triggered backfill passes.
+ *
+ * The acquire ring delivers in ~10 ms batches, so without a floor one burst could
+ * fire many passes inside a single tick. 4 s bounds it while still reacting far
+ * sooner than the 20 s grace it cannot shorten: a pass fired here still only
+ * judges lines that are already 20 s old, but it runs NOW rather than waiting for
+ * the interval — so a missed open is repaired within a few seconds of aging in,
+ * instead of drifting to the far end of the interval window.
+ */
+const GAP_FORCE_MIN_MS = 4_000;
+/**
  * Consecutive save read/parse errors after which the last snapshot is treated
  * as stale (`saveStale` in the stats payload). One error is often a transient
  * mid-write read; three in a row — with a poll interval of seconds — means the
@@ -288,6 +299,15 @@ export class TrackingService {
   private lookupVariantIndex: Map<string, Map<string, number>> | null = null;
   /** Wall-clock (ms) of the last box-open backfill pass; throttles it. */
   private lastBackfillMs = 0;
+  /** Last forced backfill (gap detector); see `noteBoxOpenChannelGap`. */
+  private lastGapForceMs = 0;
+  /**
+   * Items the primary box-open channel delivered in the most recent live frame.
+   * Compared against acquire-ring arrivals by `noteBoxOpenChannelGap`. Reset to 0
+   * by every frame (including frames that delivered nothing) so it always means
+   * "this frame", never a running total.
+   */
+  private lastLiveFrameBoxOpenCount = 0;
   /**
    * Index over the latest resolved inventory's `rows`, keyed by `itemKey`.
    * Rebuilt on every `setInventorySnapshot` so `buildBoxOpenPriceResolver`
@@ -1094,6 +1114,10 @@ export class TrackingService {
           `-> recordLog total=${this.recordLog.getStats().total} wish=${wishCount}`,
       );
       this.recordLogService.schedulePersist();
+      // 兜底通道缺口探测（2026-10-07）：本批授予行多于 box-open 主通道在同一窗口内的
+      // 投递数时，说明游戏还没把对应槽位 append 进 boxOpen list，立刻补跑一次 backfill，
+      // 而不是干等 BACKFILL_INTERVAL_MS（实测约 23 秒）。见 noteBoxOpenChannelGap。
+      if (!initial) this.noteBoxOpenChannelGap(entries.length);
       // 有祈愿行时才触发长期归档落盘（防抖），非祈愿批次零额外 IO。
       if (wishCount > 0) this.wishRecordService?.schedulePersist();
       // Push to the renderer right away. The acquire channel is independent of
@@ -1107,6 +1131,76 @@ export class TrackingService {
         this.pushStats();
       }
     }
+  }
+
+  /**
+   * 兜底通道缺口探测（2026-10-07）。
+   *
+   * 游戏写「获得记录」环（acquire ring）与append `GetItemWithBoxOpen` 槽位**不是
+   * 同一个动作**：实测一次开 7 个箱子，环里 7 行齐活时boxOpen list 只 append 了 3~4
+   * 个槽位，剩下的要再晚几十毫秒才出现（`10:51:57` 实测 `opens=4range=[349,352)
+   * count=352`，随后 `count` 20 秒不涨）。burst 补捞只能覆盖其中一小段（现已加长到
+   * ~50ms，见 `liveReader.ts` BOX_BURST_*），剩余全靠兜底 backfill —— 而 backfill
+   * 固定每 `BACKFILL_INTERVAL_MS`（10 秒）才跑一次，于是玩家看到「先出 4 件、
+   * 过一会儿才补齐 3 件」。
+   *
+   * 这里把「本来可以更早发现」的信号补上：本批 acquire 授予行**多于** box-open 主通道
+   * 同一时间窗内的投递数时，说明游戏还没写完 list，立刻补跑一次 backfill。
+   *
+   * **不缩短 grace**：20 秒 grace 仍是防重复计数的唯一屏障（主通道可能正park 着
+   * 一个 mid-write 槽位、马上就要提交）。本探测器只让「pass 更早发生」，不去判断
+   * 更年轻的行 —— 那些行仍要等各自 age in，但等到之后只有几秒，而不是漂到 10 秒
+   * 间隔的末尾（约 23 秒）。
+   *
+   * 三条约束，避免把正常情况误判成缺口而反复强跑：
+   * - **只数可能的开箱授予行**（`parseAcquireMessage` + 与 backfill 一致的排除规则）；
+   *   宝箱掉落通知 / 通关记录 / 祈愿 / 商店行都不能当开箱计。
+   * - **只跟最近一次主通道投递数比**：主通道的投递可能落在早一帧，用累计数比对会
+   *   在无开箱的批次里长期为真。
+   * - **有最小间隔**：强跑之间至少隔 `GAP_FORCE_MIN_MS`，防风暴。
+   *
+   * 失败无副作用：backfill 本身幂等，多跑一次只是多一次比对。
+   */
+  private noteBoxOpenChannelGap(batchLines: number): void {
+    // 累计授予行计数由 ingest 累加，主通道每次 read() 帧覆盖为该帧投递数。取两者
+    // 在同一「窗口」内的差即为缺口；窗口由 GAP_FORCE_WINDOW_MS 界定。
+    const now = Date.now();
+    if (now - this.lastGapForceMs < GAP_FORCE_MIN_MS) return;
+    const grantLike = this.countOpenGrantLike(batchLines);
+    if (grantLike <= 0) return;
+    // 主通道尚未投递过（live memory 关闭 / 首帧）时无法判断，不强跑。
+    if (this.lastLiveFrame == null) return;
+    const delivered = this.lastLiveFrameBoxOpenCount;
+    if (delivered >= grantLike) return;
+    this.lastGapForceMs = now;
+    log.info(
+      `box-open gap detected (acquire grant-like=${grantLike} > delivered=${delivered}); ` +
+        `forcing backfill now instead of waiting for the next interval`,
+    );
+    this.runBoxOpenBackfill(true);
+  }
+
+  /**
+   * 统计一批 acquire 行里「可能是开箱掉落」的条数。
+   *
+   * 规则与 `core/boxOpenBackfill.ts` 的 `isOpenGrant` 对齐，但**刻意只做可靠排除**
+   * （宝箱掉落通知、通关记录、无名行）：商店 / 合成 / 打造类行的文本形态会随游戏
+   * 改动而变，猜测它等于埋雷—— 漏排除的代价是 backfill 多跑一次（幂等、无害），
+   * 误排除的代价是把真实掉落挡在触发条件外（漏补）。这里选择前者。
+   * 真正的归属判定仍由 backfill 自己完成（它拿不到证据时会拒绝猜）。
+   */
+  private countOpenGrantLike(batchLines: number): number {
+    const recent = this.recordLog.getStats().entries.slice(-Math.max(1, batchLines));
+    let n = 0;
+    for (const e of recent) {
+      const raw = e.acquireRaw ?? "";
+      if (!raw.startsWith("获得了")) continue;
+      // 宝箱掉落通知本身不是开箱内容；通关记录是另一个前缀（不会到这里）。
+      if (raw.includes("宝箱")) continue;
+      if (!e.acquireName?.trim()) continue;
+      n += 1;
+    }
+    return n;
   }
 
   /**
@@ -1231,9 +1325,9 @@ export class TrackingService {
    * finds it via the normal name+time match and reports it as already tracked,
    * so no explicit "already backfilled" bookkeeping is needed.
    *
-   * Public only so tests can drive it deterministically (real runs come from
-   * the 1 Hz tick). `force` bypasses the throttle and is NOT part of the
-   * production path.
+   * Public so tests can drive it deterministically. `force` bypasses the
+   * throttle; it is used by the production gap-detector (see
+   * `noteBoxOpenChannelGap`) as well as by tests.
    */
   runBoxOpenBackfill(force = false): void {
     const now = Date.now();
@@ -1253,6 +1347,13 @@ export class TrackingService {
     // trimmed history from being misread as a run of lost opens.
     let oldestOpen = Number.POSITIVE_INFINITY;
     for (const e of trackerEntries) if (e.wallTime < oldestOpen) oldestOpen = e.wallTime;
+    // The 20s grace stays in force for EVERY pass, forced or not: it is the only
+    // thing preventing a double-count when the box-open reader parked a mid-write
+    // slot and is about to commit it (see the "waits out the grace period" test).
+    // The gap detector (`noteBoxOpenChannelGap`) buys latency a different way — by
+    // making a pass HAPPEN sooner, not by judging younger lines. A line that is
+    // still inside its grace is correctly left alone; it gets picked up on the
+    // next pass once aged in, which by then is ~2 s away rather than ~23 s.
     const newestAt = now / 1000 - BACKFILL_GRACE_SEC;
     const oldestAt = oldestOpen - BACKFILL_WINDOW_SEC;
     if (newestAt < oldestAt) return;
@@ -1868,6 +1969,10 @@ export class TrackingService {
         );
       }
     }
+    // How many items the primary channel delivered this frame. The gap detector
+    // (`noteBoxOpenChannelGap`) compares this against the acquire ring's arrivals
+    // to notice that the game has not appended its BoxOpenLog slots yet.
+    this.lastLiveFrameBoxOpenCount = snap.boxOpens?.length ?? 0;
 
     // The record log is fed ONLY by the independent acquire-ring channel
     // (`ingestAcquireBatch`), mirroring the game's own "获得记录" UI — no
