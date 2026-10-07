@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.5": {
+      "title": "What's new in v1.27.5",
+      "bullets": [
+        "Fixed: with several chests opened at once, the last few drops could take ~20 seconds to appear — nothing is lost, the repair is just far quicker now.",
+        "Fixed: map farming time inflated after the app was backgrounded, the machine slept, or the reader stalled (an 8-hour sleep was credited as 8 hours of farming)."
+      ]
+    },
     "1.27.4": {
       "title": "What's new in v1.27.4",
       "bullets": [
