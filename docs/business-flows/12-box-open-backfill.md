@@ -157,3 +157,57 @@
 | 兜底证据（GetBox 掉落）                        | `app/src/core/chestDropTracker.ts`                                                                                                                     |
 | 日志源                                         | `app/src/core/recordLogTracker.ts` + `app/src/main/services/RecordLogService.ts`                                                                       |
 | 单测                                           | `app/test/core/boxOpenBackfill.test.ts`（32）、`app/test/core/acquireLog.test.ts`、`app/test/main/trackingService.test.ts`（"box-open backfill" 8 例） |
+
+### 24.10 宝箱掉落对账（Chest-Drop Reconcile，2026-10-15）
+
+> 与 §24 的 open-backfill 是**两条并列的补齐通道**，修的是**不同层级的丢失**：§24 补「箱子被开了、内容物没统计到」，本节补「**箱子本身掉落没被记录**」。两者共用同一个 ground truth（acquire 环）与同一个成熟期屏障（`BACKFILL_GRACE_SEC`），但落点、幂等键、匹配口径都不同。
+
+#### 24.10.1 面向的问题与实测证据
+
+**现象**：Live/Loot 页的「宝箱掉落」列表**系统性漏记**，且 Common 与 Stage Boss（关卡宝箱）都漏。
+
+**实测（2026-10-15，`record_log.json` 的 acquire 授予行为 ground truth，`app.log` 窗口 23.9 分钟）**：
+
+| 类别          | 真实（acquire 环） | live 实记 | 漏记    | 漏记率 |
+| ------------- | ------------------ | --------- | ------- | ------ |
+| rare（关卡）  | 5                  | 3         | −2      | 40%    |
+| common        | 6                  | 3         | −3      | 50%    |
+| **合计**      | **11**             | **6**     | **−5**  | **≈45%** |
+
+#### 24.10.2 根因三环（缺一不可修，只修一个会让另一个单独暴露）
+
+1. **GetBox 条目被驱逐且不留痕迹**：`readRuntimeChestLog` 的 shrink 分支（`runtime.ts:1813`）在 GetBox 列表缩短时把尾部对齐后返回 `drops: []`。被驱逐的条目**不留任何可补记的线索**，25Hz 帧通道抗突发能力比 acquire 环差一个量级。
+2. **兜底通道恒为 0**：`player.boxData` 三件套在 v1.2.8 不可派生（实测每帧 status 失败）⇒ `reconcileWithChestSlots` 的存档对账补偿**完全没跑**。§14.4 Step 5 的整个机制依赖它。
+3. **永不重试**：`MAX_ENRICHMENT_ATTEMPTS = 1` 已耗尽，而 `boxOpenHealWouldHelp` 只看 box-open 三件套（不含 `player.boxData`）⇒ 一旦失败就永久不再尝试。
+
+**附带发现**：`open-backfill` 会**掩盖**这个问题且分类错误——实测 `recorded 7 common drop(s) from 7 opened chest(s)`，但那 7 个里含 rare。原因是 `classifyAllPendingBursts` 只接受**单一 `decreased` 类别**，多类别 decreased 时走 ambiguous 分支，最后被兜底记成 common。**看到「全是 common」的补记日志不等于真的全是 common。**
+
+#### 24.10.3 对账算法（`app/src/core/chestDropReconcile.ts`，纯函数可单测）
+
+以 acquire 环的**宝箱授予行**为 ground truth，与 `chestDropTracker.fitHistory()` 做**按类别的物品级多重集比对**：
+
+1. **筛选授予行**：只保留 `kind === "acquire"` 的行，排除 `bulk` 重放行、`wallTime` 非有限值、以及命中宝箱名词的行。宝箱名词表按**长名词优先**匹配（`章节首领宝箱` 必须先于 `关卡宝箱` 试，因为前者**包含**后者，否则 act 会被误判成 rare），覆盖中/繁/英三种拼写。
+2. **每行匹配一个 recorded 条目**（`consumeRecorded`）：在 `DROP_RECONCILE_WINDOW_SEC=180` 窗口内取**时间距离最近**的**未被认领**条目，认领方式为**就地将该槽位置 `null`**（claim）。
+   - **必须线性扫描而非二分**：claim 就地制造空洞，会破坏数组有序性，二分查找会命中 `null` 崩溃。每类别列表很小，线性最近优先是更便宜且正确的选择。
+   - **必须只改工作副本**：claim 不能污染调用方（tracker 的 live 状态）的数组。单测 `does not mutate the caller's recorded array` 守住该契约。
+3. **成熟期 grace**：窗口上界取 `now - BACKFILL_GRACE_SEC`，与 open-backfill 同一屏障（读取器可能正 park 着一个半写槽位、马上就要提交）。
+4. **关卡清除行**（`DropClearEvent`，`stageClearHistory`）用作 stageKey 的**最近邻参考**，让漏记条目也能带上掉落地图的候选——与 §24.3 步骤 4.5 同源，**同样宁缺毋滥**。
+
+**幂等**：补记后 recorded 侧已多出对应条目，第二轮 `missed` 必为空，无需额外账本。
+
+**按类别而非按总数比对**是硬要求：总数相同但类别错位（3 common + 3 rare 漏成 6 common）在总数口径下**完全不可见**，而这正是实测的丢失形态。单测 `treats the channels per category, not by total` 锁住。
+
+#### 24.10.4 等级反查与落点
+
+漏记的条目必须能回答「是哪个箱子」，否则补记只会得到一个泛化桶：
+
+- **core 共用反查** `boxIdForStageCategory(category, stageKey, routes)`（`core/boxOpenBackfill.ts`）：复用 `boxRoutes.byCategory`，按 `dropStageKeys.includes(stageKey)` 命中，**等级最高优先**。catalog 的 `dropStageKeys` 在同类别内按等级互斥，故这是**查表而非猜测**（与 §24.1 边界 2 同源）。`levelForStage` 与它共用同一个 `routeForStage`，`TrackingService.boxIdForStageCategory` 退化为**一行委托**。
+- 落点为新增的 `ChestDropTracker.recordStagedChestDrop(category, wallTime, source, stageKey, boxId)`：`boxId` 解析成功 → 写真实 catalog id（**带等级**）；失败 → fallback 到 `recordLiveChestDrop`（合成桶），**绝不丢事件、绝不臆造等级**。
+- **三条写入路径全部改走它**：live 掉落（`ingestLiveFrame`）、本对账补记、以及 `AutoClassifyService` 的两条补记（`flushDueDropRecoveries` / open-backfill，经 `boxRoutes` 依赖取同一张表）。所以正常记录的条目同样带真实 id——这是展示层能看到等级的前提（见 §14.10 现场反例：**漏改一条路径**就会让那批箱子永远只剩泛化名）。
+- 补记全程包在 `autoClassify.withChestDropSuppressed(...)` 里，抑制 `onDrop → handleChestDrop` 入队，避免与 open-backfill 的补齐重复入队。该方法**保存/恢复**而非清空 `suppressingHandleChestDrop`，以支持嵌套。
+
+#### 24.10.5 触发与可观测性
+
+- **触发点**：与 §24.4 同一条 1Hz tick，紧随 `runBoxOpenBackfill()` 之后；按 `BACKFILL_INTERVAL_MS` 自节流（`lastDropReconcileMs`）。
+- **日志**：`chest-drop reconcile: recorded N missed drop(s) (scanned=… matched=… rare=… common=…)`，即使 N=0 但 `missed` 非空也输出——该数字突然变大 = live 通道退化，正是本功能要暴露的信号。
+- **失败模式**：无新增。对账是纯统计侧补齐，不写 `record_log.json`、不启动 BoxTimer、不改写既有条目（与 §24.8 同一边界）。

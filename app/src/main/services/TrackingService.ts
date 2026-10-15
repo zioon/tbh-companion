@@ -11,6 +11,11 @@ import {
   type ChestDropCategory,
 } from "../../core/chestDropTracker";
 import {
+  reconcileChestDropsFromRing,
+  DROP_RECONCILE_WINDOW_SEC,
+  type DropGrantLine,
+} from "../../core/chestDropReconcile";
+import {
   BoxOpenTracker,
   type BoxOpenPriceResolver,
   type BoxOpenAccessoryResolver,
@@ -46,6 +51,7 @@ import { buildNameIndex } from "../../core/lookup/nameIndex";
 import {
   backfillOpensFromLog,
   toBackfillTrackerEntry,
+  boxIdForStageCategory,
   BACKFILL_WINDOW_SEC,
   type BackfillBoxRoutes,
 } from "../../core/boxOpenBackfill";
@@ -146,6 +152,18 @@ const GAP_FORCE_MIN_MS = 4_000;
  * password/layout) and every displayed value predates the failure.
  */
 const SAVE_STALE_ERROR_THRESHOLD = 3;
+
+/**
+ * 「rare=2 common=3」形式的分类计数，用于对账日志。
+ *
+ * 分类分布是判断漏记性质的关键读数：只有 common 少 ⇒ live 通道在该类别上选择性
+ * 丢失；各类都少 ⇒ 通道级丢失。所以日志必须带上它，而不是只报总数。
+ */
+function missedCategories(missed: ReadonlyArray<{ category: ChestDropCategory }>): string {
+  const counts = new Map<ChestDropCategory, number>();
+  for (const m of missed) counts.set(m.category, (counts.get(m.category) ?? 0) + 1);
+  return [...counts.entries()].map(([c, n]) => `${c}=${n}`).join(",");
+}
 
 export class TrackingService {
   private tracker!: XpTracker;
@@ -299,6 +317,11 @@ export class TrackingService {
   private lookupVariantIndex: Map<string, Map<string, number>> | null = null;
   /** Wall-clock (ms) of the last box-open backfill pass; throttles it. */
   private lastBackfillMs = 0;
+  /**
+   * Wall-clock (ms) of the last chest-DROP reconcile pass; throttles it on the
+   * same cadence as `lastBackfillMs` — see `reconcileChestDropsFromRingLog`.
+   */
+  private lastDropReconcileMs = 0;
   /** Last forced backfill (gap detector); see `noteBoxOpenChannelGap`. */
   private lastGapForceMs = 0;
   /**
@@ -453,6 +476,14 @@ export class TrackingService {
       // dropped (see `runBoxOpenBackfill`). Runs off the 1 Hz tick rather than
       // the live frame so it also fires when read() is stalled; self-throttled.
       this.runBoxOpenBackfill();
+      // Same idea for chest DROPS the `GetBox` reader dropped (see
+      // `reconcileChestDropsFromRingLog`). A GetBox entry appended and evicted
+      // inside one sampling window leaves no trace for the reader to recover,
+      // and the save-slot compensation that should catch it needs
+      // `player.boxData` — not derivable on v1.2.8. The acquire ring is the
+      // independent ground truth that does survive. Same 1 Hz cadence so it also
+      // runs when read() is stalled; the 20 s grace inside keeps it idempotent.
+      this.reconcileChestDropsFromRingLog();
       // Skip the redundant push if a live-memory frame already broadcast recently —
       // avoids the 1 Hz safety-net tick doubling up with the ~5 Hz live broadcast.
       if (Date.now() - this.lastLiveBroadcastMs < LIVE_BROADCAST_INTERVAL_MS) return;
@@ -1181,6 +1212,138 @@ export class TrackingService {
   }
 
   /**
+   * 掉落对账：用「获得记录」环补记 live 通道漏掉的宝箱掉落（2026-10-15）。
+   *
+   * 实测 23.9 分钟窗口：环记 11 个宝箱授予（rare 5 / common 6），live 只记 6
+   * （3 / 3）⇒ 漏 45%。两条成因都不是这里能修的：
+   *  - `readRuntimeChestLog` 的 shrink 分支在列表缩短时把尾部对齐后返回
+   *    `drops: []`，一条被驱逐的 GetBox 条目**不留任何痕迹**；5ms 的
+   *    `pollChestTailFast` 只能缩小这个窗口。
+   *  - 设计上接住漏记的存档对账（`reconcileWithChestSlots`）需要
+   *    `player.boxData`，而该三件套在 v1.2.8 不可派生（每帧 status 失败），
+   *    且 `MAX_ENRICHMENT_ATTEMPTS = 1` 已耗尽 ⇒ 补偿永不发生。
+   *
+   * 「获得记录」环是同一事件的独立通道：独立 ~2000 槽环、独立 ~10ms 轮询
+   * （`pollAcquireTailFast`），不受 GetBox 列表长度/驱逐影响，实测是 live 命中
+   * 的严格超集 ⇒ 可当 ground truth。
+   *
+   * 关键约束（`reconcileChestDropsFromRing` 内实现）：
+   *  - **按类别做多重集比对**，绝不逐分钟计数：两个通道本来就会在某一分钟里
+   *    对各类宝箱的落点数量有分歧，分桶比对会凭空造出丢失。
+   *  - **绝不改写 `record_log.json`**：Record 页仍是游戏自己的忠实镜像。
+   *  - **绝不臆造等级**：stageKey 取不到就保持 category-only。
+   *
+   * 幂等：跑第二遍时上一遍补记的条目已在 history 里，逐条命中 ⇒ missed 为空。
+   */
+  private reconcileChestDropsFromRingLog(): void {
+    // Self-throttle on the same cadence as the open backfill: a pass scans the
+    // judged window's log lines, and 1 Hz would redo that work 60×/min for a
+    // repair that can only act on lines the 20 s grace has already aged in.
+    const now = Date.now();
+    if (now - this.lastDropReconcileMs < BACKFILL_INTERVAL_MS) return;
+    this.lastDropReconcileMs = now;
+
+    const nowSec = now / 1000;
+
+    // 只判「两个通道都还说得清」的跨度：老到 live 通道必然已经尝试过，新到
+    // tracker's 有界 history 仍覆盖得住。窗口外的行是**无法判定**而不是缺失
+    // ——跳过它们，才不会把被裁剪的 history 误读成一串丢失。
+    const recorded = this.chestDropTracker.fitHistory();
+    if (recorded.length === 0) return;
+    let oldestRecorded = Number.POSITIVE_INFINITY;
+    for (const d of recorded) if (d.wallTime < oldestRecorded) oldestRecorded = d.wallTime;
+
+    // 与 open-backfill 同一条纪律：grace 对**每次** pass 都生效，它是防止
+    // box-open reader 正在 park 一个 mid-write 槽位、马上就要提交时重复计数的
+    // 唯一屏障。live 掉落侧同理——一条刚到的 live 记录可能正好在窗口边缘。
+    const newestAt = nowSec - BACKFILL_GRACE_SEC;
+    const oldestAt = oldestRecorded - DROP_RECONCILE_WINDOW_SEC;
+    if (newestAt < oldestAt) return;
+
+    const grantLines: DropGrantLine[] = [];
+    for (const e of this.recordLog.getStats().entries) {
+      if (e.kind !== "acquire") continue;
+      if (e.wallTime > newestAt || e.wallTime < oldestAt) continue;
+      grantLines.push({
+        ringSeq: e.ringSeq ?? 0,
+        wallTime: e.wallTime,
+        acquireName: e.acquireName ?? "",
+        acquireRaw: e.acquireRaw ?? "",
+        bulk: e.bulk === true,
+      });
+    }
+    if (grantLines.length === 0) return;
+
+    // stageKey 证据：live clear history 带已解析（含难度）的 stageKey，覆盖
+    // ~200 条，足以框住判定窗口。取不到就让补记保持 category-only。
+    const clearEvents = this.stageClearHistory.map((e) => ({
+      wallTime: e.wallTime,
+      stageKey: e.stageKey,
+    }));
+
+    const { missed, scanned, alreadyTracked, excluded } = reconcileChestDropsFromRing(
+      grantLines,
+      recorded.map((d) => ({ wallTime: d.wallTime, category: d.category, stageKey: d.stageKey })),
+      { windowSec: DROP_RECONCILE_WINDOW_SEC, clears: clearEvents, nowSec },
+    );
+
+    if (missed.length === 0) return;
+
+    let levelled = 0;
+    // `withChestDropSuppressed` keeps the recovered drops OUT of the
+    // auto-classify queue: this is a statistics repair for a chest the live
+    // channel missed, not a new drop the player should be prompted to open
+    // again. Recording it through the tracker would otherwise fire `onDrop` →
+    // `handleChestDrop` and double-queue a chest that is already in the queue
+    // (or was never meant to be).
+    this.autoClassify?.withChestDropSuppressed(() => {
+      for (const m of missed) {
+        // 用 drop 时刻的 stageKey 反查真实 boxId（= 等级），让补记同时补上展示层
+        // 缺的等级；查不到就退到合成桶，**绝不猜**。
+        const boxId = this.boxIdForStageCategory(m.category, m.stageKey);
+        if (boxId != null) levelled += 1;
+        this.chestDropTracker.recordStagedChestDrop(
+          m.category,
+          m.wallTime,
+          "reconcile",
+          m.stageKey,
+          boxId,
+        );
+      }
+    });
+
+    log.info(
+      `chest-drop reconcile: recorded ${missed.length} missed drop(s) from acquire ring ` +
+        `(scanned=${scanned} tracked=${alreadyTracked} excluded=${excluded} levelled=${levelled} ` +
+        `byCategory=${missedCategories(missed)})`,
+    );
+    this.sessionState?.flush(
+      this.tracker,
+      this.chestDropTracker,
+      this.boxOpenTracker,
+      this.lastSnap,
+      this.config,
+      this.wishTracker,
+    );
+    this.pushStats();
+  }
+
+  /**
+   * 反查某类别在某关卡掉落的具体宝箱 id（即等级）。
+   *
+   * 复用 open-backfill 已注入的同一份 `boxRoutes`（由 appState 从打包的
+   * stage-box 目录构造，route 上带 `boxId`），不新增注入点。逻辑与
+   * `AutoClassifyService.dropBoxIdForStage` 共用 core 的
+   * `boxIdForStageCategory`——**所有记录掉落的路径必须是同一份查表**，否则某一
+   * 条路径漏掉等级，那条箱子就永远只显示合成桶的泛化名（实测现场）。
+   * `dropStageKeys` 在同类别内按等级互斥，故命中即精确；查不到（污染地图无
+   * route、或该关无掉落）返回 null，由调用方保持 category-only 而不猜等级。
+   */
+  private boxIdForStageCategory(category: ChestDropCategory, stageKey?: number): number | null {
+    return boxIdForStageCategory(category, stageKey, this.boxRoutes);
+  }
+
+  /**
    * 统计一批 acquire 行里「可能是开箱掉落」的条数。
    *
    * 规则与 `core/boxOpenBackfill.ts` 的 `isOpenGrant` 对齐，但**刻意只做可靠排除**
@@ -1804,12 +1967,21 @@ export class TrackingService {
       // drops. Auto-classify must never re-derive it from the player's current
       // map later: a chest carried across a map change would be relabelled with
       // the new map's level.
+      //
+      // The same map resolves the exact catalog box, so the entry is booked
+      // under the REAL item id (e.g. 920901 = Stage Boss Box Lv90) rather than
+      // the synthetic per-category bucket. That is what makes the Chest/Chests
+      // views able to say WHICH level dropped instead of a generic
+      // "Stage boss chest" forever. `dropStageKeys` are disjoint per level, so
+      // the lookup is exact; a miss falls back to the category bucket inside
+      // `recordStagedChestDrop` — a level is never invented.
       if (
-        this.chestDropTracker.recordLiveChestDrop(
+        this.chestDropTracker.recordStagedChestDrop(
           category,
           chestAt,
           "live",
           currentStageKey ?? undefined,
+          this.boxIdForStageCategory(category, currentStageKey ?? undefined),
         )
       ) {
         if (baseCategory === "rare") {

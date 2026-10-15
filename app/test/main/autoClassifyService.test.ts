@@ -4,6 +4,7 @@ import { ChestDropTracker } from "../../src/core/chestDropTracker";
 import { BoxOpenTracker } from "../../src/core/boxOpenTracker";
 import type { BoxTimerCatalogEntry } from "../../shared/types";
 import type { StageBoxTrackerRoute } from "../../src/core/stageBoxTracker";
+import type { BackfillBoxRoutes } from "../../src/core/boxOpenBackfill";
 
 // Hoist the log mocks so test bodies can inspect call counts for log-suppression checks.
 const logMocks = vi.hoisted(() => ({
@@ -53,6 +54,13 @@ function makeService(
     catalog?: BoxTimerCatalogEntry[];
     actBossRoutes?: StageBoxTrackerRoute[];
     commonRoutes?: StageBoxTrackerRoute[];
+    /**
+     * Per-category stageKey → catalog box routes handed to the drop-recovery
+     * paths so a recovered drop keeps its LEVEL (real catalog id) instead of
+     * landing in the synthetic per-category bucket. Defaults to `null`
+     * (unwired), which is the pre-fix behaviour the older tests rely on.
+     */
+    boxRoutes?: BackfillBoxRoutes | null;
     currentStageKey?: number | null;
     /**
      * Mutable ref for the CURRENT stageKey, letting a test simulate the player
@@ -118,6 +126,7 @@ function makeService(
     stageBoxCatalog: () => opts.catalog ?? [],
     actBossRoutes: () => opts.actBossRoutes ?? ACT_BOSS_ROUTES,
     commonRoutes: () => opts.commonRoutes ?? COMMON_ROUTES,
+    boxRoutes: () => opts.boxRoutes ?? null,
     getCurrentStageKey: () => opts.currentStageKeyRef?.value ?? opts.currentStageKey ?? null,
     // `??` would collapse the tri-state's `null` ("unknown") into `false`
     // ("normal map") — presence-check instead so `null` survives.
@@ -4981,5 +4990,129 @@ describe("AutoClassifyService drop-time level pinning", () => {
     chestDropTracker.recordLiveChestDrop("common", 1.0, "live", LV90_MAP);
     service.reconcileWithChestSlots({ ...zeroSlots(), act: 1 });
     expect(service.getQueueSnapshot().items[0]!.boxKey).toBe("act:90");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recovered DROPS must keep their LEVEL (field report, 2026-10-15).
+//
+// Measured on a live game: a 关卡宝箱 (stage-boss chest) landed in the drop list
+// as `itemKey=900920` — the synthetic per-category bucket, name "Stage boss
+// chest" — with NO level, minutes after the live path had started booking
+// `920901` "Stage Boss Box Lv90". Log trail for that chest:
+//
+//   13:39:19.756  acquire ring granted 获得了关卡宝箱。(木乃伊)
+//   13:39:23.329  reconcile: backfilled 1 rare item(s) (queue 13 < slots 14)
+//   13:39:29.023  reconcile: recorded 1 missed rare drop(s) (deferred save slot
+//                 increase, grace 5000ms, covered-live 0)   ← booked 900920
+//
+// Cause: the two AutoClassifyService recovery paths called
+// `recordLiveChestDrop`, which can only book the synthetic bucket. They now go
+// through `recordStagedChestDrop` with a catalog id resolved from the same
+// stageKey→box route table TrackingService uses.
+// ---------------------------------------------------------------------------
+
+describe("AutoClassifyService recovered drops keep their catalog level", () => {
+  /** stageKey 4310 (Torment 3-10) drops a Lv90 box in every category here. */
+  const LV90_STAGE = 4310;
+  const BOX_ROUTES: BackfillBoxRoutes = {
+    byCategory: new Map([
+      ["rare", [{ level: 90, boxId: 920901, dropStageKeys: [LV90_STAGE] }]],
+      ["common", [{ level: 90, boxId: 910901, dropStageKeys: [LV90_STAGE] }]],
+      ["act", [{ level: 90, boxId: 930901, dropStageKeys: [LV90_STAGE] }]],
+    ]),
+  };
+  const AUTO_OPEN = {
+    common: 300,
+    stageBoss: 600,
+    actBoss: 60,
+    plagueCommon: 600,
+    plagueRare: 1200,
+    plagueAct: 120,
+  };
+  const zeroSlots = () => ({
+    common: 0,
+    rare: 0,
+    act: 0,
+    plagueCommon: 0,
+    plagueRare: 0,
+    plagueAct: 0,
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("books the real catalog id for a deferred save-slot recovery", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: LV90_STAGE,
+      boxRoutes: BOX_ROUTES,
+      isPlagueMap: () => false,
+    });
+
+    // Baseline, then a save parse that shows one MORE rare slot than the queue —
+    // the chest the live GetBox channel missed.
+    service.reconcileWithChestSlots(zeroSlots());
+    service.reconcileWithChestSlots({ ...zeroSlots(), rare: 1 });
+
+    // Past RECOVERY_GRACE_MS (5s) → the deferred recovery flushes on tick.
+    vi.setSystemTime(FIXED_NOW_MS + 20_000);
+    service.tick();
+
+    const recovered = chestDropTracker.fitHistory().filter((e) => e.category === "rare");
+    expect(recovered.length).toBe(1);
+    // The REAL catalog id (carries Lv90) — NOT the synthetic 900920 bucket.
+    expect(recovered[0]!.itemKey).toBe(920901);
+    expect(recovered[0]!.itemKey).not.toBe(900920);
+    expect(recovered[0]!.name).not.toBe("Stage boss chest");
+  });
+
+  it("falls back to the synthetic bucket when no box routes are wired", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: LV90_STAGE,
+      boxRoutes: null, // unwired
+      isPlagueMap: () => false,
+    });
+
+    service.reconcileWithChestSlots(zeroSlots());
+    service.reconcileWithChestSlots({ ...zeroSlots(), rare: 1 });
+    vi.setSystemTime(FIXED_NOW_MS + 20_000);
+    service.tick();
+
+    const recovered = chestDropTracker.fitHistory().filter((e) => e.category === "rare");
+    expect(recovered.length).toBe(1);
+    // No routes → no id to book. Still COUNTED (never dropped), just levelless.
+    expect(recovered[0]!.itemKey).toBe(900920);
+  });
+
+  it("leaves the drop levelless rather than inventing one for an unknown stage", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: 9999, // not in BOX_ROUTES
+      boxRoutes: BOX_ROUTES,
+      isPlagueMap: () => false,
+    });
+
+    service.reconcileWithChestSlots(zeroSlots());
+    service.reconcileWithChestSlots({ ...zeroSlots(), rare: 1 });
+    vi.setSystemTime(FIXED_NOW_MS + 20_000);
+    service.tick();
+
+    const recovered = chestDropTracker.fitHistory().filter((e) => e.category === "rare");
+    expect(recovered.length).toBe(1);
+    expect(recovered[0]!.itemKey).toBe(900920);
   });
 });

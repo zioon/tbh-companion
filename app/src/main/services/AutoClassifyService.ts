@@ -14,6 +14,7 @@ import {
 import type { BoxOpenTracker } from "../../core/boxOpenTracker";
 import { categoryFromBoxKey, UNCLASSIFIED_BOX_KEY } from "../../core/boxOpenLog";
 import { inferLevelFromStage, type StageBoxTrackerRoute } from "../../core/stageBoxTracker";
+import { boxIdForStageCategory, type BackfillBoxRoutes } from "../../core/boxOpenBackfill";
 import {
   computeTtlMs,
   enqueue,
@@ -189,6 +190,19 @@ export interface AutoClassifyServiceDeps {
    * boss boxes but have different level numbering at low levels (Lv1/5/10 vs
    * RARE Lv4/5/7), so they need their own route table. */
   commonRoutes: () => ReadonlyArray<StageBoxTrackerRoute>;
+  /**
+   * The same per-category drop routes (stageKey → catalog box) the box-open
+   * backfill and the chest-drop reconcile use, so a recovered DROP can be booked
+   * under its REAL catalog id (which carries the level) rather than the
+   * synthetic per-category bucket.
+   *
+   * Measured gap this closes: the recovery paths below used
+   * `recordLiveChestDrop`, which books `900920` "Stage boss chest" for every
+   * rare drop — so a 关卡宝箱 recovered from the save slot delta showed in the
+   * drop list with NO level even though the live path had just started
+   * recording `920901` "Stage Boss Box Lv90". Null until appState wires it.
+   */
+  boxRoutes?: () => BackfillBoxRoutes | null;
   getCurrentStageKey: () => number | null;
   /**
    * Whether the player's CURRENT map is a plague (Contaminated) map.
@@ -561,6 +575,32 @@ export class AutoClassifyService {
       paused: this.inventoryFullSinceMs != null,
       pendingBurstsCount: this.pendingBursts.length,
     };
+  }
+
+  /**
+   * Run `fn` with `handleChestDrop` suppressed.
+   *
+   * Any out-of-band call to `ChestDropTracker.recordLiveChestDrop` /
+   * `recordStagedChestDrop` fires the tracker's `onDrop` callback, which lands
+   * in {@link handleChestDrop} and enqueues the chest. For a REPAIR path that
+   * is wrong: the chest it recovers is either already queued (the live channel
+   * saw it) or deliberately not queued (it is a statistics repair), so letting
+   * the callback through double-queues it on top of whatever enqueued it
+   * first. The existing backfills guard this with the private
+   * {@link suppressingHandleChestDrop} flag; this exposes the same guard for the
+   * acquire-ring drop reconcile, which lives in TrackingService and would
+   * otherwise have to reach into a private field.
+   */
+  withChestDropSuppressed<T>(fn: () => T): T {
+    const wasSuppressed = this.suppressingHandleChestDrop;
+    this.suppressingHandleChestDrop = true;
+    try {
+      return fn();
+    } finally {
+      // Restore rather than clear: a nested call must not re-enable a
+      // suppression an outer frame still relies on.
+      this.suppressingHandleChestDrop = wasSuppressed;
+    }
   }
 
   /** Called by TrackingService when a chest drop is recorded. */
@@ -982,11 +1022,15 @@ export class AutoClassifyService {
           for (let r = 0; r < toRecover; r++) {
             // source "reconcile" keeps live credits untouched (only live
             // drops push them) and marks these as recovered, not live-seen.
-            this.deps.chestDropTracker.recordLiveChestDrop(
+            // Book the REAL catalog id so the recovered chest keeps its level —
+            // the synthetic bucket would show it as a levelless "Stage boss
+            // chest" forever (field-measured, 2026-10-15).
+            this.deps.chestDropTracker.recordStagedChestDrop(
               recovery.category,
               wallTimeSec,
               "reconcile",
               recovery.stageKey,
+              this.dropBoxIdForStage(recovery.category, recovery.stageKey),
             );
           }
         } finally {
@@ -1203,11 +1247,16 @@ export class AutoClassifyService {
         // recovered drop history agrees with the boxKey assigned above.
         const dropStageKey = stageKey > 0 ? stageKey : this.stageKeyForCategory(cat) || undefined;
         for (let i = 0; i < toBackfill; i++) {
-          this.deps.chestDropTracker.recordLiveChestDrop(
+          // Same reason as the deferred recovery above: book the real catalog id
+          // so a backfilled drop still carries its level. `dropStageKey` is the
+          // very map used to classify these opens, so the drop entry and the
+          // boxKey agree.
+          this.deps.chestDropTracker.recordStagedChestDrop(
             cat as ChestDropCategory,
             wallTimeSec,
             "reconcile",
             dropStageKey,
+            this.dropBoxIdForStage(cat as ChestDropCategory, dropStageKey),
           );
         }
       } finally {
@@ -1765,6 +1814,20 @@ export class AutoClassifyService {
     const matches = routes.filter((route) => route.dropStageKeys.includes(stageKey));
     if (matches.length === 0) return null;
     return matches.reduce((max, route) => (route.level > max ? route.level : max), 0) || null;
+  }
+
+  /**
+   * Catalog id of the box that drops at `stageKey` for `category`, or null.
+   *
+   * A recovered DROP must be booked under its real catalog id, not the synthetic
+   * per-category bucket — the id is the only thing that carries the LEVEL into
+   * the drop list. Delegates to the same core lookup `TrackingService` uses
+   * (`core/boxOpenBackfill.boxIdForStageCategory`), so there is one table and
+   * one answer; null leaves the caller on the category bucket rather than
+   * inventing an id.
+   */
+  private dropBoxIdForStage(category: ChestDropCategory, stageKey?: number): number | null {
+    return boxIdForStageCategory(category, stageKey, this.deps.boxRoutes?.() ?? null);
   }
 
   private autoOpenForBoxKey(

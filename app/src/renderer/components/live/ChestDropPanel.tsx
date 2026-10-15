@@ -63,7 +63,17 @@ export function ChestDropPanel({
                 className: "tabular-nums text-muted whitespace-nowrap",
               },
               {
-                content: t(CHEST_NAME_KEY[entry.category] ?? "colChest"),
+                // Prefer the entry's own catalog name, which carries the LEVEL
+                // ("Stage Boss Box Lv90"). The drop path books the real item id
+                // whenever the drop's map resolves it (`recordStagedChestDrop`),
+                // so the level is on the entry. Fall back to the localized
+                // category label only for entries still booked into the
+                // synthetic bucket — legacy/restored rows, or a map whose route
+                // did not resolve. Showing the generic label there is honest;
+                // showing a guessed level would not be.
+                content: isSyntheticLiveBucket(entry.itemKey)
+                  ? t(CHEST_NAME_KEY[entry.category] ?? "colChest")
+                  : entry.name,
                 className: cn(
                   "min-w-0 truncate",
                   HIGHLIGHTED.has(entry.category) ? "text-status-info" : "text-fg",
@@ -75,4 +85,20 @@ export function ChestDropPanel({
       </LiveHistoryPanel>
     </>
   );
+}
+
+/**
+ * The synthetic per-category bucket ids `recordLiveChestDrop` books when the
+ * drop's map resolved no level.
+ *
+ * They sit far above any real catalog id (910011–935203) and are exactly the
+ * `LIVE_CHEST_KEY` set in `core/chestDropTracker.ts`, so membership is what
+ * distinguishes "level known" from "category only" without a second lookup.
+ */
+const SYNTHETIC_LIVE_BUCKET_IDS: ReadonlySet<number> = new Set([
+  900910, 900920, 900930, 900915, 900925, 900935,
+]);
+
+function isSyntheticLiveBucket(itemKey: number): boolean {
+  return SYNTHETIC_LIVE_BUCKET_IDS.has(itemKey);
 }

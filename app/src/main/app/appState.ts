@@ -332,21 +332,30 @@ function persistWindowLayout<K extends keyof WindowLayoutPrefs>(
  * keep the category-only boxKey rather than guess one.
  */
 function buildBackfillBoxRoutes(): BackfillBoxRoutes {
-  const byCategory = new Map<string, { level: number; dropStageKeys: number[] }[]>();
+  const byCategory = new Map<
+    string,
+    { level: number; boxId?: number; dropStageKeys: number[] }[]
+  >();
+  // `boxId` rides along so a caller that must book a real catalog item (the
+  // chest-drop reconcile does) can do so without inventing an id from the level.
   const add = (
     category: string,
-    entries: ReadonlyArray<{ level: number; dropStageKeys: readonly number[] }>,
+    entries: ReadonlyArray<{ level: number; boxId?: number; dropStageKeys: readonly number[] }>,
   ): void => {
     byCategory.set(
       category,
-      entries.map((e) => ({ level: e.level, dropStageKeys: [...e.dropStageKeys] })),
+      entries.map((e) => ({
+        level: e.level,
+        ...(e.boxId != null ? { boxId: e.boxId } : {}),
+        dropStageKeys: [...e.dropStageKeys],
+      })),
     );
   };
 
   const rareLevels = boxTimers
     .getState()
-    .catalog.map((e) => ({ level: e.level, farmStageOptions: e.farmStageOptions }));
-  const rareRoutes: { level: number; dropStageKeys: number[] }[] = [];
+    .catalog.map((e) => ({ level: e.level, boxId: e.boxId, farmStageOptions: e.farmStageOptions }));
+  const rareRoutes: { level: number; boxId?: number; dropStageKeys: number[] }[] = [];
   for (const entry of rareLevels) {
     if (entry.level == null) continue;
     const dropStageKeys: number[] = [];
@@ -354,7 +363,13 @@ function buildBackfillBoxRoutes(): BackfillBoxRoutes {
       const key = typeof opt === "number" ? opt : opt.stageKey;
       if (Number.isFinite(key) && key > 0) dropStageKeys.push(key);
     }
-    if (dropStageKeys.length > 0) rareRoutes.push({ level: entry.level, dropStageKeys });
+    if (dropStageKeys.length > 0) {
+      rareRoutes.push({
+        level: entry.level,
+        ...(entry.boxId != null ? { boxId: entry.boxId } : {}),
+        dropStageKeys,
+      });
+    }
   }
   add("rare", rareRoutes);
   add("common", loadCommonChestTrackerRoutes());
@@ -475,6 +490,13 @@ export function startTracking(): SessionUiSnapshot {
     stageBoxCatalog: () => boxTimers.getState().catalog,
     actBossRoutes: () => loadActBossTrackerRoutes(),
     commonRoutes: () => loadCommonChestTrackerRoutes(),
+    // The chest-drop recovery paths inside AutoClassifyService book a recovered
+    // chest through `recordStagedChestDrop`, which needs the catalog box id to
+    // keep the drop's LEVEL. Same table the box-open backfill / chest-drop
+    // reconcile use (set on `tracking` a few lines below) — one source, so all
+    // three paths agree on which box a stage drops. Lazy getter: the routes are
+    // injected after this constructor runs.
+    boxRoutes: () => tracking.getBoxRoutes(),
     getCurrentStageKey: () => tracking.getCurrentStageKey(),
     // Map family of the CURRENT map. `findBurstMatch` uses it to refuse
     // cross-family matches: on a plague map only plague-family chests can be

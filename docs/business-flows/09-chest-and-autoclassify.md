@@ -444,3 +444,49 @@ flowchart TD
 #### 回归测试
 
 `describe("AutoClassifyService drop-time level pinning")`，4 例：①live 帧已推进时仍用掉落自带地图；②placeholder 补齐用该类别的掉落地图；③该类别无任何掉落线索时才回落当前地图；④不借用**其他类别**的掉落地图。前 2 例在回退修复后必红（得到 `act:90` 而非 `act:20`），后 2 例锁住兜底语义。
+
+### 14.10 掉落记录写「真实 catalog id」而非合成桶（2026-10-15）
+
+#### 为什么改
+
+`ChestDropTracker` 的 `recordLiveChestDrop` 只写**合成记账 id**：`900910/900920/900930/900915/900925/900935`（配泛化名如 "Stage boss chest"）。后果是：
+
+- **等级永远丢在写入那一刻**。唯一能产出真实 `boxId`（如 `920901` = Stage Boss Box Lv90）的入口是 `recordLogDrop` → `resolveStageBoxDrop`，而 **`recordLogDrop` 在生产中零调用**（`Player.log` 掉落通道已移除，只剩测试在调）。于是 `ChestDropPanel` 拿到的永远是合成桶，**UI 无法显示「这是几级箱」**。
+- live 掉落与 §24.10 的对账补记**共用同一个写入函数**，所以补记也继承了这个缺陷——即使算出了等级也存不进去。
+
+#### 改法
+
+新增 `ChestDropTracker.recordStagedChestDrop(category, wallTime, source, stageKey, boxId)`：
+
+- `boxId` 解析成功 → 写真实 catalog id，**带等级**；
+- 解析失败 → **fallback 到 `recordLiveChestDrop`**（合成桶）。**绝不丢事件、绝不臆造等级**——等级错一次会污染该箱型的掉率统计，代价高于只显示泛化名。
+
+配套：`BackfillBoxRoute` 新增可选 `boxId`（`appState.buildBackfillBoxRoutes` 原来构造 route 时把 catalog 的 `boxId` 丢了）；**三条写入路径全部改走** `recordStagedChestDrop` —— live 掉落（`TrackingService.ingestLiveFrame`）、§24.10 的环对账补记（`reconcileChestDropsFromRingLog`）、以及 `AutoClassifyService` 的两条补记（`flushDueDropRecoveries` / open-backfill，见下）。
+
+**展示层**（`renderer/components/live/ChestDropPanel.tsx`）：历史列表**优先显示 entry 自带的真实 catalog 名**（含等级），仅当 `itemKey` 命中 `SYNTHETIC_LIVE_BUCKET_IDS` 时才回落为 `t(CHEST_NAME_KEY[entry.category])` 的泛化标签。判据必须是**显式的合成 id 列表**，不能用「名字里没有数字」之类的启发式。
+
+#### 现场反例：漏改一条补记路径，等级照样丢（2026-10-15 13:39 实测）
+
+修完 live 与对账两条路径后，现场日志立刻抓到了**第三条漏网的写入路径**：
+
+```
+13:39:19.756  acquire ring granted 获得了关卡宝箱。(木乃伊)          [rare]
+13:39:29.023  reconcile: recorded 1 missed rare drop(s)
+              (deferred save slot increase, grace 5000ms, covered-live 0)
+```
+
+该条目在 tracker history 里落成 `itemKey=900920` / name `"Stage boss chest"` —— **合成桶、无等级**，而此时 live 路径已经能写 `920901` "Stage Boss Box Lv90"。
+
+根因：`AutoClassifyService` 的两条**补记路径**仍在调 `recordLiveChestDrop`：
+- `flushDueDropRecoveries`（存档槽位增量的延迟补记，`RECOVERY_GRACE_MS=5000`）；
+- `classifyAllPendingBursts` 的 open-backfill（由开箱反推补记，`OPEN_BACKFILL_WINDOW_SEC=120`）。
+
+它们的类别仍是 `rare`，所以 §24.10 的环对账把这条 grant 判为**已记账**、保持沉默 —— **等级只能在写入端修，对账器无从补救**。（这条分工也固化成了 `chestDropReconcileField.test.ts` 的 (B) 例：一条合成桶条目在 matcher 眼里就是已记账。）
+
+修法：把 stageKey→boxId 的反查抽成 core 共用函数 `boxIdForStageCategory(category, stageKey, routes)`（`core/boxOpenBackfill.ts`，`levelForStage` 同时改为委托新的 `routeForStage`）；`TrackingService` 的私有实现退化成一行委托；`AutoClassifyService` 经新增依赖 `boxRoutes: () => tracking.getBoxRoutes()` 取同一张表，两处补记改走 `recordStagedChestDrop`。**三条写入路径共用一份查表**，杜绝「某条路径漏盖章 → 那个箱子永远只有泛化名」。
+
+回归测试：`boxOpenBackfill.test.ts` 的 `describe("boxIdForStageCategory")`（3 例，含 malformed 数据取最高等级、六种未知情形一律返回 `null` 保留合成桶）+ `autoClassifyService.test.ts` 的 `describe("AutoClassifyService recovered drops keep their catalog level")`（3 例：真实 catalog id、未接线时回落合成桶、未知关不臆造）。
+
+#### 与 §14.9 的关系
+
+§14.9 确立了「等级在**掉落时**固定」，本节确立「等级在**写入时**就要落盘」。两者是同一条不变量的两端：stageKey 由掉落通道盖章（§14.9），boxId 由盖章的 stageKey 反查（§14 步骤 4 / §24.10.4）。**任何新增的掉落写入路径都必须走 `recordStagedChestDrop`**，否则等于把等级重新丢掉。

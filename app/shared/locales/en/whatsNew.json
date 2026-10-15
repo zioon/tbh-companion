@@ -3,6 +3,13 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.6": {
+      "title": "What's new in v1.27.6",
+      "bullets": [
+        "Fixed: the Loot page and auto-classify could miss chest drops (measured 11 real drops in 23.9 minutes, only 6 recorded) while the Record page stayed complete and the chest timer still reset. Drops are now reconciled against the Record page's independent channel and recovered per category.",
+        "Fixed: recovered chests showed no level — they were booked under generic names such as \"Stage boss chest\". Every drop is now resolved to the real catalog box for the stage it landed on, so the level is shown (e.g. \"Stage Boss Box Lv90\")."
+      ]
+    },
     "1.27.5": {
       "title": "What's new in v1.27.5",
       "bullets": [

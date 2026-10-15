@@ -117,6 +117,17 @@ export interface BackfillClearEvent {
 export interface BackfillBoxRoute {
   /** Level as encoded in a boxKey (`${category}:${level}`). */
   level: number;
+  /**
+   * The catalog item id of this level's box (e.g. `920901` = Stage Boss Box
+   * Lv90), when the route came from a loader that carries one.
+   *
+   * Not needed for level inference — `dropStageKeys` alone is exact — but it
+   * lets a caller that must book a REAL catalog item (rather than a synthetic
+   * per-category bucket) do so without inventing an id from the level. Absent
+   * for routes built from level-only sources, so every consumer must treat it
+   * as optional.
+   */
+  boxId?: number;
   dropStageKeys: readonly number[];
 }
 
@@ -567,13 +578,33 @@ function stageKeyFromLabel(label: string, difficultyRef: number): number | null 
 }
 
 /**
- * Map a stageKey to a box level for `category`, from the injected routes.
+ * The route whose `dropStageKeys` claim `stageKey` for `category`, or null.
  *
  * `dropStageKeys` are disjoint per level within a category (verified against
  * the bundled catalog: all 11 levels of the COMMON/RARE line, and every ACT
  * boss route, claim their own stages), so the match is exact. Two matches at
  * the same stage are only possible in malformed data, where the HIGHEST level
  * wins — mirroring `resolveTrackedDropBoxIdForStage`'s tie-break.
+ */
+function routeForStage(
+  category: string,
+  stageKey: number,
+  routes: BackfillBoxRoutes,
+): BackfillBoxRoute | null {
+  const list = routes.byCategory.get(category);
+  if (!list || list.length === 0) return null;
+  if (!Number.isFinite(stageKey) || stageKey <= 0) return null;
+  let best: BackfillBoxRoute | null = null;
+  for (const route of list) {
+    if (!Number.isFinite(route.level) || route.level <= 0) continue;
+    if (!route.dropStageKeys.includes(stageKey)) continue;
+    if (best === null || route.level > best.level) best = route;
+  }
+  return best;
+}
+
+/**
+ * Map a stageKey to a box level for `category`, from the injected routes.
  *
  * Returns null when the category has no routes (plague variants), the stageKey
  * is unknown, or nothing drops there — and a null leaves the caller's
@@ -584,16 +615,33 @@ function levelForStage(
   stageKey: number,
   routes: BackfillBoxRoutes,
 ): number | null {
-  const list = routes.byCategory.get(category);
-  if (!list || list.length === 0) return null;
-  if (!Number.isFinite(stageKey) || stageKey <= 0) return null;
-  let best: number | null = null;
-  for (const route of list) {
-    if (!Number.isFinite(route.level) || route.level <= 0) continue;
-    if (!route.dropStageKeys.includes(stageKey)) continue;
-    if (best === null || route.level > best) best = route.level;
-  }
-  return best;
+  return routeForStage(category, stageKey, routes)?.level ?? null;
+}
+
+/**
+ * The catalog id of the box that drops at `stageKey` for `category`, or null.
+ *
+ * The same lookup as {@link levelForStage} but returning the box's OWN id
+ * instead of its level. That id is what carries the level to the UI: every path
+ * that books a chest DROP must use it (via
+ * `ChestDropTracker.recordStagedChestDrop`) rather than the synthetic
+ * per-category bucket, otherwise the drop shows as a generic "Stage boss chest"
+ * with no level forever — measured in the field as a 关卡宝箱 landing in the
+ * drop list with `itemKey=900920` ("Stage boss chest") instead of `920901`
+ * ("Stage Boss Box Lv90").
+ *
+ * Null under exactly the same conditions as {@link levelForStage} (plus a null
+ * `routes`), and the caller then keeps the category bucket rather than
+ * inventing an id from the level.
+ */
+export function boxIdForStageCategory(
+  category: string,
+  stageKey: number | undefined,
+  routes: BackfillBoxRoutes | null | undefined,
+): number | null {
+  if (routes == null) return null;
+  if (stageKey == null) return null;
+  return routeForStage(category, stageKey, routes)?.boxId ?? null;
 }
 
 /**

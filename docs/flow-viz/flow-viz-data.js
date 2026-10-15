@@ -20,7 +20,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/13-web-inspector.md",
     "docs/business-flows/14-wish-record.md"
   ],
-  "generatedAt": "2026-10-07T03:12:28.173Z",
+  "generatedAt": "2026-10-15T06:03:08.810Z",
   "flows": [
     {
       "number": 18,

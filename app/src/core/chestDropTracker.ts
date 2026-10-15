@@ -804,11 +804,74 @@ export class ChestDropTracker {
   }
 
   /**
+   * Record a live drop whose exact box (and therefore LEVEL) is known.
+   *
+   * The live `GetBox` log carries only a category, so {@link recordLiveChestDrop}
+   * books the drop into a synthetic per-category bucket (key 900910/900920/…)
+   * and the displayed name is the generic "Stage boss chest". That made the
+   * Chest/Chests views unable to say WHICH stage-boss chest dropped, and left
+   * `countsByKey` permanently at three synthetic buckets.
+   *
+   * When the caller can resolve the box from the drop's `stageKey` — the map a
+   * chest drops on determines its level, and `stage_boxes.json`'s
+   * `dropStageKeys` are disjoint per level — this method books the REAL catalog
+   * item instead, so the breakdown and the drop history both carry the level.
+   *
+   * Falls back to the category-only synthetic bucket when no box resolves for
+   * the stage (plague maps have no routes, and a stage with no drop route is a
+   * lookup miss, not a reason to drop the event). A level is never invented.
+   *
+   * `source` keeps {@link recordLiveChestDrop}'s contract: only `"live"` records
+   * a credit, so the reconcile compensation can tell a real detection from a
+   * repair and never double-books one chest.
+   */
+  recordStagedChestDrop(
+    category: ChestDropCategory,
+    wallTime: number,
+    source: "live" | "reconcile",
+    stageKey: number | undefined,
+    boxId: number | null,
+  ): boolean {
+    const resolved = boxId != null ? resolveStageBoxDrop(boxId) : null;
+    // A catalog miss must not silently drop the event: fall back to the
+    // category bucket so the drop is still counted.
+    if (!resolved) return this.recordLiveChestDrop(category, wallTime, source, stageKey);
+
+    const key = String(resolved.itemKey);
+    this.countsByKey.set(key, (this.countsByKey.get(key) ?? 0) + 1);
+    this.namesByKey.set(key, resolved.name);
+    this.categoriesByKey.set(key, resolved.category);
+    if (source === "live") {
+      const credits = this.liveCreditsByCategory[category];
+      credits.push(wallTime);
+      const overflow = credits.length - LIVE_CREDIT_MAX;
+      if (overflow > 0) credits.splice(0, overflow);
+    }
+
+    this.appendHistory({
+      wallTime,
+      itemKey: resolved.itemKey,
+      name: resolved.name,
+      category: resolved.category,
+      stageKey,
+    });
+    this.breakdownCache = null;
+    this.sessionDropStart ??= Math.min(this.trackingStartedAt, wallTime);
+    this.callbacks?.onDrop?.({
+      category: resolved.category,
+      wallTime,
+      itemKey: resolved.itemKey,
+      stageKey,
+    });
+    return true;
+  }
+
+  /**
    * 最近 `windowSec` 秒内某个类别的获得/掉落记录条数（含 live 与 reconcile 补记）。
    * 供"打开反推获得"去重：宝箱能被打开必先被获得过，若近期已对该类别记过获得，
    * 说明这次打开对应着已保质化的获得，不必重复补记。O(history)，仅在打开分类事件
    * （低频）调用。基于 history 而非 recentEntries，因为 recentEntries 是 1 小时滚动率
-   * 的滑动窗口、不含 reconcile 补记语义。wallTime 可能乱序，故只做日期比较计数。
+   * 的滑动窗口、不含reconcile 补记语义。wallTime 可能乱序，故只做日期比较计数。
    */
   dropCountWithin(category: ChestDropCategory, windowSec: number): number {
     const cutoff = nowSeconds() - windowSec;

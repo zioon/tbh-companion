@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   backfillOpensFromLog,
+  boxIdForStageCategory,
   BACKFILL_WINDOW_SEC,
   type BackfillBoxRoutes,
   type BackfillChestEvent,
@@ -544,5 +545,64 @@ describe("backfillOpensFromLog level inference from stage clears", () => {
       { clears: [{ wallTime: 900, stageKey: 3305 }], boxRoutes: ROUTES },
     );
     expect(r.candidates[0]!.boxKey).toBe("common:65");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `boxIdForStageCategory` — the shared stageKey → catalog box lookup every
+// drop-booking path uses (TrackingService's acquire-ring reconcile and
+// AutoClassifyService's two recovery paths). The LEVEL alone is not enough: the
+// caller needs the box's OWN catalog id, because the synthetic per-category
+// bucket renders as a levelless "Stage boss chest" forever (field-measured
+// 2026-10-15: a 关卡宝箱 booked as `900920` while the live path booked `920901`).
+// ---------------------------------------------------------------------------
+describe("boxIdForStageCategory", () => {
+  const ROUTES_WITH_IDS: BackfillBoxRoutes = {
+    byCategory: new Map([
+      [
+        "rare",
+        [
+          { level: 65, boxId: 920651, dropStageKeys: [3205, 3305] },
+          { level: 90, boxId: 920901, dropStageKeys: [4309, 4310] },
+        ],
+      ],
+      ["common", [{ level: 90, boxId: 910901, dropStageKeys: [4309] }]],
+      ["act", []],
+    ]),
+  };
+
+  it("returns the catalog id of the box that drops at the stage", () => {
+    expect(boxIdForStageCategory("rare", 4310, ROUTES_WITH_IDS)).toBe(920901);
+    expect(boxIdForStageCategory("common", 4309, ROUTES_WITH_IDS)).toBe(910901);
+  });
+
+  it("returns the HIGHEST level's id when malformed data overlaps a stage", () => {
+    const overlap: BackfillBoxRoutes = {
+      byCategory: new Map([
+        [
+          "rare",
+          [
+            { level: 65, boxId: 920651, dropStageKeys: [4310] },
+            { level: 90, boxId: 920901, dropStageKeys: [4310] },
+          ],
+        ],
+      ]),
+    };
+    expect(boxIdForStageCategory("rare", 4310, overlap)).toBe(920901);
+  });
+
+  it("returns null (keeps the category bucket) for every unknown case", () => {
+    // Unwired routes, unknown stage, a stage nothing drops on, a category with
+    // no routes, and a route carrying no id — all null, so the caller stays
+    // category-only instead of inventing a level.
+    expect(boxIdForStageCategory("rare", 4310, null)).toBeNull();
+    expect(boxIdForStageCategory("rare", undefined, ROUTES_WITH_IDS)).toBeNull();
+    expect(boxIdForStageCategory("rare", 0, ROUTES_WITH_IDS)).toBeNull();
+    expect(boxIdForStageCategory("rare", 9999, ROUTES_WITH_IDS)).toBeNull();
+    expect(boxIdForStageCategory("act", 4309, ROUTES_WITH_IDS)).toBeNull();
+    const noId: BackfillBoxRoutes = {
+      byCategory: new Map([["rare", [{ level: 90, dropStageKeys: [4310] }]]]),
+    };
+    expect(boxIdForStageCategory("rare", 4310, noId)).toBeNull();
   });
 });
