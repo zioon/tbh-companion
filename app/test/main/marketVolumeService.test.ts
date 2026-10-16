@@ -62,7 +62,12 @@ function makeService(
     getFxRates: overrides.getFxRates,
     getSnapshotPriceUsd: overrides.getSnapshotPriceUsd,
     filePath: () => file,
-    fetchHistory: overrides.fetchHistory,
+    // 未显式声明币种的 mock 视为已返回基准货币（USD）——绝大多数用例测的是
+    // 聚合/持久化/导入导出，与币种判定无关。币种判不出的行为由下方
+    // 「币种无法判定时丢弃该 hash」用例专门覆盖。
+    fetchHistory:
+      overrides.fetchHistory ??
+      (async () => ({ ok: true, status: 200, currency: "USD", points: [] })),
     fetchAnchorMedian: overrides.fetchAnchorMedian,
     onHistoryProgress: overrides.onHistoryProgress,
   });
@@ -118,7 +123,10 @@ describe("MarketVolumeService pricehistory 校正到基准货币（USD）", () =
     expect(anchorCalls).toBe(0);
   });
 
-  it("pricehistory 货币解析不出（null）时保持原样，不换算", async () => {
+  it("pricehistory 货币解析不出（null）且无 fx 表可反查时丢弃该 hash，不原样入库", async () => {
+    // 回归 2026-09 实测事故：旧实现在币种判不出时「原值放行」，把人民币当USD
+    // 写进标着 USD 的文件，展示层再乘一次汇率 ⇒ 金额高估约 6.7 倍。
+    // 正确行为是宁可丢数据也不能让外币冒充基准货币。
     const svc = makeService({
       currency: "CNY",
       targetHashes: ["Copper Coin"],
@@ -131,7 +139,28 @@ describe("MarketVolumeService pricehistory 校正到基准货币（USD）", () =
       fetchAnchorMedian: async () => 1.91,
     });
     await svc.refreshHistory(BASE);
-    expect(svc.getPriceHistory()["Copper Coin"][0].price).toBe(0.55);
+    expect(svc.getPriceHistory()["Copper Coin"]).toBeUndefined();
+  });
+
+  it("pricehistory 货币解析不出（null）时用 USD 锚 + fx 表反查救回并换算", async () => {
+    // 歧义前缀（¥ = JPY/CNY）走这一级：0.55 人民币 ÷ 1.91 美元锚 ≈ 0.288，
+    // 命中 fx 里的 CNY(6.6921) 量级（相对误差 < 15%）。
+    const svc = makeService({
+      currency: "CNY",
+      targetHashes: ["Copper Coin"],
+      getFxRates: () => ({ USD: 1, CNY: 6.6921 }),
+      fetchHistory: async () => ({
+        ok: true,
+        status: 200,
+        currency: null,
+        points: [{ timestamp: BASE / 1000, price: 0.55, volume: 100 }],
+      }),
+      fetchAnchorMedian: async () => 0.0822, // 0.55 / 6.6921 ≈ 0.0822
+    });
+    await svc.refreshHistory(BASE);
+    const ph = svc.getPriceHistory()["Copper Coin"];
+    // 已按 CNY 回算成 USD：0.55 / 6.6921
+    expect(ph[0].price).toBeCloseTo(0.55 / 6.6921, 6);
   });
 });
 
@@ -162,6 +191,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [
           { timestamp: BASE / 1000, price: 0.5, volume: 100 },
@@ -184,7 +214,7 @@ describe("MarketVolumeService 持久化", () => {
     ];
     const svc = makeService({
       targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({ ok: true, status: 200, points }),
+      fetchHistory: async () => ({ ok: true, status: 200, currency: "USD", points }),
     });
     await svc.refreshHistory(BASE);
     expect(svc.getPriceHistory()["Copper Coin"]).toEqual(points);
@@ -203,7 +233,7 @@ describe("MarketVolumeService 持久化", () => {
     }));
     const svc = makeService({
       targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({ ok: true, status: 200, points }),
+      fetchHistory: async () => ({ ok: true, status: 200, currency: "USD", points }),
     });
     await svc.refreshHistory(BASE);
     expect(svc.getStats().hourly.length).toBe(30 * 24);
@@ -217,6 +247,7 @@ describe("MarketVolumeService 持久化", () => {
         fetchCount += 1;
         return {
           ok: true,
+          currency: "USD",
           status: 200,
           points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
         };
@@ -233,6 +264,7 @@ describe("MarketVolumeService 持久化", () => {
         fetchCount += 1;
         return {
           ok: true,
+          currency: "USD",
           status: 200,
           points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
         };
@@ -247,6 +279,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
       }),
@@ -258,7 +291,7 @@ describe("MarketVolumeService 持久化", () => {
     // 第二次：超过 60min 缓存触发拉取，但拉不到数据（空 points）→ 不覆盖已有数据
     const svc2 = makeService({
       targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({ ok: true, status: 200, points: [] }),
+      fetchHistory: async () => ({ ok: true, status: 200, currency: "USD", points: [] }),
     });
     expect(await svc2.refreshHistory(BASE + 61 * 60_000)).toBe(false);
     expect(svc2.getStats().hourly).toEqual(before);
@@ -281,7 +314,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async (_hash, _currency, cookie) => {
         received.push(cookie ?? "");
-        return { ok: true, status: 200, points: [] };
+        return { ok: true, status: 200, currency: "USD", points: [] };
       },
     });
     await svc.refreshHistory(BASE);
@@ -294,7 +327,12 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Default Only"],
       fetchHistory: async (hash) => {
         fetched.push(hash);
-        return { ok: true, status: 200, points: [{ timestamp: BASE / 1000, price: 1, volume: 1 }] };
+        return {
+          ok: true,
+          status: 200,
+          currency: "USD",
+          points: [{ timestamp: BASE / 1000, price: 1, volume: 1 }],
+        };
       },
     });
     // 传入 targets 覆盖 getTargetHashes() 的默认集合
@@ -310,6 +348,7 @@ describe("MarketVolumeService 持久化", () => {
         fetchCount += 1;
         return {
           ok: true,
+          currency: "USD",
           status: 200,
           points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
         };
@@ -383,6 +422,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
       fetchHistory: async (_hash) => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [
           { timestamp: BASE / 1000, price: 0.5, volume: 100 },
@@ -433,6 +473,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
       fetchHistory: async (hash) => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [
           // 用「当前时间附近」的时间戳，确保落在最近 24h 窗口内被计入排序口径。
@@ -469,6 +510,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
       }),
@@ -495,6 +537,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin", "Sword (Legendary) A"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [
           { timestamp: BASE / 1000, price: 0.5, volume: 100 },
@@ -527,6 +570,7 @@ describe("MarketVolumeService 持久化", () => {
         const ts = hash === "Copper Coin" ? BASE / 1000 - 48 * 3600 : BASE / 1000 - 3600;
         return {
           ok: true,
+          currency: "USD",
           status: 200,
           points: [{ timestamp: ts, price: 0.5, volume: 100 }],
         };
@@ -568,6 +612,7 @@ describe("MarketVolumeService 持久化", () => {
         }
         return {
           ok: true,
+          currency: "USD",
           status: 200,
           points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
         };
@@ -595,6 +640,7 @@ describe("MarketVolumeService 持久化", () => {
         fetched.push(hash);
         return {
           ok: true,
+          currency: "USD",
           status: 200,
           points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
         };
@@ -615,6 +661,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [{ timestamp: BASE / 1000 - 48 * 3600, price: 0.5, volume: 100 }],
       }),
@@ -722,6 +769,7 @@ describe("MarketVolumeService 持久化", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
       }),
@@ -750,7 +798,7 @@ describe("MarketVolumeService 持久化", () => {
     // 第一次：小时粒度（24 点/天）
     const svc = makeService({
       targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({ ok: true, status: 200, points: hourly }),
+      fetchHistory: async () => ({ ok: true, status: 200, currency: "USD", points: hourly }),
     });
     await svc.refreshHistory(BASE);
 
@@ -758,7 +806,7 @@ describe("MarketVolumeService 持久化", () => {
     const daily = [{ timestamp: dayStart, price: 1, volume: 24 }];
     const svc2 = makeService({
       targetHashes: ["Copper Coin"],
-      fetchHistory: async () => ({ ok: true, status: 200, points: daily }),
+      fetchHistory: async () => ({ ok: true, status: 200, currency: "USD", points: daily }),
     });
     await svc2.refreshHistory(BASE + 31 * 60_000, { force: true });
 
@@ -774,6 +822,7 @@ describe("MarketVolumeService 历史数据导出 / 融合导入", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [
           { timestamp: BASE / 1000, price: 0.5, volume: 100 },
@@ -836,6 +885,7 @@ describe("MarketVolumeService 历史数据导出 / 融合导入", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [
           { timestamp: BASE / 1000, price: 0.5, volume: 100 },
@@ -869,6 +919,7 @@ describe("MarketVolumeService 历史数据导出 / 融合导入", () => {
       targetHashes: ["Copper Coin"],
       fetchHistory: async () => ({
         ok: true,
+        currency: "USD",
         status: 200,
         points: [{ timestamp: BASE / 1000, price: 0.5, volume: 100 }],
       }),

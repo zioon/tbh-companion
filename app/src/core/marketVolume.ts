@@ -7,6 +7,7 @@ import type {
   MarketVolumeSample,
   MarketVolumeStats,
 } from "../../shared/types";
+import { priceHistoryCurrency } from "./steamPrice";
 
 /** Steam pricehistory 返回的单个历史点。 */
 export interface PriceHistoryPoint {
@@ -1145,6 +1146,102 @@ export interface CurrencyDetection {
 export const CURRENCY_DETECT_TOLERANCE = 0.15;
 /** 自动探测所需的最少样本物品数（低于该值直接判定为「无法识别」）。 */
 export const CURRENCY_DETECT_MIN_SAMPLES = 3;
+
+/**
+ * 单个物品 `pricehistory` 价格列的计价货币判定结果。
+ *
+ * `source` 说明判定依据，调用方应把它写进诊断日志——判定失败（`currency === null`）
+ * 意味着这批点**不可信**，绝不能按原值落盘。
+ */
+export interface HistoryCurrencyVerdict {
+  /** 判定出的 ISO 货币码；null = 三级判定全部失败。 */
+  currency: string | null;
+  /** 判定依据：`prefix` = price_prefix/suffix 唯一命中；`fx` = 锚点比值反查汇率表。 */
+  source: "prefix" | "fx" | null;
+  /** `source === "fx"` 时的反查相对误差；其余为 null。 */
+  relativeError: number | null;
+  /** `source === "fx"` 时锚点隐含的「每 1 USD 单位数」。 */
+  impliedUnitsPerUsd: number | null;
+}
+
+/**
+ * 判定**单个物品** `pricehistory` 价格列的计价货币。
+ *
+ * 背景：Steam `pricehistory` 忽略 `currency` 参数，价格列恒为**区域锁定货币**。
+ * 旧实现只靠 `price_prefix` 反查，而 `¥` 同时对应 JPY/CNY、`kr ` 对应 NOK/DKK、
+ * PLN/VND/UAH 前缀为空——这些都判不出来。判不出来时若「保守地不换算」，就会把
+ * 人民币当 USD 落盘，出库再乘一次汇率 ⇒ **金额高估约 6.7 倍**（2026-09 实测事故）。
+ *
+ * 因此这里做两级判定，任一命中即可：
+ * 1. `prefix`：`priceHistoryCurrency` 唯一命中（最权威，零歧义）；
+ * 2. `fx`：拿 priceoverview 的 USD 成交中位价 `usdMedian` 作锚，算
+ *    `implied = sourcePrice ÷ usdMedian`（= 每 1 USD 的该币单位数），再到 `fx`
+ *    表里找量纲最接近的币种。`¥` 这类歧义前缀靠这一级救回。
+ *
+ * 两级都失败时返回 `currency: null`——调用方**必须**据此拒绝原值落盘，而不是放行。
+ *
+ * @param prefix Steam 响应里的 `price_prefix`。
+ * @param usdMedian 同物品 priceoverview 的 USD 成交中位价（锚）；无则跳过 fx 判定。
+ * @param sourcePrice pricehistory 序列里与锚同期的价格（一般取最近有成交量的一点）。
+ * @param fx 图鉴汇率表（ISO → 每 1 USD 单位数）。
+ * @param tolerance fx 反查的相对误差容差，默认 {@link CURRENCY_DETECT_TOLERANCE}。
+ */
+export function resolveHistoryCurrency(opts: {
+  prefix?: string | null;
+  suffix?: string | null;
+  usdMedian?: number | null;
+  sourcePrice?: number | null;
+  fx?: Readonly<Record<string, number>>;
+  tolerance?: number;
+}): HistoryCurrencyVerdict {
+  // 第 1 级：前缀唯一命中。
+  const byPrefix = priceHistoryCurrency(opts.prefix, opts.suffix);
+  if (byPrefix) {
+    return { currency: byPrefix, source: "prefix", relativeError: null, impliedUnitsPerUsd: null };
+  }
+
+  // 第 2 级：锚点比值反查 fx 表。
+  const median = opts.usdMedian;
+  const src = opts.sourcePrice;
+  const fx = opts.fx;
+  if (
+    fx == null ||
+    typeof median !== "number" ||
+    !Number.isFinite(median) ||
+    median <= 0 ||
+    typeof src !== "number" ||
+    !Number.isFinite(src) ||
+    src <= 0
+  ) {
+    return { currency: null, source: null, relativeError: null, impliedUnitsPerUsd: null };
+  }
+
+  const implied = src / median;
+  const candidates = Object.entries(fx)
+    .filter(([, v]) => typeof v === "number" && Number.isFinite(v) && v > 0)
+    .map(([currency, unitsPerUsd]) => ({
+      currency: currency.toUpperCase(),
+      relativeError: Math.abs(unitsPerUsd - implied) / implied,
+    }))
+    .sort((a, b) => a.relativeError - b.relativeError);
+
+  const best = candidates[0];
+  const tolerance = opts.tolerance ?? CURRENCY_DETECT_TOLERANCE;
+  if (!best || best.relativeError > tolerance) {
+    return {
+      currency: null,
+      source: null,
+      relativeError: best?.relativeError ?? null,
+      impliedUnitsPerUsd: implied,
+    };
+  }
+  return {
+    currency: best.currency,
+    source: "fx",
+    relativeError: best.relativeError,
+    impliedUnitsPerUsd: implied,
+  };
+}
 
 /**
  * 依据「备份的价格历史」与「USD 价格参考」推算备份的计价货币。

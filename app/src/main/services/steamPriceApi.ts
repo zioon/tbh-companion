@@ -113,7 +113,18 @@ function buildEntry(
 }
 
 export type SteamPriceHistoryResult =
-  | { ok: true; status: number; points: PriceHistoryPoint[]; currency: string | null }
+  | {
+      ok: true;
+      status: number;
+      points: PriceHistoryPoint[];
+      currency: string | null;
+      /**
+       * 响应里的原始 `price_prefix`。`currency` 为 null 时（歧义前缀如 `¥` = JPY/CNY）
+       * 仍需把它透出，供调用方用锚点中位价反查币种——只透 `currency: null` 等于丢掉
+       * 唯一的判定线索。
+       */
+      pricePrefix?: string | null;
+    }
   | { ok: false; status: number; reason: SteamPriceFailReason; retryAfterMs?: number };
 
 /** 英文月份缩写 -> 月份索引（0 起）。用于解析 pricehistory 的格式化时间字符串。 */
@@ -241,5 +252,11 @@ export async function fetchSteamPriceHistory(
   // 请求的 currency 参数（返回区域锁定货币）。解析出来供调用方判断要不要换算。
   const priceCurrency = priceHistoryCurrency(data.price_prefix, data.price_suffix);
 
-  return { ok: true, status: res.status, points, currency: priceCurrency };
+  return {
+    ok: true,
+    status: res.status,
+    points,
+    currency: priceCurrency,
+    pricePrefix: data.price_prefix ?? null,
+  };
 }

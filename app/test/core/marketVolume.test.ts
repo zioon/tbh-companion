@@ -14,6 +14,7 @@ import {
   recentVolumeTotal,
   rescaleMarketVolumeItems,
   rescaleVolumeStats,
+  resolveHistoryCurrency,
   volumeCategoryKey,
   type ParsedMarketVolumeHistory,
   type PriceHistoryPoint,
@@ -770,5 +771,57 @@ describe("detectCurrencyFromPriceHistory", () => {
     });
     expect(d.currency).toBe("NOK"); // 10.48 比 10.4 更接近 implied 10.45
     expect(d.runnerUp?.currency).toBe("SEK");
+  });
+});
+
+describe("resolveHistoryCurrency（pricehistory 价格列币种判定）", () => {
+  // 真实汇率快照（2026-10-12 lookup_prices.json）：CNY 每 1 USD = 6.6921 单位。
+  const fx = { USD: 1, CNY: 6.6921, JPY: 158.25, KRW: 1341.49, BRL: 5.1 };
+
+  it("前缀唯一命中时直接采用，不触发 fx 反查", () => {
+    const v = resolveHistoryCurrency({ prefix: "R$ ", fx });
+    expect(v).toMatchObject({ currency: "BRL", source: "prefix" });
+  });
+
+  it("歧义前缀 ¥（JPY/CNY）靠锚点反查 fx 表救回 —— 2026-09 污染事故的根因", () => {
+    // 实测：pricehistory 返回 ¥ 0.21，同物品 priceoverview USD 中位价 0.03。
+    const v = resolveHistoryCurrency({
+      prefix: "¥",
+      usdMedian: 0.03,
+      sourcePrice: 0.21,
+      fx,
+    });
+    expect(v.currency).toBe("CNY");
+    expect(v.source).toBe("fx");
+    expect(v.impliedUnitsPerUsd).toBeCloseTo(7, 3);
+  });
+
+  it("歧义前缀且数据本就是 USD 时判为 USD，scale 恰为 1 不做无谓换算", () => {
+    const v = resolveHistoryCurrency({ prefix: "¥", usdMedian: 1, sourcePrice: 1, fx });
+    expect(v.currency).toBe("USD");
+  });
+
+  it("无前缀（前缀为空的 PLN/VND/UAH）也能靠锚点反查", () => {
+    const v = resolveHistoryCurrency({ prefix: "", usdMedian: 1, sourcePrice: 5.1, fx });
+    expect(v.currency).toBe("BRL");
+  });
+
+  it("锚点缺失时判不出币种 —— 调用方必须拒绝原值落盘", () => {
+    const v = resolveHistoryCurrency({ prefix: "¥", fx });
+    expect(v.currency).toBeNull();
+    expect(v.source).toBeNull();
+  });
+
+  it("隐含量纲与任何币种都对不上时判不出（不猜）", () => {
+    // implied = 11 对最近的 CNY(6.69) 相对误差 0.39，远超 0.15 容差。
+    const v = resolveHistoryCurrency({ prefix: "¥", usdMedian: 1, sourcePrice: 11, fx });
+    expect(v.currency).toBeNull();
+  });
+
+  it("fx 表缺失时退化为只认前缀", () => {
+    expect(resolveHistoryCurrency({ prefix: "R$ " }).currency).toBe("BRL");
+    expect(
+      resolveHistoryCurrency({ prefix: "¥", usdMedian: 0.03, sourcePrice: 0.21 }).currency,
+    ).toBeNull();
   });
 });

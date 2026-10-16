@@ -42,6 +42,7 @@ import {
   rescaleMarketVolumeItems,
   rescaleParsedHistory,
   rescaleVolumeStats,
+  resolveHistoryCurrency,
   VOLUME_CATEGORY_OTHER,
   volumeCategoryKey,
   type CurrencyDetection,
@@ -150,6 +151,11 @@ export interface PriceHistoryResultLike {
   points?: PriceHistoryPoint[];
   /** pricehistory 实际返回的货币（由 price_prefix 判定）；null 表示无法判定。 */
   currency?: string | null;
+  /**
+   * 响应里的原始 `price_prefix`。`currency` 为 null（歧义前缀如 `¥`）时，
+   * 调用方靠它 + 锚点中位价反查币种，缺失会导致币种判定直接失败。
+   */
+  pricePrefix?: string | null;
   /** HTTP 状态码；0 表示网络错误。 */
   status?: number;
   /** 失败原因（network/http/no_listing/parse 等，仅失败时）。 */
@@ -781,22 +787,82 @@ export class MarketVolumeService {
   }
 
   /**
-   * 把 pricehistory 本次拉到的点换算到**基准货币（USD）**（若返回货币不是 USD）。
+   * 把 pricehistory 本次拉到的点换算到**基准货币（USD）**。
    *
    * Steam `pricehistory` 忽略 `currency` 参数，返回区域锁定货币（价格列单位靠
-   * `price_prefix` 判定）。本方法用该物品 priceoverview 的成交中位价（**USD**）作锚，
-   * 把整条序列等比校正到 USD。货币解析不出来 / 已是 USD / 锚不可用时都保守地不换算
-   * （保留原值）。
+   * `price_prefix` 判定）。本方法用 {@link resolveHistoryCurrency} 做两级判定：
+   * 前缀唯一命中 → 直接用；前缀歧义（如 `¥` = JPY/CNY）→ 用 priceoverview 的
+   * USD 成交中位价作锚反查 `fx` 表。任一命中即把整条序列等比校正到 USD。
+   *
+   * **判定失败时不再原值放行**——旧实现在 `!resCurrency` 时直接 return points，
+   * 导致人民币被当 USD 落盘，出库再乘一次汇率，金额高估约 6.7 倍（2026-09 实测）。
+   * 现在改为**丢弃该 hash 本次的点**并记 warn：宁可走势图少一段，也不能让金额错。
+   *
+   * @param resPrefix Steam 响应里的 `price_prefix`（判定歧义前缀时需要）。
    */
   private async calibrateHistoryToBase(
     hash: string,
     points: PriceHistoryPoint[],
     resCurrency: string | null | undefined,
+    resPrefix?: string | null,
   ): Promise<PriceHistoryPoint[]> {
-    if (!resCurrency) return points;
-    if (resCurrency.toUpperCase() === MARKET_VOLUME_BASE_CURRENCY) return points;
+    if (!resCurrency && resCurrency !== MARKET_VOLUME_BASE_CURRENCY) {
+      // 前缀没能唯一判定币种（如 `¥` = JPY/CNY）：改用「USD 锚点中位价 ÷ 序列价」
+      // 反查fx 表。注意必须**先确认 fx 表可用**再去取锚——fx 缺失时 fx 反查必然失败，
+      // 此时取锚只是一次注定无用的网络请求（且会把刷新拖到超时）。
+      const fxRates = this.deps.getFxRates?.();
+      const hasFx = !!fxRates && Object.keys(fxRates).length > 0;
+      let sourcePrice: number | null = null;
+      for (let i = points.length - 1; i >= 0; i--) {
+        if (points[i].volume > 0) {
+          sourcePrice = points[i].price;
+          break;
+        }
+      }
+      let median: number | null = null;
+      if (hasFx && sourcePrice != null && sourcePrice > 0) {
+        try {
+          const fetchMedian = this.deps.fetchAnchorMedian ?? defaultFetchAnchorMedian;
+          median = await fetchMedian(hash, MARKET_VOLUME_BASE_CURRENCY);
+        } catch (err) {
+          log.warn(`calibrate history ${hash}: median fetch failed: ${(err as Error).message}`);
+        }
+      }
+      const verdict = resolveHistoryCurrency({
+        prefix: resPrefix,
+        usdMedian: median,
+        sourcePrice,
+        fx: fxRates,
+      });
+      if (verdict.currency == null) {
+        log.warn(
+          `calibrate history ${hash}: currency unresolved (prefix=${JSON.stringify(resPrefix ?? null)}, ` +
+            `implied=${verdict.impliedUnitsPerUsd?.toFixed(4) ?? "n/a"}); ` +
+            `dropping ${points.length} points to avoid storing foreign currency as USD`,
+        );
+        return [];
+      }
+      log.info(
+        `calibrate history ${hash}: currency=${verdict.currency} via ${verdict.source} ` +
+          `implied=${verdict.impliedUnitsPerUsd?.toFixed(4) ?? "n/a"} ` +
+          `relErr=${verdict.relativeError?.toFixed(4) ?? "n/a"}`,
+      );
+      const scale = this.unitsPerUsd(verdict.currency);
+      if (scale == null) {
+        log.warn(
+          `calibrate history ${hash}: no fx rate for ${verdict.currency}; ` +
+            `dropping ${points.length} points`,
+        );
+        return [];
+      }
+      // 「每 1 USD 的该币单位数」= scale ⇒ USD = 原值 / scale
+      return scale === 1 ? points : points.map((p) => ({ ...p, price: p.price / scale }));
+    }
 
-    // 取最近一个有成交量的点，作为与锚中位价对应的原货币价格。
+    const code = resCurrency!.toUpperCase();
+    if (code === MARKET_VOLUME_BASE_CURRENCY) return points;
+
+    // 前缀已唯一判定为非 USD 货币：用 USD 锚点做等比校正。
     let sourcePrice: number | null = null;
     for (let i = points.length - 1; i >= 0; i--) {
       if (points[i].volume > 0) {
@@ -817,7 +883,7 @@ export class MarketVolumeService {
     const cal = calibratePricesWithMedian(points, median, sourcePrice);
     if (cal.applied && median != null) {
       log.info(
-        `calibrate history ${hash}: ${resCurrency} -> ${MARKET_VOLUME_BASE_CURRENCY} ` +
+        `calibrate history ${hash}: ${code} -> ${MARKET_VOLUME_BASE_CURRENCY} ` +
           `scale=${(median / sourcePrice).toFixed(4)}`,
       );
     }
@@ -840,7 +906,16 @@ export class MarketVolumeService {
     const fetchOne = this.deps.fetchHistory ?? fetchSteamPriceHistory;
     const r = await fetchOne(hash, currency, cookie);
     if (r.ok && r.points && r.points.length > 0) {
-      const calibrated = await this.calibrateHistoryToBase(hash, r.points, r.currency);
+      const calibrated = await this.calibrateHistoryToBase(
+        hash,
+        r.points,
+        r.currency,
+        r.pricePrefix,
+      );
+      if (calibrated.length === 0) {
+        log.warn(`refreshItem: ${hash} dropped (currency unresolved)`);
+        return { updated: this.buildItemForHash(hash), cookieExpired: false };
+      }
       this.priceHistory[hash] = mergePriceHistoryPoints(this.priceHistory[hash] ?? [], calibrated);
       this.recomputeHistoryTrend();
       this.historyFetchedAtMs = now;
@@ -945,7 +1020,17 @@ export class MarketVolumeService {
           try {
             const r = await fetchOne(hash, currency, cookie);
             if (r.ok && r.points && r.points.length > 0) {
-              const calibrated = await this.calibrateHistoryToBase(hash, r.points, r.currency);
+              const calibrated = await this.calibrateHistoryToBase(
+                hash,
+                r.points,
+                r.currency,
+                r.pricePrefix,
+              );
+              // 币种判不出来时 calibrated 为空：跳过该 hash，绝不让外币按 USD 入库。
+              if (calibrated.length === 0) {
+                log.warn(`refreshHistory: ${hash} dropped (currency unresolved)`);
+                continue;
+              }
               historyByHash.set(hash, calibrated);
               // 实时更新内存态：与旧数据合并（保留更细粒度），该 hash 立即反映
               // 最新价格，供前端实时刷新卡片（持久化在全部拉完之后统一做）。

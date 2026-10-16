@@ -3,6 +3,12 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.27.7": {
+      "title": "What's new in v1.27.7",
+      "bullets": [
+        "Fixed market and trading history prices and traded volume reading about 6.7x too high in non-USD currencies — Steam returns region-priced history regardless of the requested currency, and it was stored as if it were USD and then converted again on display. The real currency is now recovered from the item's USD sale price; when it cannot be determined the batch is discarded rather than stored as USD."
+      ]
+    },
     "1.27.6": {
       "title": "What's new in v1.27.6",
       "bullets": [
