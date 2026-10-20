@@ -1817,6 +1817,18 @@ export class AutoClassifyService {
   }
 
   /**
+   * Whether the "no box routes wired" warning has been emitted this session.
+   *
+   * `boxRoutes` is an OPTIONAL dep, so a wiring mistake does not fail the build
+   * — it silently books every recovered drop without a level, which is
+   * indistinguishable from "this stage has no route". Field-measured
+   * 2026-10-16: five levelled-less stage-boss recoveries in one run, all with a
+   * resolved `stageKey` — the route table was simply not wired. One loud line
+   * turns that into a one-minute diagnosis.
+   */
+  private warnedMissingBoxRoutes = false;
+
+  /**
    * Catalog id of the box that drops at `stageKey` for `category`, or null.
    *
    * A recovered DROP must be booked under its real catalog id, not the synthetic
@@ -1827,7 +1839,15 @@ export class AutoClassifyService {
    * inventing an id.
    */
   private dropBoxIdForStage(category: ChestDropCategory, stageKey?: number): number | null {
-    return boxIdForStageCategory(category, stageKey, this.deps.boxRoutes?.() ?? null);
+    const routes = this.deps.boxRoutes?.() ?? null;
+    if (routes == null && !this.warnedMissingBoxRoutes) {
+      this.warnedMissingBoxRoutes = true;
+      log.warn(
+        "chest-drop recovery: no box routes wired — recovered drops will be booked " +
+          "without a level (check that appState passes `boxRoutes` to AutoClassifyService)",
+      );
+    }
+    return boxIdForStageCategory(category, stageKey, routes);
   }
 
   private autoOpenForBoxKey(

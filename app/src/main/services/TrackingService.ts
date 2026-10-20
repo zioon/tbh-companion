@@ -12,6 +12,7 @@ import {
 } from "../../core/chestDropTracker";
 import {
   reconcileChestDropsFromRing,
+  collectRingClearLabels,
   DROP_RECONCILE_WINDOW_SEC,
   type DropGrantLine,
 } from "../../core/chestDropReconcile";
@@ -1260,10 +1261,16 @@ export class TrackingService {
     const oldestAt = oldestRecorded - DROP_RECONCILE_WINDOW_SEC;
     if (newestAt < oldestAt) return;
 
+    const windowLines: { wallTime: number; acquireRaw: string; acquireName: string }[] = [];
     const grantLines: DropGrantLine[] = [];
     for (const e of this.recordLog.getStats().entries) {
       if (e.kind !== "acquire") continue;
       if (e.wallTime > newestAt || e.wallTime < oldestAt) continue;
+      windowLines.push({
+        wallTime: e.wallTime,
+        acquireRaw: e.acquireRaw ?? "",
+        acquireName: e.acquireName ?? "",
+      });
       grantLines.push({
         ringSeq: e.ringSeq ?? 0,
         wallTime: e.wallTime,
@@ -1274,12 +1281,29 @@ export class TrackingService {
     }
     if (grantLines.length === 0) return;
 
-    // stageKey 证据：live clear history 带已解析（含难度）的 stageKey，覆盖
-    // ~200 条，足以框住判定窗口。取不到就让补记保持 category-only。
+    // stageKey 证据分两路，缺一不可：
+    //  ① live clear history（已解析、含难度）；
+    //  ② **环自身的通关行**——它就在掉落行旁边。① 是一条 ~200 条的有界环，
+    //     由 25 Hz 帧喂入，卡顿时会静默丢 clear；一旦 ① 覆盖不到，补记就只能
+    //     退到合成桶。实测 2026-10-16 08:26：`levelled=0 byCategory=rare=1`
+    //     ——环里紧挨着 `通关了关卡 3-9`，补记的关卡宝箱却没有等级。
+    // 通关行不含难度，借最近一条已解析 clear 的难度（同一会话只刷一个难度，
+    // 与 live clear 路径、open-backfill 的 `stageKeyFromLabel` 同一契约）；
+    // 借不到就借当前所刷关卡——仍借不到时 stageKey 为 0，保持 category-only。
     const clearEvents = this.stageClearHistory.map((e) => ({
       wallTime: e.wallTime,
       stageKey: e.stageKey,
     }));
+    for (const label of collectRingClearLabels(windowLines)) {
+      clearEvents.push({
+        wallTime: label.wallTime,
+        stageKey: resolveClearedStageKey(
+          label.act,
+          label.stage,
+          this.clearDifficultyRef(label.wallTime),
+        ),
+      });
+    }
 
     const { missed, scanned, alreadyTracked, excluded } = reconcileChestDropsFromRing(
       grantLines,
@@ -1341,6 +1365,31 @@ export class TrackingService {
    */
   private boxIdForStageCategory(category: ChestDropCategory, stageKey?: number): number | null {
     return boxIdForStageCategory(category, stageKey, this.boxRoutes);
+  }
+
+  /**
+   * `resolveClearedStageKey` 的难度参照：取时间上最近的**已解析** clear 的完整
+   * stageKey（同一会话只刷一个难度，故难度可借），借不到时退到当前所刷关卡。
+   *
+   * 只借难度，act/stage 一律用环通关行自己的值——所以这不是「猜关卡」，而是
+   * 与 live clear 路径、open-backfill 的 `stageKeyFromLabel` 完全同一套契约。
+   * 参照为 0（冷启动、尚无任何 clear）时 `resolveClearedStageKey` 会原样返回 0，
+   * 该通关行便不构成可用证据，补记保持 category-only。
+   */
+  private clearDifficultyRef(atWallTime: number): number {
+    let best = 0;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (const e of this.stageClearHistory) {
+      const key = e.stageKey;
+      if (typeof key !== "number" || !(key > 0)) continue;
+      const dist = Math.abs(e.wallTime - atWallTime);
+      if (dist < bestDist) {
+        best = key;
+        bestDist = dist;
+      }
+    }
+    if (best > 0) return best;
+    return this.lastSnap?.stageKey ?? this.lastLiveStage?.stageKey ?? 0;
   }
 
   /**

@@ -487,6 +487,12 @@ flowchart TD
 
 回归测试：`boxOpenBackfill.test.ts` 的 `describe("boxIdForStageCategory")`（3 例，含 malformed 数据取最高等级、六种未知情形一律返回 `null` 保留合成桶）+ `autoClassifyService.test.ts` 的 `describe("AutoClassifyService recovered drops keep their catalog level")`（3 例：真实 catalog id、未接线时回落合成桶、未知关不臆造）。
 
+#### ⚠️ 可选依赖会静默降级，必须留告警（2026-10-16）
+
+`AutoClassifyServiceDeps.boxRoutes` 是**可选**依赖。缺失时**不会编译失败**，而是让每一条补记的掉落都落成无等级的合成桶 —— 与「这一关本来就没有掉落 route」在日志上**完全无法区分**。实测 2026-10-16 一个开发构建里连续 5 条补记都是 `900920` 且 `stageKey` 明明解析成功（4309），就是因为那个 bundle 打包时 `appState` 还没把 `boxRoutes` 传进去。
+
+因此 `dropBoxIdForStage` 在拿到 `null` route 表时会**告警一次**（`chest-drop recovery: no box routes wired — recovered drops will be booked without a level`）。凡是「注入缺失 = 静默退化为泛化结果」的可选依赖，都应照此留一条响亮的日志，否则故障只能靠逐条比对 history 才能发现。
+
 #### 与 §14.9 的关系
 
 §14.9 确立了「等级在**掉落时**固定」，本节确立「等级在**写入时**就要落盘」。两者是同一条不变量的两端：stageKey 由掉落通道盖章（§14.9），boxId 由盖章的 stageKey 反查（§14 步骤 4 / §24.10.4）。**任何新增的掉落写入路径都必须走 `recordStagedChestDrop`**，否则等于把等级重新丢掉。

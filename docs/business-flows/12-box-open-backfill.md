@@ -201,6 +201,7 @@
 
 漏记的条目必须能回答「是哪个箱子」，否则补记只会得到一个泛化桶：
 
+- **stageKey 证据必须取两路，缺一不可**：① live 帧的 `stageClearHistory`（已解析、含难度）；② **环自身的通关行**（`collectRingClearLabels`，`core/chestDropReconcile.ts`）。只用 ① 会漏：它是 ~200 条的有界环、由 25 Hz 帧喂入，卡顿时静默丢 clear；覆盖不到时补记只能退到合成桶，**哪怕环里紧挨着掉落行就是 `通关了关卡 3-9`**。实测 2026-10-16 08:26 `chest-drop reconcile: recorded 1 missed drop(s) ... levelled=0 byCategory=rare=1` —— 一个没有等级的关卡宝箱。环通关行不含难度，借最近一条已解析 clear 的难度（`resolveClearedStageKey(act, stage, ref)`，与 live clear 路径、open-backfill 的 `stageKeyFromLabel` **同一契约**）；借不到时 ref=0 → 保持 category-only，**绝不猜**。
 - **core 共用反查** `boxIdForStageCategory(category, stageKey, routes)`（`core/boxOpenBackfill.ts`）：复用 `boxRoutes.byCategory`，按 `dropStageKeys.includes(stageKey)` 命中，**等级最高优先**。catalog 的 `dropStageKeys` 在同类别内按等级互斥，故这是**查表而非猜测**（与 §24.1 边界 2 同源）。`levelForStage` 与它共用同一个 `routeForStage`，`TrackingService.boxIdForStageCategory` 退化为**一行委托**。
 - 落点为新增的 `ChestDropTracker.recordStagedChestDrop(category, wallTime, source, stageKey, boxId)`：`boxId` 解析成功 → 写真实 catalog id（**带等级**）；失败 → fallback 到 `recordLiveChestDrop`（合成桶），**绝不丢事件、绝不臆造等级**。
 - **三条写入路径全部改走它**：live 掉落（`ingestLiveFrame`）、本对账补记、以及 `AutoClassifyService` 的两条补记（`flushDueDropRecoveries` / open-backfill，经 `boxRoutes` 依赖取同一张表）。所以正常记录的条目同样带真实 id——这是展示层能看到等级的前提（见 §14.10 现场反例：**漏改一条路径**就会让那批箱子永远只剩泛化名）。

@@ -1,10 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
   reconcileChestDropsFromRing,
+  collectRingClearLabels,
   DROP_RECONCILE_WINDOW_SEC,
   type DropGrantLine,
   type RecordedDrop,
 } from "../../src/core/chestDropReconcile";
+import { boxIdForStageCategory, type BackfillBoxRoutes } from "../../src/core/boxOpenBackfill";
+import { resolveClearedStageKey } from "../../src/core/stages";
+
+/** Only the RARE routes matter here; 4309 is the stage the live session farms. */
+const ROUTES: BackfillBoxRoutes = {
+  byCategory: new Map([["rare", [{ level: 90, boxId: 920901, dropStageKeys: [4309, 4409] }]]]),
+};
 
 /** Ring line shorthand. `t` is wallTime seconds; default 1_000_000 (far from now). */
 function grant(
@@ -205,10 +213,71 @@ describe("reconcileChestDropsFromRing", () => {
     ];
     const res = reconcileChestDropsFromRing(grants, recorded, { nowSec: T0 + 1200 });
     expect(res.missed).toHaveLength(5);
-    const counts = res.missed.reduce<Record<string, number>>((acc, m) => {
-      acc[m.category] = (acc[m.category] ?? 0) + 1;
-      return acc;
+    const counts = res.missed.reduce<Record<string, number>>((rec, m) => {
+      rec[m.category] = (rec[m.category] ?? 0) + 1;
+      return rec;
     }, {});
     expect(counts).toEqual({ rare: 2, common: 3 });
+  });
+});
+
+describe("collectRingClearLabels", () => {
+  it("pulls act/stage out of the ring's own clear lines", () => {
+    const labels = collectRingClearLabels([
+      { wallTime: T0, acquireName: "通关了关卡 3-9", acquireRaw: "通关了关卡 3-9。(72秒)" },
+      { wallTime: T0 + 5, acquireName: "关卡宝箱", acquireRaw: "获得了关卡宝箱。(木乃伊)" },
+      { wallTime: T0 + 9, acquireName: "普通宝箱", acquireRaw: "获得了普通宝箱。(幽灵)" },
+    ]);
+    expect(labels).toEqual([{ wallTime: T0, act: 3, stage: 9 }]);
+  });
+
+  it("reads color-tagged raw lines and the stripped name alike", () => {
+    const labels = collectRingClearLabels([
+      {
+        wallTime: T0,
+        acquireRaw: "通关了<color=#A69255>关卡 4-2</color>。(80秒)",
+        acquireName: "通关了关卡 4-2。(80秒)",
+      },
+    ]);
+    expect(labels).toEqual([{ wallTime: T0, act: 4, stage: 2 }]);
+  });
+
+  it("ignores lines that carry no stage label", () => {
+    expect(
+      collectRingClearLabels([
+        { wallTime: T0, acquireRaw: "获得了关卡宝箱。(木乃伊)", acquireName: "关卡宝箱" },
+        { wallTime: T0, acquireRaw: "", acquireName: "" },
+        { wallTime: Number.NaN, acquireRaw: "通关了关卡 1-1。(5秒)" },
+      ]),
+    ).toEqual([]);
+  });
+
+  /**
+   * The field case this exists for (2026-10-16 08:26): the ring carried the
+   * clear line right next to the stage-boss grant, but the recovery only had the
+   * live frame's bounded clear history — which did not cover that instant — so
+   * the recovered chest was booked with NO level (`levelled=0 byCategory=rare=1`).
+   * With the ring's own line as evidence the drop resolves to a real catalog box.
+   */
+  it("resolves the level of a recovery whose clear came only from the ring", () => {
+    const label = collectRingClearLabels([
+      { wallTime: T0, acquireName: "通关了关卡 3-9", acquireRaw: "通关了关卡 3-9。(73秒)" },
+    ])[0]!;
+    // Difficulty borrowed from a neighbouring resolved clear, exactly as the
+    // live clear path and the box-open backfill do (4309 = difficulty 4, act 3, stage 9).
+    const stageKey = resolveClearedStageKey(label.act, label.stage, 4309);
+    expect(stageKey).toBe(4309);
+    expect(boxIdForStageCategory("rare", stageKey, ROUTES)).toBe(920901);
+  });
+
+  it("keeps the drop levelless when there is no difficulty to borrow", () => {
+    const label = collectRingClearLabels([
+      { wallTime: T0, acquireName: "通关了关卡 3-9", acquireRaw: "通关了关卡 3-9。(73秒)" },
+    ])[0]!;
+    // 0 reference → `resolveClearedStageKey` hands back 0, which is not usable
+    // evidence; the caller must stay category-only rather than invent a level.
+    const stageKey = resolveClearedStageKey(label.act, label.stage, 0);
+    expect(stageKey).toBe(0);
+    expect(boxIdForStageCategory("rare", stageKey, ROUTES)).toBeNull();
   });
 });

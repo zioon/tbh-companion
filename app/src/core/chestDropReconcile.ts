@@ -56,6 +56,57 @@ const CLEAR_PREFIX = "通关了";
 const STAGE_LABEL_RE = /关卡\s*(\d+)-(\d+)/;
 
 /**
+ * A stage-clear line's act/stage as the ring states it, before difficulty is
+ * applied. `resolveClearedStageKey` turns this into a full stageKey.
+ */
+export interface RingClearLabel {
+  /** Ingest wall-clock seconds of the clear line. */
+  wallTime: number;
+  /** Act from the "关卡 3-9" label. */
+  act: number;
+  /** Stage from the "关卡 3-9" label. */
+  stage: number;
+}
+
+/**
+ * The stage-clear lines an acquire ring carries, as act/stage labels.
+ *
+ * WHY THIS EXISTS
+ * The reconcile needs the stage a chest landed on in order to book the REAL
+ * catalog id (which is what carries the LEVEL). Its clear evidence used to come
+ * only from the live frame's bounded (~200) clear history, which is fed by
+ * 25 Hz frames — a stall silently drops clears, and a recovery that then finds
+ * no clear lands on the synthetic bucket even when the ring line immediately
+ * next to the grant says "通关了关卡 3-9". Measured 2026-10-16 08:26:
+ * `chest-drop reconcile: recorded 1 missed drop(s) ... levelled=0
+ * byCategory=rare=1` — a stage-boss chest recovered with no level.
+ *
+ * The clear line carries no difficulty, so the caller supplies a reference
+ * (a neighbouring resolved clear, or the stage the session is farming) to
+ * `resolveClearedStageKey` — the same contract the live clear path already
+ * uses. A label outside the known act/stage ranges is skipped rather than
+ * composed into a stageKey that cannot exist.
+ */
+export function collectRingClearLabels(
+  lines: readonly { wallTime: number; acquireRaw?: string; acquireName?: string }[],
+): RingClearLabel[] {
+  const out: RingClearLabel[] = [];
+  for (const line of lines) {
+    if (!Number.isFinite(line.wallTime)) continue;
+    const raw = line.acquireRaw ?? "";
+    const name = line.acquireName ?? "";
+    const m = STAGE_LABEL_RE.exec(raw) ?? STAGE_LABEL_RE.exec(name);
+    if (m == null) continue;
+    const act = Number(m[1]);
+    const stage = Number(m[2]);
+    if (!Number.isFinite(act) || !Number.isFinite(stage)) continue;
+    if (act < 1 || stage < 1) continue;
+    out.push({ wallTime: line.wallTime, act, stage });
+  }
+  return out;
+}
+
+/**
  * A ring line naming a chest. The drop notices read "获得了普通宝箱。(死亡之指)"
  * — the CHEST landing in the player's slots — and are exactly the events this
  * module exists to count. Structural gate only (the game's own wording), with
