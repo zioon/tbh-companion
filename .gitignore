@@ -48,6 +48,11 @@ logs/
 .archify/
 .codegraph/
 
+# Scratch dumps from agent sessions (diagnostic captures, ad-hoc diffs).
+# Root-level only: `.tmp-qa-fixtures/` is a real test dependency read from
+# disk by test/integration/*.test.ts — never delete or ignore that directory.
+/.tmp-*
+
 # Temporary diagnostic dumps (never commit debug scripts / saved data)
 tbh_diag_dump.mjs
 
