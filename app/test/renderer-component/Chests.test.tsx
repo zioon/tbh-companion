@@ -38,6 +38,13 @@ const { CHESTS } = vi.hoisted(() => {
         plagueRare: 1080,
         plagueAct: 105,
       },
+      // v1.3.0 drop-chance rune bonus (no runes purchased in this fixture).
+      dropChance: {
+        common: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+        stageBoss: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+        plagueCommon: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+        plagueRare: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+      },
       totalHeld: 3,
       saveMtime: 0,
       runeBonusSlots: 0,

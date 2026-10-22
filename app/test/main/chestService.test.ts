@@ -107,6 +107,12 @@ function makeChestState(
       plagueRare: 1200,
       plagueAct: 120,
     },
+    dropChance: {
+      common: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+      stageBoss: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+      plagueCommon: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+      plagueRare: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
+    },
     totalHeld: common + stageBoss + actBoss + plagueCommon + plagueRare + plagueAct,
     saveMtime: 1000,
     runeBonusSlots: 0,
