@@ -3,6 +3,7 @@ import {
   loadBoxTypeCatalog,
   loadRuneAutoOpenCatalog,
   loadRuneBoxCapCatalog,
+  loadRuneDropChanceCatalog,
   parseRuneSaveData,
   type RunePurchase,
 } from "../../core/boxes";
@@ -43,6 +44,7 @@ export class ChestService {
   private readonly boxTypes = loadBoxTypeCatalog();
   private readonly runeCap = loadRuneBoxCapCatalog();
   private readonly runeAutoOpen = loadRuneAutoOpenCatalog();
+  private readonly runeDropChance = loadRuneDropChanceCatalog();
   private lastChests: ChestState | null = null;
   /**
    * Latest `RunePurchase[]` parsed from the save. Consumers (rune wave-count
@@ -205,6 +207,7 @@ export class ChestService {
         this.boxTypes,
         this.runeCap,
         this.runeAutoOpen,
+        this.runeDropChance,
       );
       if (orphanActExclusions != null && orphanActExclusions > 0) {
         this.lastChests = { ...this.lastChests, orphanExclusions: { act: orphanActExclusions } };

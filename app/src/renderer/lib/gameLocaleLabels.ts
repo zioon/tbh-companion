@@ -16,6 +16,25 @@ const STASH_FILTER_PREFIX = "StashItemFilterType_";
 const ITEM_PARTS_PREFIX = "ItemParts_";
 const UNIQUE_MOD_PREFIX = "UniqueMod_";
 
+// v1.3.0 relic family. The game names the five relic tiers with standalone
+// `Relic_<Color>` keys ("Relic_White" / "Relic_Blue" / …) instead of the
+// `GearType_<X>` shape, so they need an explicit mapping onto the companion's
+// `types.RELIC_<COLOR>` keys (which is what ItemInfoData.GEARTYPE holds).
+const RELIC_COLOR_TYPES: Record<string, string> = {
+  Relic_White: "RELIC_WHITE",
+  Relic_Blue: "RELIC_BLUE",
+  Relic_Purple: "RELIC_PURPLE",
+  Relic_Red: "RELIC_RED",
+  Relic_Yellow: "RELIC_YELLOW",
+};
+// `Relic_Name` names the relic gear group (ItemInfoData.GearGroup = "RELIC").
+const RELIC_GROUP_KEY = "Relic_Name";
+// `GearType_RELIQUARY` doubles as the reliquary gear-group label
+// (ItemInfoData.GearGroup = "RELIQUARY"); the game has no separate
+// `StashItemFilterType_RELIQUARY` key.
+const RELIQUARY_GEAR_TYPE = "RELIQUARY";
+const RELIQUARY_GEAR_GROUP = "RELIQUARY";
+
 // Stat template mod suffixes — keys like "Stat_<statKey>_<MOD>" or
 // "Stat_<statKey>_<MOD>_MinMax" are the game's own attribute-line formatters
 // (e.g. "Stat_AttackDamage_FLAT" = "Attack Damage +{0}"). They are the
@@ -106,9 +125,19 @@ export function flatGameKeysToLabels(game: Record<string, string>): GameLabelsSe
     if (key.startsWith(GRADE_PREFIX)) {
       grades[key.slice(GRADE_PREFIX.length)] = value;
     } else if (key.startsWith(GEAR_TYPE_PREFIX)) {
-      types[key.slice(GEAR_TYPE_PREFIX.length)] = value;
+      const gearType = key.slice(GEAR_TYPE_PREFIX.length);
+      types[gearType] = value;
+      // The reliquary gear group shares the reliquary gear-type label — the
+      // game ships no `StashItemFilterType_RELIQUARY` key.
+      if (gearType === RELIQUARY_GEAR_TYPE) {
+        gearGroups[RELIQUARY_GEAR_GROUP] = value;
+      }
     } else if (key.startsWith(ITEM_TYPE_PREFIX)) {
       types[key.slice(ITEM_TYPE_PREFIX.length)] = value;
+    } else if (RELIC_COLOR_TYPES[key]) {
+      types[RELIC_COLOR_TYPES[key]!] = value;
+    } else if (key === RELIC_GROUP_KEY) {
+      gearGroups.RELIC = value;
     } else if (key.startsWith(BASE_STAT_NAME_PREFIX)) {
       baseStatNames[key.slice(BASE_STAT_NAME_PREFIX.length)] = value;
     } else if (key.startsWith(STAT_NAME_PREFIX)) {

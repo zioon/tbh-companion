@@ -2,6 +2,7 @@ import type {
   ChestHolding,
   BoxSlotStatus,
   ChestCapacityBreakdown,
+  ChestDropChanceBreakdown,
   ResolvedChestRow,
   ChestState,
 } from "../../../shared/types";
@@ -11,12 +12,15 @@ import type {
   ChestCapDefinition,
   RuneAutoOpenCatalog,
   RuneBoxCapCatalog,
+  RuneDropChanceCatalog,
 } from "./catalog";
 import { boxTypeIndex } from "./catalog";
 import {
   effectiveAutoOpenSeconds,
   purchasedCapRuneNodes,
+  purchasedDropChanceRuneNodes,
   runeCapacityBonus,
+  runeDropChanceBonusPercent,
   type RunePurchase,
 } from "./runes";
 import {
@@ -116,6 +120,19 @@ function buildCapacityBreakdown(
   };
 }
 
+/** v1.3.0 掉率符文加成（乘数提升百分比）。 */
+function buildDropChanceBreakdown(
+  purchases: RunePurchase[],
+  def: { runeLabel: string; perLevelPercent: Record<string, number> },
+): ChestDropChanceBreakdown {
+  const nodes = purchasedDropChanceRuneNodes(purchases, def);
+  return {
+    bonusPercent: runeDropChanceBonusPercent(purchases, def),
+    purchasedRuneNodes: nodes.length,
+    runeLabel: def.runeLabel,
+  };
+}
+
 function buildCategoryState(
   rows: ResolvedChestRow[],
   category: BoxCategory,
@@ -131,6 +148,7 @@ export function buildChestState(
   boxTypeCatalog: BoxTypeCatalog,
   runeCapCatalog: RuneBoxCapCatalog,
   runeAutoOpenCatalog: RuneAutoOpenCatalog,
+  runeDropChanceCatalog: RuneDropChanceCatalog,
 ): ChestState {
   const rows = resolveChestHoldings(chests, boxTypeCatalog);
 
@@ -167,6 +185,15 @@ export function buildChestState(
     plagueAct: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.plagueAct),
   };
 
+  // v1.3.0 掉率符文。act boss 箱没有对应的 DropChance 符文链（游戏只提供
+  // common / stageBoss / 瘟疫两档），故不列 act。
+  const dropChance = {
+    common: buildDropChanceBreakdown(purchases, runeDropChanceCatalog.common),
+    stageBoss: buildDropChanceBreakdown(purchases, runeDropChanceCatalog.stageBoss),
+    plagueCommon: buildDropChanceBreakdown(purchases, runeDropChanceCatalog.plagueCommon),
+    plagueRare: buildDropChanceBreakdown(purchases, runeDropChanceCatalog.plagueRare),
+  };
+
   return {
     rows,
     common,
@@ -177,6 +204,7 @@ export function buildChestState(
     plagueAct,
     capacity,
     autoOpen,
+    dropChance,
     totalHeld: rows.reduce((s, r) => s + r.quantity, 0),
     saveMtime,
     runeBonusSlots: capacity.common.runeBonus,

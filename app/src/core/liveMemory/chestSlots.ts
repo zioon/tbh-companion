@@ -177,6 +177,12 @@ export function readRuntimeChestSlots(
 //   "Contaminated Normal Box*"   → plagueCommon  （v1.02.00 Plague 独立保管）
 //   "Contaminated Stage Box*"    → plagueRare
 //   "Contaminated ActBoss Box*"  → plagueAct
+//   "Halloween Normal Box*"      → common  （v1.3.0 万圣节活动箱）
+//   "Halloween Stage Box*"       → rare
+//
+// v1.3.0 的活动箱（CONTENTTYPE=EVENT，id 段 940xxx/941xxx）**没有**独立的
+// 容量符文链（游戏 RuneInfoData 无 MaxAmountEvent*Chest），所以它们占用的是
+// 既有的 common / rare 桶位 —— 上面这两条前缀映射正是这个事实的落地。
 // ---------------------------------------------------------------------------
 
 /** 依据 gamedata 物品名前缀，把一个箱子 item 归类到 tracker 的 BoxCategory。 */
@@ -185,6 +191,8 @@ export function categoryFromBoxItemName(name: string | null | undefined): BoxCat
   if (name.startsWith("Contaminated Normal Box")) return "plagueCommon";
   if (name.startsWith("Contaminated Stage Box")) return "plagueRare";
   if (name.startsWith("Contaminated ActBoss Box")) return "plagueAct";
+  if (name.startsWith("Halloween Normal Box")) return "common";
+  if (name.startsWith("Halloween Stage Box")) return "rare";
   if (name.startsWith("Normal Monster Box")) return "common";
   if (name.startsWith("Stage Boss Box")) return "rare";
   if (name.startsWith("Act Boss Box")) return "act";

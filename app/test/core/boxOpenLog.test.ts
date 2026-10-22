@@ -4,6 +4,7 @@ import {
   boxCategoryFromType,
   boxLabel,
   categoryFromBoxKey,
+  isBoxItemKey,
   levelFromBoxKey,
   UNCLASSIFIED_BOX_KEY,
 } from "../../src/core/boxOpenLog";
@@ -88,5 +89,30 @@ describe("levelFromBoxKey", () => {
   it("returns null for category-only keys", () => {
     expect(levelFromBoxKey("common")).toBeNull();
     expect(levelFromBoxKey("rare")).toBeNull();
+  });
+});
+
+describe("isBoxItemKey", () => {
+  it("recognizes every stage-box id band", () => {
+    expect(isBoxItemKey(910011)).toBe(true);
+    expect(isBoxItemKey(915001)).toBe(true);
+    expect(isBoxItemKey(920011)).toBe(true);
+    expect(isBoxItemKey(925001)).toBe(true);
+    expect(isBoxItemKey(930011)).toBe(true);
+    expect(isBoxItemKey(935001)).toBe(true);
+  });
+
+  it("recognizes the v1.3.0 Halloween event box bands", () => {
+    expect(isBoxItemKey(940001)).toBe(true);
+    expect(isBoxItemKey(940201)).toBe(true);
+    expect(isBoxItemKey(941001)).toBe(true);
+    expect(isBoxItemKey(941201)).toBe(true);
+  });
+
+  it("rejects non-box keys and out-of-band ids", () => {
+    expect(isBoxItemKey(140002)).toBe(false);
+    expect(isBoxItemKey(909999)).toBe(false);
+    expect(isBoxItemKey(950001)).toBe(false);
+    expect(isBoxItemKey(Number.NaN)).toBe(false);
   });
 });

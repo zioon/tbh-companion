@@ -111,6 +111,19 @@ flowchart LR
 - 用 hash join 得到 `Record<lang, Record<key, translated>>`。
 - 单个 locale 失败返回空 map（不抛错）。
 
+#### 9.4.1 v1.3.0 新增 relic 族的标签映射
+
+游戏 v1.3.0 新增 Plaguelands 圣物系（`GEARTYPE` = `RELIQUARY` + `RELIC_WHITE/BLUE/PURPLE/RED/YELLOW`，`GearGroup` = `RELIQUARY` / `RELIC`）。**游戏 bundle 的键名与既有约定不同**，因此 `flatGameKeysToLabels`（`app/src/renderer/lib/gameLocaleLabels.ts`）与 `scripts/sync_common_with_game.py` 需要显式映射：
+
+| 游戏 locale 键                       | companion 标签键                | 备注                                                     |
+| ------------------------------------ | ------------------------------- | -------------------------------------------------------- |
+| `GearType_RELIQUARY`                 | `types.RELIQUARY`               | 走既有 `GearType_` 前缀规则，**自动**映射                |
+| `GearType_RELIQUARY`                 | `gearGroups.RELIQUARY`          | 游戏**没有** `StashItemFilterType_RELIQUARY`，复用 gearType |
+| `Relic_White/Blue/Purple/Red/Yellow` | `types.RELIC_WHITE/BLUE/…`      | 独立键（非 `GearType_` 形状），需**显式**映射            |
+| `Relic_Name`                         | `gearGroups.RELIC`              | 圣物装备组名                                             |
+
+注：`gearGroups` 的运行时来源有两处 —— 桌面端 `tryMergeGameLocale()`（`app/src/renderer/i18n.ts`）把游戏 locale 合并进 i18next；网页版不携带 `_game_locale_dump.json`，因此 `app/shared/locales/{en,zh-CN,ja,ko}/common.json` 里**必须**预置这些键作为兜底（值取自游戏 bundle）。`scripts/sync_common_with_game.py` 的 `build_types_lookup` / `build_gear_groups_lookup` 已同步更新，后续重跑同步不会把它们抹掉。
+
 ### 9.5 提取结果写入 + IPC 推送
 
 `CatalogRefreshService.refresh()` 完整流程：

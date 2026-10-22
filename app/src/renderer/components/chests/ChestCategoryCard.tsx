@@ -5,11 +5,16 @@
 // slots, auto-open time, capacity breakdown).
 
 import { useTranslation } from "react-i18next";
-import type { BoxSlotStatus, ChestCapacityBreakdown } from "../../../../shared/types";
+import type {
+  BoxSlotStatus,
+  ChestCapacityBreakdown,
+  ChestDropChanceBreakdown,
+} from "../../../../shared/types";
 import { Badge } from "../../design-system/primitives/Badge/Badge";
 import { CapacityBar } from "../../design-system/primitives/CapacityBar/CapacityBar";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { fmtShortDuration } from "../../lib/format";
+import { dropChanceParts } from "../../lib/chests";
 
 /** "Base N" + optional "runes +M" parts of the capacity breakdown line. */
 export function capacityParts(
@@ -35,6 +40,7 @@ export function ChestCategoryCard({
   breakdown,
   autoOpenSeconds,
   fillVariant,
+  dropChance,
 }: {
   title: string;
   slot: BoxSlotStatus;
@@ -42,9 +48,12 @@ export function ChestCategoryCard({
   /** Effective seconds this chest type takes to auto-open (base − rune reduction). */
   autoOpenSeconds: number;
   fillVariant: "gray" | "blue" | "red" | "green";
+  /** v1.3.0 掉率符文加成（该箱型无对应符文链时省略）。 */
+  dropChance?: ChestDropChanceBreakdown;
 }) {
   const { t } = useTranslation("chests");
   const pct = slot.capacity > 0 ? Math.min(100, (slot.quantity / slot.capacity) * 100) : 0;
+  const dropChanceText = dropChanceParts(t, dropChance);
 
   return (
     <Card className="flex h-full flex-col">
@@ -80,6 +89,9 @@ export function ChestCategoryCard({
       <div className="mt-auto flex flex-col gap-0.5 pt-2">
         <p className="m-0 text-xs font-semibold text-fg/80">{t("capacityDetails")}</p>
         <p className="m-0 text-xs text-muted">{capacityParts(t, breakdown).join(", ")}</p>
+        {dropChanceText.length > 0 ? (
+          <p className="m-0 text-xs text-muted">{dropChanceText.join(", ")}</p>
+        ) : null}
       </div>
     </Card>
   );

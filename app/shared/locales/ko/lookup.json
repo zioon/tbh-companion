@@ -165,5 +165,21 @@
     "unwatchAria": "관심 목록에서 제거",
     "watchTitle": "이 아이템 가격 항상 폴링",
     "unwatchTitle": "이 아이템의 항상 폴링 중지"
+  },
+  "relic": {
+    "typeLabel": "유물 종류",
+    "inherentLabel": "고유 스탯",
+    "additionalLabel": "추가 효과",
+    "poolLabel": "가능한 스탯",
+    "poolHint": "획득 시 이 {{total}}개 중 {{count}}개가 무작위로 부여됩니다.",
+    "slotsLabel": "유물 슬롯",
+    "slotsValue": "유물 슬롯 {{count}}개",
+    "resonanceLabel": "공명 효과",
+    "conditionLabel": "조건",
+    "noResonanceCondition": "없음",
+    "conditionEntry": "{{color}} {{count}}개",
+    "conditionJoin": " + ",
+    "attunementLabel": "조율 비용",
+    "attunementValue": "{{base}} 골드, 조율마다 +{{increase}} (최대 {{max}}회)"
   }
 }

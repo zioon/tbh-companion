@@ -94,3 +94,37 @@ export function runeWaveCountReduction(
   }
   return reduction;
 }
+
+/**
+ * Drop-chance multiplier bonus (percent) from purchased drop-chance runes
+ * (v1.3.0 Rune of Exploration / Rune of Conquest).
+ *
+ * The game's stat is `DropChance*Percent` — "increased drop chance
+ * MULTIPLIER" percent, not a flat addition. Every level of a node carries the
+ * same value, so the total is Σ(level × perLevelPercent) over purchased
+ * nodes, exactly like the other rune families.
+ *
+ * Returned as a percentage so callers can render "+N%". A value of 0 means no
+ * such rune is purchased (or the catalog has no node for that chest type).
+ */
+export function runeDropChanceBonusPercent(
+  purchases: RunePurchase[],
+  catalog: { perLevelPercent: Record<string, number> },
+): number {
+  let bonus = 0;
+  for (const p of purchases) {
+    const perLevel = catalog.perLevelPercent[String(p.runeKey)];
+    if (perLevel === undefined) continue;
+    bonus += p.level * perLevel;
+  }
+  return bonus;
+}
+
+/** Purchased drop-chance rune nodes (level > 0) for one chest type. */
+export function purchasedDropChanceRuneNodes(
+  purchases: RunePurchase[],
+  catalog: { perLevelPercent: Record<string, number> },
+): RunePurchase[] {
+  const set = new Set(Object.keys(catalog.perLevelPercent));
+  return purchases.filter((p) => p.level > 0 && set.has(String(p.runeKey)));
+}

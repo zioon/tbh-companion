@@ -26,6 +26,7 @@ import {
   loadBoxTypeCatalog,
   loadRuneAutoOpenCatalog,
   loadRuneBoxCapCatalog,
+  loadRuneDropChanceCatalog,
   parseRuneSaveData,
 } from "../core/boxes";
 import {
@@ -162,6 +163,7 @@ export async function analyzeSaveFile(
     loadBoxTypeCatalog(),
     loadRuneBoxCapCatalog(),
     loadRuneAutoOpenCatalog(),
+    loadRuneDropChanceCatalog(),
   );
 
   return {

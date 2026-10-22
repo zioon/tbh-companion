@@ -3,9 +3,16 @@
  * Plague (Contaminated) boxes use disjoint 9xxx prefixes (915/925/935xxx) and
  * have their OWN sprites in the game assets (Item_915001/925001/935001), so
  * they map to the extracted plague icons rather than the plain chest icons.
+ *
+ * v1.3.0 Halloween event boxes (940xxx / 941xxx, CONTENTTYPE=EVENT) likewise
+ * have their own sprites (Item_940001 / Item_941001) and are shared across
+ * the three difficulties (Nightmare / Hell / Torment all point at the same
+ * Item_940001 / Item_941001 sprite in the game's IconPath column).
  */
 export function boxIconPath(boxItemKey: number): string {
   const id = String(boxItemKey);
+  if (id.startsWith("941")) return "item-941001"; // Halloween stage boss
+  if (id.startsWith("940")) return "item-940001"; // Halloween normal
   if (id.startsWith("935")) return "item-935001"; // plague act boss
   if (id.startsWith("930")) return "item-930011";
   if (id.startsWith("925")) return "item-925001"; // plague stage boss

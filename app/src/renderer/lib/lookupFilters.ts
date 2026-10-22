@@ -59,8 +59,13 @@ export interface LookupEffectOption {
 
 export type LookupOptionGroup = { label: string; options: LookupEffectOption[] };
 
-/** Gear-type groups in display order, derived from each item's `gearGroup`. */
-const GEAR_GROUP_ORDER = ["WEAPON", "ARMOR", "ACCESSORY"];
+/**
+ * Gear-type groups in display order, derived from each item's `gearGroup`.
+ *
+ * RELIC / RELIQUARY are the v1.3.0 Plaguelands relic family (the game sets
+ * `GearGroup` to exactly those two values).
+ */
+const GEAR_GROUP_ORDER = ["WEAPON", "ARMOR", "ACCESSORY", "RELIC", "RELIQUARY"];
 
 /**
  * Gear-type options grouped Weapon / Armor / Accessory, derived straight from

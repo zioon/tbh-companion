@@ -60,6 +60,28 @@ export interface RuneWaveCatalog {
   note?: string;
 }
 
+/**
+ * v1.3.0 掉率符文（Rune of Exploration / Rune of Conquest）。
+ *
+ * 游戏的 stat 名带 `Percent` 后缀（`DropChanceNormalChestPercent`），
+ * 语义是「掉率**乘数**提升百分比」——`AccountStat_DropChance*Percent` =
+ * `'{0}% Increased ... Drop Chance Multiplier'`。每级同值，故总加成 =
+ * Σ(已购等级 × perLevelPercent)，与其余符文族同构。
+ */
+export interface RuneDropChanceDefinition {
+  runeLabel: string;
+  /** 每级提供的掉率乘数提升百分比，键为符文节点 RuneKey 字符串。 */
+  perLevelPercent: Record<string, number>;
+}
+
+export interface RuneDropChanceCatalog {
+  common: RuneDropChanceDefinition;
+  stageBoss: RuneDropChanceDefinition;
+  plagueCommon: RuneDropChanceDefinition;
+  plagueRare: RuneDropChanceDefinition;
+  note?: string;
+}
+
 export function loadBoxTypeCatalog(): BoxTypeCatalog {
   return readBundledJson<BoxTypeCatalog>("box_types.json");
 }
@@ -74,6 +96,10 @@ export function loadRuneAutoOpenCatalog(): RuneAutoOpenCatalog {
 
 export function loadRuneWaveCatalog(): RuneWaveCatalog {
   return readBundledJson<RuneWaveCatalog>("rune_wave.json");
+}
+
+export function loadRuneDropChanceCatalog(): RuneDropChanceCatalog {
+  return readBundledJson<RuneDropChanceCatalog>("rune_drop_chance.json");
 }
 
 export function boxTypeIndex(catalog: BoxTypeCatalog): Map<number, BoxTypeEntry> {

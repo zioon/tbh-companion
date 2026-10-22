@@ -308,4 +308,23 @@ describe("v1.2.2 箱子物品名 → category 分类", () => {
     expect(categoryFromBoxItemName(null)).toBeNull();
     expect(categoryFromBoxItemName("")).toBeNull();
   });
+
+  it("categoryFromBoxItemName maps plague boxes to their own categories", () => {
+    expect(categoryFromBoxItemName("Contaminated Normal Box (Nightmare) - 1~5")).toBe(
+      "plagueCommon",
+    );
+    expect(categoryFromBoxItemName("Contaminated Stage Box (Nightmare) - 1")).toBe("plagueRare");
+    expect(categoryFromBoxItemName("Contaminated ActBoss Box (Torment) - 1")).toBe("plagueAct");
+  });
+
+  it("categoryFromBoxItemName maps the v1.3.0 Halloween event boxes", () => {
+    // The event boxes reuse the common / rare bucket slots — the game ships
+    // no dedicated capacity rune chain for the Halloween content.
+    expect(categoryFromBoxItemName("Halloween Normal Box (Nightmare)")).toBe("common");
+    expect(categoryFromBoxItemName("Halloween Normal Box (Hell)")).toBe("common");
+    expect(categoryFromBoxItemName("Halloween Normal Box (Torment)")).toBe("common");
+    expect(categoryFromBoxItemName("Halloween Stage Box (Nightmare)")).toBe("rare");
+    expect(categoryFromBoxItemName("Halloween Stage Box (Hell)")).toBe("rare");
+    expect(categoryFromBoxItemName("Halloween Stage Box (Torment)")).toBe("rare");
+  });
 });

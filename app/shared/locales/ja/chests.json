@@ -19,6 +19,7 @@
   "autoOpenTime": "自動開封 {{value}}",
   "capacityBase": "基本 {{count}}",
   "capacityRuneBonus": "{{nodes}} 個の {{runeLabel}} ノードから +{{bonus}}",
+  "dropChanceRuneBonus": "ドロップ率 +{{percent}}%（{{nodes}} 個の{{runeLabel}}ノードから）",
   "heldHeading": "所持ボックス",
   "heldIntro": "セーブで所有しているボックスの明細をカテゴリ別に表示します。クリックでドロップ入手経路と内容物を確認できます。",
   "heldQty": "×{{count}}",

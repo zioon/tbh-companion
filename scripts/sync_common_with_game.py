@@ -113,6 +113,12 @@ def build_types_lookup() -> dict[str, str]:
     ]
     for gt in gear_types:
         lookup[gt] = f"GearType_{gt}"
+    # v1.3.0 relic family. `GearType_RELIQUARY` names the reliquary gear type;
+    # the five relic tiers use standalone `Relic_<Color>` keys instead of the
+    # `GearType_<X>` shape.
+    lookup["RELIQUARY"] = "GearType_RELIQUARY"
+    for color in ("White", "Blue", "Purple", "Red", "Yellow"):
+        lookup[f"RELIC_{color.upper()}"] = f"Relic_{color}"
     # Item categories
     item_types = ["GEAR", "MATERIAL", "STAGEBOX"]
     for it in item_types:
@@ -135,11 +141,17 @@ def build_classes_lookup() -> dict[str, str]:
 
 def build_gear_groups_lookup() -> dict[str, str]:
     """gearGroups.X <- StashItemFilterType_X (Weapon/Armor/Accessory)."""
-    return {
+    lookup = {
         "WEAPON": "StashItemFilterType_WEAPON",
         "ARMOR": "StashItemFilterType_ARMOR",
         "ACCESSORY": "StashItemFilterType_ACCESSORY",
     }
+    # v1.3.0 relic family: the game ships no `StashItemFilterType_RELIQUARY`
+    # / `_RELIC`, so the gear-group labels come from `Relic_Name` and
+    # `GearType_RELIQUARY` instead.
+    lookup["RELIC"] = "Relic_Name"
+    lookup["RELIQUARY"] = "GearType_RELIQUARY"
+    return lookup
 
 
 def main() -> None:

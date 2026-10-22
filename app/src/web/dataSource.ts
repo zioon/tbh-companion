@@ -28,6 +28,7 @@ import localeKo from "../../../data/locale_strings_ko.json?raw";
 import pets from "../../../data/pets.json?raw";
 import runeBoxCap from "../../../data/rune_box_cap.json?raw";
 import runeAutoOpen from "../../../data/rune_auto_open.json?raw";
+import runeDropChance from "../../../data/rune_drop_chance.json?raw";
 import synthesisModel from "../../../data/synthesis_model.json?raw";
 import offerings from "../../../data/offerings.json?raw";
 
@@ -44,6 +45,7 @@ const FILES: Record<string, string> = {
   "pets.json": pets,
   "rune_box_cap.json": runeBoxCap,
   "rune_auto_open.json": runeAutoOpen,
+  "rune_drop_chance.json": runeDropChance,
   "synthesis_model.json": synthesisModel,
   "offerings.json": offerings,
 };

@@ -1,0 +1,63 @@
+{
+  "common": {
+    "runeLabel": "Rune of Exploration",
+    "perLevelPercent": {
+      "101": 100,
+      "103": 70,
+      "105": 70,
+      "107": 50,
+      "109": 50,
+      "111": 50,
+      "113": 50,
+      "115": 50,
+      "117": 50,
+      "119": 50,
+      "121": 50,
+      "123": 50,
+      "125": 50,
+      "127": 50,
+      "129": 50,
+      "131": 50,
+      "1053": 70
+    }
+  },
+  "stageBoss": {
+    "runeLabel": "Rune of Conquest",
+    "perLevelPercent": {
+      "102": 200,
+      "104": 150,
+      "106": 150,
+      "108": 100,
+      "110": 100,
+      "112": 100,
+      "114": 100,
+      "116": 100,
+      "118": 100,
+      "120": 100,
+      "122": 100,
+      "124": 100,
+      "126": 100,
+      "128": 100,
+      "130": 100,
+      "132": 100
+    }
+  },
+  "plagueCommon": {
+    "runeLabel": "Plague Rune of Exploration",
+    "perLevelPercent": {
+      "1211": 100,
+      "1271": 100,
+      "1311": 100,
+      "11629": 200
+    }
+  },
+  "plagueRare": {
+    "runeLabel": "Plague Rune of Conquest",
+    "perLevelPercent": {
+      "1302": 300,
+      "1322": 300,
+      "11649": 500
+    }
+  },
+  "note": "Drop chance runes (RuneInfoData NameKey 'DropChance*'). The game stores their stat under the 'DropChance*Percent' STATTYPE: a per-level drop-chance MULTIPLIER percent (AccountStat_DropChance*Percent = '{0}% Increased ... Drop Chance Multiplier'). Every level of a node carries the same value, so the total bonus is sum(level x perLevelPercent) over purchased nodes, exactly like the other rune families. The sibling AccountStat_DropChance* keys ('+{0}%', no Percent suffix) are the flat additive variant and are NOT what these runes grant."
+}

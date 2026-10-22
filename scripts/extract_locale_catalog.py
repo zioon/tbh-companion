@@ -316,7 +316,10 @@ def main() -> int:
             "difficulties": partitioned["difficulties"],
         }
         out_path = out_dir / f"locale_strings_{lang_code}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
+        # newline="\n" — Windows text mode would otherwise write CRLF, which
+        # conflicts with .gitattributes' `* text=auto eol=lf`. Same fix as
+        # build_tbh_data.py / dump_game_locale.py.
+        with open(out_path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
         print(f"  wrote {out_path}")
         output_files[lang_code] = str(out_path)

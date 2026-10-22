@@ -24,6 +24,7 @@ vi.mock("../../src/core/boxes", () => ({
   loadBoxTypeCatalog: vi.fn(() => ({})),
   loadRuneBoxCapCatalog: vi.fn(() => ({})),
   loadRuneAutoOpenCatalog: vi.fn(() => ({})),
+  loadRuneDropChanceCatalog: vi.fn(() => ({})),
   parseRuneSaveData: mockParseRuneSaveData,
 }));
 

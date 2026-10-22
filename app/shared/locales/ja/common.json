@@ -87,12 +87,20 @@
       "DECORATION": "装飾",
       "ENGRAVING": "彫刻",
       "CRAFTING": "クラフト",
-      "SOULSTONE": "ソウルストーン"
+      "SOULSTONE": "ソウルストーン",
+      "RELIQUARY": "聖遺物箱",
+      "RELIC_WHITE": "白の聖遺物",
+      "RELIC_BLUE": "青の聖遺物",
+      "RELIC_PURPLE": "紫の聖遺物",
+      "RELIC_RED": "赤の聖遺物",
+      "RELIC_YELLOW": "金の聖遺物"
     },
     "gearGroups": {
       "WEAPON": "武器",
       "ARMOR": "防具",
-      "ACCESSORY": "アクセサリー"
+      "ACCESSORY": "アクセサリー",
+      "RELIC": "聖遺物",
+      "RELIQUARY": "聖遺物箱"
     },
     "modifierGroups": {
       "Offense": "攻撃",
@@ -152,6 +160,9 @@
     },
     "levelShort": "Lv {{level}}",
     "classOnly": "{{class}}専用",
-    "synthesisPoints": "合成ポイント"
+    "synthesisPoints": "合成ポイント",
+    "relicAdditional": {
+      "ResonanceDoubleCount": "共鳴条件の判定時に2つの聖遺物として数えます。"
+    }
   }
 }

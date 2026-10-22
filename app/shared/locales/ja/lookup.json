@@ -165,5 +165,21 @@
     "unwatchAria": "ウォッチ リストから削除",
     "watchTitle": "このアイテムの価格を常時ポーリング",
     "unwatchTitle": "このアイテムの常時ポーリングを停止"
+  },
+  "relic": {
+    "typeLabel": "聖遺物の種類",
+    "inherentLabel": "固有ステータス",
+    "additionalLabel": "追加効果",
+    "poolLabel": "付与されるステータス",
+    "poolHint": "取得時に {{total}} 個の中から {{count}} 個がランダムに付与されます。",
+    "slotsLabel": "聖遺物スロット",
+    "slotsValue": "聖遺物スロット {{count}} 個",
+    "resonanceLabel": "共鳴効果",
+    "conditionLabel": "条件",
+    "noResonanceCondition": "なし",
+    "conditionEntry": "{{color}} × {{count}}",
+    "conditionJoin": " + ",
+    "attunementLabel": "調律のコスト",
+    "attunementValue": "{{base}} ゴールド、調律ごとに +{{increase}}（最大 {{max}} 回）"
   }
 }

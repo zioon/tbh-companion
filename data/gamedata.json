@@ -1,9 +1,9 @@
 {
- "source": "sharedassets0.assets/ItemInfoData (game v1.2.8)",
- "fetchedUtc": "2026-09-23T13:28:40.266331+00:00",
- "gameVersion": "1.2.8",
+ "source": "sharedassets0.assets/ItemInfoData (game v1.3.0)",
+ "fetchedUtc": "2026-10-22T09:37:24.472869+00:00",
+ "gameVersion": "1.3.0",
  "schemaVersion": 2,
- "count": 1954,
+ "count": 2804,
  "items": [
   {
    "id": 110001,
@@ -1264,6 +1264,444 @@
    "id": 160110,
    "name": "Eternal Empire 1000th Anniversary Coin",
    "grade": "COSMIC",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 160201,
+   "name": "Small Jack-o' Candy",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 160202,
+   "name": "Big Jack-o' Candy",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 160203,
+   "name": "Giant Jack-o' Candy",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 160301,
+   "name": "Small Jack-o' Candy",
+   "grade": "UNCOMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 160302,
+   "name": "Big Jack-o' Candy",
+   "grade": "RARE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 160303,
+   "name": "Giant Jack-o' Candy",
+   "grade": "LEGENDARY",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161001,
+   "name": "Contaminated Reliquary",
+   "grade": "COMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161002,
+   "name": "Contaminated Reliquary",
+   "grade": "UNCOMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161003,
+   "name": "Contaminated Reliquary",
+   "grade": "RARE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161004,
+   "name": "Contaminated Reliquary",
+   "grade": "LEGENDARY",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161005,
+   "name": "Contaminated Reliquary",
+   "grade": "IMMORTAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161006,
+   "name": "Contaminated Reliquary",
+   "grade": "ARCANA",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161007,
+   "name": "Contaminated Reliquary",
+   "grade": "BEYOND",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161008,
+   "name": "Contaminated Reliquary",
+   "grade": "CELESTIAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161009,
+   "name": "Contaminated Reliquary",
+   "grade": "DIVINE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161010,
+   "name": "Contaminated Reliquary",
+   "grade": "COSMIC",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 161101,
+   "name": "Contaminated Reliquary",
+   "grade": "COMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161102,
+   "name": "Contaminated Reliquary",
+   "grade": "UNCOMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161103,
+   "name": "Contaminated Reliquary",
+   "grade": "RARE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161104,
+   "name": "Contaminated Reliquary",
+   "grade": "LEGENDARY",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161105,
+   "name": "Contaminated Reliquary",
+   "grade": "IMMORTAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161106,
+   "name": "Contaminated Reliquary",
+   "grade": "ARCANA",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161107,
+   "name": "Contaminated Reliquary",
+   "grade": "BEYOND",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161108,
+   "name": "Contaminated Reliquary",
+   "grade": "CELESTIAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161109,
+   "name": "Contaminated Reliquary",
+   "grade": "DIVINE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 161110,
+   "name": "Contaminated Reliquary",
+   "grade": "COSMIC",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162001,
+   "name": "Contaminated Relic",
+   "grade": "COMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162002,
+   "name": "Contaminated Relic",
+   "grade": "UNCOMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162003,
+   "name": "Contaminated Relic",
+   "grade": "RARE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162004,
+   "name": "Contaminated Relic",
+   "grade": "LEGENDARY",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162005,
+   "name": "Contaminated Relic",
+   "grade": "IMMORTAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162006,
+   "name": "Contaminated Relic",
+   "grade": "ARCANA",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162007,
+   "name": "Contaminated Relic",
+   "grade": "BEYOND",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162008,
+   "name": "Contaminated Relic",
+   "grade": "CELESTIAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162009,
+   "name": "Contaminated Relic",
+   "grade": "DIVINE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162010,
+   "name": "Contaminated Relic",
+   "grade": "COSMIC",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": true
+  },
+  {
+   "id": 162101,
+   "name": "Contaminated Relic",
+   "grade": "COMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162102,
+   "name": "Contaminated Relic",
+   "grade": "UNCOMMON",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162103,
+   "name": "Contaminated Relic",
+   "grade": "RARE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162104,
+   "name": "Contaminated Relic",
+   "grade": "LEGENDARY",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162105,
+   "name": "Contaminated Relic",
+   "grade": "IMMORTAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162106,
+   "name": "Contaminated Relic",
+   "grade": "ARCANA",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162107,
+   "name": "Contaminated Relic",
+   "grade": "BEYOND",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162108,
+   "name": "Contaminated Relic",
+   "grade": "CELESTIAL",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162109,
+   "name": "Contaminated Relic",
+   "grade": "DIVINE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 162110,
+   "name": "Contaminated Relic",
+   "grade": "COSMIC",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 170101,
+   "name": "Jack-o's Ticket (Nightmare)",
+   "grade": "RARE",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 170102,
+   "name": "Jack-o's Ticket (Hell)",
+   "grade": "LEGENDARY",
+   "type": "MATERIAL",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 170103,
+   "name": "Jack-o's Ticket (Torment)",
+   "grade": "IMMORTAL",
    "type": "MATERIAL",
    "gearType": null,
    "level": null,
@@ -16395,6 +16833,7108 @@
    "marketTradable": true
   },
   {
+   "id": 710001,
+   "name": "Crimson Relic - Blade",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710002,
+   "name": "Crimson Relic - Fang",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710003,
+   "name": "Crimson Relic - Horn",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710005,
+   "name": "Crimson Relic - Ash",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710006,
+   "name": "Crimson Relic - Spear",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 710009,
+   "name": "Crimson Relic - Echo",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711001,
+   "name": "Crimson Relic - Blade",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711002,
+   "name": "Crimson Relic - Fang",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711003,
+   "name": "Crimson Relic - Horn",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711005,
+   "name": "Crimson Relic - Ash",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711006,
+   "name": "Crimson Relic - Spear",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 711009,
+   "name": "Crimson Relic - Echo",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712001,
+   "name": "Crimson Relic - Blade",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712002,
+   "name": "Crimson Relic - Fang",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712003,
+   "name": "Crimson Relic - Horn",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712005,
+   "name": "Crimson Relic - Ash",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712006,
+   "name": "Crimson Relic - Spear",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 712009,
+   "name": "Crimson Relic - Echo",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713001,
+   "name": "Crimson Relic - Blade",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713002,
+   "name": "Crimson Relic - Fang",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713003,
+   "name": "Crimson Relic - Horn",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713005,
+   "name": "Crimson Relic - Ash",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713006,
+   "name": "Crimson Relic - Spear",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 713009,
+   "name": "Crimson Relic - Echo",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714001,
+   "name": "Crimson Relic - Blade",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714002,
+   "name": "Crimson Relic - Fang",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714003,
+   "name": "Crimson Relic - Horn",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714005,
+   "name": "Crimson Relic - Ash",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714006,
+   "name": "Crimson Relic - Spear",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 714009,
+   "name": "Crimson Relic - Echo",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715001,
+   "name": "Crimson Relic - Blade",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715002,
+   "name": "Crimson Relic - Fang",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715003,
+   "name": "Crimson Relic - Horn",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715005,
+   "name": "Crimson Relic - Ash",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715006,
+   "name": "Crimson Relic - Spear",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 715009,
+   "name": "Crimson Relic - Echo",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716001,
+   "name": "Crimson Relic - Blade",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716002,
+   "name": "Crimson Relic - Fang",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716003,
+   "name": "Crimson Relic - Horn",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716005,
+   "name": "Crimson Relic - Ash",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716006,
+   "name": "Crimson Relic - Spear",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 716009,
+   "name": "Crimson Relic - Echo",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717001,
+   "name": "Crimson Relic - Blade",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717002,
+   "name": "Crimson Relic - Fang",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717003,
+   "name": "Crimson Relic - Horn",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717005,
+   "name": "Crimson Relic - Ash",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717006,
+   "name": "Crimson Relic - Spear",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 717009,
+   "name": "Crimson Relic - Echo",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718001,
+   "name": "Crimson Relic - Blade",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718002,
+   "name": "Crimson Relic - Fang",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718003,
+   "name": "Crimson Relic - Horn",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718005,
+   "name": "Crimson Relic - Ash",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718006,
+   "name": "Crimson Relic - Spear",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 718009,
+   "name": "Crimson Relic - Echo",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719001,
+   "name": "Crimson Relic - Blade",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719002,
+   "name": "Crimson Relic - Fang",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719003,
+   "name": "Crimson Relic - Horn",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719004,
+   "name": "Crimson Relic - Pulse",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719005,
+   "name": "Crimson Relic - Ash",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719006,
+   "name": "Crimson Relic - Spear",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719007,
+   "name": "Crimson Relic - Dawn",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719008,
+   "name": "Crimson Relic - Scythe",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 719009,
+   "name": "Crimson Relic - Echo",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_RED",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720002,
+   "name": "Azure Relic - Gale",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720003,
+   "name": "Azure Relic - Vortex",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720004,
+   "name": "Azure Relic - Constellation",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720006,
+   "name": "Azure Relic - Sail",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 720007,
+   "name": "Azure Relic - Echo",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721002,
+   "name": "Azure Relic - Gale",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721003,
+   "name": "Azure Relic - Vortex",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721004,
+   "name": "Azure Relic - Constellation",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721006,
+   "name": "Azure Relic - Sail",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 721007,
+   "name": "Azure Relic - Echo",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722002,
+   "name": "Azure Relic - Gale",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722003,
+   "name": "Azure Relic - Vortex",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722004,
+   "name": "Azure Relic - Constellation",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722006,
+   "name": "Azure Relic - Sail",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 722007,
+   "name": "Azure Relic - Echo",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723002,
+   "name": "Azure Relic - Gale",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723003,
+   "name": "Azure Relic - Vortex",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723004,
+   "name": "Azure Relic - Constellation",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723006,
+   "name": "Azure Relic - Sail",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 723007,
+   "name": "Azure Relic - Echo",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724002,
+   "name": "Azure Relic - Gale",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724003,
+   "name": "Azure Relic - Vortex",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724004,
+   "name": "Azure Relic - Constellation",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724006,
+   "name": "Azure Relic - Sail",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 724007,
+   "name": "Azure Relic - Echo",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725002,
+   "name": "Azure Relic - Gale",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725003,
+   "name": "Azure Relic - Vortex",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725004,
+   "name": "Azure Relic - Constellation",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725006,
+   "name": "Azure Relic - Sail",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 725007,
+   "name": "Azure Relic - Echo",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726002,
+   "name": "Azure Relic - Gale",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726003,
+   "name": "Azure Relic - Vortex",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726004,
+   "name": "Azure Relic - Constellation",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726006,
+   "name": "Azure Relic - Sail",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 726007,
+   "name": "Azure Relic - Echo",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727002,
+   "name": "Azure Relic - Gale",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727003,
+   "name": "Azure Relic - Vortex",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727004,
+   "name": "Azure Relic - Constellation",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727006,
+   "name": "Azure Relic - Sail",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 727007,
+   "name": "Azure Relic - Echo",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728002,
+   "name": "Azure Relic - Gale",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728003,
+   "name": "Azure Relic - Vortex",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728004,
+   "name": "Azure Relic - Constellation",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728006,
+   "name": "Azure Relic - Sail",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 728007,
+   "name": "Azure Relic - Echo",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729001,
+   "name": "Azure Relic - Hourglass",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729002,
+   "name": "Azure Relic - Gale",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729003,
+   "name": "Azure Relic - Vortex",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729004,
+   "name": "Azure Relic - Constellation",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729005,
+   "name": "Azure Relic - Snowflake",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729006,
+   "name": "Azure Relic - Sail",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 729007,
+   "name": "Azure Relic - Echo",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_BLUE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730001,
+   "name": "Golden Relic - Heart",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730002,
+   "name": "Golden Relic - Shield",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730003,
+   "name": "Golden Relic - Halo",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730004,
+   "name": "Golden Relic - Rampart",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730006,
+   "name": "Golden Relic - Coin",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730008,
+   "name": "Golden Relic - Scale",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730009,
+   "name": "Golden Relic - Anchor",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 730010,
+   "name": "Golden Relic - Echo",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731001,
+   "name": "Golden Relic - Heart",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731002,
+   "name": "Golden Relic - Shield",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731003,
+   "name": "Golden Relic - Halo",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731004,
+   "name": "Golden Relic - Rampart",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731006,
+   "name": "Golden Relic - Coin",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731008,
+   "name": "Golden Relic - Scale",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731009,
+   "name": "Golden Relic - Anchor",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 731010,
+   "name": "Golden Relic - Echo",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732001,
+   "name": "Golden Relic - Heart",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732002,
+   "name": "Golden Relic - Shield",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732003,
+   "name": "Golden Relic - Halo",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732004,
+   "name": "Golden Relic - Rampart",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732006,
+   "name": "Golden Relic - Coin",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732008,
+   "name": "Golden Relic - Scale",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732009,
+   "name": "Golden Relic - Anchor",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 732010,
+   "name": "Golden Relic - Echo",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733001,
+   "name": "Golden Relic - Heart",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733002,
+   "name": "Golden Relic - Shield",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733003,
+   "name": "Golden Relic - Halo",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733004,
+   "name": "Golden Relic - Rampart",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733006,
+   "name": "Golden Relic - Coin",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733008,
+   "name": "Golden Relic - Scale",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733009,
+   "name": "Golden Relic - Anchor",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 733010,
+   "name": "Golden Relic - Echo",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734001,
+   "name": "Golden Relic - Heart",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734002,
+   "name": "Golden Relic - Shield",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734003,
+   "name": "Golden Relic - Halo",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734004,
+   "name": "Golden Relic - Rampart",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734006,
+   "name": "Golden Relic - Coin",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734008,
+   "name": "Golden Relic - Scale",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734009,
+   "name": "Golden Relic - Anchor",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 734010,
+   "name": "Golden Relic - Echo",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735001,
+   "name": "Golden Relic - Heart",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735002,
+   "name": "Golden Relic - Shield",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735003,
+   "name": "Golden Relic - Halo",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735004,
+   "name": "Golden Relic - Rampart",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735006,
+   "name": "Golden Relic - Coin",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735008,
+   "name": "Golden Relic - Scale",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735009,
+   "name": "Golden Relic - Anchor",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 735010,
+   "name": "Golden Relic - Echo",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736001,
+   "name": "Golden Relic - Heart",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736002,
+   "name": "Golden Relic - Shield",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736003,
+   "name": "Golden Relic - Halo",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736004,
+   "name": "Golden Relic - Rampart",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736006,
+   "name": "Golden Relic - Coin",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736008,
+   "name": "Golden Relic - Scale",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736009,
+   "name": "Golden Relic - Anchor",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 736010,
+   "name": "Golden Relic - Echo",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737001,
+   "name": "Golden Relic - Heart",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737002,
+   "name": "Golden Relic - Shield",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737003,
+   "name": "Golden Relic - Halo",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737004,
+   "name": "Golden Relic - Rampart",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737006,
+   "name": "Golden Relic - Coin",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737008,
+   "name": "Golden Relic - Scale",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737009,
+   "name": "Golden Relic - Anchor",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 737010,
+   "name": "Golden Relic - Echo",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738001,
+   "name": "Golden Relic - Heart",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738002,
+   "name": "Golden Relic - Shield",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738003,
+   "name": "Golden Relic - Halo",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738004,
+   "name": "Golden Relic - Rampart",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738006,
+   "name": "Golden Relic - Coin",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738008,
+   "name": "Golden Relic - Scale",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738009,
+   "name": "Golden Relic - Anchor",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 738010,
+   "name": "Golden Relic - Echo",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739001,
+   "name": "Golden Relic - Heart",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739002,
+   "name": "Golden Relic - Shield",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739003,
+   "name": "Golden Relic - Halo",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739004,
+   "name": "Golden Relic - Rampart",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739005,
+   "name": "Golden Relic - Broken Chain",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739006,
+   "name": "Golden Relic - Coin",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739007,
+   "name": "Golden Relic - Thunderbolt",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739008,
+   "name": "Golden Relic - Scale",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739009,
+   "name": "Golden Relic - Anchor",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 739010,
+   "name": "Golden Relic - Echo",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_YELLOW",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740001,
+   "name": "Violet Relic - Moon",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740002,
+   "name": "Violet Relic - Skull",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740003,
+   "name": "Violet Relic - Shadow",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740004,
+   "name": "Violet Relic - Mirage",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740005,
+   "name": "Violet Relic - Mist",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740007,
+   "name": "Violet Relic - Feather",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 740008,
+   "name": "Violet Relic - Echo",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741001,
+   "name": "Violet Relic - Moon",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741002,
+   "name": "Violet Relic - Skull",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741003,
+   "name": "Violet Relic - Shadow",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741004,
+   "name": "Violet Relic - Mirage",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741005,
+   "name": "Violet Relic - Mist",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741007,
+   "name": "Violet Relic - Feather",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 741008,
+   "name": "Violet Relic - Echo",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742001,
+   "name": "Violet Relic - Moon",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742002,
+   "name": "Violet Relic - Skull",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742003,
+   "name": "Violet Relic - Shadow",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742004,
+   "name": "Violet Relic - Mirage",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742005,
+   "name": "Violet Relic - Mist",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742007,
+   "name": "Violet Relic - Feather",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 742008,
+   "name": "Violet Relic - Echo",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743001,
+   "name": "Violet Relic - Moon",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743002,
+   "name": "Violet Relic - Skull",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743003,
+   "name": "Violet Relic - Shadow",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743004,
+   "name": "Violet Relic - Mirage",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743005,
+   "name": "Violet Relic - Mist",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743007,
+   "name": "Violet Relic - Feather",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 743008,
+   "name": "Violet Relic - Echo",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744001,
+   "name": "Violet Relic - Moon",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744002,
+   "name": "Violet Relic - Skull",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744003,
+   "name": "Violet Relic - Shadow",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744004,
+   "name": "Violet Relic - Mirage",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744005,
+   "name": "Violet Relic - Mist",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744007,
+   "name": "Violet Relic - Feather",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 744008,
+   "name": "Violet Relic - Echo",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745001,
+   "name": "Violet Relic - Moon",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745002,
+   "name": "Violet Relic - Skull",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745003,
+   "name": "Violet Relic - Shadow",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745004,
+   "name": "Violet Relic - Mirage",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745005,
+   "name": "Violet Relic - Mist",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745007,
+   "name": "Violet Relic - Feather",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 745008,
+   "name": "Violet Relic - Echo",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746001,
+   "name": "Violet Relic - Moon",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746002,
+   "name": "Violet Relic - Skull",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746003,
+   "name": "Violet Relic - Shadow",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746004,
+   "name": "Violet Relic - Mirage",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746005,
+   "name": "Violet Relic - Mist",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746007,
+   "name": "Violet Relic - Feather",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 746008,
+   "name": "Violet Relic - Echo",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747001,
+   "name": "Violet Relic - Moon",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747002,
+   "name": "Violet Relic - Skull",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747003,
+   "name": "Violet Relic - Shadow",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747004,
+   "name": "Violet Relic - Mirage",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747005,
+   "name": "Violet Relic - Mist",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747007,
+   "name": "Violet Relic - Feather",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 747008,
+   "name": "Violet Relic - Echo",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748001,
+   "name": "Violet Relic - Moon",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748002,
+   "name": "Violet Relic - Skull",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748003,
+   "name": "Violet Relic - Shadow",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748004,
+   "name": "Violet Relic - Mirage",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748005,
+   "name": "Violet Relic - Mist",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748007,
+   "name": "Violet Relic - Feather",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 748008,
+   "name": "Violet Relic - Echo",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749001,
+   "name": "Violet Relic - Moon",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749002,
+   "name": "Violet Relic - Skull",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749003,
+   "name": "Violet Relic - Shadow",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749004,
+   "name": "Violet Relic - Mirage",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749005,
+   "name": "Violet Relic - Mist",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749006,
+   "name": "Violet Relic - Butterfly",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749007,
+   "name": "Violet Relic - Feather",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 749008,
+   "name": "Violet Relic - Echo",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_PURPLE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 750001,
+   "name": "White Relic - Crystal",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 750002,
+   "name": "White Relic - Echo",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 751001,
+   "name": "White Relic - Crystal",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 751002,
+   "name": "White Relic - Echo",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 752001,
+   "name": "White Relic - Crystal",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 752002,
+   "name": "White Relic - Echo",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 753001,
+   "name": "White Relic - Crystal",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 753002,
+   "name": "White Relic - Echo",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 754001,
+   "name": "White Relic - Crystal",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 754002,
+   "name": "White Relic - Echo",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 755001,
+   "name": "White Relic - Crystal",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 755002,
+   "name": "White Relic - Echo",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 756001,
+   "name": "White Relic - Crystal",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 756002,
+   "name": "White Relic - Echo",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 757001,
+   "name": "White Relic - Crystal",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 757002,
+   "name": "White Relic - Echo",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 758001,
+   "name": "White Relic - Crystal",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 758002,
+   "name": "White Relic - Echo",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 759001,
+   "name": "White Relic - Crystal",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 759002,
+   "name": "White Relic - Echo",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIC_WHITE",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790001,
+   "name": "Relentless Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790002,
+   "name": "Frostfire Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790003,
+   "name": "Hunter's Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790004,
+   "name": "Onset Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790005,
+   "name": "Executioner's Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790006,
+   "name": "Mirror Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790007,
+   "name": "Bulwark Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790008,
+   "name": "Might Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790009,
+   "name": "Phoenix Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790010,
+   "name": "Oath Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790011,
+   "name": "Void Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790013,
+   "name": "Commander's Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790015,
+   "name": "Tranquil Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790017,
+   "name": "Sanguine Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790018,
+   "name": "Ember Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790020,
+   "name": "Twin Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790022,
+   "name": "Hunter's Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 790028,
+   "name": "Icicle Unfinished Reliquary",
+   "grade": "COMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791001,
+   "name": "Relentless Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791002,
+   "name": "Frostfire Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791003,
+   "name": "Hunter's Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791004,
+   "name": "Onset Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791005,
+   "name": "Executioner's Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791006,
+   "name": "Mirror Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791007,
+   "name": "Bulwark Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791008,
+   "name": "Might Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791009,
+   "name": "Phoenix Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791010,
+   "name": "Oath Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791011,
+   "name": "Void Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791013,
+   "name": "Commander's Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791015,
+   "name": "Tranquil Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791017,
+   "name": "Sanguine Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791018,
+   "name": "Ember Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791020,
+   "name": "Twin Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791022,
+   "name": "Hunter's Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 791028,
+   "name": "Icicle Unfinished Reliquary",
+   "grade": "UNCOMMON",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792001,
+   "name": "Relentless Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792002,
+   "name": "Frostfire Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792003,
+   "name": "Hunter's Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792004,
+   "name": "Onset Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792005,
+   "name": "Executioner's Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792006,
+   "name": "Mirror Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792007,
+   "name": "Bulwark Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792008,
+   "name": "Might Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792009,
+   "name": "Phoenix Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792010,
+   "name": "Oath Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792011,
+   "name": "Void Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792013,
+   "name": "Commander's Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792015,
+   "name": "Tranquil Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792017,
+   "name": "Sanguine Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792018,
+   "name": "Ember Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792020,
+   "name": "Twin Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792022,
+   "name": "Hunter's Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 792028,
+   "name": "Icicle Unfinished Reliquary",
+   "grade": "RARE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793001,
+   "name": "Relentless Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793002,
+   "name": "Frostfire Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793003,
+   "name": "Hunter's Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793004,
+   "name": "Onset Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793005,
+   "name": "Executioner's Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793006,
+   "name": "Mirror Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793007,
+   "name": "Bulwark Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793008,
+   "name": "Might Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793009,
+   "name": "Phoenix Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793010,
+   "name": "Oath Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793011,
+   "name": "Void Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793013,
+   "name": "Commander's Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793015,
+   "name": "Tranquil Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793017,
+   "name": "Sanguine Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793018,
+   "name": "Ember Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793020,
+   "name": "Twin Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793022,
+   "name": "Hunter's Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 793028,
+   "name": "Icicle Reliquary",
+   "grade": "LEGENDARY",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794001,
+   "name": "Relentless Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794002,
+   "name": "Frostfire Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794003,
+   "name": "Hunter's Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794004,
+   "name": "Onset Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794005,
+   "name": "Executioner's Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794006,
+   "name": "Mirror Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794007,
+   "name": "Bulwark Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794008,
+   "name": "Might Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794009,
+   "name": "Phoenix Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794010,
+   "name": "Oath Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794011,
+   "name": "Void Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794012,
+   "name": "Forgotten King's Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794013,
+   "name": "Commander's Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794014,
+   "name": "Swift Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794015,
+   "name": "Tranquil Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794017,
+   "name": "Sanguine Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794018,
+   "name": "Ember Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794019,
+   "name": "Chain Reaction Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794020,
+   "name": "Twin Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794021,
+   "name": "Vengeful Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794022,
+   "name": "Hunter's Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794023,
+   "name": "Executioner's Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794024,
+   "name": "Phoenix Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794025,
+   "name": "Black Flame Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794026,
+   "name": "Black Frost Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794027,
+   "name": "Black Lightning Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794028,
+   "name": "Icicle Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794029,
+   "name": "Relentless Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794030,
+   "name": "Mirror Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794031,
+   "name": "Commander's Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794032,
+   "name": "Bitter Cold Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794033,
+   "name": "Oath Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794035,
+   "name": "Companion's Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794036,
+   "name": "Corrupt Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794037,
+   "name": "Bulwark Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794040,
+   "name": "Swift Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794041,
+   "name": "Keen Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794042,
+   "name": "Vengeful Unfinished Reliquary",
+   "grade": "IMMORTAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794053,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794054,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794055,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794056,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794057,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794058,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794060,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794061,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794062,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 794063,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795001,
+   "name": "Relentless Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795002,
+   "name": "Frostfire Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795003,
+   "name": "Hunter's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795004,
+   "name": "Onset Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795005,
+   "name": "Executioner's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795006,
+   "name": "Mirror Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795007,
+   "name": "Bulwark Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795008,
+   "name": "Might Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795009,
+   "name": "Phoenix Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795010,
+   "name": "Oath Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795011,
+   "name": "Void Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795012,
+   "name": "Forgotten King's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795013,
+   "name": "Commander's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795014,
+   "name": "Swift Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795015,
+   "name": "Tranquil Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795016,
+   "name": "Prism Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795017,
+   "name": "Sanguine Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795018,
+   "name": "Ember Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795019,
+   "name": "Chain Reaction Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795020,
+   "name": "Twin Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795021,
+   "name": "Vengeful Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795022,
+   "name": "Hunter's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795023,
+   "name": "Executioner's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795024,
+   "name": "Phoenix Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795025,
+   "name": "Black Flame Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795026,
+   "name": "Black Frost Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795027,
+   "name": "Black Lightning Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795028,
+   "name": "Icicle Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795029,
+   "name": "Relentless Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795030,
+   "name": "Mirror Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795031,
+   "name": "Commander's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795032,
+   "name": "Bitter Cold Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795033,
+   "name": "Oath Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795034,
+   "name": "Condemnation Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795035,
+   "name": "Companion's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795036,
+   "name": "Corrupt Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795037,
+   "name": "Bulwark Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795038,
+   "name": "Might Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795039,
+   "name": "Executioner's Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795040,
+   "name": "Swift Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795041,
+   "name": "Keen Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795042,
+   "name": "Vengeful Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795043,
+   "name": "Prism Reliquary",
+   "grade": "ARCANA",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795044,
+   "name": "Vampire's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795045,
+   "name": "Pure Flame Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795046,
+   "name": "Pure Frost Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795047,
+   "name": "Pure Light Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795048,
+   "name": "Pure Void Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795049,
+   "name": "Forgotten King's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795050,
+   "name": "Twinborn Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795051,
+   "name": "Master's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795052,
+   "name": "Resonator Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795053,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795054,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795055,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795056,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795057,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795058,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795059,
+   "name": "Commander's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795060,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795061,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795062,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 795063,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796001,
+   "name": "Relentless Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796002,
+   "name": "Frostfire Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796003,
+   "name": "Hunter's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796004,
+   "name": "Onset Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796005,
+   "name": "Executioner's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796006,
+   "name": "Mirror Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796007,
+   "name": "Bulwark Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796008,
+   "name": "Might Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796009,
+   "name": "Phoenix Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796010,
+   "name": "Oath Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796011,
+   "name": "Void Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796012,
+   "name": "Forgotten King's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796013,
+   "name": "Commander's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796014,
+   "name": "Swift Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796015,
+   "name": "Tranquil Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796016,
+   "name": "Prism Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796017,
+   "name": "Sanguine Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796018,
+   "name": "Ember Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796019,
+   "name": "Chain Reaction Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796020,
+   "name": "Twin Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796021,
+   "name": "Vengeful Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796022,
+   "name": "Hunter's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796023,
+   "name": "Executioner's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796024,
+   "name": "Phoenix Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796025,
+   "name": "Black Flame Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796026,
+   "name": "Black Frost Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796027,
+   "name": "Black Lightning Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796028,
+   "name": "Icicle Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796029,
+   "name": "Relentless Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796030,
+   "name": "Mirror Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796031,
+   "name": "Commander's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796032,
+   "name": "Bitter Cold Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796033,
+   "name": "Oath Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796034,
+   "name": "Condemnation Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796035,
+   "name": "Companion's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796036,
+   "name": "Corrupt Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796037,
+   "name": "Bulwark Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796038,
+   "name": "Might Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796039,
+   "name": "Executioner's Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796040,
+   "name": "Swift Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796041,
+   "name": "Keen Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796042,
+   "name": "Vengeful Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796043,
+   "name": "Prism Reliquary",
+   "grade": "BEYOND",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796044,
+   "name": "Vampire's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796045,
+   "name": "Pure Flame Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796046,
+   "name": "Pure Frost Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796047,
+   "name": "Pure Light Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796048,
+   "name": "Pure Void Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796049,
+   "name": "Forgotten King's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796050,
+   "name": "Twinborn Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796051,
+   "name": "Master's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796052,
+   "name": "Resonator Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796053,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796054,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796055,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796056,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796057,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796058,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796059,
+   "name": "Commander's Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796060,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796061,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796062,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 796063,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797001,
+   "name": "Relentless Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797002,
+   "name": "Frostfire Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797003,
+   "name": "Hunter's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797004,
+   "name": "Onset Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797005,
+   "name": "Executioner's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797006,
+   "name": "Mirror Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797007,
+   "name": "Bulwark Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797008,
+   "name": "Might Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797009,
+   "name": "Phoenix Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797010,
+   "name": "Oath Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797011,
+   "name": "Void Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797012,
+   "name": "Forgotten King's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797013,
+   "name": "Commander's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797014,
+   "name": "Swift Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797015,
+   "name": "Tranquil Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797016,
+   "name": "Prism Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797017,
+   "name": "Sanguine Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797018,
+   "name": "Ember Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797019,
+   "name": "Chain Reaction Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797020,
+   "name": "Twin Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797021,
+   "name": "Vengeful Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797022,
+   "name": "Hunter's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797023,
+   "name": "Executioner's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797024,
+   "name": "Phoenix Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797025,
+   "name": "Black Flame Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797026,
+   "name": "Black Frost Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797027,
+   "name": "Black Lightning Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797028,
+   "name": "Icicle Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797029,
+   "name": "Relentless Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797030,
+   "name": "Mirror Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797031,
+   "name": "Commander's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797032,
+   "name": "Bitter Cold Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797033,
+   "name": "Oath Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797034,
+   "name": "Condemnation Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797035,
+   "name": "Companion's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797036,
+   "name": "Corrupt Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797037,
+   "name": "Bulwark Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797038,
+   "name": "Might Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797039,
+   "name": "Executioner's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797040,
+   "name": "Swift Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797041,
+   "name": "Keen Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797042,
+   "name": "Vengeful Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797043,
+   "name": "Prism Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797044,
+   "name": "Vampire's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797045,
+   "name": "Pure Flame Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797046,
+   "name": "Pure Frost Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797047,
+   "name": "Pure Light Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797048,
+   "name": "Pure Void Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797049,
+   "name": "Forgotten King's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797050,
+   "name": "Twinborn Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797051,
+   "name": "Master's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797052,
+   "name": "Resonator Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797053,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797054,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797055,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797056,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797057,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797058,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797059,
+   "name": "Commander's Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797060,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797061,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797062,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 797063,
+   "name": "Rampant Reliquary",
+   "grade": "CELESTIAL",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798001,
+   "name": "Relentless Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798002,
+   "name": "Frostfire Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798003,
+   "name": "Hunter's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798004,
+   "name": "Onset Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798005,
+   "name": "Executioner's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798006,
+   "name": "Mirror Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798007,
+   "name": "Bulwark Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798008,
+   "name": "Might Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798009,
+   "name": "Phoenix Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798010,
+   "name": "Oath Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798011,
+   "name": "Void Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798012,
+   "name": "Forgotten King's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798013,
+   "name": "Commander's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798014,
+   "name": "Swift Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798015,
+   "name": "Tranquil Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798016,
+   "name": "Prism Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798017,
+   "name": "Sanguine Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798018,
+   "name": "Ember Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798019,
+   "name": "Chain Reaction Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798020,
+   "name": "Twin Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798021,
+   "name": "Vengeful Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798022,
+   "name": "Hunter's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798023,
+   "name": "Executioner's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798024,
+   "name": "Phoenix Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798025,
+   "name": "Black Flame Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798026,
+   "name": "Black Frost Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798027,
+   "name": "Black Lightning Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798028,
+   "name": "Icicle Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798029,
+   "name": "Relentless Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798030,
+   "name": "Mirror Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798031,
+   "name": "Commander's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798032,
+   "name": "Bitter Cold Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798033,
+   "name": "Oath Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798034,
+   "name": "Condemnation Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798035,
+   "name": "Companion's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798036,
+   "name": "Corrupt Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798037,
+   "name": "Bulwark Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798038,
+   "name": "Might Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798039,
+   "name": "Executioner's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798040,
+   "name": "Swift Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798041,
+   "name": "Keen Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798042,
+   "name": "Vengeful Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798043,
+   "name": "Prism Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798044,
+   "name": "Vampire's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798045,
+   "name": "Pure Flame Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798046,
+   "name": "Pure Frost Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798047,
+   "name": "Pure Light Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798048,
+   "name": "Pure Void Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798049,
+   "name": "Forgotten King's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798050,
+   "name": "Twinborn Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798051,
+   "name": "Master's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798052,
+   "name": "Resonator Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798053,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798054,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798055,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798056,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798057,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798058,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798059,
+   "name": "Commander's Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798060,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798061,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798062,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 798063,
+   "name": "Rampant Reliquary",
+   "grade": "DIVINE",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799001,
+   "name": "Relentless Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799002,
+   "name": "Frostfire Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799003,
+   "name": "Hunter's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799004,
+   "name": "Onset Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799005,
+   "name": "Executioner's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799006,
+   "name": "Mirror Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799007,
+   "name": "Bulwark Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799008,
+   "name": "Might Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799009,
+   "name": "Phoenix Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799010,
+   "name": "Oath Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799011,
+   "name": "Void Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799012,
+   "name": "Forgotten King's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799013,
+   "name": "Commander's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799014,
+   "name": "Swift Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799015,
+   "name": "Tranquil Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799016,
+   "name": "Prism Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799017,
+   "name": "Sanguine Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799018,
+   "name": "Ember Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799019,
+   "name": "Chain Reaction Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799020,
+   "name": "Twin Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799021,
+   "name": "Vengeful Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799022,
+   "name": "Hunter's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799023,
+   "name": "Executioner's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799024,
+   "name": "Phoenix Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799025,
+   "name": "Black Flame Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799026,
+   "name": "Black Frost Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799027,
+   "name": "Black Lightning Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799028,
+   "name": "Icicle Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799029,
+   "name": "Relentless Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799030,
+   "name": "Mirror Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799031,
+   "name": "Commander's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799032,
+   "name": "Bitter Cold Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799033,
+   "name": "Oath Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799034,
+   "name": "Condemnation Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799035,
+   "name": "Companion's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799036,
+   "name": "Corrupt Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799037,
+   "name": "Bulwark Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799038,
+   "name": "Might Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799039,
+   "name": "Executioner's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799040,
+   "name": "Swift Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799041,
+   "name": "Keen Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799042,
+   "name": "Vengeful Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799043,
+   "name": "Prism Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799044,
+   "name": "Vampire's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799045,
+   "name": "Pure Flame Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799046,
+   "name": "Pure Frost Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799047,
+   "name": "Pure Light Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799048,
+   "name": "Pure Void Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799049,
+   "name": "Forgotten King's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799050,
+   "name": "Twinborn Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799051,
+   "name": "Master's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799052,
+   "name": "Resonator Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799053,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799054,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799055,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799056,
+   "name": "Rampant Reliquary",
+   "grade": "",
+   "type": "",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799057,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799058,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799059,
+   "name": "Commander's Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799060,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799061,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799062,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 799063,
+   "name": "Rampant Reliquary",
+   "grade": "COSMIC",
+   "type": "GEAR",
+   "gearType": "RELIQUARY",
+   "level": null,
+   "marketTradable": false
+  },
+  {
    "id": 910011,
    "name": "Normal Monster Box 1",
    "grade": "COMMON",
@@ -17505,6 +25045,60 @@
    "id": 935203,
    "name": "Contaminated ActBoss Box (Torment) - 3",
    "grade": "LEGENDARY",
+   "type": "STAGEBOX",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 940001,
+   "name": "Halloween Normal Box (Nightmare)",
+   "grade": "COMMON",
+   "type": "STAGEBOX",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 940101,
+   "name": "Halloween Normal Box (Hell)",
+   "grade": "COMMON",
+   "type": "STAGEBOX",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 940201,
+   "name": "Halloween Normal Box (Torment)",
+   "grade": "COMMON",
+   "type": "STAGEBOX",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 941001,
+   "name": "Halloween Stage Box (Nightmare)",
+   "grade": "RARE",
+   "type": "STAGEBOX",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 941101,
+   "name": "Halloween Stage Box (Hell)",
+   "grade": "RARE",
+   "type": "STAGEBOX",
+   "gearType": null,
+   "level": null,
+   "marketTradable": false
+  },
+  {
+   "id": 941201,
+   "name": "Halloween Stage Box (Torment)",
+   "grade": "RARE",
    "type": "STAGEBOX",
    "gearType": null,
    "level": null,

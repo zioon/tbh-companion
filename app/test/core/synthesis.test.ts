@@ -9,6 +9,7 @@ import {
   formatMaterialAverageLevelRange,
   materialAverageLevelRange,
   recipeTierResultRange,
+  synthesisTypeForItem,
 } from "../../src/core/lookup/synthesis";
 
 const AMBER_RING = {
@@ -22,6 +23,37 @@ const AMBER_RING = {
   level: 30,
   iconPath: "RING_620007",
   marketTradable: true,
+};
+
+/**
+ * v1.3.0 relic family. `ItemInfoData.Level` is EMPTY for these rows (they
+ * are not level-scaled gear) — the synthesis result level comes from the
+ * model's single bucket level instead.
+ */
+const CRIMSON_RELIC = {
+  id: 715001,
+  name: "Crimson Relic - Blade",
+  grade: "ARCANA",
+  type: "GEAR" as const,
+  gearType: "RELIC_RED",
+  gearGroup: "RELIC",
+  materialType: null,
+  level: null,
+  iconPath: "relic-710001",
+  marketTradable: false,
+};
+
+const RELIQUARY = {
+  id: 795001,
+  name: "Relentless Reliquary",
+  grade: "ARCANA",
+  type: "GEAR" as const,
+  gearType: "RELIQUARY",
+  gearGroup: "RELIQUARY",
+  materialType: null,
+  level: null,
+  iconPath: "reliquary-790001",
+  marketTradable: false,
 };
 
 describe("synthesis engine", () => {
@@ -91,5 +123,43 @@ describe("synthesis engine", () => {
     expect(outcomes.length).toBeGreaterThan(0);
     const amber = outcomes.find((o) => o.itemKey === AMBER_RING.id && o.level === 30);
     expect(amber?.chance).toBe(20.18);
+  });
+});
+
+describe("synthesis engine — v1.3.0 relic family", () => {
+  const model = loadSynthesisModel();
+
+  it("maps the relic gear groups to their own synthesis chains", () => {
+    expect(synthesisTypeForItem(CRIMSON_RELIC)).toBe("RELIC");
+    expect(synthesisTypeForItem(RELIQUARY)).toBe("RELIQUARY");
+    // Unchanged for the pre-1.3.0 families.
+    expect(synthesisTypeForItem(AMBER_RING)).toBe("Accessory");
+    expect(synthesisTypeForItem({ type: "GEAR", gearGroup: "WEAPON" })).toBe("Gear");
+    expect(synthesisTypeForItem({ type: "MATERIAL", gearGroup: null })).toBeNull();
+  });
+
+  it("resolves a relic synthesis path despite the item having no level", () => {
+    const paths = pathsToItem(CRIMSON_RELIC, model);
+    expect(paths.length).toBeGreaterThan(0);
+    // The result level comes from the model's single RELIC bucket level.
+    expect(paths[0]!.itemLevel).toBe(1);
+    expect(paths[0]!.resultLevelMin).toBe(1);
+    expect(paths[0]!.resultLevelMax).toBe(1);
+    expect(paths[0]!.chance).toBeGreaterThan(0);
+  });
+
+  it("resolves a reliquary synthesis path", () => {
+    const paths = pathsToItem(RELIQUARY, model);
+    expect(paths.length).toBeGreaterThan(0);
+    expect(paths[0]!.itemLevel).toBe(1);
+  });
+
+  it("still returns no path for a material", () => {
+    expect(
+      pathsToItem(
+        { id: 110001, grade: "COMMON", level: null, type: "MATERIAL", gearGroup: null },
+        model,
+      ),
+    ).toEqual([]);
   });
 });

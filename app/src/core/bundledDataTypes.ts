@@ -10,6 +10,7 @@ export type BundledDataFile =
   | "rune_box_cap.json"
   | "rune_auto_open.json"
   | "rune_wave.json"
+  | "rune_drop_chance.json"
   | "pets.json"
   | "steam_item_nameids.json"
   | "steam_market_fee.json"

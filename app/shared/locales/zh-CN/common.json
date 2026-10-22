@@ -87,12 +87,20 @@
       "DECORATION": "装饰",
       "ENGRAVING": "雕刻",
       "CRAFTING": "制作",
-      "SOULSTONE": "灵魂石"
+      "SOULSTONE": "灵魂石",
+      "RELIQUARY": "圣物匣",
+      "RELIC_WHITE": "白色圣物",
+      "RELIC_BLUE": "蓝色圣物",
+      "RELIC_PURPLE": "紫色圣物",
+      "RELIC_RED": "红色圣物",
+      "RELIC_YELLOW": "金色圣物"
     },
     "gearGroups": {
       "WEAPON": "武器",
       "ARMOR": "护甲",
-      "ACCESSORY": "饰品"
+      "ACCESSORY": "饰品",
+      "RELIC": "圣物",
+      "RELIQUARY": "圣物匣"
     },
     "modifierGroups": {
       "Offense": "进攻",
@@ -152,6 +160,9 @@
     },
     "levelShort": "等级 {{level}}",
     "classOnly": "仅 {{class}}",
-    "synthesisPoints": "合成点"
+    "synthesisPoints": "合成点",
+    "relicAdditional": {
+      "ResonanceDoubleCount": "共鸣条件判定时计为两个圣物。"
+    }
   }
 }

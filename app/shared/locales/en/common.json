@@ -87,12 +87,20 @@
       "DECORATION": "Decoration",
       "ENGRAVING": "Engraving",
       "CRAFTING": "Crafting",
-      "SOULSTONE": "Soulstone"
+      "SOULSTONE": "Soulstone",
+      "RELIQUARY": "Reliquary",
+      "RELIC_WHITE": "White Relic",
+      "RELIC_BLUE": "Blue Relic",
+      "RELIC_PURPLE": "Purple Relic",
+      "RELIC_RED": "Red Relic",
+      "RELIC_YELLOW": "Golden Relic"
     },
     "gearGroups": {
       "WEAPON": "Weapon",
       "ARMOR": "Armor",
-      "ACCESSORY": "Accessories"
+      "ACCESSORY": "Accessories",
+      "RELIC": "Relic",
+      "RELIQUARY": "Reliquary"
     },
     "modifierGroups": {
       "Offense": "Offense",
@@ -152,6 +160,9 @@
     },
     "levelShort": "Lv {{level}}",
     "classOnly": "{{class}} only",
-    "synthesisPoints": "Synthesis Pts"
+    "synthesisPoints": "Synthesis Pts",
+    "relicAdditional": {
+      "ResonanceDoubleCount": "Counts as two relics when checking resonance conditions."
+    }
   }
 }

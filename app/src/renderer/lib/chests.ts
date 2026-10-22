@@ -39,6 +39,11 @@ export function chestCategoryFromKey(itemKey: number): ChestGroupCategory | null
   if (itemKey >= 910_000 && itemKey < 920_000) return "common";
   if (itemKey >= 920_000 && itemKey < 930_000) return "rare";
   if (itemKey >= 930_000 && itemKey < 940_000) return "act";
+  // v1.3.0 Halloween event boxes (CONTENTTYPE=EVENT): 940xxx = normal tier
+  // (common slot), 941xxx = stage-boss tier (rare slot). The game gives them
+  // no dedicated capacity runes, so they occupy the existing buckets.
+  if (itemKey >= 940_000 && itemKey < 941_000) return "common";
+  if (itemKey >= 941_000 && itemKey < 942_000) return "rare";
   return null;
 }
 
@@ -52,4 +57,24 @@ export function chestCategoryLabelKey(cat: ChestGroupCategory): string {
     default:
       return `category.${cat}`;
   }
+}
+
+/**
+ * v1.3.0 掉率符文加成的一行文案。
+ *
+ * 未购买该类符文时返回空数组（不占行）。语义是**乘数**提升百分比（游戏的
+ * stat 名带 `Percent` 后缀），不是加法。
+ */
+export function dropChanceParts(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  breakdown: { bonusPercent: number; purchasedRuneNodes: number; runeLabel: string } | undefined,
+): string[] {
+  if (!breakdown || breakdown.bonusPercent <= 0) return [];
+  return [
+    t("dropChanceRuneBonus", {
+      percent: breakdown.bonusPercent,
+      nodes: breakdown.purchasedRuneNodes,
+      runeLabel: breakdown.runeLabel,
+    }),
+  ];
 }

@@ -11,9 +11,12 @@ import {
   loadRuneBoxCapCatalog,
   loadRuneAutoOpenCatalog,
   loadRuneWaveCatalog,
+  loadRuneDropChanceCatalog,
   runeAutoOpenReductionSeconds,
   effectiveAutoOpenSeconds,
   runeWaveCountReduction,
+  runeDropChanceBonusPercent,
+  purchasedDropChanceRuneNodes,
   type RunePurchase,
 } from "../../src/core/boxes";
 
@@ -194,7 +197,15 @@ describe("buildChestState", () => {
       { runeKey: 11003, level: 1 },
     ];
 
-    const state = buildChestState(chests, purchases, 100, boxTypes, runeCap, autoOpen);
+    const state = buildChestState(
+      chests,
+      purchases,
+      100,
+      boxTypes,
+      runeCap,
+      autoOpen,
+      loadRuneDropChanceCatalog(),
+    );
 
     expect(state.totalHeld).toBe(5);
 
@@ -222,7 +233,36 @@ describe("buildChestState", () => {
       plagueAct: 120,
     });
 
+    // No drop-chance runes purchased here, so every bonus is 0.
+    expect(state.dropChance).toEqual({
+      common: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "Rune of Exploration" },
+      stageBoss: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "Rune of Conquest" },
+      plagueCommon: {
+        bonusPercent: 0,
+        purchasedRuneNodes: 0,
+        runeLabel: "Plague Rune of Exploration",
+      },
+      plagueRare: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "Plague Rune of Conquest" },
+    });
+
     expect(state.saveMtime).toBe(100);
+  });
+
+  it("reports the drop-chance bonus for purchased runes", () => {
+    const chests: ChestHolding[] = [{ type: 0, quantity: 1 }];
+    const purchases: RunePurchase[] = [{ runeKey: 107, level: 2 }];
+    const state = buildChestState(
+      chests,
+      purchases,
+      100,
+      boxTypes,
+      runeCap,
+      autoOpen,
+      loadRuneDropChanceCatalog(),
+    );
+    expect(state.dropChance.common.bonusPercent).toBe(100);
+    expect(state.dropChance.common.purchasedRuneNodes).toBe(1);
+    expect(state.dropChance.stageBoss.bonusPercent).toBe(0);
   });
 });
 
@@ -258,5 +298,60 @@ describe("wave-count reduction runes", () => {
       { runeKey: 9999, level: 5 },
     ];
     expect(runeWaveCountReduction(purchases, wave)).toBe(1);
+  });
+});
+
+describe("drop-chance runes (v1.3.0)", () => {
+  const drop = loadRuneDropChanceCatalog();
+
+  it("has no bonus with no runes", () => {
+    expect(runeDropChanceBonusPercent([], drop.common)).toBe(0);
+    expect(runeDropChanceBonusPercent([], drop.stageBoss)).toBe(0);
+    expect(runeDropChanceBonusPercent([], drop.plagueCommon)).toBe(0);
+    expect(runeDropChanceBonusPercent([], drop.plagueRare)).toBe(0);
+  });
+
+  it("adds the node's per-level percent", () => {
+    // RuneKey 107 → 50% per level (Rune of Exploration).
+    const purchases: RunePurchase[] = [{ runeKey: 107, level: 1 }];
+    expect(runeDropChanceBonusPercent(purchases, drop.common)).toBe(50);
+  });
+
+  it("weighs by level", () => {
+    const purchases: RunePurchase[] = [{ runeKey: 107, level: 3 }];
+    expect(runeDropChanceBonusPercent(purchases, drop.common)).toBe(150);
+  });
+
+  it("sums across nodes of the same chest type", () => {
+    const purchases: RunePurchase[] = [
+      { runeKey: 101, level: 1 }, // 100%
+      { runeKey: 107, level: 2 }, // 50% × 2
+    ];
+    expect(runeDropChanceBonusPercent(purchases, drop.common)).toBe(200);
+  });
+
+  it("keeps chest types independent", () => {
+    // RuneKey 102 is a stage-boss node (200%); it must not leak into common.
+    const purchases: RunePurchase[] = [{ runeKey: 102, level: 1 }];
+    expect(runeDropChanceBonusPercent(purchases, drop.stageBoss)).toBe(200);
+    expect(runeDropChanceBonusPercent(purchases, drop.common)).toBe(0);
+  });
+
+  it("skips unknown rune nodes", () => {
+    const purchases: RunePurchase[] = [
+      { runeKey: 107, level: 1 },
+      { runeKey: 9999, level: 5 },
+    ];
+    expect(runeDropChanceBonusPercent(purchases, drop.common)).toBe(50);
+  });
+
+  it("lists the purchased nodes for the UI", () => {
+    const purchases: RunePurchase[] = [
+      { runeKey: 107, level: 1 },
+      { runeKey: 9999, level: 3 },
+    ];
+    const nodes = purchasedDropChanceRuneNodes(purchases, drop.common);
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]!.runeKey).toBe(107);
   });
 });

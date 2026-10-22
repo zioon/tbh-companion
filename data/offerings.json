@@ -6159,1115 +6159,1243 @@
   "loot": [
    {
     "itemKey": 190001,
-    "poolPct": 1.7887
+    "poolPct": 1.7129
    },
    {
     "itemKey": 190002,
-    "poolPct": 1.7887
+    "poolPct": 1.7129
    },
    {
     "itemKey": 190003,
-    "poolPct": 1.7887
+    "poolPct": 1.7129
    },
    {
     "itemKey": 190004,
-    "poolPct": 1.7887
+    "poolPct": 1.7129
    },
    {
     "itemKey": 504091,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 504111,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 504141,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 514091,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 514111,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 514141,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 524091,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 524111,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 524141,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 534091,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 534111,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 534141,
-    "poolPct": 1.721
+    "poolPct": 1.6481
    },
    {
     "itemKey": 505091,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 505111,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 505141,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 515091,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 515111,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 515141,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 525091,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 525111,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 525141,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 535091,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 535111,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 535141,
-    "poolPct": 1.5059
+    "poolPct": 1.4421
    },
    {
     "itemKey": 503091,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 503111,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 503141,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 513091,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 513111,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 513141,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 523091,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 523111,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 523141,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 533091,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 533111,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 533141,
-    "poolPct": 0.9681
+    "poolPct": 0.9271
    },
    {
     "itemKey": 506091,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 506111,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 506141,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 516091,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 516111,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 516141,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 526091,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 526111,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 526141,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 536091,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 536111,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 536141,
-    "poolPct": 0.8067
+    "poolPct": 0.7726
    },
    {
     "itemKey": 304091,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 314091,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 324091,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 334091,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 304111,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 314111,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 324111,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 334111,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 304141,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 314141,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 324141,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 334141,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 344091,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 354091,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 344111,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 354111,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 344141,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 354141,
-    "poolPct": 0.4303
+    "poolPct": 0.412
    },
    {
     "itemKey": 305091,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 315091,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 325091,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 335091,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 305111,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 315111,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 325111,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 335111,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 305141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 315141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 325141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 335141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 507091,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 517091,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 527091,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 537091,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 507111,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 517111,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 527111,
+    "poolPct": 0.3605
+   },
+   {
+    "itemKey": 537111,
+    "poolPct": 0.3605
    },
    {
     "itemKey": 507141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 517141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 527141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 537141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 345091,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 355091,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 345111,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 355111,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 345141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 355141,
-    "poolPct": 0.3765
+    "poolPct": 0.3605
    },
    {
     "itemKey": 123001,
-    "poolPct": 0.3341
+    "poolPct": 0.3199
    },
    {
     "itemKey": 123002,
-    "poolPct": 0.3341
+    "poolPct": 0.3199
    },
    {
     "itemKey": 123003,
-    "poolPct": 0.3341
+    "poolPct": 0.3199
    },
    {
     "itemKey": 123004,
-    "poolPct": 0.3341
+    "poolPct": 0.3199
    },
    {
     "itemKey": 303091,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 313091,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 323091,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 333091,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 303111,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 313111,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 323111,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 333111,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 303141,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 313141,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 323141,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 333141,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 343091,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 353091,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 343111,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 353111,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 343141,
-    "poolPct": 0.242
+    "poolPct": 0.2318
    },
    {
     "itemKey": 353141,
-    "poolPct": 0.242
-   },
-   {
-    "itemKey": 306091,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 316091,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 326091,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 336091,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 306111,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 316111,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 326111,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 336111,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 306141,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 316141,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 326141,
-    "poolPct": 0.2017
-   },
-   {
-    "itemKey": 336141,
-    "poolPct": 0.2017
+    "poolPct": 0.2318
    },
    {
     "itemKey": 346091,
-    "poolPct": 0.2017
+    "poolPct": 0.1932
    },
    {
     "itemKey": 356091,
-    "poolPct": 0.2017
+    "poolPct": 0.1932
    },
    {
     "itemKey": 346111,
-    "poolPct": 0.2017
+    "poolPct": 0.1932
    },
    {
     "itemKey": 356111,
-    "poolPct": 0.2017
+    "poolPct": 0.1932
    },
    {
     "itemKey": 346141,
-    "poolPct": 0.2017
+    "poolPct": 0.1932
    },
    {
     "itemKey": 356141,
-    "poolPct": 0.2017
+    "poolPct": 0.1932
+   },
+   {
+    "itemKey": 306091,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 316091,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 326091,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 336091,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 306111,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 316111,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 326111,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 336111,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 306141,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 316141,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 326141,
+    "poolPct": 0.1931
+   },
+   {
+    "itemKey": 336141,
+    "poolPct": 0.1931
    },
    {
     "itemKey": 143001,
-    "poolPct": 0.167
+    "poolPct": 0.16
    },
    {
     "itemKey": 143002,
-    "poolPct": 0.167
+    "poolPct": 0.16
    },
    {
     "itemKey": 404091,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 414091,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 424091,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 434091,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 404111,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 414111,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 424111,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 434111,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 404141,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 414141,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 424141,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 434141,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 444091,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 454091,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 444111,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 454111,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 444141,
-    "poolPct": 0.1076
+    "poolPct": 0.103
    },
    {
     "itemKey": 454141,
-    "poolPct": 0.1076
-   },
-   {
-    "itemKey": 405091,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 415091,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 425091,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 435091,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 405111,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 415111,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 425111,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 435111,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 405141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 415141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 425141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 435141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 307141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 317141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 327141,
-    "poolPct": 0.0941
-   },
-   {
-    "itemKey": 337141,
-    "poolPct": 0.0941
+    "poolPct": 0.103
    },
    {
     "itemKey": 445091,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
    },
    {
     "itemKey": 455091,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
    },
    {
     "itemKey": 445111,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
    },
    {
     "itemKey": 455111,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
    },
    {
     "itemKey": 445141,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
    },
    {
     "itemKey": 455141,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
+   },
+   {
+    "itemKey": 347091,
+    "poolPct": 0.0902
+   },
+   {
+    "itemKey": 357091,
+    "poolPct": 0.0902
+   },
+   {
+    "itemKey": 347111,
+    "poolPct": 0.0902
+   },
+   {
+    "itemKey": 357111,
+    "poolPct": 0.0902
    },
    {
     "itemKey": 347141,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
    },
    {
     "itemKey": 357141,
-    "poolPct": 0.0941
+    "poolPct": 0.0902
+   },
+   {
+    "itemKey": 405091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 415091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 425091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 435091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 405111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 415111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 425111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 435111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 405141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 415141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 425141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 435141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 307091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 317091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 327091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 337091,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 307111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 317111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 327111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 337111,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 307141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 317141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 327141,
+    "poolPct": 0.0901
+   },
+   {
+    "itemKey": 337141,
+    "poolPct": 0.0901
    },
    {
     "itemKey": 403091,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 413091,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 423091,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 433091,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 403111,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 413111,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 423111,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 433111,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 403141,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 413141,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 423141,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 433141,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 443091,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 453091,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 443111,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 453111,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 443141,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 453141,
-    "poolPct": 0.0605
+    "poolPct": 0.0579
    },
    {
     "itemKey": 406091,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 416091,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 426091,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 436091,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 406111,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 416111,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 426111,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 436111,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 406141,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 416141,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 426141,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 436141,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 446091,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 456091,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 446111,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 456111,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 446141,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
    },
    {
     "itemKey": 456141,
-    "poolPct": 0.0504
+    "poolPct": 0.0483
+   },
+   {
+    "itemKey": 407091,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 417091,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 427091,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 437091,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 407111,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 417111,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 427111,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 437111,
+    "poolPct": 0.0225
    },
    {
     "itemKey": 407141,
-    "poolPct": 0.0235
+    "poolPct": 0.0225
    },
    {
     "itemKey": 417141,
-    "poolPct": 0.0235
+    "poolPct": 0.0225
    },
    {
     "itemKey": 427141,
-    "poolPct": 0.0235
+    "poolPct": 0.0225
    },
    {
     "itemKey": 437141,
-    "poolPct": 0.0235
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 447091,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 457091,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 447111,
+    "poolPct": 0.0225
+   },
+   {
+    "itemKey": 457111,
+    "poolPct": 0.0225
    },
    {
     "itemKey": 447141,
-    "poolPct": 0.0235
+    "poolPct": 0.0225
    },
    {
     "itemKey": 457141,
-    "poolPct": 0.0235
+    "poolPct": 0.0225
    },
    {
     "itemKey": 604091,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 604111,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 604141,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 614091,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 614111,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 614141,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 624091,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 624111,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 624141,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 634091,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 634111,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 634141,
-    "poolPct": 0.0221
+    "poolPct": 0.0211
    },
    {
     "itemKey": 605091,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 605111,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 605141,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 615091,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 615111,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 615141,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 625091,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 625111,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 625141,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 635091,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 635111,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 635141,
-    "poolPct": 0.0193
+    "poolPct": 0.0185
    },
    {
     "itemKey": 603091,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 603111,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 603141,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 613091,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 613111,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 613141,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 623091,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 623111,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 623141,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 633091,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 633111,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 633141,
-    "poolPct": 0.0124
+    "poolPct": 0.0119
    },
    {
     "itemKey": 606091,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 606111,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 606141,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 616091,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 616111,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 616141,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 626091,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 626111,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 626141,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 636091,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 636111,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 636141,
-    "poolPct": 0.0104
+    "poolPct": 0.0099
    },
    {
     "itemKey": 607091,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 607111,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 607141,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 617091,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 617111,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 617141,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 627091,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 627111,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 627141,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 637091,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 637111,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    },
    {
     "itemKey": 637141,
-    "poolPct": 0.003
+    "poolPct": 0.0029
    }
   ]
  },
@@ -7278,1499 +7406,1563 @@
   "loot": [
    {
     "itemKey": 144001,
-    "poolPct": 1.8759
+    "poolPct": 1.8139
    },
    {
     "itemKey": 144002,
-    "poolPct": 1.8759
+    "poolPct": 1.8139
    },
    {
     "itemKey": 505111,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 505141,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 505171,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 515111,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 515141,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 515171,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 525111,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 525141,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 535111,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 535141,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 535171,
-    "poolPct": 1.432
+    "poolPct": 1.3847
    },
    {
     "itemKey": 506111,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 506141,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 506171,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 516111,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 516141,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 526111,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 526141,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 526171,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 536111,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 536141,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 536171,
-    "poolPct": 1.253
+    "poolPct": 1.2116
    },
    {
     "itemKey": 504111,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 504141,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 504171,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 514111,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 514141,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 514171,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 524111,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 524141,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 524171,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 534111,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 534141,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 534171,
-    "poolPct": 0.9845
+    "poolPct": 0.952
    },
    {
     "itemKey": 114001,
-    "poolPct": 0.8998
+    "poolPct": 0.87
    },
    {
     "itemKey": 114002,
-    "poolPct": 0.8998
+    "poolPct": 0.87
    },
    {
     "itemKey": 114003,
-    "poolPct": 0.8998
+    "poolPct": 0.87
    },
    {
     "itemKey": 114004,
-    "poolPct": 0.8998
+    "poolPct": 0.87
    },
    {
     "itemKey": 505193,
-    "poolPct": 0.716
+    "poolPct": 0.6923
    },
    {
     "itemKey": 515193,
-    "poolPct": 0.716
+    "poolPct": 0.6923
    },
    {
     "itemKey": 525171,
-    "poolPct": 0.716
+    "poolPct": 0.6923
    },
    {
     "itemKey": 525173,
-    "poolPct": 0.716
+    "poolPct": 0.6923
    },
    {
     "itemKey": 525193,
-    "poolPct": 0.716
+    "poolPct": 0.6923
    },
    {
     "itemKey": 535193,
-    "poolPct": 0.716
+    "poolPct": 0.6923
    },
    {
     "itemKey": 506193,
-    "poolPct": 0.6265
+    "poolPct": 0.6058
    },
    {
     "itemKey": 516171,
-    "poolPct": 0.6265
+    "poolPct": 0.6058
    },
    {
     "itemKey": 516173,
-    "poolPct": 0.6265
+    "poolPct": 0.6058
    },
    {
     "itemKey": 516193,
-    "poolPct": 0.6265
+    "poolPct": 0.6058
    },
    {
     "itemKey": 526193,
-    "poolPct": 0.6265
+    "poolPct": 0.6058
    },
    {
     "itemKey": 536193,
-    "poolPct": 0.6265
+    "poolPct": 0.6058
    },
    {
     "itemKey": 190001,
-    "poolPct": 0.5967
+    "poolPct": 0.577
    },
    {
     "itemKey": 190002,
-    "poolPct": 0.5967
+    "poolPct": 0.577
    },
    {
     "itemKey": 190003,
-    "poolPct": 0.5967
+    "poolPct": 0.577
    },
    {
     "itemKey": 190004,
-    "poolPct": 0.5967
+    "poolPct": 0.577
+   },
+   {
+    "itemKey": 507111,
+    "poolPct": 0.5625
+   },
+   {
+    "itemKey": 517111,
+    "poolPct": 0.5625
+   },
+   {
+    "itemKey": 527111,
+    "poolPct": 0.5625
+   },
+   {
+    "itemKey": 537111,
+    "poolPct": 0.5625
    },
    {
     "itemKey": 507141,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 507171,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 517141,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 527141,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 527171,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 537141,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 537171,
-    "poolPct": 0.5817
+    "poolPct": 0.5625
    },
    {
     "itemKey": 124001,
-    "poolPct": 0.4964
+    "poolPct": 0.48
    },
    {
     "itemKey": 124002,
-    "poolPct": 0.4964
+    "poolPct": 0.48
    },
    {
     "itemKey": 124003,
-    "poolPct": 0.4964
+    "poolPct": 0.48
    },
    {
     "itemKey": 124004,
-    "poolPct": 0.4964
+    "poolPct": 0.48
    },
    {
     "itemKey": 504193,
-    "poolPct": 0.4922
+    "poolPct": 0.476
    },
    {
     "itemKey": 514193,
-    "poolPct": 0.4922
+    "poolPct": 0.476
    },
    {
     "itemKey": 524193,
-    "poolPct": 0.4922
+    "poolPct": 0.476
    },
    {
     "itemKey": 534193,
-    "poolPct": 0.4922
+    "poolPct": 0.476
    },
    {
     "itemKey": 305111,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 315111,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 325111,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 335111,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 305141,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 315141,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 325141,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 335141,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 305171,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 315171,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 325171,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 345111,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 355111,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 345141,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 355141,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 345171,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 355171,
-    "poolPct": 0.358
+    "poolPct": 0.3462
    },
    {
     "itemKey": 306111,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 316111,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 326111,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 336111,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 306141,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 316141,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 326141,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 336141,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 306171,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 316171,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 326171,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 336171,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 346111,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 356111,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 346141,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 356141,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 356171,
-    "poolPct": 0.3132
+    "poolPct": 0.3029
    },
    {
     "itemKey": 507193,
-    "poolPct": 0.2909
+    "poolPct": 0.2813
    },
    {
     "itemKey": 517171,
-    "poolPct": 0.2909
+    "poolPct": 0.2813
    },
    {
     "itemKey": 517173,
-    "poolPct": 0.2909
+    "poolPct": 0.2813
    },
    {
     "itemKey": 517193,
-    "poolPct": 0.2909
+    "poolPct": 0.2813
    },
    {
     "itemKey": 527193,
-    "poolPct": 0.2909
+    "poolPct": 0.2813
    },
    {
     "itemKey": 537193,
-    "poolPct": 0.2909
+    "poolPct": 0.2813
    },
    {
     "itemKey": 304111,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 314111,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 324111,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 334111,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 304141,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 314141,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 324141,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 334141,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 304171,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 314171,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 324171,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 334171,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 344111,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 354111,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 344141,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 354141,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 344171,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 354171,
-    "poolPct": 0.2461
+    "poolPct": 0.238
    },
    {
     "itemKey": 508141,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 508171,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 518141,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 528141,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 528171,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 538141,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 538171,
-    "poolPct": 0.2237
+    "poolPct": 0.2164
    },
    {
     "itemKey": 134001,
-    "poolPct": 0.21
+    "poolPct": 0.2031
    },
    {
     "itemKey": 335171,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 335173,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 305193,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 315193,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 325193,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 335193,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 345193,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 355193,
-    "poolPct": 0.179
+    "poolPct": 0.1731
    },
    {
     "itemKey": 306193,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 316193,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 326193,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 336193,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 346171,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 346173,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 346193,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
    },
    {
     "itemKey": 356193,
-    "poolPct": 0.1566
+    "poolPct": 0.1514
+   },
+   {
+    "itemKey": 307111,
+    "poolPct": 0.1406
+   },
+   {
+    "itemKey": 317111,
+    "poolPct": 0.1406
+   },
+   {
+    "itemKey": 327111,
+    "poolPct": 0.1406
+   },
+   {
+    "itemKey": 337111,
+    "poolPct": 0.1406
    },
    {
     "itemKey": 307141,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 317141,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 327141,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 337141,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 307171,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 317171,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 327171,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 337171,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
+   },
+   {
+    "itemKey": 347111,
+    "poolPct": 0.1406
+   },
+   {
+    "itemKey": 357111,
+    "poolPct": 0.1406
    },
    {
     "itemKey": 347141,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 357141,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 347171,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 357171,
-    "poolPct": 0.1454
+    "poolPct": 0.1406
    },
    {
     "itemKey": 304193,
-    "poolPct": 0.1231
+    "poolPct": 0.119
    },
    {
     "itemKey": 314193,
-    "poolPct": 0.1231
+    "poolPct": 0.119
    },
    {
     "itemKey": 324193,
-    "poolPct": 0.1231
+    "poolPct": 0.119
    },
    {
     "itemKey": 334193,
-    "poolPct": 0.1231
+    "poolPct": 0.119
    },
    {
     "itemKey": 344193,
-    "poolPct": 0.1231
+    "poolPct": 0.119
    },
    {
     "itemKey": 354193,
-    "poolPct": 0.1231
+    "poolPct": 0.119
    },
    {
     "itemKey": 508193,
-    "poolPct": 0.1119
+    "poolPct": 0.1082
    },
    {
     "itemKey": 518171,
-    "poolPct": 0.1119
+    "poolPct": 0.1082
    },
    {
     "itemKey": 518173,
-    "poolPct": 0.1119
+    "poolPct": 0.1082
    },
    {
     "itemKey": 518193,
-    "poolPct": 0.1119
+    "poolPct": 0.1082
    },
    {
     "itemKey": 528193,
-    "poolPct": 0.1119
+    "poolPct": 0.1082
    },
    {
     "itemKey": 538193,
-    "poolPct": 0.1119
+    "poolPct": 0.1082
    },
    {
     "itemKey": 405111,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 415111,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 425111,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 435111,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 405141,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 415141,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 425141,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 435141,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 405171,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 415171,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 425171,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 435171,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 445111,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 455111,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 445141,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 455141,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 445171,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 455171,
-    "poolPct": 0.0895
+    "poolPct": 0.0865
    },
    {
     "itemKey": 406111,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 416111,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 426111,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 436111,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 406141,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 416141,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 426141,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 436141,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 406171,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 416171,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 426171,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 436171,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 446111,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 456111,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 446141,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 456141,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 446171,
-    "poolPct": 0.0783
+    "poolPct": 0.0757
    },
    {
     "itemKey": 307193,
-    "poolPct": 0.0727
+    "poolPct": 0.0703
    },
    {
     "itemKey": 317193,
-    "poolPct": 0.0727
+    "poolPct": 0.0703
    },
    {
     "itemKey": 327193,
-    "poolPct": 0.0727
+    "poolPct": 0.0703
    },
    {
     "itemKey": 337193,
-    "poolPct": 0.0727
+    "poolPct": 0.0703
    },
    {
     "itemKey": 347193,
-    "poolPct": 0.0727
+    "poolPct": 0.0703
    },
    {
     "itemKey": 357193,
-    "poolPct": 0.0727
+    "poolPct": 0.0703
    },
    {
     "itemKey": 404111,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 414111,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 424111,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 434111,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 404141,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 414141,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 424141,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 434141,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 404171,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 414171,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 424171,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 434171,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 444111,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 454111,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 444141,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 454141,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 444171,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 454171,
-    "poolPct": 0.0615
+    "poolPct": 0.0595
    },
    {
     "itemKey": 308141,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 318141,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 328141,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 338141,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 308171,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 318171,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 328171,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 338171,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 348141,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 358141,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 358171,
-    "poolPct": 0.0559
+    "poolPct": 0.0541
    },
    {
     "itemKey": 405193,
-    "poolPct": 0.0447
+    "poolPct": 0.0433
    },
    {
     "itemKey": 415193,
-    "poolPct": 0.0447
+    "poolPct": 0.0433
    },
    {
     "itemKey": 425193,
-    "poolPct": 0.0447
+    "poolPct": 0.0433
    },
    {
     "itemKey": 435193,
-    "poolPct": 0.0447
+    "poolPct": 0.0433
    },
    {
     "itemKey": 445193,
-    "poolPct": 0.0447
+    "poolPct": 0.0433
    },
    {
     "itemKey": 455193,
-    "poolPct": 0.0447
+    "poolPct": 0.0433
    },
    {
     "itemKey": 406193,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 416193,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 426193,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 436193,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 446193,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 456171,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 456173,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
    },
    {
     "itemKey": 456193,
-    "poolPct": 0.0392
+    "poolPct": 0.0379
+   },
+   {
+    "itemKey": 407111,
+    "poolPct": 0.0352
+   },
+   {
+    "itemKey": 417111,
+    "poolPct": 0.0352
+   },
+   {
+    "itemKey": 427111,
+    "poolPct": 0.0352
+   },
+   {
+    "itemKey": 437111,
+    "poolPct": 0.0352
    },
    {
     "itemKey": 407141,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 417141,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 427141,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 437141,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 407171,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 417171,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 427171,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 437171,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
+   },
+   {
+    "itemKey": 447111,
+    "poolPct": 0.0352
+   },
+   {
+    "itemKey": 457111,
+    "poolPct": 0.0352
    },
    {
     "itemKey": 447141,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 457141,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 447171,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 457171,
-    "poolPct": 0.0364
+    "poolPct": 0.0352
    },
    {
     "itemKey": 404193,
-    "poolPct": 0.0308
+    "poolPct": 0.0298
    },
    {
     "itemKey": 414193,
-    "poolPct": 0.0308
+    "poolPct": 0.0298
    },
    {
     "itemKey": 424193,
-    "poolPct": 0.0308
+    "poolPct": 0.0298
    },
    {
     "itemKey": 434193,
-    "poolPct": 0.0308
+    "poolPct": 0.0298
    },
    {
     "itemKey": 444193,
-    "poolPct": 0.0308
+    "poolPct": 0.0298
    },
    {
     "itemKey": 454193,
-    "poolPct": 0.0308
+    "poolPct": 0.0298
    },
    {
     "itemKey": 308193,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 318193,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 328193,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 338193,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 348171,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 348173,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 348193,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 358193,
-    "poolPct": 0.028
+    "poolPct": 0.027
    },
    {
     "itemKey": 605111,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 605141,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 605171,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 615111,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 615141,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 615171,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 625111,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 625141,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 635111,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 635141,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 635171,
-    "poolPct": 0.0192
+    "poolPct": 0.0186
    },
    {
     "itemKey": 407193,
-    "poolPct": 0.0182
+    "poolPct": 0.0176
    },
    {
     "itemKey": 417193,
-    "poolPct": 0.0182
+    "poolPct": 0.0176
    },
    {
     "itemKey": 427193,
-    "poolPct": 0.0182
+    "poolPct": 0.0176
    },
    {
     "itemKey": 437193,
-    "poolPct": 0.0182
+    "poolPct": 0.0176
    },
    {
     "itemKey": 447193,
-    "poolPct": 0.0182
+    "poolPct": 0.0176
    },
    {
     "itemKey": 457193,
-    "poolPct": 0.0182
+    "poolPct": 0.0176
    },
    {
     "itemKey": 606111,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 606141,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 606171,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 616111,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 616141,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 616171,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 626111,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 626141,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 626171,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 636111,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 636141,
-    "poolPct": 0.0168
+    "poolPct": 0.0162
    },
    {
     "itemKey": 408141,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 418141,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 428141,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 438141,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 408171,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 418171,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 428171,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 438171,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 448141,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 458141,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 458171,
-    "poolPct": 0.014
+    "poolPct": 0.0135
    },
    {
     "itemKey": 604111,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 604141,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 604171,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 614111,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 614141,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 614171,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 624111,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 624141,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 624171,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 634111,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 634141,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 634171,
-    "poolPct": 0.0132
+    "poolPct": 0.0128
    },
    {
     "itemKey": 605193,
-    "poolPct": 0.0096
+    "poolPct": 0.0093
    },
    {
     "itemKey": 615193,
-    "poolPct": 0.0096
+    "poolPct": 0.0093
    },
    {
     "itemKey": 625171,
-    "poolPct": 0.0096
+    "poolPct": 0.0093
    },
    {
     "itemKey": 625173,
-    "poolPct": 0.0096
+    "poolPct": 0.0093
    },
    {
     "itemKey": 625193,
-    "poolPct": 0.0096
+    "poolPct": 0.0093
    },
    {
     "itemKey": 635193,
-    "poolPct": 0.0096
+    "poolPct": 0.0093
    },
    {
     "itemKey": 606193,
-    "poolPct": 0.0084
+    "poolPct": 0.0081
    },
    {
     "itemKey": 616193,
-    "poolPct": 0.0084
+    "poolPct": 0.0081
    },
    {
     "itemKey": 626193,
-    "poolPct": 0.0084
+    "poolPct": 0.0081
    },
    {
     "itemKey": 636171,
-    "poolPct": 0.0084
+    "poolPct": 0.0081
    },
    {
     "itemKey": 636173,
-    "poolPct": 0.0084
+    "poolPct": 0.0081
    },
    {
     "itemKey": 636193,
-    "poolPct": 0.0084
+    "poolPct": 0.0081
    },
    {
     "itemKey": 408193,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 418193,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 428193,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 438193,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 448171,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 448173,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 448193,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 458193,
-    "poolPct": 0.007
+    "poolPct": 0.0068
    },
    {
     "itemKey": 604193,
-    "poolPct": 0.0066
+    "poolPct": 0.0064
    },
    {
     "itemKey": 614193,
-    "poolPct": 0.0066
+    "poolPct": 0.0064
    },
    {
     "itemKey": 624193,
-    "poolPct": 0.0066
+    "poolPct": 0.0064
    },
    {
     "itemKey": 634193,
-    "poolPct": 0.0066
+    "poolPct": 0.0064
    },
    {
     "itemKey": 607111,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 607141,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 607171,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 617111,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 617141,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 617171,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 627111,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 627141,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 627171,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 637111,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 637141,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 637171,
-    "poolPct": 0.0049
+    "poolPct": 0.0047
    },
    {
     "itemKey": 607193,
@@ -8790,51 +8982,51 @@
    },
    {
     "itemKey": 608111,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 608141,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 608171,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 618111,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 618141,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 618171,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 628111,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 628141,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 628171,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 638111,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 638141,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 638171,
-    "poolPct": 0.0019
+    "poolPct": 0.0018
    },
    {
     "itemKey": 608193,

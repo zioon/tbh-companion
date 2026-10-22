@@ -19,6 +19,7 @@
   "autoOpenTime": "자동 열기 {{value}}",
   "capacityBase": "기본 {{count}}",
   "capacityRuneBonus": "{{nodes}}개의 {{runeLabel}} 노드에서 +{{bonus}}",
+  "dropChanceRuneBonus": "드롭 확률 +{{percent}}%（{{nodes}}개의 {{runeLabel}} 노드에서）",
   "heldHeading": "보유 보물 상자",
   "heldIntro": "세이브에서 보유한 보물 상자 목록을 카테고리별로 표시합니다. 상자를 클릭하면 드롭 획득 경로와 내용물을 확인할 수 있습니다.",
   "heldQty": "×{{count}}",

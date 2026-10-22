@@ -155,6 +155,29 @@ export function classLabel(className: string, t?: TFunction): string {
   return className;
 }
 
+/**
+ * 共鸣条件串 → 展示文本（v1.3.0 圣物匣）。
+ *
+ * 游戏的条件串格式是 `"{Color}_{Count}"` 空格分隔（"Blue_2 Red_1"）。颜色名
+ * 走 `common:labels.types.RELIC_<COLOR>`（`Relic_Blue` 等游戏键），缺失时
+ * 退回原始颜色名。
+ */
+export function resonanceConditionText(condition: string, t: TFunction): string {
+  if (!condition) return t("relic.noResonanceCondition");
+  return condition
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => {
+      const [color, count] = part.split("_");
+      if (!color) return part;
+      const colorKey = `common:labels.types.RELIC_${color.toUpperCase()}`;
+      const colorLabel = t(colorKey);
+      const shown = colorLabel && colorLabel !== colorKey ? colorLabel : color;
+      return t("relic.conditionEntry", { color: shown, count: count ?? "1" });
+    })
+    .join(t("relic.conditionJoin"));
+}
+
 /** Gear -> its slot ("Bow" / "弓"); material -> its kind ("Decoration" / "装饰"). */
 export function itemDescriptor(item: LookupItem, t?: TFunction): string {
   return item.type === "GEAR"

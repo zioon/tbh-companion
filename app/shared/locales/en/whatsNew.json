@@ -3,6 +3,15 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.28.0": {
+      "title": "What's new in v1.28.0",
+      "bullets": [
+        "Game v1.3.0 is supported — the Halloween event and the new Reliquary / Relic gear family are fully in the Lookup page, with localized names and icons.",
+        "Relics and Reliquaries now show what they actually do: inherent stat ranges, the stat pool a Reliquary rolls from, relic slots, resonance effects and attunement cost.",
+        "The Halloween event chests appear in the chest list with their full loot tables, and count toward your held chest slots.",
+        "The Chests page now shows the drop-chance bonus from the Rune of Exploration / Rune of Conquest runes you own."
+      ]
+    },
     "1.27.7": {
       "title": "What's new in v1.27.7",
       "bullets": [

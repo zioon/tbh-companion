@@ -87,12 +87,20 @@
       "DECORATION": "장식",
       "ENGRAVING": "세공",
       "CRAFTING": "제작",
-      "SOULSTONE": "소울스톤"
+      "SOULSTONE": "소울스톤",
+      "RELIQUARY": "유물함",
+      "RELIC_WHITE": "하얀 유물",
+      "RELIC_BLUE": "푸른 유물",
+      "RELIC_PURPLE": "보랏빛 유물",
+      "RELIC_RED": "붉은 유물",
+      "RELIC_YELLOW": "황금 유물"
     },
     "gearGroups": {
       "WEAPON": "무기",
       "ARMOR": "방어구",
-      "ACCESSORY": "장신구"
+      "ACCESSORY": "장신구",
+      "RELIC": "유물",
+      "RELIQUARY": "유물함"
     },
     "modifierGroups": {
       "Offense": "공격",
@@ -152,6 +160,9 @@
     },
     "levelShort": "레벨 {{level}}",
     "classOnly": "{{class}} 전용",
-    "synthesisPoints": "합성 포인트"
+    "synthesisPoints": "합성 포인트",
+    "relicAdditional": {
+      "ResonanceDoubleCount": "공명 조건을 확인할 때 유물 2개로 계산됩니다."
+    }
   }
 }

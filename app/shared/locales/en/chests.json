@@ -19,6 +19,7 @@
   "autoOpenTime": "Auto-open {{value}}",
   "capacityBase": "{{count}} base",
   "capacityRuneBonus": "+{{bonus}} from {{nodes}} {{runeLabel}} node(s)",
+  "dropChanceRuneBonus": "Drop chance +{{percent}}% from {{nodes}} {{runeLabel}} node(s)",
   "heldHeading": "Held chests",
   "heldIntro": "Chests you hold in your save, grouped by category. Click any chest to see where it drops and what it contains.",
   "heldQty": "×{{count}}",

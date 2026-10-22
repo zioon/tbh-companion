@@ -27,6 +27,61 @@ describe("lookup catalog", () => {
     expect(index.get(items[0].id)).toEqual(items[0]);
   });
 
+  it("carries the v1.3.0 relic family's inherent stat range", () => {
+    const items = loadLookupItems();
+    const relics = items.filter((i) => i.relic != null);
+    expect(relics.length).toBeGreaterThan(100);
+    for (const relic of relics) {
+      expect(relic.gearGroup).toBe("RELIC");
+      expect(relic.relic!.relicType).toBeTruthy();
+      // The inherent stat is a ROLL range, not a fixed value.
+      if (relic.relic!.inherent) {
+        const { rawMin, rawMax, displayMin, displayMax, displayText } = relic.relic!.inherent;
+        expect(rawMax).toBeGreaterThanOrEqual(rawMin);
+        expect(displayMax).toBeGreaterThanOrEqual(displayMin);
+        expect(displayText).toBeTruthy();
+      }
+    }
+    // A relic with a real stat range exists (tier 1 = COMMON).
+    const withStat = relics.find((r) => r.relic!.inherent != null);
+    expect(withStat).toBeTruthy();
+  });
+
+  it("carries the v1.3.0 reliquary's stat pool, slots and resonances", () => {
+    const items = loadLookupItems();
+    const reliquaries = items.filter((i) => i.reliquary != null);
+    expect(reliquaries.length).toBeGreaterThan(100);
+    for (const box of reliquaries) {
+      expect(box.gearGroup).toBe("RELIQUARY");
+      const rq = box.reliquary!;
+      expect(rq.inherentPool?.length ?? 0).toBeGreaterThan(0);
+      expect(rq.inherentStatCount ?? 0).toBeGreaterThan(0);
+      expect(rq.slotIndexes?.length ?? 0).toBeGreaterThan(0);
+      for (const resonance of rq.resonances ?? []) {
+        expect(resonance.condition).toBeTruthy();
+        expect(resonance.effect.mod).toBeTruthy();
+      }
+    }
+  });
+
+  it("carries the attunement cost for relics and reliquaries", () => {
+    const items = loadLookupItems();
+    const withCost = items.filter((i) => i.attunement != null);
+    expect(withCost.length).toBeGreaterThan(100);
+    for (const item of withCost) {
+      expect(item.attunement!.baseCost).toBeGreaterThan(0);
+      expect(item.attunement!.costIncrease).toBeGreaterThan(0);
+      expect(item.attunement!.maxCount).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not treat the relic family as class-restricted gear", () => {
+    // Relics / reliquaries have no weapon type — they must not inherit a
+    // hero class restriction from the weapon mapping.
+    expect(classForGearType("RELIC_RED")).toBeNull();
+    expect(classForGearType("RELIQUARY")).toBeNull();
+  });
+
   it("loads the item/box/stage source graph keyed by id", () => {
     const sources = loadLookupSources();
     expect(Object.keys(sources.items).length).toBeGreaterThan(0);

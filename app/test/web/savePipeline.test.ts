@@ -31,6 +31,7 @@ describe("web save pipeline", () => {
     expect(WEB_DATA_FILES).toContain("pets.json");
     expect(WEB_DATA_FILES).toContain("rune_box_cap.json");
     expect(WEB_DATA_FILES).toContain("rune_auto_open.json");
+    expect(WEB_DATA_FILES).toContain("rune_drop_chance.json");
     expect(WEB_DATA_FILES).toContain("synthesis_model.json");
     expect(WEB_DATA_FILES).toContain("offerings.json");
   });

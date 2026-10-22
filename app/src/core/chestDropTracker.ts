@@ -147,6 +147,11 @@ function categoryFromPrefix(itemKey: number): ChestDropCategory | null {
   if (itemKey >= 910_000 && itemKey < 920_000) return "common";
   if (itemKey >= 920_000 && itemKey < 930_000) return "rare";
   if (itemKey >= 930_000 && itemKey < 940_000) return "act";
+  // v1.3.0 Halloween event boxes: 940xxx = normal (common) tier, 941xxx =
+  // stage-boss (rare) tier. They reuse the common/rare bucket slots — the
+  // game has no dedicated capacity rune chain for the event content.
+  if (itemKey >= 940_000 && itemKey < 941_000) return "common";
+  if (itemKey >= 941_000 && itemKey < 942_000) return "rare";
   return null;
 }
 

@@ -43,6 +43,7 @@ import {
 } from "./itemCardParts";
 import { LookupPrice } from "./LookupPrice";
 import { OfferingLoot } from "./OfferingLoot";
+import { RelicPanel } from "./RelicPanel";
 
 const SCROLL_SECTION_MAX = "max-h-44";
 
@@ -318,6 +319,8 @@ export function ItemDetailCard({
         item.stats.inherent.length > 0 ||
         item.stats.unique != null)) ||
     (item.gearGroups?.length ?? 0) > 0;
+  // v1.3.0 圣物系（圣物 / 圣物匣）—— 不走 GearInfoData，单独一块。
+  const hasRelicInfo = item.relic != null || item.reliquary != null;
 
   return (
     <Card className="flex flex-col gap-3">
@@ -366,6 +369,12 @@ export function ItemDetailCard({
             {item.gearGroups?.map((group) => (
               <MaterialGroup key={group.gearGroup} group={group} />
             ))}
+          </div>
+        ) : null}
+
+        {hasRelicInfo ? (
+          <div className="flex min-w-0 flex-col gap-3">
+            <RelicPanel item={item} />
           </div>
         ) : null}
 

@@ -181,6 +181,40 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 - **行为边界**：污染宝箱 save 侧解析与普通宝箱一致（BoxBucketGetBoxList + itemSaveDatas 前缀分类）。
 - **掉落追踪（2026-09-11 更新）**：`ChestDropTracker` 已支持 6 类（common/rare/act/plagueCommon/plagueRare/plagueAct）。live 掉落依据**当前地图判定瘟疫**——瘟疫箱子只在瘟疫之地掉落，`isPlagueStage(stageKey)` 聚合瘟疫箱（915/925/935）的 `tracker.dropStageKeys`/`idealStageKey` 成 Set，`resolveLiveDropCategory` 在瘟疫地图把 base category 升级为 `plague*`（详见 14.4 Step 5）。AutoClassify 的 reconcile 补偿类别已扩至 6 类；Live/Loot 掉落面板均渲染 6 类。
 
+### 13.7 v1.3.0 万圣节活动箱：复用 common / rare 槽位（不新增 BoxCategory）
+
+游戏 v1.3.0（2026-10-22 更新）新增**万圣节活动**（EventKey 50001，活动期 2026-09-18 ~ 2026-11-11），含 3 张 EVENT 关卡（`2901`/`3901`/`4901`，`StageInfoData.STAGETYPE=EVENT`）与 6 个新箱子（`ItemInfoData.CONTENTTYPE=EVENT`）：
+
+| 物品                                | 前缀                      | grade | 类别（占用槽位） | 掉落关卡                    |
+| ----------------------------------- | ------------------------- | ----- | ---------------- | --------------------------- |
+| `940xxx` Halloween Normal Box       | `Halloween Normal Box`    | COMMON| `common`         | 2901 / 3901 / 4901（怪掉） |
+| `941xxx` Halloween Stage Box        | `Halloween Stage Box`     | RARE  | `rare`          | 2901 / 3901 / 4901（Boss掉）|
+
+**关键结论：不新增 BoxCategory / 容量槽位。** 依据：游戏 `RuneInfoData` **没有** `MaxAmountEvent*Chest` 之类的活动专用容量符文链（`rune_box_cap.json` / `rune_auto_open.json` 三份表逐项核对与 v1.2.8 **完全一致**），且 `IsBucketBox=True` 与普通箱同义 ⇒ 活动箱占用既有的 common / rare 桶位。与 v1.02.00 瘟疫箱（`915/925/935`，有独立 `MaxAmountPlague*Chest` 链 → 独立槽位）形成对照。
+
+**companion 适配（2026-10-22）**：
+
+- **管道2**：`scripts/build_tbh_data.py` 的 `category_via_for` 原本只覆盖 910000-939999，导致 `940/941` 段箱子既不在 `lookup_sources.boxes`（无掉落图）、也不在 `stage_boxes.json`，且 `stages` 里 2901/3901/4901 的 `boxes` 引用退化为裸 id。已扩展到 940000-949999（`940xxx`→common/monster_box、`941xxx`→stage_boss/boss_box）。管道2 产物随之从 140 箱增至 146 箱。
+- **分类（存档侧）**：`categoryFromBoxItemName`（`core/liveMemory/chestSlots.ts`）新增 `Halloween Normal Box*` → `common`、`Halloween Stage Box*` → `rare`。
+- **分类（id 前缀侧）**：`categoryFromPrefix`（`core/chestDropTracker.ts`）与 `chestCategoryFromKey`（`renderer/lib/chests.ts`）新增 `940xxx`→common、`941xxx`→rare。
+- **箱子识别**：`isBoxItemKey`（`core/boxOpenLog.ts`）上界由 940000 放宽到 950000，并新增 940/941 两个 band。
+- **图标**：`boxIconPath`（`renderer/lib/boxIconPath.ts`）新增 `940*`→`item-940001`、`941*`→`item-941001`（游戏 `IconPath` 列里同一 band 的三个难度共用一个 sprite）。`scripts/extract_icons.py` 新增 `BOX_BAND_ICONS` 常量，把箱子 band 图标纳入自动提取（此前这些图标只能手工加）。
+- **tracker 路由**：`stage_boxes.json` 中 6 个活动箱带 `tracker` 元数据（`idealStageKey` 2901/3901/4901、`dropStageKeys` 各 1 个），因此 RARE 路由 71 → 74、COMMON 路由 +3。**level 无冲突**：活动箱 level 为 39/59/84（取自 EVENT 关卡 `StageLevel`），与既有 canonical 箱的 level 集合不重叠。
+- **⚠️ 已知边界**：`boxPlagueTier`（`core/lookup/boxDisplay.ts`）**不**包含活动箱 —— 该函数语义是「污染（瘟疫）箱层级」，活动箱不是瘟疫箱，故返回 null，UI 按普通 common/rare 类别展示。
+
+### 13.8 v1.3.0 掉率符文（DropChance*）：掉率乘数加成
+
+游戏 v1.3.0 起存在**掉率符文**（Rune of Exploration / Rune of Conquest，及其瘟疫变体），提升箱子的**掉率**。此前 companion **完全未建模**这一族（v1.2.6 实战记录里就标为已知缺口）。
+
+- **键名错配（关键）**：`RuneInfoData.NameKey` 是 `RuneName_DropChanceNormalChest`（**无** `Percent` 后缀），但 `RuneLevelInfoData.STATTYPE` 是 `DropChanceNormalChestPercent`（**有**后缀）。按 NameKey 反查 STATTYPE 会得到「不存在」—— 必须**按 `LevelDataKey` 反查**真实 STATTYPE。同名的 `AccountStat_DropChanceNormalChest`（无 Percent）是**另一种**（加法）属性，**不是**这些符文给的。
+- **语义**：是**乘数**提升百分比，不是加法。`AccountStat_DropChance*Percent` = `'{0}% Increased ... Drop Chance Multiplier'`。
+- **每级同值**：每个节点的 L1..L5 值完全相同（与 `ReduceAutoOpen*ChestTime` 同构）⇒ 总加成 = `Σ(已购等级 × perLevelPercent)`，**沿用现有符文族模型**，不另立一套。
+- **数据文件**：`data/rune_drop_chance.json`（四个箱型：`common` / `stageBoss` / `plagueCommon` / `plagueRare`）。由 `scripts/dump_rune_drop_chance.py` **从游戏资源生成**（非手工维护），脚本会校验「同一节点各 level 值一致」否则报错退出。act boss 箱**没有**对应符文链（游戏只提供这四档）。
+- **core**（`core/boxes/runes.ts`）：`runeDropChanceBonusPercent(purchases, def)` 求和 + `purchasedDropChanceRuneNodes(purchases, def)` 列出已购节点；`core/boxes/catalog.ts` 新增 `RuneDropChanceCatalog` / `loadRuneDropChanceCatalog()`。
+- **状态**（`shared/types.ts` `ChestState.dropChance`）：`{ common, stageBoss, plagueCommon, plagueRare }`，每项 `{ bonusPercent, purchasedRuneNodes, runeLabel }`。由 `buildChestState` 填充（`ChestService` 与网页版 `analyzeSave` 各传一份 catalog）。
+- **UI**（`renderer/components/chests/ChestCategoryCard.tsx`）：箱卡在「容量明细」下方多一行「掉率 +N%（来自 M 个 XXX 节点）」，**未购买该类符文时不显示该行**（`dropChanceParts` 返回空数组）。桌面端 `renderer/tabs/Chests.tsx` 与网页端 `web/tabs/ChestsPanel.tsx` 各传 `dropChance` prop。
+- **⚠️ 边界**：本项**只展示玩家已购符文带来的掉率加成**，**不改写**任何期望值/掉落率计算 —— 掉率加成影响的是「开箱的产出速度」，而 companion 的期望价值是**按次**口径（见 `05-inventory-and-lookup.md` §7.8「宝箱『每次掉落』价值」），两者正交，无需也不应互相污染。
+
 ## 14. AutoClassify 业务流程（`app/src/main/services/AutoClassifyService.ts`）
 
 ### 流程图

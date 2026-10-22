@@ -29,6 +29,17 @@ describe("boxIconPath", () => {
     expect(boxIconPath(935001)).toBe("item-935001");
   });
 
+  it("maps the v1.3.0 Halloween event boxes to their own icons", () => {
+    // All three difficulties of a band share one sprite in the game assets
+    // (ItemInfoData.IconPath points every 940xxx row at Item_940001).
+    expect(boxIconPath(940001)).toBe("item-940001");
+    expect(boxIconPath(940101)).toBe("item-940001");
+    expect(boxIconPath(940201)).toBe("item-940001");
+    expect(boxIconPath(941001)).toBe("item-941001");
+    expect(boxIconPath(941101)).toBe("item-941001");
+    expect(boxIconPath(941201)).toBe("item-941001");
+  });
+
   it("falls back to item-<key> for non-stage-box keys", () => {
     expect(boxIconPath(140002)).toBe("item-140002");
   });

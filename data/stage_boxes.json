@@ -1,9 +1,9 @@
 {
  "source": "game_extracted",
- "gameVersion": "1.2.8",
- "fetchedUtc": "2026-09-23T13:28:44.518397+00:00",
+ "gameVersion": "1.3.0",
+ "fetchedUtc": "2026-10-22T09:37:28.975660+00:00",
  "defaultCooldownSeconds": 720,
- "count": 140,
+ "count": 146,
  "items": [
   {
    "id": 910011,
@@ -2418,6 +2418,108 @@
      4319
     ],
     "dropStageRangeLabel": "Torment 3-10"
+   }
+  },
+  {
+   "id": 940001,
+   "name": "Halloween Normal Box (Nightmare)",
+   "grade": "COMMON",
+   "type": "STAGEBOX",
+   "level": 39,
+   "marketTradable": false,
+   "obtainable": true,
+   "tracker": {
+    "canonical": true,
+    "idealStageKey": 2901,
+    "dropStageKeys": [
+     2901
+    ],
+    "dropStageRangeLabel": "Nightmare 3-1"
+   }
+  },
+  {
+   "id": 940101,
+   "name": "Halloween Normal Box (Hell)",
+   "grade": "COMMON",
+   "type": "STAGEBOX",
+   "level": 59,
+   "marketTradable": false,
+   "obtainable": true,
+   "tracker": {
+    "canonical": true,
+    "idealStageKey": 3901,
+    "dropStageKeys": [
+     3901
+    ],
+    "dropStageRangeLabel": "Hell 3-1"
+   }
+  },
+  {
+   "id": 940201,
+   "name": "Halloween Normal Box (Torment)",
+   "grade": "COMMON",
+   "type": "STAGEBOX",
+   "level": 84,
+   "marketTradable": false,
+   "obtainable": true,
+   "tracker": {
+    "canonical": true,
+    "idealStageKey": 4901,
+    "dropStageKeys": [
+     4901
+    ],
+    "dropStageRangeLabel": "Torment 3-1"
+   }
+  },
+  {
+   "id": 941001,
+   "name": "Halloween Stage Box (Nightmare)",
+   "grade": "RARE",
+   "type": "STAGEBOX",
+   "level": 39,
+   "marketTradable": false,
+   "obtainable": true,
+   "tracker": {
+    "canonical": true,
+    "idealStageKey": 2901,
+    "dropStageKeys": [
+     2901
+    ],
+    "dropStageRangeLabel": "Nightmare 3-1"
+   }
+  },
+  {
+   "id": 941101,
+   "name": "Halloween Stage Box (Hell)",
+   "grade": "RARE",
+   "type": "STAGEBOX",
+   "level": 59,
+   "marketTradable": false,
+   "obtainable": true,
+   "tracker": {
+    "canonical": true,
+    "idealStageKey": 3901,
+    "dropStageKeys": [
+     3901
+    ],
+    "dropStageRangeLabel": "Hell 3-1"
+   }
+  },
+  {
+   "id": 941201,
+   "name": "Halloween Stage Box (Torment)",
+   "grade": "RARE",
+   "type": "STAGEBOX",
+   "level": 84,
+   "marketTradable": false,
+   "obtainable": true,
+   "tracker": {
+    "canonical": true,
+    "idealStageKey": 4901,
+    "dropStageKeys": [
+     4901
+    ],
+    "dropStageRangeLabel": "Torment 3-1"
    }
   }
  ]

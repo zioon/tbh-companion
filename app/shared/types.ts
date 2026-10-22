@@ -1853,6 +1853,19 @@ export interface ChestCapacityBreakdown {
   runeLabel: string;
 }
 
+/**
+ * v1.3.0 掉率符文加成（Rune of Exploration / Rune of Conquest）。
+ *
+ * `bonusPercent` 是**掉率乘数**的提升百分比（不是加法）—— 游戏的 stat 名带
+ * `Percent` 后缀（`AccountStat_DropChance*Percent` = "increased drop chance
+ * MULTIPLIER"）。`purchasedRuneNodes` 是已购的该类掉率符文节点数。
+ */
+export interface ChestDropChanceBreakdown {
+  bonusPercent: number;
+  purchasedRuneNodes: number;
+  runeLabel: string;
+}
+
 /** @deprecated use ChestCapacityBreakdown */
 export type CommonCapacityBreakdown = ChestCapacityBreakdown;
 
@@ -1882,6 +1895,16 @@ export interface ChestState {
     plagueCommon: number;
     plagueRare: number;
     plagueAct: number;
+  };
+  /**
+   * v1.3.0 掉率符文加成：各箱型的掉率**乘数**提升百分比。
+   * 未购买对应符文时 `bonusPercent` 为 0。
+   */
+  dropChance: {
+    common: ChestDropChanceBreakdown;
+    stageBoss: ChestDropChanceBreakdown;
+    plagueCommon: ChestDropChanceBreakdown;
+    plagueRare: ChestDropChanceBreakdown;
   };
   totalHeld: number;
   saveMtime: number;
@@ -2061,6 +2084,57 @@ export interface LookupGearStats {
   unique: LookupUniqueMod | null;
 }
 
+/**
+ * v1.3.0 圣物（RELIC_*）的固有词条。
+ *
+ * 圣物不在 `GearInfoData` 里（GearKey 为空），其词条来自
+ * `RelicInfoData.InherentStatModKey` + `InherentStatTier` 指向的
+ * `StatModInfoData` 行 —— 数值是**区间**（抽取时 roll），故沿用
+ * {@link LookupMaterialOutcome} 的 min/max 形状。
+ */
+export interface LookupRelicInfo {
+  /** 圣物颜色（Red / Blue / Purple / Yellow / White），对应游戏的 `RelicType`。 */
+  relicType: string | null;
+  inherent?: LookupMaterialOutcome;
+  /** 附加效果（当前游戏只有 `ResonanceDoubleCount`）。 */
+  additionalMod?: string;
+}
+
+/**
+ * v1.3.0 圣物匣（RELIQUARY）的数据。
+ *
+ * 匣子本身没有固定词条 —— 它从 `InherentPoolKey` 指向的**词条池**里 roll
+ * `InherentStatCount` 条。`slotIndexes` 是它拥有的圣物槽位（游戏共 8 个）。
+ * `resonances` 是共鸣效果（条件 → 效果）。
+ */
+export interface LookupReliquaryInfo {
+  /** 可 roll 的词条池（每个词条是区间）。 */
+  inherentPool?: LookupMaterialOutcome[];
+  /** 实际 roll 的词条条数。 */
+  inherentStatCount?: number;
+  /** 拥有的圣物槽位下标（升序）。 */
+  slotIndexes?: number[];
+  resonances?: LookupResonance[];
+}
+
+/** 一条共鸣：条件（游戏格式 "Blue_2 Red_1"）+ 效果。 */
+export interface LookupResonance {
+  key: number;
+  /** 原始条件串（游戏格式：`{Color}_{Count}` 空格分隔）。 */
+  condition: string;
+  effect: LookupUniqueMod;
+}
+
+/** v1.3.0 调律（Attunement）成本：按品质取自 `AttunementCostInfoData`。 */
+export interface LookupAttunementCost {
+  /** 首次调律的金币消耗。 */
+  baseCost: number;
+  /** 每次调律后递增的消耗。 */
+  costIncrease: number;
+  /** 最多可调律次数。 */
+  maxCount: number;
+}
+
 export interface LookupMaterialOutcome {
   stat: string;
   mod: string;
@@ -2104,6 +2178,12 @@ export interface LookupItem {
   contentType?: string;
   stats?: LookupGearStats;
   gearGroups?: LookupMaterialGearGroup[];
+  /** v1.3.0 圣物（RELIC_*）数据。 */
+  relic?: LookupRelicInfo;
+  /** v1.3.0 圣物匣（RELIQUARY）数据。 */
+  reliquary?: LookupReliquaryInfo;
+  /** v1.3.0 调律（Attunement）成本。 */
+  attunement?: LookupAttunementCost;
 }
 
 export interface LookupDropEntry {

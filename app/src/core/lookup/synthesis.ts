@@ -6,13 +6,24 @@ import type {
   SynthesisSimOutcome,
 } from "../../../shared/types";
 
-/** Gear synthesis type from catalog gearGroup (matches game ItemSynthesisType). */
+/**
+ * Gear synthesis type from catalog gearGroup (matches game ItemSynthesisType).
+ *
+ * v1.3.0 added two more synthesis families: `RELIC` and `RELIQUARY` (the
+ * Plaguelands relic system). Their `ItemInfoData.GearGroup` is exactly
+ * "RELIC" / "RELIQUARY" and `ItemSynthesisType` uses the same spelling, so
+ * they map through unchanged. The other two groups keep the historical
+ * mapping: accessories synthesize on their own chain, everything else
+ * (weapons / armor) shares the "Gear" chain.
+ */
 export function synthesisTypeForItem(item: {
   type: string;
   gearGroup: string | null;
 }): string | null {
   if (item.type !== "GEAR") return null;
   if (item.gearGroup === "ACCESSORY") return "Accessory";
+  if (item.gearGroup === "RELIC") return "RELIC";
+  if (item.gearGroup === "RELIQUARY") return "RELIQUARY";
   return "Gear";
 }
 
@@ -117,12 +128,38 @@ function roundChance(p: number): number {
   return Math.round(p * 100 * 100) / 100;
 }
 
+/**
+ * The result level a synthesis path is keyed by.
+ *
+ * Normally this is the item's own `level`. The v1.3.0 relic family is the
+ * exception: `ItemInfoData.Level` is EMPTY for every RELIC / RELIQUARY row
+ * (they are not level-scaled gear), yet the game's `SynthesisRecipeInfoData`
+ * gives their recipes `MinResultLevel = MaxResultLevel = 1` and the model
+ * carries exactly one bucket level per grade (`<GRADE>|RELIC|1`). So for those
+ * two synthesis families the result level is the single bucket level the
+ * model exposes for that grade — derived from the data, never hardcoded.
+ *
+ * Returns null when the level cannot be determined (no bucket for the grade),
+ * which callers treat as "no synthesis path known" rather than guessing.
+ */
+function synthesisResultLevel(
+  item: { grade: string; level: number | null },
+  model: SynthesisModel,
+  synthesisType: string,
+): number | null {
+  if (item.level != null) return item.level;
+  const bucketLevels = levelsForGradeType(model, item.grade, synthesisType);
+  return bucketLevels.length === 1 ? bucketLevels[0]! : null;
+}
+
 export function pathsToItem(
   item: { id: number; grade: string; level: number | null; type: string; gearGroup: string | null },
   model: SynthesisModel,
 ): SynthesisPathToItem[] {
   const synthesisType = synthesisTypeForItem(item);
-  if (!synthesisType || item.level == null) return [];
+  if (!synthesisType) return [];
+  const level = synthesisResultLevel(item, model, synthesisType);
+  if (level == null) return [];
 
   const targetGrade = model.gradeWeights[item.grade];
   if (!targetGrade) return [];
@@ -131,7 +168,7 @@ export function pathsToItem(
   const paths: SynthesisPathToItem[] = [];
 
   for (const recipe of recipes) {
-    if (item.level < recipe.minResultLevel || item.level > recipe.maxResultLevel) continue;
+    if (level < recipe.minResultLevel || level > recipe.maxResultLevel) continue;
 
     const inputInfo = model.gradeWeights[recipe.inputGrade];
     if (!inputInfo?.total) continue;
@@ -142,10 +179,10 @@ export function pathsToItem(
     const pGrade = stepWeight / inputInfo.total;
 
     const distribution = levelDistribution(recipe, item.grade, synthesisType, model);
-    const levelEntry = distribution.find((d) => d.level === item.level);
+    const levelEntry = distribution.find((d) => d.level === level);
     if (!levelEntry?.pct) continue;
 
-    const poolPct = itemPoolPct(model, item.grade, synthesisType, item.level, item.id);
+    const poolPct = itemPoolPct(model, item.grade, synthesisType, level, item.id);
     if (poolPct == null) continue;
 
     const pLevel = levelEntry.pct / 100;
@@ -164,7 +201,7 @@ export function pathsToItem(
       materialAmount: recipe.materialAmount,
       resultLevelMin: recipe.minResultLevel,
       resultLevelMax: recipe.maxResultLevel,
-      itemLevel: item.level,
+      itemLevel: level,
       pGrade: Math.round(pGrade * 10000) / 100,
       pLevel: levelEntry.pct,
       itemPoolPct: poolPct,

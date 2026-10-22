@@ -94,8 +94,16 @@ describe("loadCommonChestTrackerRoutes", () => {
   it("loads COMMON normal monster box routes from bundled stage_boxes.json", () => {
     const routes = loadCommonChestTrackerRoutes();
     expect(routes.length).toBeGreaterThan(0);
-    // All routes come from COMMON normal monster boxes (id range 910xxx).
-    expect(routes.every((route) => route.boxId >= 910000 && route.boxId < 920000)).toBe(true);
+    // All routes come from COMMON boxes: the 910xxx normal monster boxes,
+    // plus the 915xxx plague normal boxes and the 940xxx Halloween normal
+    // boxes (game v1.3.0) — all of which occupy the common bucket slot.
+    expect(
+      routes.every(
+        (route) =>
+          (route.boxId >= 910000 && route.boxId < 920000) ||
+          (route.boxId >= 940000 && route.boxId < 941000),
+      ),
+    ).toBe(true);
     // Each route must have at least one dropStageKey for stage-based level inference.
     expect(routes.every((route) => route.dropStageKeys.length > 0)).toBe(true);
     // Routes are sorted by level ascending.

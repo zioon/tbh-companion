@@ -336,3 +336,17 @@ Lookup 宝箱详情的「获取规律 + 价值」展示，纯 renderer + core，
   - 标签文案统一 `common:labels.synthesisPoints`（四语种 `common.json`）。
 - **宝箱「每次掉落」价值**（2026-09-11，替代原每小时价值）：Loot 页价值速率改为**时间无关的每次掉落价值**，而非每小时——宝箱价值展示不再受挂机时长影响。`BoxOpenTracker.getStats` 的 `perDropValue` 字段：行级 = `buyOrderValue / count`，箱级 = `totalBuyOrderValue / totalItems`（各行按 count 加权的平均），均为 `number | null`。`LootBoxSection.tsx` 箱头徽标（`fmtMoneyPerDrop`，后缀 `/次`）展示箱级每次掉落价值，合成点徽标（`pointsTotalLabel`）同理**只**展示每次均值（`totalSynthesisPoints / totalItems`，无"均值"字样、不显示总值，口径与钱一致）；**表格不再显示每行「每次」列**（与「买断价」列重复，已移除），原「追踪于」开始时间展示亦已移除。原 `hourlyValue` 及 `getStats` 的 `sessionSeconds`/`nowSecondsOverride` 参数已移除。`trackingSinceWallTime` 仍保留在数据模型与快照中（持久化），但不再用于价值计算与 UI 展示。
 - **测试**：`test/core/synthesisPoints.test.ts`（锚点/幂次/成功率/饰品倍率/null + `synthesisPointsForItemKeyByGear`）+ `test/core/boxOpenTracker.test.ts` 新增「scores synthesis points by grade, tripling accessories」+ `test/core/marketVolume.test.ts` 聚合 `itemKey/gearGroup` 透传 + `test/renderer/inventoryFilters.test.ts` 合成点排序（含饰品倍率）。
+
+### 7.9 v1.3.0 圣物系（Relic / Reliquary）数据与展示
+
+游戏 v1.3.0 新增 Plaguelands 圣物系：**圣物**（`GEARTYPE` = `RELIC_WHITE/BLUE/PURPLE/RED/YELLOW`，`GearGroup` = `RELIC`，360 件）与**圣物匣**（`GEARTYPE` = `RELIQUARY`，`GearGroup` = `RELIQUARY`，382 件）。它们**不在 `GearInfoData` 里**（`GearKey` 为空），所以走独立的数据链路。
+
+- **管道2 提取**（`scripts/build_tbh_data.py`）：新增 `relic_info()` / `reliquary_info()` / `_resonance_effect()` / `attunement_cost()` 四个方法，读 `RelicInfoData`、`ReliquaryInfoData`、`StatPoolInfoData`、`ResonanceInfoData`、`PartyModInfoData`、`UniqueModInfoData`、`AttunementCostInfoData` 七张表，写入 `lookup_items.json` 的三个新字段 `relic` / `reliquary` / `attunement`。
+  - **圣物**：`relic = { relicType, inherent?, additionalMod? }`。`inherent` 是**区间**（`LookupMaterialOutcome` 形状：`rawMin/rawMax/displayMin/displayMax/displayText`）—— 圣物词条从 `(InherentStatModKey, InherentStatTier)` 定位 `StatModInfoData` 的一行，其 `MinValue~MaxValue` 就是抽取时的 roll 区间。`tier` 1..10 严格对应 COMMON..COSMIC 十个品质。
+  - **圣物匣**：`reliquary = { inherentPool?, inherentStatCount?, slotIndexes?, resonances? }`。匣子自身没有固定词条 —— 它从 `InherentPoolKey` 指向的**词条池**（10 个池，每个 9 条）里 roll `InherentStatCount` 条（1~3）。`slotIndexes` 是它拥有的圣物槽位（游戏共 8 个）。`resonances` 是共鸣：条件（游戏格式 `"{Color}_{Count}"`）+ 效果。
+  - **调律成本**：`attunement = { baseCost, costIncrease, maxCount }`，按品质取自 `AttunementCostInfoData`（`PARTS` = `RELIQUARY`/`RELIC` 各 10 档）。
+- **共鸣效果两种形态**（`_resonance_effect()`）：`PartyModType=UniqueMod` 的复用 `UniqueModInfoData`（`Param1` 是 `UniqueModKey`）→ 走既有 `uniqueModLabel` 通道；`PartyModType=PartyMod` 的用游戏自己的 `PartyMod_<name>` 文案 + 参数。两者统一存成 `LookupUniqueMod` 形状，渲染端复用同一套模板填充逻辑。
+- **渲染**（`app/src/renderer/components/lookup/RelicPanel.tsx`）：Lookup 物品详情卡在 base/inherent/unique 三段之外新增圣物区块 —— 类型、固有词条区间、附加效果、可能词条池（含「roll N 条 / 共 M 条」提示）、槽位数、共鸣（条件 → 效果）、调律成本。`ItemDetailCard` 以 `hasRelicInfo`（`item.relic != null || item.reliquary != null`）挂载。网页版复用同一个 `ItemDetailCard`，无需额外接线。
+- **合成路径**（`core/lookup/synthesis.ts`）：`synthesisTypeForItem` 新增 `RELIC` / `RELIQUARY` 两个合成族（对应游戏的 `ItemSynthesisType`）。圣物的 `ItemInfoData.Level` **全为空**（非按等级缩放的装备），但其配方 `MinResultLevel=MaxResultLevel=1`、模型里每品质恰好一个桶（`<GRADE>|RELIC|1`）⇒ 新增 `synthesisResultLevel()` 从**模型桶**推导结果等级（不硬编码 1），否则 `pathsToItem` 会因 `level == null` 直接返回空数组、圣物完全没有合成路径。
+- **已知边界**：5 件最高档位的 "Echo" 圣物（tier 10 的 `Decrease*Resistance` 词条）在游戏数据里区间为 `0~0` —— 那是**减益**词条（tier 越高值越小，tier 10 归零），该变体只携带 `ResonanceDoubleCount` 附加效果。管道2 因此**不输出** `inherent`（零区间不是有效词条），UI 只显示附加效果 —— 与游戏一致。
+

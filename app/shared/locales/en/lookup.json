@@ -165,5 +165,21 @@
     "unwatchAria": "Remove from watched list",
     "watchTitle": "Always poll this item's price",
     "unwatchTitle": "Stop always polling this item's price"
+  },
+  "relic": {
+    "typeLabel": "Relic type",
+    "inherentLabel": "Inherent stat",
+    "additionalLabel": "Additional effect",
+    "poolLabel": "Possible stats",
+    "poolHint": "Rolls {{count}} of these {{total}} stats when obtained.",
+    "slotsLabel": "Relic slots",
+    "slotsValue": "{{count}} relic slot(s)",
+    "resonanceLabel": "Resonance effect",
+    "conditionLabel": "Requirement",
+    "noResonanceCondition": "None",
+    "conditionEntry": "{{count}}× {{color}}",
+    "conditionJoin": " + ",
+    "attunementLabel": "Attunement cost",
+    "attunementValue": "{{base}} gold, +{{increase}} per reroll (up to {{max}} times)"
   }
 }

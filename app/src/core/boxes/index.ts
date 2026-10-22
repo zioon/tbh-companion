@@ -3,6 +3,7 @@ export {
   loadRuneBoxCapCatalog,
   loadRuneAutoOpenCatalog,
   loadRuneWaveCatalog,
+  loadRuneDropChanceCatalog,
   boxTypeIndex,
   type BoxTypeEntry,
   type BoxTypeCatalog,
@@ -11,6 +12,8 @@ export {
   type RuneAutoOpenCatalog,
   type AutoOpenDefinition,
   type RuneWaveCatalog,
+  type RuneDropChanceCatalog,
+  type RuneDropChanceDefinition,
   type BoxCategory,
 } from "./catalog";
 export {
@@ -21,6 +24,8 @@ export {
   runeAutoOpenReductionSeconds,
   effectiveAutoOpenSeconds,
   runeWaveCountReduction,
+  runeDropChanceBonusPercent,
+  purchasedDropChanceRuneNodes,
   type RunePurchase,
 } from "./runes";
 export {

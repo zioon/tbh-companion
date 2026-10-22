@@ -50,6 +50,7 @@ export function Chests() {
             breakdown={chests.capacity.common}
             autoOpenSeconds={chests.autoOpen.common}
             fillVariant="gray"
+            dropChance={chests.dropChance.common}
           />
           <ChestCategoryCard
             title={t("category.stageBoss")}
@@ -57,6 +58,7 @@ export function Chests() {
             breakdown={chests.capacity.stageBoss}
             autoOpenSeconds={chests.autoOpen.stageBoss}
             fillVariant="blue"
+            dropChance={chests.dropChance.stageBoss}
           />
           <ChestCategoryCard
             title={t("category.actBoss")}
@@ -71,6 +73,7 @@ export function Chests() {
             breakdown={chests.capacity.plagueCommon}
             autoOpenSeconds={chests.autoOpen.plagueCommon}
             fillVariant="green"
+            dropChance={chests.dropChance.plagueCommon}
           />
           <ChestCategoryCard
             title={t("category.plagueRare")}
@@ -78,6 +81,7 @@ export function Chests() {
             breakdown={chests.capacity.plagueRare}
             autoOpenSeconds={chests.autoOpen.plagueRare}
             fillVariant="green"
+            dropChance={chests.dropChance.plagueRare}
           />
           <ChestCategoryCard
             title={t("category.plagueAct")}

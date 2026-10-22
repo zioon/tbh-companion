@@ -165,5 +165,21 @@
     "unwatchAria": "移出关注列表",
     "watchTitle": "始终轮询此物品的价格",
     "unwatchTitle": "停止始终轮询此物品的价格"
+  },
+  "relic": {
+    "typeLabel": "圣物类型",
+    "inherentLabel": "固有词条",
+    "additionalLabel": "附加效果",
+    "poolLabel": "可能词条",
+    "poolHint": "获得时从这 {{total}} 条中随机 roll 出 {{count}} 条。",
+    "slotsLabel": "圣物槽位",
+    "slotsValue": "{{count}} 个圣物槽位",
+    "resonanceLabel": "共鸣效果",
+    "conditionLabel": "条件",
+    "noResonanceCondition": "无",
+    "conditionEntry": "{{count}} 个{{color}}",
+    "conditionJoin": " + ",
+    "attunementLabel": "调律消耗",
+    "attunementValue": "{{base}} 金币，每次调律 +{{increase}}（最多 {{max}} 次）"
   }
 }

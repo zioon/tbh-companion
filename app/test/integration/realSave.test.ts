@@ -9,6 +9,7 @@ import {
   loadBoxTypeCatalog,
   loadRuneAutoOpenCatalog,
   loadRuneBoxCapCatalog,
+  loadRuneDropChanceCatalog,
   parseRuneSaveData,
 } from "../../src/core/boxes";
 import { indexById, type GameData } from "../../src/core/gamedata";
@@ -78,6 +79,7 @@ run("real save (local only)", () => {
       loadBoxTypeCatalog(),
       runeCapCatalog,
       loadRuneAutoOpenCatalog(),
+      loadRuneDropChanceCatalog(),
     );
 
     expect(chestState.totalHeld).toBeGreaterThanOrEqual(0);

@@ -42,6 +42,12 @@ REPO = Path(__file__).resolve().parent.parent
 BOX_910 = "common", "monster_box"
 BOX_920 = "stage_boss", "boss_box"
 BOX_930 = "act_boss", "act_boss"
+# v1.3.0 万圣节活动箱（CONTENTTYPE=EVENT）：940xxx = 普通怪箱（monster_box）、
+# 941xxx = 关卡 Boss 箱（boss_box）。游戏里它们**没有**独立的容量符文链
+# （RuneInfoData 无 MaxAmountEvent*Chest），所以占用的是既有 common/rare
+# 槽位 —— 这里只映射掉落图分类，不新增 BoxCategory。
+BOX_940 = "common", "monster_box"
+BOX_941 = "stage_boss", "boss_box"
 
 
 def category_via_for(box_key: int) -> tuple[str, str] | None:
@@ -51,6 +57,8 @@ def category_via_for(box_key: int) -> tuple[str, str] | None:
         return BOX_920
     if 930000 <= box_key <= 939999:
         return BOX_930
+    if 940000 <= box_key <= 949999:
+        return BOX_940 if box_key < 941000 else BOX_941
     return None
 
 
@@ -237,6 +245,18 @@ class Builder:
         self.synth_recipes = self.t.table("SynthesisRecipeInfoData")
         self.synth_drops = self.t.table("SynthesisDropInfoData")
 
+        # v1.3.0 圣物系（Plaguelands relic system）。这些物品不在 GearInfoData
+        # 里（没有 GearKey），属性分别来自 RelicInfoData / ReliquaryInfoData。
+        self.relics = {r["ItemKey"]: r for r in self.t.table("RelicInfoData")}
+        self.reliquaries = {r["ItemKey"]: r for r in self.t.table("ReliquaryInfoData")}
+        self.stat_pools = self.t.table("StatPoolInfoData")
+        self.resonances = {r["ResonanceKey"]: r for r in self.t.table("ResonanceInfoData")}
+        self.party_mods = {r["PartyModKey"]: r for r in self.t.table("PartyModInfoData")}
+        self.attunement_costs = self.t.table("AttunementCostInfoData")
+        # StatModInfoData 按 (StatModKey, Tier) 索引：圣物的固有词条用
+        # (InherentStatModKey, InherentStatTier) 定位到一条具体的 stat 区间。
+        self.sms_by_key_tier = {(r["StatModKey"], r["Tier"]): r for r in self.sms}
+
         drops = self.t.table("DropInfoData")
         self.drops = drops
         groups = self.t.table("ItemGroupInfoData")
@@ -348,6 +368,156 @@ class Builder:
         if float(v).is_integer():
             return str(int(v))
         return f"{v:.2f}".rstrip("0").rstrip(".")
+
+    # ---- v1.3.0 圣物系（Relic / Reliquary）----
+    #
+    # 圣物不在 GearInfoData（GearKey 为空），属性由两张专表给出：
+    #   RelicInfoData     —— 一件圣物的固有词条（按 (StatModKey, Tier) 取区间）
+    #   ReliquaryInfoData —— 一只圣物匣的词条池 / 词条数 / 槽位 / 共鸣键
+    # 词条数值是**区间**（MinValue~MaxValue，抽取时 roll），沿用
+    # LookupMaterialOutcome 的 min/max 形状，渲染层可直接复用。
+
+    def stat_outcome(self, stat: str, mod: str, raw_min: int, raw_max: int, tier: int) -> dict:
+        """一个「可 roll 区间」词条 —— 形状对齐 LookupMaterialOutcome。"""
+        div = default_divisor(stat, mod)
+        dmin = round(raw_min / div, 4)
+        dmax = round(raw_max / div, 4)
+        if float(dmin).is_integer():
+            dmin = int(dmin)
+        if float(dmax).is_integer():
+            dmax = int(dmax)
+        is_range = dmin != dmax
+        tmpl = self.locale.stat_template(stat, mod, minmax=is_range)
+        if tmpl and "{0}" in tmpl:
+            if is_range and "{1}" in tmpl:
+                text = tmpl.replace("{0}", fmt_display(dmin)).replace("{1}", fmt_display(dmax))
+            else:
+                text = tmpl.replace("{0}", fmt_display(dmin))
+        else:
+            name = self.base_names.get(stat) or humanize(stat)
+            text = f"{name} +{fmt_display(dmin)}~{fmt_display(dmax)}%"
+        return {
+            "stat": stat, "mod": mod, "tier": tier,
+            "rawMin": raw_min, "rawMax": raw_max,
+            "displayMin": dmin, "displayMax": dmax,
+            "displayText": text,
+        }
+
+    def relic_info(self, item_key: str) -> dict | None:
+        """RELIC_* 物品的圣物数据：固有词条区间 + 附加效果。"""
+        r = self.relics.get(item_key)
+        if not r:
+            return None
+        out: dict = {"relicType": (r.get("RelicType") or "").strip() or None}
+        sm_key = (r.get("InherentStatModKey") or "").strip()
+        tier = (r.get("InherentStatTier") or "").strip()
+        sm = self.sms_by_key_tier.get((sm_key, tier))
+        if sm:
+            stat = (sm.get("STATTYPE") or "").strip()
+            mod = (sm.get("MODTYPE") or "FLAT").strip()
+            raw_min = int(sm.get("MinValue") or 0)
+            raw_max = int(sm.get("MaxValue") or 0)
+            if stat and stat != "NONE" and raw_max:
+                out["inherent"] = self.stat_outcome(stat, mod, raw_min, raw_max, int(tier or 0))
+        additional = (r.get("AdditionalMod") or "").strip()
+        if additional:
+            out["additionalMod"] = additional
+        return out
+
+    def _resonance_effect(self, party_mod_key: str) -> dict | None:
+        """共鸣效果：UniqueMod 型复用 UniqueModInfoData；PartyMod 型自持文案。"""
+        pm = self.party_mods.get(party_mod_key)
+        if not pm:
+            return None
+        pm_type = (pm.get("PartyModType") or "").strip()
+        if pm_type == "UniqueMod":
+            # Param1 是 UniqueModKey（游戏里 PartyMod 借用 UniqueMod 的参数通道）
+            uk = (pm.get("Param1") or "").strip()
+            um = self.unique_mods.get(uk)
+            if not um:
+                return None
+            mod = um.get("UniqueMod") or uk
+            params = []
+            for i in range(1, 6):
+                p = self._classify_unique_param(
+                    (um.get(f"Param{i}") or "").strip(),
+                    (um.get(f"Param{i}ExchangeType") or "").strip(),
+                )
+                if p:
+                    params.append(p)
+            return {"kind": "uniqueMod", "key": int(uk), "mod": mod, "text": mod, "params": params}
+        name = (pm.get("PartyMod") or "").strip()
+        if not name or name == "None":
+            return None
+        params = []
+        for i in range(1, 5):
+            p = self._classify_unique_param(
+                (pm.get(f"Param{i}") or "").strip(),
+                (pm.get(f"Param{i}ExchangeType") or "").strip(),
+            )
+            if p:
+                params.append(p)
+        return {"kind": "partyMod", "mod": name, "text": name, "params": params}
+
+    def reliquary_info(self, item_key: str) -> dict | None:
+        """RELIQUARY 物品的圣物匣数据：词条池 / 词条数 / 槽位 / 共鸣。"""
+        r = self.reliquaries.get(item_key)
+        if not r:
+            return None
+        out: dict = {}
+        pool_key = (r.get("InherentPoolKey") or "").strip()
+        if pool_key:
+            outcomes = []
+            for sm in self.stat_pools:
+                if (sm.get("StatPoolKey") or "").strip() != pool_key:
+                    continue
+                stat = (sm.get("STATTYPE") or "").strip()
+                mod = (sm.get("MODTYPE") or "FLAT").strip()
+                raw_min = int(sm.get("MinValue") or 0)
+                raw_max = int(sm.get("MaxValue") or 0)
+                if stat and stat != "NONE" and raw_max:
+                    outcomes.append(self.stat_outcome(stat, mod, raw_min, raw_max, 0))
+            if outcomes:
+                out["inherentPool"] = outcomes
+        count = (r.get("InherentStatCount") or "").strip()
+        if count.isdigit():
+            out["inherentStatCount"] = int(count)
+        slots = [int(x) for x in (r.get("SlotIndex") or "").split() if x.strip().isdigit()]
+        if slots:
+            out["slotIndexes"] = sorted(slots)
+        resonances = []
+        for rk in (r.get("ResonanceKeys") or "").split():
+            rk = rk.strip()
+            if not rk:
+                continue
+            res = self.resonances.get(rk)
+            if not res:
+                continue
+            effect = self._resonance_effect((res.get("PartyModKey") or "").strip())
+            if not effect:
+                continue
+            resonances.append({
+                "key": int(rk),
+                "condition": (res.get("Condition") or "").strip(),
+                "effect": effect,
+            })
+        if resonances:
+            out["resonances"] = resonances
+        return out or None
+
+    def attunement_cost(self, grade: str, parts: str) -> dict | None:
+        """调律（Attunement）成本：按品质 + 部位取 BaseCost / CostIncrease / MaxCount。"""
+        for r in self.attunement_costs:
+            if (r.get("GRADE") or "").strip() != grade:
+                continue
+            if (r.get("PARTS") or "").strip() != parts:
+                continue
+            return {
+                "baseCost": int(r.get("BaseCost") or 0),
+                "costIncrease": int(r.get("CostIncrease") or 0),
+                "maxCount": int(r.get("MaxCount") or 0),
+            }
+        return None
 
     def material_gear_groups(self, item_key: str) -> list[dict] | None:
         m = self.mats.get(item_key)
@@ -567,6 +737,22 @@ class Builder:
                         "unique": self.gear_unique(gear_row),
                     }
                     entry["stats"] = stats
+                # v1.3.0 圣物系：不在 GearInfoData 里（GearKey 为空），属性来自
+                # RelicInfoData / ReliquaryInfoData + 词条池 / 共鸣 / 调律成本表。
+                if gear_group == "RELIC":
+                    relic = self.relic_info(ik)
+                    if relic:
+                        entry["relic"] = relic
+                        cost = self.attunement_cost(entry["grade"], "RELIC")
+                        if cost:
+                            entry["attunement"] = cost
+                elif gear_group == "RELIQUARY":
+                    reliquary = self.reliquary_info(ik)
+                    if reliquary:
+                        entry["reliquary"] = reliquary
+                        cost = self.attunement_cost(entry["grade"], "RELIQUARY")
+                        if cost:
+                            entry["attunement"] = cost
             elif mat:
                 gg = self.material_gear_groups(ik)
                 if gg:

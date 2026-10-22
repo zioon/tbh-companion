@@ -19,6 +19,7 @@
   "autoOpenTime": "自动开启用时 {{value}}",
   "capacityBase": "基础 {{count}}",
   "capacityRuneBonus": "来自 {{nodes}} 个 {{runeLabel}} 节点 +{{bonus}}",
+  "dropChanceRuneBonus": "掉率 +{{percent}}%（来自 {{nodes}} 个{{runeLabel}}节点）",
   "heldHeading": "持有的宝箱",
   "heldIntro": "你在存档中持有的宝箱明细，按类别分组展示。点击任意宝箱可查看掉落获取途径与内容物清单。",
   "heldQty": "×{{count}}",
