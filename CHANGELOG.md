@@ -4,6 +4,12 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 ## [Unreleased]
 
+## [1.28.1] - 2026-10-22
+
+### 修复
+
+- **修复「刷新目录失败：Attempt to access memory outside buffer bounds」**：游戏更新到 v1.3.0 后，**设置 → 物品目录**里的「刷新目录」会直接报错，目录停在旧版本。原因是读取游戏安装目录里的本地化 bundle 时，三个偏移量算错了（bundle 头的对齐方式、blocks-info 的解压长度、数据块起点）。这个错误其实一直存在，但此前游戏的所有 bundle 都只有 1 个数据块，偏差刚好互相抵消所以没暴露；v1.3.0 的英文字符串表换成了 2 个数据块，问题就现形了。现在「刷新目录」能正常读取 v1.3.0 的物品目录（并顺带修好了 16 种语言的本地化提取）。
+
 ## [1.28.0] - 2026-10-22
 
 ### 图鉴

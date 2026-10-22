@@ -3,6 +3,12 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.28.1": {
+      "title": "What's new in v1.28.1",
+      "bullets": [
+        "Fixed: the item catalog could not be refreshed after the game update — it failed with \"Attempt to access memory outside buffer bounds\" and the catalog stayed on the old version. The bundle reader was mis-locating three offsets inside the game's localization files. Refreshing now reads the v1.3.0 catalog correctly, and the 16-language localization extraction works again too."
+      ]
+    },
     "1.28.0": {
       "title": "What's new in v1.28.0",
       "bullets": [

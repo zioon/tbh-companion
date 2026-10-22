@@ -3,6 +3,12 @@
   "releaseNotesLink": "GitHub 完整发布说明",
   "gotIt": "知道了",
   "versions": {
+    "1.28.1": {
+      "title": "v1.28.1 修复",
+      "bullets": [
+        "修复「刷新目录失败：Attempt to access memory outside buffer bounds」—— 游戏更新后「设置 → 物品目录」的刷新目录会直接报错，目录停在旧版本。原因是读取游戏安装目录里的本地化文件时，三个偏移量算错了。现在能正常读取 v1.3.0 的物品目录，16 种语言的本地化提取也一并恢复正常。"
+      ]
+    },
     "1.28.0": {
       "title": "v1.28.0 更新",
       "bullets": [

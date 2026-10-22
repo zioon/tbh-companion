@@ -80,6 +80,21 @@ flowchart LR
 2. 同样处理 `enBundle` → 英文 hash → string 映射。
 3. 以 hash 为 linker，匹配 shared 的 key（仅 `ItemName_` 前缀）与 en 的 value，得到 `Map<ItemName_xxx, EnglishName>`。
 
+#### 步骤 0：`parseBundle` 的 UnityFS 布局（v1.3.0 修复）
+
+`app/src/core/unityAssets/bundleParser.ts` 的三个偏移**曾经一直是错的**，直到游戏 v1.3.0 换成 **2 个 data block** 的 EN 字符串表才暴露（表现为「刷新目录失败：Attempt to access memory outside buffer bounds」）。正确布局以 UnityPy 的 `BundleFile.read_fs` 为准：
+
+| 环节 | 正确做法 | 曾经的错误 |
+|------|---------|-----------|
+| blocks-info 起点 | header 结束后 **align16**（format ≥ 7） | `align4` ⇒ 落进 12 字节 0 填充里，LZ4 把填充当负载解压，整体错位 16 字节且尾部被截断 |
+| blocks-info 解压长度 | **正好 `uncompressedBlocksInfoSize`** 字节（16 字节 hash 在**载荷内部**） | 分配 `+16` 并要求 `n === uBI+16` ⇒ 只有走错位路径才凑得上 |
+| blocks-info 内部布局 | `hash[16]` → `blocksCount@16` → block 表 → node 表 | `p = 32`（当成两个 hash） |
+| data block 起点 | blocks-info 之后**对齐到 16**（`BlockInfoNeedPaddingAtStart`），**不再额外 +16** | `align16(end + 16)` ⇒ 先加 16 再对齐，比正确值多 16 字节 |
+
+**为什么旧版本没炸**：v1.00.28 的两个 bundle 都是**单 block**。错位 16 字节后 `blocksCount` 恰好仍落在能被读到的位置，而 data 起点偏差又恰好被 `align16` 抵消。v1.3.0 的 EN 字符串表变成 2 个 block（`blocksInfoEnd` 从 117 变 129），偏差不再抵消 ⇒ 读到的 SerializedFile 头是垃圾 ⇒ `serializedFile.ts` 越界读 ⇒ 崩溃。
+
+**回归测试**：`app/test/core/unityAssets/bundleParser.layout.test.ts`（5 例，钉住 blocks-info 起点/长度/布局、data 起点、node 路径完整性、SerializedFile 头与对象边界）。fixture 已更新到 v1.3.0（`app/test/core/unityAssets/fixtures/`，含 **2 block** 的 `en_stringtable.bundle`）。
+
 #### 步骤 2：读 CSV（`loadCsvText`）
 
 1. `sharedassets0` 可能是 raw SerializedFile 或 UnityFS bundle（按 magic bytes `UnityFS` 检测）。

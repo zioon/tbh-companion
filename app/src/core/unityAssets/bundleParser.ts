@@ -5,16 +5,30 @@
 // References:
 //   - https://github.com/Perfare/UnityStudio/blob/master/UnityStudio/Assets/UnityFile.cs
 //   - scripts/probe_bundle_format.py (validated against TBH v1.00.28)
+//   - UnityPy `BundleFile.read_fs` (the reference implementation the layout
+//     below was cross-checked against, byte for byte)
 //
 // Compression support: 0=none, 2=lz4, 3=lz4hc. lzma (1) is not used by TBH
 // bundles but we throw a clear error if encountered.
 //
-// IMPORTANT: UnityFS uses BIG ENDIAN for all integer fields. The 16-byte
-// uncompressed-data-hash at the start of BlocksInfo is NOT counted in
-// `uncompressedBlocksInfoSize`; allocate `uncompressedBlocksInfoSize + 16`
-// for the LZ4 destination. On format 8 (TBH v1.00.28), an additional 16-byte
-// block-info hash follows, so `p` starts at 32 (not 16) when scanning for
-// blocksCount.
+// IMPORTANT: UnityFS uses BIG ENDIAN for all integer fields.
+//
+// Layout (verified against UnityPy on TBH v1.3.0, both the 1-block shared
+// bundle and the 2-block EN string-table bundle):
+//   1. Header ends, then the reader is aligned to 16 bytes (format >= 7).
+//      The blocks-info blob starts there — NOT at a 4-byte-aligned offset.
+//   2. The blocks-info blob decompresses to EXACTLY `uncompressedBlocksInfoSize`
+//      bytes. The 16-byte uncompressed-data-hash is *inside* that payload, so
+//      the destination is `uncompressedBlocksInfoSize` bytes, not `+ 16`.
+//   3. Inside the payload: 16-byte hash, then blocksCount (int32), then the
+//      block table, then the storage-entry table.
+//   4. The data blocks start at the reader position after the blocks-info
+//      blob, aligned up to 16 bytes (BlockInfoNeedPaddingAtStart). There is
+//      no extra 16-byte step after the alignment.
+//
+// The three offsets above used to be wrong in ways that only showed up once
+// the game shipped a bundle whose payload did not end where the old parser
+// expected — see the comment on `blocksInfoOffset` below.
 
 import lz4 from "lz4js";
 
@@ -26,6 +40,9 @@ const COMPRESSION_LZ4HC = 3;
 const FLAG_COMPRESSION_MASK = 0x3f;
 const FLAG_BLOCKS_INFO_AT_END = 0x80;
 const FLAG_PADDING_AT_START = 0x200;
+
+/** UnityFS format >= 7 aligns the reader to 16 bytes after the header. */
+const MIN_ALIGNED_FORMAT = 7;
 
 export interface BundleBlock {
   uncompressedSize: number;
@@ -58,10 +75,6 @@ function readCString(buf: Buffer, offset: number): [string, number] {
   const end = buf.indexOf(0, offset);
   if (end === -1) throw new Error("unterminated cstring in bundle header");
   return [buf.subarray(offset, end).toString("utf-8"), end + 1];
-}
-
-function align4(n: number): number {
-  return (n + 3) & ~3;
 }
 
 function align16(n: number): number {
@@ -137,17 +150,29 @@ export function parseBundle(raw: Buffer): ParsedBundle {
   const blocksInfoAtEnd = (flags & FLAG_BLOCKS_INFO_AT_END) !== 0;
   const paddingAtStart = (flags & FLAG_PADDING_AT_START) !== 0;
 
+  // Reader position right after the header, aligned to 16 bytes for format
+  // >= 7 (UnityPy: `if self.version >= 7: reader.align_stream(16)`).
+  const start = format >= MIN_ALIGNED_FORMAT ? align16(off) : off;
+
   let blocksInfoOffset: number;
   if (blocksInfoAtEnd) {
     blocksInfoOffset = Number(size) - compressedBlocksInfoSize;
   } else {
-    blocksInfoOffset = align4(off);
+    // The blocks-info blob starts at the aligned reader position — NOT at a
+    // 4-byte-aligned offset. The old code used a 4-byte alignment here,
+    // which landed 12 bytes inside the zero padding: LZ4 then decoded that
+    // padding as payload, shifting the whole blocks-info by 16 bytes and
+    // truncating the tail (the storage entry's path). It happened to still
+    // yield a plausible blocksCount on the 1-block shared bundle, so the bug
+    // stayed hidden until the game shipped a 2-block bundle.
+    blocksInfoOffset = start;
   }
 
-  // Read blocks-info (may be compressed, even when data blocks use a different compression).
-  // uncompressedBlocksInfoSize excludes the 16-byte uncompressed-data-hash that
-  // prefixes the payload, so the LZ4 destination must be `+ 16` larger.
-  const blocksInfoAllocSize = uncompressedBlocksInfoSize + 16;
+  // Read blocks-info (may be compressed, even when data blocks use a different
+  // compression). The decompressed payload is EXACTLY
+  // `uncompressedBlocksInfoSize` bytes — the 16-byte uncompressed-data-hash
+  // lives *inside* it, so the destination must not be enlarged.
+  const blocksInfoAllocSize = uncompressedBlocksInfoSize;
   let blocksInfo: Buffer;
   if (compression === COMPRESSION_NONE) {
     blocksInfo = raw.subarray(blocksInfoOffset, blocksInfoOffset + blocksInfoAllocSize);
@@ -170,11 +195,9 @@ export function parseBundle(raw: Buffer): ParsedBundle {
   }
 
   // Parse BlocksInfo payload.
-  // Layout (format 8, TBH v1.00.28): 16-byte uncompressed-data-hash + 16-byte
-  // block-info-hash, then blocksCount, blocks, storageEntriesCount, entries.
-  // Older formats may have only one 16-byte hash; this parser targets TBH's
-  // format 8 layout where the second hash is present (verified empirically).
-  let p = 32; // skip 16-byte data hash + 16-byte block-info hash
+  // Layout: 16-byte uncompressed-data-hash, then blocksCount (int32), then
+  // the block table, then the storage-entry table.
+  let p = 16; // skip the 16-byte uncompressed-data-hash
   const blocksCount = blocksInfo.readUInt32BE(p);
   p += 4;
   const blocks: BundleBlock[] = [];
@@ -203,17 +226,27 @@ export function parseBundle(raw: Buffer): ParsedBundle {
   }
 
   // Data blocks start position: right after the BlocksInfo (when not at end),
-  // with optional padding to a 16-byte boundary plus an extra 16 bytes when
-  // FLAG_PADDING_AT_START is set. When BlocksInfo lives at the end of the file,
-  // the data blocks still come right after the header.
+  // aligned up to a 16-byte boundary when BlockInfoNeedPaddingAtStart is set.
+  //
+  // The old code computed `align16(blocksInfoEnd + 16)` — i.e. it added a
+  // 16-byte step *before* aligning. UnityPy's `reader.align_stream(16)`
+  // aligns the reader's current position, which is already `blocksInfoEnd`;
+  // there is no extra step. The two differ by 16 whenever
+  // `blocksInfoEnd` is not ≡ 0 (mod 16), which is why the 1-block shared
+  // bundle (blocksInfoEnd = 117) still worked while the 2-block EN bundle
+  // (blocksInfoEnd = 129) read its data 16 bytes too far and produced
+  // garbage that made the SerializedFile parser walk off the end of the
+  // buffer ("Attempt to access memory outside buffer bounds").
   let dataStart: number;
   if (blocksInfoAtEnd) {
-    dataStart = align4(off);
-    if (paddingAtStart) dataStart = align16(dataStart + 16);
+    // The reader is rewound to `start` after the blocks-info was read from
+    // the end of the file, so the blocks start there.
+    dataStart = start;
   } else {
     const blocksInfoEnd = blocksInfoOffset + compressedBlocksInfoSize;
-    dataStart = paddingAtStart ? align16(blocksInfoEnd + 16) : blocksInfoEnd;
+    dataStart = blocksInfoEnd;
   }
+  if (paddingAtStart) dataStart = align16(dataStart);
 
   // Decompress and concatenate all blocks. Use the ACTUAL decompressed size
   // of each block (not the declared uncompressedSize) when computing offsets
