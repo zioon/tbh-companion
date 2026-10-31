@@ -20,7 +20,7 @@ window.TBH_FLOW_VIZ = {
     "docs/business-flows/13-web-inspector.md",
     "docs/business-flows/14-wish-record.md"
   ],
-  "generatedAt": "2026-10-15T06:03:08.810Z",
+  "generatedAt": "2026-10-31T08:19:06.728Z",
   "flows": [
     {
       "number": 18,
@@ -1590,7 +1590,7 @@ window.TBH_FLOW_VIZ = {
         {
           "label": "流程图",
           "subsection": "流程图",
-          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Tracking[TrackingService 持有 XpTracker / ChestDropTracker / BoxOpenTracker / DpsTracker / SaveWatcher / tickTimer]\n  Tracking --> UpdateSnap[XpTracker.update save 路径]\n  Tracking --> UpdateLive[XpTracker.updateLive live 路径 ~25Hz]\n  subgraph savePath [save 路径 update]\n    First{首次初始化?}\n    First -- 是 --> Init[写入 prevHero + RateMeter init 返回 0]\n    First -- 否 --> Driving{live 5s 内有帧?}\n    Driving -- 是 --> SkipSave[跳过 save 处理 由 live 接管]\n    Driving -- 否 --> Handover{之前 live owning?}\n    Handover -- 是 --> ResetBase[handover 重置基线不计 gain]\n    Handover -- 否 --> Delta[heroDeltaGain 跨级桥接 + updateGold 仅计正向 delta]\n    ResetBase --> Next1[继续速率计算]\n    Delta --> Next1\n    Next1 --> Gain1{gain > 0?}\n    Gain1 -- 是 --> Acc1[累加 + prune + recomputeRates + push HistoryEntry cap 500]\n    Gain1 -- 否 --> End1[结束]\n  end\n  subgraph livePath [live 路径 updateLive]\n    NotInit{已初始化?}\n    NotInit -- 否 --> Return2[直接 return 须先有 save]\n    NotInit -- 是 --> TakeOver{首次接管?}\n    TakeOver -- 是 --> Restore[liveGold / liveXp.restore 基线重置 + reanchor]\n    TakeOver -- 否 --> Guards[逐 hero 校验 exp ≤1e12 / level-drop / same-level dip]\n    Guards --> Gain2{gain 通过 plausibleLiveHeroGain ≤1e7?}\n    Gain2 -- 否 --> RefreshOnly[meter.refreshRolling]\n    Gain2 -- 是 --> Sync[applyGain + syncXpFromLiveMeter]\n    Sync --> Heal[healInflatedXpTotals 自愈]\n    Heal --> Push2[push HistoryEntry]\n  end\n  class Tracking,Init,ResetBase,Delta,Next1,Acc1,Restore,Guards,Sync,Heal,Push2,RefreshOnly data\n  class First,Driving,Handover,Gain1,NotInit,TakeOver,Gain2 dec",
+          "mermaid": "%% TBH flow diagram\nflowchart TD\n  Tracking[TrackingService 持有 XpTracker / ChestDropTracker / BoxOpenTracker / DpsTracker / SaveWatcher / tickTimer]\n  Tracking --> UpdateSnap[XpTracker.update save 路径]\n  Tracking --> UpdateLive[XpTracker.updateLive live 路径 ~25Hz]\n  subgraph savePath [save 路径 update]\n    First{首次初始化?}\n    First -- 是 --> Init[写入 prevHero + RateMeter init 返回 0]\n    First -- 否 --> Driving{live 5s 内有帧?}\n    Driving -- 是 --> SkipSave[跳过 save 处理 由 live 接管]\n    Driving -- 否 --> Handover{之前 live owning?}\n    Handover -- 是 --> ResetBase[handover 重置基线不计 gain]\n    Handover -- 否 --> Delta[heroDeltaGain 跨级桥接 + updateGold 仅计正向 delta]\n    ResetBase --> Next1[继续速率计算]\n    Delta --> Next1\n    Next1 --> Gain1{gain > 0?}\n    Gain1 -- 是 --> Acc1[累加 + prune + recomputeRates + push HistoryEntry cap 500]\n    Gain1 -- 否 --> End1[结束]\n  end\n  subgraph livePath [live 路径 updateLive]\n    NotInit{已初始化?}\n    NotInit -- 否 --> Return2[直接 return 须先有 save]\n    NotInit -- 是 --> TakeOver{首次接管?}\n    TakeOver -- 是 --> Restore[liveGold / liveXp.restore 基线重置 + reanchor]\n    TakeOver -- 否 --> Guards[逐 hero 校验 exp ≤1e15 / level-drop / same-level dip]\n    Guards --> Gain2{gain 通过 plausibleLiveHeroGain ≤1e7?}\n    Gain2 -- 否 --> RefreshOnly[meter.refreshRolling]\n    Gain2 -- 是 --> Sync[applyGain + syncXpFromLiveMeter]\n    Sync --> Heal[healInflatedXpTotals 自愈]\n    Heal --> Push2[push HistoryEntry]\n  end\n  class Tracking,Init,ResetBase,Delta,Next1,Acc1,Restore,Guards,Sync,Heal,Push2,RefreshOnly data\n  class First,Driving,Handover,Gain1,NotInit,TakeOver,Gain2 dec",
           "nodes": [
             {
               "id": "Acc1",
@@ -1622,7 +1622,7 @@ window.TBH_FLOW_VIZ = {
             },
             {
               "id": "Guards",
-              "label": "逐 hero 校验 exp ≤1e12 / level-drop / same-level dip"
+              "label": "逐 hero 校验 exp ≤1e15 / level-drop / same-level dip"
             },
             {
               "id": "Handover",
