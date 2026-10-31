@@ -1,0 +1,20 @@
+diff --git a/lib/main.js b/lib/main.js
+index 1c23302b938a1164a990027c2e376aae8afc3e5b..35b0359c8628e3d5f90c08bf436f54ebc2b2cafa 100644
+--- a/lib/main.js
++++ b/lib/main.js
+@@ -1052,7 +1052,14 @@ function createChannel(streamIn) {
+         });
+       }
+     };
+-    if ((typeof input === "string" || input instanceof Uint8Array) && input.length > 1024 * 1024) {
++    // PATCH (tbh-companion): inputs above this size used to be handed to the Go
++    // service through a %TEMP%\esbuild-<hex> file that the service deletes right
++    // after reading it. On Windows a real-time scanner can still hold that file
++    // open, the delete fails with ERROR_ACCESS_DENIED and esbuild aborts the
++    // transform ("remove <path>: Access is denied."). Sending the payload inline
++    // over the stdio protocol avoids the temp file entirely.
++    // Upstream: https://github.com/evanw/esbuild/issues/4559
++    if ((typeof input === "string" || input instanceof Uint8Array) && input.length > 64 * 1024 * 1024) {
+       let next = start;
+       start = () => fs3.writeFile(input, next);
+     }

@@ -7,7 +7,8 @@
   "packageManager": "pnpm@11.8.0",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.mjs",
+    "dev:raw": "electron-vite dev",
     "build": "electron-vite build",
     "build:web": "vite build --config vite.web.config.ts && node scripts/copy-web-icons.mjs && node scripts/build-web-box-sources.mjs && node scripts/build-web-item-sources.mjs",
     "preview:web": "vite preview --config vite.web.config.ts",

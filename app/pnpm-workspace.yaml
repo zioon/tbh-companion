@@ -8,3 +8,6 @@ nodeLinker: hoisted
 
 overrides:
   esbuild: ^0.28.1
+
+patchedDependencies:
+  esbuild@0.28.1: patches/esbuild@0.28.1.patch
