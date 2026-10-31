@@ -40255,69 +40255,6 @@
     },
     {
      "via": "monster_box",
-     "boxItemKey": 910501,
-     "boxName": "Normal Monster Box Lv50",
-     "grade": "RARE",
-     "dropPct": 1.1065
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910551,
-     "boxName": "Normal Monster Box Lv55",
-     "grade": "RARE",
-     "dropPct": 1.1065
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910601,
-     "boxName": "Normal Monster Box Lv60",
-     "grade": "RARE",
-     "dropPct": 1.1065
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910651,
-     "boxName": "Normal Monster Box Lv65",
-     "grade": "RARE",
-     "dropPct": 0.9209
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910701,
-     "boxName": "Normal Monster Box Lv70",
-     "grade": "RARE",
-     "dropPct": 0.9209
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910751,
-     "boxName": "Normal Monster Box Lv75",
-     "grade": "RARE",
-     "dropPct": 0.9209
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910801,
-     "boxName": "Normal Monster Box Lv80",
-     "grade": "RARE",
-     "dropPct": 0.7349
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910851,
-     "boxName": "Normal Monster Box Lv85",
-     "grade": "RARE",
-     "dropPct": 0.7349
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910901,
-     "boxName": "Normal Monster Box Lv90",
-     "grade": "RARE",
-     "dropPct": 0.6791
-    },
-    {
-     "via": "monster_box",
      "boxItemKey": 915001,
      "boxName": "Contaminated Normal Box (Nightmare) - 1~5",
      "grade": "RARE",
@@ -40343,62 +40280,6 @@
      "boxName": "Contaminated Normal Box (Nightmare) - 16~20",
      "grade": "RARE",
      "dropPct": 1.0322
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915101,
-     "boxName": "Contaminated Normal Box (Hell) - 1~5",
-     "grade": "RARE",
-     "dropPct": 0.8895
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915106,
-     "boxName": "Contaminated Normal Box (Hell) - 6~10",
-     "grade": "RARE",
-     "dropPct": 0.879
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915111,
-     "boxName": "Contaminated Normal Box (Hell) - 11~15",
-     "grade": "RARE",
-     "dropPct": 0.8684
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915116,
-     "boxName": "Contaminated Normal Box (Hell) - 16~20",
-     "grade": "RARE",
-     "dropPct": 0.8577
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915201,
-     "boxName": "Contaminated Normal Box (Torment) - 1~5",
-     "grade": "RARE",
-     "dropPct": 0.6556
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915206,
-     "boxName": "Contaminated Normal Box (Torment) - 6~10",
-     "grade": "RARE",
-     "dropPct": 0.6478
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915211,
-     "boxName": "Contaminated Normal Box (Torment) - 11~15",
-     "grade": "RARE",
-     "dropPct": 0.6399
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915216,
-     "boxName": "Contaminated Normal Box (Torment) - 16~20",
-     "grade": "RARE",
-     "dropPct": 0.632
     },
     {
      "via": "boss_box",
@@ -40441,69 +40322,6 @@
      "boxName": "Stage Boss Box Lv45",
      "grade": "RARE",
      "dropPct": 1.154
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920501,
-     "boxName": "Stage Boss Box Lv50",
-     "grade": "RARE",
-     "dropPct": 1.15
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920551,
-     "boxName": "Stage Boss Box Lv55",
-     "grade": "RARE",
-     "dropPct": 1.15
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920601,
-     "boxName": "Stage Boss Box Lv60",
-     "grade": "RARE",
-     "dropPct": 1.15
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920651,
-     "boxName": "Stage Boss Box Lv65",
-     "grade": "RARE",
-     "dropPct": 0.7325
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920701,
-     "boxName": "Stage Boss Box Lv70",
-     "grade": "RARE",
-     "dropPct": 0.7325
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920751,
-     "boxName": "Stage Boss Box Lv75",
-     "grade": "RARE",
-     "dropPct": 0.7325
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920801,
-     "boxName": "Stage Boss Box Lv80",
-     "grade": "RARE",
-     "dropPct": 0.4697
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920851,
-     "boxName": "Stage Boss Box Lv85",
-     "grade": "RARE",
-     "dropPct": 0.4697
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920901,
-     "boxName": "Stage Boss Box Lv90",
-     "grade": "RARE",
-     "dropPct": 0.3781
     },
     {
      "via": "boss_box",
@@ -40646,286 +40464,6 @@
      "dropPct": 1.0864
     },
     {
-     "via": "boss_box",
-     "boxItemKey": 925101,
-     "boxName": "Contaminated Stage Box (Hell) - 1",
-     "grade": "RARE",
-     "dropPct": 0.6999
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925102,
-     "boxName": "Contaminated Stage Box (Hell) - 2",
-     "grade": "RARE",
-     "dropPct": 0.6992
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925103,
-     "boxName": "Contaminated Stage Box (Hell) - 3",
-     "grade": "RARE",
-     "dropPct": 0.6984
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925104,
-     "boxName": "Contaminated Stage Box (Hell) - 4",
-     "grade": "RARE",
-     "dropPct": 0.6977
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925105,
-     "boxName": "Contaminated Stage Box (Hell) - 5",
-     "grade": "RARE",
-     "dropPct": 0.6969
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925106,
-     "boxName": "Contaminated Stage Box (Hell) - 6",
-     "grade": "RARE",
-     "dropPct": 0.6965
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925107,
-     "boxName": "Contaminated Stage Box (Hell) - 7",
-     "grade": "RARE",
-     "dropPct": 0.6959
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925108,
-     "boxName": "Contaminated Stage Box (Hell) - 8",
-     "grade": "RARE",
-     "dropPct": 0.6952
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925109,
-     "boxName": "Contaminated Stage Box (Hell) - 9",
-     "grade": "RARE",
-     "dropPct": 0.6946
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925110,
-     "boxName": "Contaminated Stage Box (Hell) - 10",
-     "grade": "RARE",
-     "dropPct": 0.6939
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925111,
-     "boxName": "Contaminated Stage Box (Hell) - 11",
-     "grade": "RARE",
-     "dropPct": 0.6932
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925112,
-     "boxName": "Contaminated Stage Box (Hell) - 12",
-     "grade": "RARE",
-     "dropPct": 0.6926
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925113,
-     "boxName": "Contaminated Stage Box (Hell) - 13",
-     "grade": "RARE",
-     "dropPct": 0.6919
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925114,
-     "boxName": "Contaminated Stage Box (Hell) - 14",
-     "grade": "RARE",
-     "dropPct": 0.6912
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925115,
-     "boxName": "Contaminated Stage Box (Hell) - 15",
-     "grade": "RARE",
-     "dropPct": 0.6905
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925116,
-     "boxName": "Contaminated Stage Box (Hell) - 16",
-     "grade": "RARE",
-     "dropPct": 0.6899
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925117,
-     "boxName": "Contaminated Stage Box (Hell) - 17",
-     "grade": "RARE",
-     "dropPct": 0.6892
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925118,
-     "boxName": "Contaminated Stage Box (Hell) - 18",
-     "grade": "RARE",
-     "dropPct": 0.6885
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925119,
-     "boxName": "Contaminated Stage Box (Hell) - 19",
-     "grade": "RARE",
-     "dropPct": 0.6878
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925120,
-     "boxName": "Contaminated Stage Box (Hell) - 20",
-     "grade": "RARE",
-     "dropPct": 0.6871
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925201,
-     "boxName": "Contaminated Stage Box (Torment) - 1",
-     "grade": "RARE",
-     "dropPct": 0.3581
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925202,
-     "boxName": "Contaminated Stage Box (Torment) - 2",
-     "grade": "RARE",
-     "dropPct": 0.3577
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925203,
-     "boxName": "Contaminated Stage Box (Torment) - 3",
-     "grade": "RARE",
-     "dropPct": 0.3573
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925204,
-     "boxName": "Contaminated Stage Box (Torment) - 4",
-     "grade": "RARE",
-     "dropPct": 0.3569
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925205,
-     "boxName": "Contaminated Stage Box (Torment) - 5",
-     "grade": "RARE",
-     "dropPct": 0.3565
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925206,
-     "boxName": "Contaminated Stage Box (Torment) - 6",
-     "grade": "RARE",
-     "dropPct": 0.3563
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925207,
-     "boxName": "Contaminated Stage Box (Torment) - 7",
-     "grade": "RARE",
-     "dropPct": 0.3559
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925208,
-     "boxName": "Contaminated Stage Box (Torment) - 8",
-     "grade": "RARE",
-     "dropPct": 0.3556
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925209,
-     "boxName": "Contaminated Stage Box (Torment) - 9",
-     "grade": "RARE",
-     "dropPct": 0.3552
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925210,
-     "boxName": "Contaminated Stage Box (Torment) - 10",
-     "grade": "RARE",
-     "dropPct": 0.3549
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925211,
-     "boxName": "Contaminated Stage Box (Torment) - 11",
-     "grade": "RARE",
-     "dropPct": 0.3545
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925212,
-     "boxName": "Contaminated Stage Box (Torment) - 12",
-     "grade": "RARE",
-     "dropPct": 0.3542
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925213,
-     "boxName": "Contaminated Stage Box (Torment) - 13",
-     "grade": "RARE",
-     "dropPct": 0.3538
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925214,
-     "boxName": "Contaminated Stage Box (Torment) - 14",
-     "grade": "RARE",
-     "dropPct": 0.3535
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925215,
-     "boxName": "Contaminated Stage Box (Torment) - 15",
-     "grade": "RARE",
-     "dropPct": 0.3531
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925216,
-     "boxName": "Contaminated Stage Box (Torment) - 16",
-     "grade": "RARE",
-     "dropPct": 0.3527
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925217,
-     "boxName": "Contaminated Stage Box (Torment) - 17",
-     "grade": "RARE",
-     "dropPct": 0.3524
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925218,
-     "boxName": "Contaminated Stage Box (Torment) - 18",
-     "grade": "RARE",
-     "dropPct": 0.352
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925219,
-     "boxName": "Contaminated Stage Box (Torment) - 19",
-     "grade": "RARE",
-     "dropPct": 0.3516
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925220,
-     "boxName": "Contaminated Stage Box (Torment) - 20",
-     "grade": "RARE",
-     "dropPct": 0.3513
-    },
-    {
      "via": "act_boss",
      "boxItemKey": 930201,
      "boxName": "Act Boss Box Lv20",
@@ -40951,49 +40489,14 @@
      "boxItemKey": 930451,
      "boxName": "Act Boss Box Lv45",
      "grade": "RARE",
-     "dropPct": 0.8066
+     "dropPct": 1.21
     },
     {
      "via": "act_boss",
      "boxItemKey": 930501,
      "boxName": "Act Boss Box Lv50",
      "grade": "RARE",
-     "dropPct": 0.5257
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930601,
-     "boxName": "Act Boss Box Lv60",
-     "grade": "RARE",
-     "dropPct": 0.4208
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930651,
-     "boxName": "Act Boss Box Lv65",
-     "grade": "RARE",
-     "dropPct": 0.2859
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930701,
-     "boxName": "Act Boss Box Lv70",
-     "grade": "RARE",
-     "dropPct": 0.2859
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930851,
-     "boxName": "Act Boss Box Lv85",
-     "grade": "RARE",
-     "dropPct": 0.2227
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930901,
-     "boxName": "Act Boss Box Lv90",
-     "grade": "RARE",
-     "dropPct": 0.2128
+     "dropPct": 1.21
     },
     {
      "via": "act_boss",
@@ -41007,56 +40510,14 @@
      "boxItemKey": 935002,
      "boxName": "Contaminated ActBoss Box (Nightmare) - 2",
      "grade": "RARE",
-     "dropPct": 0.6784
+     "dropPct": 1.0176
     },
     {
      "via": "act_boss",
      "boxItemKey": 935003,
      "boxName": "Contaminated ActBoss Box (Nightmare) - 3",
      "grade": "RARE",
-     "dropPct": 0.4297
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935101,
-     "boxName": "Contaminated ActBoss Box (Hell) - 1",
-     "grade": "RARE",
-     "dropPct": 0.3638
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935102,
-     "boxName": "Contaminated ActBoss Box (Hell) - 2",
-     "grade": "RARE",
-     "dropPct": 0.2404
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935103,
-     "boxName": "Contaminated ActBoss Box (Hell) - 3",
-     "grade": "RARE",
-     "dropPct": 0.2337
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935201,
-     "boxName": "Contaminated ActBoss Box (Torment) - 1",
-     "grade": "RARE",
-     "dropPct": 0.1925
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935202,
-     "boxName": "Contaminated ActBoss Box (Torment) - 2",
-     "grade": "RARE",
-     "dropPct": 0.179
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935203,
-     "boxName": "Contaminated ActBoss Box (Torment) - 3",
-     "grade": "RARE",
-     "dropPct": 0.174
+     "dropPct": 0.989
     }
    ],
    "crafting": []
@@ -151732,6 +151193,305 @@
    ],
    "crafting": []
   },
+  "170102": {
+   "drops": [
+    {
+     "via": "monster_box",
+     "boxItemKey": 910501,
+     "boxName": "Normal Monster Box Lv50",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1065
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 910551,
+     "boxName": "Normal Monster Box Lv55",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1065
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 910601,
+     "boxName": "Normal Monster Box Lv60",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1065
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 910651,
+     "boxName": "Normal Monster Box Lv65",
+     "grade": "LEGENDARY",
+     "dropPct": 1.118
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 910701,
+     "boxName": "Normal Monster Box Lv70",
+     "grade": "LEGENDARY",
+     "dropPct": 1.118
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 910751,
+     "boxName": "Normal Monster Box Lv75",
+     "grade": "LEGENDARY",
+     "dropPct": 1.118
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 915101,
+     "boxName": "Contaminated Normal Box (Hell) - 1~5",
+     "grade": "LEGENDARY",
+     "dropPct": 1.08
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 915106,
+     "boxName": "Contaminated Normal Box (Hell) - 6~10",
+     "grade": "LEGENDARY",
+     "dropPct": 1.0671
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 915111,
+     "boxName": "Contaminated Normal Box (Hell) - 11~15",
+     "grade": "LEGENDARY",
+     "dropPct": 1.0543
+    },
+    {
+     "via": "monster_box",
+     "boxItemKey": 915116,
+     "boxName": "Contaminated Normal Box (Hell) - 16~20",
+     "grade": "LEGENDARY",
+     "dropPct": 1.0414
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 920501,
+     "boxName": "Stage Boss Box Lv50",
+     "grade": "LEGENDARY",
+     "dropPct": 1.15
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 920551,
+     "boxName": "Stage Boss Box Lv55",
+     "grade": "LEGENDARY",
+     "dropPct": 1.15
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 920601,
+     "boxName": "Stage Boss Box Lv60",
+     "grade": "LEGENDARY",
+     "dropPct": 1.15
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 920651,
+     "boxName": "Stage Boss Box Lv65",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1721
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 920701,
+     "boxName": "Stage Boss Box Lv70",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1721
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 920751,
+     "boxName": "Stage Boss Box Lv75",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1721
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925101,
+     "boxName": "Contaminated Stage Box (Hell) - 1",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1199
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925102,
+     "boxName": "Contaminated Stage Box (Hell) - 2",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1187
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925103,
+     "boxName": "Contaminated Stage Box (Hell) - 3",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1175
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925104,
+     "boxName": "Contaminated Stage Box (Hell) - 4",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1162
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925105,
+     "boxName": "Contaminated Stage Box (Hell) - 5",
+     "grade": "LEGENDARY",
+     "dropPct": 1.115
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925106,
+     "boxName": "Contaminated Stage Box (Hell) - 6",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1145
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925107,
+     "boxName": "Contaminated Stage Box (Hell) - 7",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1134
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925108,
+     "boxName": "Contaminated Stage Box (Hell) - 8",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1124
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925109,
+     "boxName": "Contaminated Stage Box (Hell) - 9",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1113
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925110,
+     "boxName": "Contaminated Stage Box (Hell) - 10",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1103
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925111,
+     "boxName": "Contaminated Stage Box (Hell) - 11",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1092
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925112,
+     "boxName": "Contaminated Stage Box (Hell) - 12",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1081
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925113,
+     "boxName": "Contaminated Stage Box (Hell) - 13",
+     "grade": "LEGENDARY",
+     "dropPct": 1.107
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925114,
+     "boxName": "Contaminated Stage Box (Hell) - 14",
+     "grade": "LEGENDARY",
+     "dropPct": 1.106
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925115,
+     "boxName": "Contaminated Stage Box (Hell) - 15",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1049
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925116,
+     "boxName": "Contaminated Stage Box (Hell) - 16",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1038
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925117,
+     "boxName": "Contaminated Stage Box (Hell) - 17",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1027
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925118,
+     "boxName": "Contaminated Stage Box (Hell) - 18",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1016
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925119,
+     "boxName": "Contaminated Stage Box (Hell) - 19",
+     "grade": "LEGENDARY",
+     "dropPct": 1.1005
+    },
+    {
+     "via": "boss_box",
+     "boxItemKey": 925120,
+     "boxName": "Contaminated Stage Box (Hell) - 20",
+     "grade": "LEGENDARY",
+     "dropPct": 1.0994
+    },
+    {
+     "via": "act_boss",
+     "boxItemKey": 930601,
+     "boxName": "Act Boss Box Lv60",
+     "grade": "LEGENDARY",
+     "dropPct": 1.21
+    },
+    {
+     "via": "act_boss",
+     "boxItemKey": 930651,
+     "boxName": "Act Boss Box Lv65",
+     "grade": "LEGENDARY",
+     "dropPct": 1.2098
+    },
+    {
+     "via": "act_boss",
+     "boxItemKey": 930701,
+     "boxName": "Act Boss Box Lv70",
+     "grade": "LEGENDARY",
+     "dropPct": 1.21
+    },
+    {
+     "via": "act_boss",
+     "boxItemKey": 935101,
+     "boxName": "Contaminated ActBoss Box (Hell) - 1",
+     "grade": "LEGENDARY",
+     "dropPct": 1.0459
+    },
+    {
+     "via": "act_boss",
+     "boxItemKey": 935102,
+     "boxName": "Contaminated ActBoss Box (Hell) - 2",
+     "grade": "LEGENDARY",
+     "dropPct": 1.0174
+    },
+    {
+     "via": "act_boss",
+     "boxItemKey": 935103,
+     "boxName": "Contaminated ActBoss Box (Hell) - 3",
+     "grade": "LEGENDARY",
+     "dropPct": 0.989
+    }
+   ],
+   "crafting": []
+  },
   "300014": {
    "drops": [
     {
@@ -181590,536 +181350,6 @@
      "boxName": "Halloween Stage Box (Torment)",
      "grade": "RARE",
      "dropPct": 4.5811
-    }
-   ],
-   "crafting": []
-  },
-  "170102": {
-   "drops": [
-    {
-     "via": "monster_box",
-     "boxItemKey": 910651,
-     "boxName": "Normal Monster Box Lv65",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1971
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910701,
-     "boxName": "Normal Monster Box Lv70",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1971
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910751,
-     "boxName": "Normal Monster Box Lv75",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1971
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910801,
-     "boxName": "Normal Monster Box Lv80",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1696
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910851,
-     "boxName": "Normal Monster Box Lv85",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1696
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 910901,
-     "boxName": "Normal Monster Box Lv90",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2265
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915101,
-     "boxName": "Contaminated Normal Box (Hell) - 1~5",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1904
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915106,
-     "boxName": "Contaminated Normal Box (Hell) - 6~10",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1882
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915111,
-     "boxName": "Contaminated Normal Box (Hell) - 11~15",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1859
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915116,
-     "boxName": "Contaminated Normal Box (Hell) - 16~20",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1836
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915201,
-     "boxName": "Contaminated Normal Box (Torment) - 1~5",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2187
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915206,
-     "boxName": "Contaminated Normal Box (Torment) - 6~10",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2161
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915211,
-     "boxName": "Contaminated Normal Box (Torment) - 11~15",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2134
-    },
-    {
-     "via": "monster_box",
-     "boxItemKey": 915216,
-     "boxName": "Contaminated Normal Box (Torment) - 16~20",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2108
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920651,
-     "boxName": "Stage Boss Box Lv65",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2637
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920701,
-     "boxName": "Stage Boss Box Lv70",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2637
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920751,
-     "boxName": "Stage Boss Box Lv75",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2637
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920801,
-     "boxName": "Stage Boss Box Lv80",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2817
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920851,
-     "boxName": "Stage Boss Box Lv85",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2817
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920901,
-     "boxName": "Stage Boss Box Lv90",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3072
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925101,
-     "boxName": "Contaminated Stage Box (Hell) - 1",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2519
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925102,
-     "boxName": "Contaminated Stage Box (Hell) - 2",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2517
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925103,
-     "boxName": "Contaminated Stage Box (Hell) - 3",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2514
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925104,
-     "boxName": "Contaminated Stage Box (Hell) - 4",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2511
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925105,
-     "boxName": "Contaminated Stage Box (Hell) - 5",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2509
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925106,
-     "boxName": "Contaminated Stage Box (Hell) - 6",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2507
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925107,
-     "boxName": "Contaminated Stage Box (Hell) - 7",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2505
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925108,
-     "boxName": "Contaminated Stage Box (Hell) - 8",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2503
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925109,
-     "boxName": "Contaminated Stage Box (Hell) - 9",
-     "grade": "LEGENDARY",
-     "dropPct": 0.25
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925110,
-     "boxName": "Contaminated Stage Box (Hell) - 10",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2498
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925111,
-     "boxName": "Contaminated Stage Box (Hell) - 11",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2495
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925112,
-     "boxName": "Contaminated Stage Box (Hell) - 12",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2493
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925113,
-     "boxName": "Contaminated Stage Box (Hell) - 13",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2491
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925114,
-     "boxName": "Contaminated Stage Box (Hell) - 14",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2488
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925115,
-     "boxName": "Contaminated Stage Box (Hell) - 15",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2486
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925116,
-     "boxName": "Contaminated Stage Box (Hell) - 16",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2483
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925117,
-     "boxName": "Contaminated Stage Box (Hell) - 17",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2481
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925118,
-     "boxName": "Contaminated Stage Box (Hell) - 18",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2478
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925119,
-     "boxName": "Contaminated Stage Box (Hell) - 19",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2476
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925120,
-     "boxName": "Contaminated Stage Box (Hell) - 20",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2473
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925201,
-     "boxName": "Contaminated Stage Box (Torment) - 1",
-     "grade": "LEGENDARY",
-     "dropPct": 0.291
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925202,
-     "boxName": "Contaminated Stage Box (Torment) - 2",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2906
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925203,
-     "boxName": "Contaminated Stage Box (Torment) - 3",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2903
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925204,
-     "boxName": "Contaminated Stage Box (Torment) - 4",
-     "grade": "LEGENDARY",
-     "dropPct": 0.29
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925205,
-     "boxName": "Contaminated Stage Box (Torment) - 5",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2897
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925206,
-     "boxName": "Contaminated Stage Box (Torment) - 6",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2895
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925207,
-     "boxName": "Contaminated Stage Box (Torment) - 7",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2892
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925208,
-     "boxName": "Contaminated Stage Box (Torment) - 8",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2889
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925209,
-     "boxName": "Contaminated Stage Box (Torment) - 9",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2887
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925210,
-     "boxName": "Contaminated Stage Box (Torment) - 10",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2884
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925211,
-     "boxName": "Contaminated Stage Box (Torment) - 11",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2881
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925212,
-     "boxName": "Contaminated Stage Box (Torment) - 12",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2878
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925213,
-     "boxName": "Contaminated Stage Box (Torment) - 13",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2875
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925214,
-     "boxName": "Contaminated Stage Box (Torment) - 14",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2872
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925215,
-     "boxName": "Contaminated Stage Box (Torment) - 15",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2869
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925216,
-     "boxName": "Contaminated Stage Box (Torment) - 16",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2866
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925217,
-     "boxName": "Contaminated Stage Box (Torment) - 17",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2863
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925218,
-     "boxName": "Contaminated Stage Box (Torment) - 18",
-     "grade": "LEGENDARY",
-     "dropPct": 0.286
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925219,
-     "boxName": "Contaminated Stage Box (Torment) - 19",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2857
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925220,
-     "boxName": "Contaminated Stage Box (Torment) - 20",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2854
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930451,
-     "boxName": "Act Boss Box Lv45",
-     "grade": "LEGENDARY",
-     "dropPct": 0.4033
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930501,
-     "boxName": "Act Boss Box Lv50",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3505
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930601,
-     "boxName": "Act Boss Box Lv60",
-     "grade": "LEGENDARY",
-     "dropPct": 0.4033
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930651,
-     "boxName": "Act Boss Box Lv65",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3124
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930701,
-     "boxName": "Act Boss Box Lv70",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3125
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930851,
-     "boxName": "Act Boss Box Lv85",
-     "grade": "LEGENDARY",
-     "dropPct": 0.295
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930901,
-     "boxName": "Act Boss Box Lv90",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2979
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935002,
-     "boxName": "Contaminated ActBoss Box (Nightmare) - 2",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3392
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935003,
-     "boxName": "Contaminated ActBoss Box (Nightmare) - 3",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2865
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935101,
-     "boxName": "Contaminated ActBoss Box (Hell) - 1",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3486
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935102,
-     "boxName": "Contaminated ActBoss Box (Hell) - 2",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2627
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935103,
-     "boxName": "Contaminated ActBoss Box (Hell) - 3",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2554
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935201,
-     "boxName": "Contaminated ActBoss Box (Torment) - 1",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2549
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935202,
-     "boxName": "Contaminated ActBoss Box (Torment) - 2",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2506
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935203,
-     "boxName": "Contaminated ActBoss Box (Torment) - 3",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2435
     }
    ],
    "crafting": []
@@ -224410,462 +223640,245 @@
      "boxItemKey": 910801,
      "boxName": "Normal Monster Box Lv80",
      "grade": "IMMORTAL",
-     "dropPct": 0.2266
+     "dropPct": 1.1311
     },
     {
      "via": "monster_box",
      "boxItemKey": 910851,
      "boxName": "Normal Monster Box Lv85",
      "grade": "IMMORTAL",
-     "dropPct": 0.2266
+     "dropPct": 1.1311
     },
     {
      "via": "monster_box",
      "boxItemKey": 910901,
      "boxName": "Normal Monster Box Lv90",
      "grade": "IMMORTAL",
-     "dropPct": 0.2261
+     "dropPct": 1.1316
     },
     {
      "via": "monster_box",
      "boxItemKey": 915201,
      "boxName": "Contaminated Normal Box (Torment) - 1~5",
      "grade": "IMMORTAL",
-     "dropPct": 0.2183
+     "dropPct": 1.0926
     },
     {
      "via": "monster_box",
      "boxItemKey": 915206,
      "boxName": "Contaminated Normal Box (Torment) - 6~10",
      "grade": "IMMORTAL",
-     "dropPct": 0.2157
+     "dropPct": 1.0795
     },
     {
      "via": "monster_box",
      "boxItemKey": 915211,
      "boxName": "Contaminated Normal Box (Torment) - 11~15",
      "grade": "IMMORTAL",
-     "dropPct": 0.2131
+     "dropPct": 1.0664
     },
     {
      "via": "monster_box",
      "boxItemKey": 915216,
      "boxName": "Contaminated Normal Box (Torment) - 16~20",
      "grade": "IMMORTAL",
-     "dropPct": 0.2104
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920651,
-     "boxName": "Stage Boss Box Lv65",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1758
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920701,
-     "boxName": "Stage Boss Box Lv70",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1758
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 920751,
-     "boxName": "Stage Boss Box Lv75",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1758
+     "dropPct": 1.0532
     },
     {
      "via": "boss_box",
      "boxItemKey": 920801,
      "boxName": "Stage Boss Box Lv80",
      "grade": "IMMORTAL",
-     "dropPct": 0.4462
+     "dropPct": 1.1977
     },
     {
      "via": "boss_box",
      "boxItemKey": 920851,
      "boxName": "Stage Boss Box Lv85",
      "grade": "IMMORTAL",
-     "dropPct": 0.4462
+     "dropPct": 1.1977
     },
     {
      "via": "boss_box",
      "boxItemKey": 920901,
      "boxName": "Stage Boss Box Lv90",
      "grade": "IMMORTAL",
-     "dropPct": 0.5199
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925101,
-     "boxName": "Contaminated Stage Box (Hell) - 1",
-     "grade": "IMMORTAL",
-     "dropPct": 0.168
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925102,
-     "boxName": "Contaminated Stage Box (Hell) - 2",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1678
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925103,
-     "boxName": "Contaminated Stage Box (Hell) - 3",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1676
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925104,
-     "boxName": "Contaminated Stage Box (Hell) - 4",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1675
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925105,
-     "boxName": "Contaminated Stage Box (Hell) - 5",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1673
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925106,
-     "boxName": "Contaminated Stage Box (Hell) - 6",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1672
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925107,
-     "boxName": "Contaminated Stage Box (Hell) - 7",
-     "grade": "IMMORTAL",
-     "dropPct": 0.167
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925108,
-     "boxName": "Contaminated Stage Box (Hell) - 8",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1669
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925109,
-     "boxName": "Contaminated Stage Box (Hell) - 9",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1667
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925110,
-     "boxName": "Contaminated Stage Box (Hell) - 10",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1666
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925111,
-     "boxName": "Contaminated Stage Box (Hell) - 11",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1664
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925112,
-     "boxName": "Contaminated Stage Box (Hell) - 12",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1662
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925113,
-     "boxName": "Contaminated Stage Box (Hell) - 13",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1661
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925114,
-     "boxName": "Contaminated Stage Box (Hell) - 14",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1659
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925115,
-     "boxName": "Contaminated Stage Box (Hell) - 15",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1658
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925116,
-     "boxName": "Contaminated Stage Box (Hell) - 16",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1656
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925117,
-     "boxName": "Contaminated Stage Box (Hell) - 17",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1654
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925118,
-     "boxName": "Contaminated Stage Box (Hell) - 18",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1653
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925119,
-     "boxName": "Contaminated Stage Box (Hell) - 19",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1651
-    },
-    {
-     "via": "boss_box",
-     "boxItemKey": 925120,
-     "boxName": "Contaminated Stage Box (Hell) - 20",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1649
+     "dropPct": 1.2052
     },
     {
      "via": "boss_box",
      "boxItemKey": 925201,
      "boxName": "Contaminated Stage Box (Torment) - 1",
      "grade": "IMMORTAL",
-     "dropPct": 0.4924
+     "dropPct": 1.1414
     },
     {
      "via": "boss_box",
      "boxItemKey": 925202,
      "boxName": "Contaminated Stage Box (Torment) - 2",
      "grade": "IMMORTAL",
-     "dropPct": 0.4919
+     "dropPct": 1.1402
     },
     {
      "via": "boss_box",
      "boxItemKey": 925203,
      "boxName": "Contaminated Stage Box (Torment) - 3",
      "grade": "IMMORTAL",
-     "dropPct": 0.4913
+     "dropPct": 1.1389
     },
     {
      "via": "boss_box",
      "boxItemKey": 925204,
      "boxName": "Contaminated Stage Box (Torment) - 4",
      "grade": "IMMORTAL",
-     "dropPct": 0.4908
+     "dropPct": 1.1377
     },
     {
      "via": "boss_box",
      "boxItemKey": 925205,
      "boxName": "Contaminated Stage Box (Torment) - 5",
      "grade": "IMMORTAL",
-     "dropPct": 0.4902
+     "dropPct": 1.1364
     },
     {
      "via": "boss_box",
      "boxItemKey": 925206,
      "boxName": "Contaminated Stage Box (Torment) - 6",
      "grade": "IMMORTAL",
-     "dropPct": 0.4899
+     "dropPct": 1.1357
     },
     {
      "via": "boss_box",
      "boxItemKey": 925207,
      "boxName": "Contaminated Stage Box (Torment) - 7",
      "grade": "IMMORTAL",
-     "dropPct": 0.4895
+     "dropPct": 1.1346
     },
     {
      "via": "boss_box",
      "boxItemKey": 925208,
      "boxName": "Contaminated Stage Box (Torment) - 8",
      "grade": "IMMORTAL",
-     "dropPct": 0.489
+     "dropPct": 1.1335
     },
     {
      "via": "boss_box",
      "boxItemKey": 925209,
      "boxName": "Contaminated Stage Box (Torment) - 9",
      "grade": "IMMORTAL",
-     "dropPct": 0.4885
+     "dropPct": 1.1324
     },
     {
      "via": "boss_box",
      "boxItemKey": 925210,
      "boxName": "Contaminated Stage Box (Torment) - 10",
      "grade": "IMMORTAL",
-     "dropPct": 0.488
+     "dropPct": 1.1313
     },
     {
      "via": "boss_box",
      "boxItemKey": 925211,
      "boxName": "Contaminated Stage Box (Torment) - 11",
      "grade": "IMMORTAL",
-     "dropPct": 0.4875
+     "dropPct": 1.1301
     },
     {
      "via": "boss_box",
      "boxItemKey": 925212,
      "boxName": "Contaminated Stage Box (Torment) - 12",
      "grade": "IMMORTAL",
-     "dropPct": 0.487
+     "dropPct": 1.129
     },
     {
      "via": "boss_box",
      "boxItemKey": 925213,
      "boxName": "Contaminated Stage Box (Torment) - 13",
      "grade": "IMMORTAL",
-     "dropPct": 0.4865
+     "dropPct": 1.1279
     },
     {
      "via": "boss_box",
      "boxItemKey": 925214,
      "boxName": "Contaminated Stage Box (Torment) - 14",
      "grade": "IMMORTAL",
-     "dropPct": 0.4861
+     "dropPct": 1.1267
     },
     {
      "via": "boss_box",
      "boxItemKey": 925215,
      "boxName": "Contaminated Stage Box (Torment) - 15",
      "grade": "IMMORTAL",
-     "dropPct": 0.4856
+     "dropPct": 1.1256
     },
     {
      "via": "boss_box",
      "boxItemKey": 925216,
      "boxName": "Contaminated Stage Box (Torment) - 16",
      "grade": "IMMORTAL",
-     "dropPct": 0.4851
+     "dropPct": 1.1244
     },
     {
      "via": "boss_box",
      "boxItemKey": 925217,
      "boxName": "Contaminated Stage Box (Torment) - 17",
      "grade": "IMMORTAL",
-     "dropPct": 0.4846
+     "dropPct": 1.1232
     },
     {
      "via": "boss_box",
      "boxItemKey": 925218,
      "boxName": "Contaminated Stage Box (Torment) - 18",
      "grade": "IMMORTAL",
-     "dropPct": 0.4841
+     "dropPct": 1.1221
     },
     {
      "via": "boss_box",
      "boxItemKey": 925219,
      "boxName": "Contaminated Stage Box (Torment) - 19",
      "grade": "IMMORTAL",
-     "dropPct": 0.4835
+     "dropPct": 1.1209
     },
     {
      "via": "boss_box",
      "boxItemKey": 925220,
      "boxName": "Contaminated Stage Box (Torment) - 20",
      "grade": "IMMORTAL",
-     "dropPct": 0.483
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930501,
-     "boxName": "Act Boss Box Lv50",
-     "grade": "IMMORTAL",
-     "dropPct": 0.3338
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930601,
-     "boxName": "Act Boss Box Lv60",
-     "grade": "IMMORTAL",
-     "dropPct": 0.3858
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930651,
-     "boxName": "Act Boss Box Lv65",
-     "grade": "IMMORTAL",
-     "dropPct": 0.6116
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 930701,
-     "boxName": "Act Boss Box Lv70",
-     "grade": "IMMORTAL",
-     "dropPct": 0.6117
+     "dropPct": 1.1197
     },
     {
      "via": "act_boss",
      "boxItemKey": 930851,
      "boxName": "Act Boss Box Lv85",
      "grade": "IMMORTAL",
-     "dropPct": 0.6923
+     "dropPct": 1.21
     },
     {
      "via": "act_boss",
      "boxItemKey": 930901,
      "boxName": "Act Boss Box Lv90",
      "grade": "IMMORTAL",
-     "dropPct": 0.6992
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935003,
-     "boxName": "Contaminated ActBoss Box (Nightmare) - 3",
-     "grade": "IMMORTAL",
-     "dropPct": 0.2728
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935101,
-     "boxName": "Contaminated ActBoss Box (Hell) - 1",
-     "grade": "IMMORTAL",
-     "dropPct": 0.3335
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935102,
-     "boxName": "Contaminated ActBoss Box (Hell) - 2",
-     "grade": "IMMORTAL",
-     "dropPct": 0.5143
-    },
-    {
-     "via": "act_boss",
-     "boxItemKey": 935103,
-     "boxName": "Contaminated ActBoss Box (Hell) - 3",
-     "grade": "IMMORTAL",
-     "dropPct": 0.5
+     "dropPct": 1.21
     },
     {
      "via": "act_boss",
      "boxItemKey": 935201,
      "boxName": "Contaminated ActBoss Box (Torment) - 1",
      "grade": "IMMORTAL",
-     "dropPct": 0.5983
+     "dropPct": 1.0457
     },
     {
      "via": "act_boss",
      "boxItemKey": 935202,
      "boxName": "Contaminated ActBoss Box (Torment) - 2",
      "grade": "IMMORTAL",
-     "dropPct": 0.588
+     "dropPct": 1.0176
     },
     {
      "via": "act_boss",
      "boxItemKey": 935203,
      "boxName": "Contaminated ActBoss Box (Torment) - 3",
      "grade": "IMMORTAL",
-     "dropPct": 0.5716
+     "dropPct": 0.9891
     }
    ],
    "crafting": []
@@ -339774,9 +338787,9 @@
      "dropPct": 0.1564
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
+     "itemKey": 170102,
+     "name": "Jack-o's Ticket (Hell)",
+     "grade": "LEGENDARY",
      "dropPct": 1.1065
     },
     {
@@ -341496,9 +340509,9 @@
      "dropPct": 0.1564
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
+     "itemKey": 170102,
+     "name": "Jack-o's Ticket (Hell)",
+     "grade": "LEGENDARY",
      "dropPct": 1.1065
     },
     {
@@ -343055,9 +342068,9 @@
      "dropPct": 0.1564
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
+     "itemKey": 170102,
+     "name": "Jack-o's Ticket (Hell)",
+     "grade": "LEGENDARY",
      "dropPct": 1.1065
     },
     {
@@ -344050,12 +343063,6 @@
      "dropPct": 0.1712
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.9209
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -344071,7 +343078,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1971
+     "dropPct": 1.118
     },
     {
      "itemKey": 130001,
@@ -345880,12 +344887,6 @@
      "dropPct": 0.1712
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.9209
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -345901,7 +344902,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1971
+     "dropPct": 1.118
     },
     {
      "itemKey": 130001,
@@ -347565,12 +346566,6 @@
      "dropPct": 0.1712
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.9209
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -347586,7 +346581,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1971
+     "dropPct": 1.118
     },
     {
      "itemKey": 130001,
@@ -349346,12 +348341,6 @@
      "dropPct": 0.1728
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.7349
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -349362,12 +348351,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.0399
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1696
     },
     {
      "itemKey": 160004,
@@ -349385,7 +348368,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2266
+     "dropPct": 1.1311
     },
     {
      "itemKey": 160005,
@@ -351311,12 +350294,6 @@
      "dropPct": 0.1728
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.7349
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -351327,12 +350304,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.0399
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.1696
     },
     {
      "itemKey": 160004,
@@ -351350,7 +350321,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2266
+     "dropPct": 1.1311
     },
     {
      "itemKey": 160005,
@@ -353758,12 +352729,6 @@
      "dropPct": 0.2258
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6791
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -353774,12 +352739,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.0753
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2265
     },
     {
      "itemKey": 160004,
@@ -353797,7 +352756,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2261
+     "dropPct": 1.1316
     },
     {
      "itemKey": 160005,
@@ -362680,12 +361639,6 @@
      "dropPct": 0.1654
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.8895
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -362701,7 +361654,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1904
+     "dropPct": 1.08
     },
     {
      "itemKey": 341141,
@@ -364597,12 +363550,6 @@
      "dropPct": 0.1634
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.879
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -364618,7 +363565,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1882
+     "dropPct": 1.0671
     },
     {
      "itemKey": 341141,
@@ -366514,12 +365461,6 @@
      "dropPct": 0.1615
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.8684
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -366535,7 +365476,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1859
+     "dropPct": 1.0543
     },
     {
      "itemKey": 341141,
@@ -368431,12 +367372,6 @@
      "dropPct": 0.1595
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.8577
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -368452,7 +367387,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.1836
+     "dropPct": 1.0414
     },
     {
      "itemKey": 341141,
@@ -370414,12 +369349,6 @@
      "dropPct": 0.218
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6556
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -370430,12 +369359,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.0727
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2187
     },
     {
      "itemKey": 160004,
@@ -370453,7 +369376,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2183
+     "dropPct": 1.0926
     },
     {
      "itemKey": 160005,
@@ -372427,12 +371350,6 @@
      "dropPct": 0.2154
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6478
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -372443,12 +371360,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.0718
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2161
     },
     {
      "itemKey": 160004,
@@ -372466,7 +371377,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2157
+     "dropPct": 1.0795
     },
     {
      "itemKey": 160005,
@@ -374440,12 +373351,6 @@
      "dropPct": 0.2128
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6399
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -374456,12 +373361,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.071
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2134
     },
     {
      "itemKey": 160004,
@@ -374479,7 +373378,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2131
+     "dropPct": 1.0664
     },
     {
      "itemKey": 160005,
@@ -376453,12 +375352,6 @@
      "dropPct": 0.2102
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.632
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -376469,12 +375362,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.0701
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2108
     },
     {
      "itemKey": 160004,
@@ -376492,7 +375379,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.2104
+     "dropPct": 1.0532
     },
     {
      "itemKey": 160005,
@@ -390940,9 +389827,9 @@
      "dropPct": 0.4842
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
+     "itemKey": 170102,
+     "name": "Jack-o's Ticket (Hell)",
+     "grade": "LEGENDARY",
      "dropPct": 1.15
     },
     {
@@ -392764,9 +391651,9 @@
      "dropPct": 0.4842
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
+     "itemKey": 170102,
+     "name": "Jack-o's Ticket (Hell)",
+     "grade": "LEGENDARY",
      "dropPct": 1.15
     },
     {
@@ -394425,9 +393312,9 @@
      "dropPct": 0.4842
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
+     "itemKey": 170102,
+     "name": "Jack-o's Ticket (Hell)",
+     "grade": "LEGENDARY",
      "dropPct": 1.15
     },
     {
@@ -395498,12 +394385,6 @@
      "dropPct": 0.3725
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.7325
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -395519,7 +394400,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2637
+     "dropPct": 1.1721
     },
     {
      "itemKey": 160004,
@@ -395532,12 +394413,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.0894
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1758
     },
     {
      "itemKey": 130001,
@@ -397442,12 +396317,6 @@
      "dropPct": 0.3725
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.7325
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -397463,7 +396332,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2637
+     "dropPct": 1.1721
     },
     {
      "itemKey": 160004,
@@ -397476,12 +396345,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.0894
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1758
     },
     {
      "itemKey": 130001,
@@ -399241,12 +398104,6 @@
      "dropPct": 0.3725
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.7325
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -399262,7 +398119,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2637
+     "dropPct": 1.1721
     },
     {
      "itemKey": 160004,
@@ -399275,12 +398132,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.0894
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1758
     },
     {
      "itemKey": 130001,
@@ -401136,12 +399987,6 @@
      "dropPct": 0.2732
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.4697
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -401152,12 +399997,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.1639
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2817
     },
     {
      "itemKey": 160004,
@@ -401175,7 +400014,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4462
+     "dropPct": 1.1977
     },
     {
      "itemKey": 160005,
@@ -403161,12 +402000,6 @@
      "dropPct": 0.2732
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.4697
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -403177,12 +402010,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.1639
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2817
     },
     {
      "itemKey": 160004,
@@ -403200,7 +402027,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4462
+     "dropPct": 1.1977
     },
     {
      "itemKey": 160005,
@@ -405722,12 +404549,6 @@
      "dropPct": 0.2848
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3781
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -405738,12 +404559,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2314
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3072
     },
     {
      "itemKey": 160004,
@@ -405761,7 +404576,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.5199
+     "dropPct": 1.2052
     },
     {
      "itemKey": 160005,
@@ -442250,12 +441065,6 @@
      "dropPct": 0.433
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6999
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -442271,7 +441080,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2519
+     "dropPct": 1.1199
     },
     {
      "itemKey": 160004,
@@ -442284,12 +441093,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1039
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.168
     },
     {
      "itemKey": 150103,
@@ -443999,12 +442802,6 @@
      "dropPct": 0.4325
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6992
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -444020,7 +442817,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2517
+     "dropPct": 1.1187
     },
     {
      "itemKey": 160004,
@@ -444033,12 +442830,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1038
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1678
     },
     {
      "itemKey": 150103,
@@ -445748,12 +444539,6 @@
      "dropPct": 0.432
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6984
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -445769,7 +444554,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2514
+     "dropPct": 1.1175
     },
     {
      "itemKey": 160004,
@@ -445782,12 +444567,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1037
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1676
     },
     {
      "itemKey": 150103,
@@ -447497,12 +446276,6 @@
      "dropPct": 0.4316
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6977
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -447518,7 +446291,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2511
+     "dropPct": 1.1162
     },
     {
      "itemKey": 160004,
@@ -447531,12 +446304,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1036
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1675
     },
     {
      "itemKey": 150103,
@@ -449246,12 +448013,6 @@
      "dropPct": 0.4311
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6969
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -449267,7 +448028,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2509
+     "dropPct": 1.115
     },
     {
      "itemKey": 160004,
@@ -449280,12 +448041,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1035
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1673
     },
     {
      "itemKey": 150103,
@@ -451037,12 +449792,6 @@
      "dropPct": 0.4287
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6965
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -451058,7 +449807,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2507
+     "dropPct": 1.1145
     },
     {
      "itemKey": 160004,
@@ -451071,12 +449820,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1029
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1672
     },
     {
      "itemKey": 150103,
@@ -452840,12 +451583,6 @@
      "dropPct": 0.4277
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6959
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -452861,7 +451598,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2505
+     "dropPct": 1.1134
     },
     {
      "itemKey": 160004,
@@ -452874,12 +451611,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1027
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.167
     },
     {
      "itemKey": 150103,
@@ -454643,12 +453374,6 @@
      "dropPct": 0.4267
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6952
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -454664,7 +453389,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2503
+     "dropPct": 1.1124
     },
     {
      "itemKey": 160004,
@@ -454677,12 +453402,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1024
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1669
     },
     {
      "itemKey": 150103,
@@ -456446,12 +455165,6 @@
      "dropPct": 0.4257
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6946
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -456467,7 +455180,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.25
+     "dropPct": 1.1113
     },
     {
      "itemKey": 160004,
@@ -456480,12 +455193,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1022
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1667
     },
     {
      "itemKey": 150103,
@@ -458249,12 +456956,6 @@
      "dropPct": 0.4246
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6939
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -458270,7 +456971,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2498
+     "dropPct": 1.1103
     },
     {
      "itemKey": 160004,
@@ -458283,12 +456984,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1019
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1666
     },
     {
      "itemKey": 150103,
@@ -460094,12 +458789,6 @@
      "dropPct": 0.4236
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6932
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -460115,7 +458804,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2495
+     "dropPct": 1.1092
     },
     {
      "itemKey": 160004,
@@ -460128,12 +458817,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1017
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1664
     },
     {
      "itemKey": 150103,
@@ -461945,12 +460628,6 @@
      "dropPct": 0.4226
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6926
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -461966,7 +460643,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2493
+     "dropPct": 1.1081
     },
     {
      "itemKey": 160004,
@@ -461979,12 +460656,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1014
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1662
     },
     {
      "itemKey": 150103,
@@ -463796,12 +462467,6 @@
      "dropPct": 0.4216
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6919
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -463817,7 +462482,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2491
+     "dropPct": 1.107
     },
     {
      "itemKey": 160004,
@@ -463830,12 +462495,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1012
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1661
     },
     {
      "itemKey": 150103,
@@ -465647,12 +464306,6 @@
      "dropPct": 0.4205
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6912
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -465668,7 +464321,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2488
+     "dropPct": 1.106
     },
     {
      "itemKey": 160004,
@@ -465681,12 +464334,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1009
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1659
     },
     {
      "itemKey": 150103,
@@ -467498,12 +466145,6 @@
      "dropPct": 0.4195
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6905
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -467519,7 +466160,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2486
+     "dropPct": 1.1049
     },
     {
      "itemKey": 160004,
@@ -467532,12 +466173,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1007
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1658
     },
     {
      "itemKey": 150103,
@@ -469349,12 +467984,6 @@
      "dropPct": 0.4185
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6899
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -469370,7 +467999,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2483
+     "dropPct": 1.1038
     },
     {
      "itemKey": 160004,
@@ -469383,12 +468012,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1005
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1656
     },
     {
      "itemKey": 150103,
@@ -471206,12 +469829,6 @@
      "dropPct": 0.4175
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6892
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -471227,7 +469844,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2481
+     "dropPct": 1.1027
     },
     {
      "itemKey": 160004,
@@ -471240,12 +469857,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1002
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1654
     },
     {
      "itemKey": 150103,
@@ -473063,12 +471674,6 @@
      "dropPct": 0.4164
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6885
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -473084,7 +471689,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2478
+     "dropPct": 1.1016
     },
     {
      "itemKey": 160004,
@@ -473097,12 +471702,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.1
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1653
     },
     {
      "itemKey": 150103,
@@ -474920,12 +473519,6 @@
      "dropPct": 0.4154
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6878
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -474941,7 +473534,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2476
+     "dropPct": 1.1005
     },
     {
      "itemKey": 160004,
@@ -474954,12 +473547,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.0997
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1651
     },
     {
      "itemKey": 150103,
@@ -476777,12 +475364,6 @@
      "dropPct": 0.4144
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.6871
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -476798,7 +475379,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2473
+     "dropPct": 1.0994
     },
     {
      "itemKey": 160004,
@@ -476811,12 +475392,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.0995
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.1649
     },
     {
      "itemKey": 150103,
@@ -478568,12 +477143,6 @@
      "dropPct": 0.3689
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3581
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -478584,12 +477153,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2997
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.291
     },
     {
      "itemKey": 160004,
@@ -478607,7 +477170,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4924
+     "dropPct": 1.1414
     },
     {
      "itemKey": 160005,
@@ -480359,12 +478922,6 @@
      "dropPct": 0.3685
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3577
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -480375,12 +478932,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2994
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2906
     },
     {
      "itemKey": 160004,
@@ -480398,7 +478949,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4919
+     "dropPct": 1.1402
     },
     {
      "itemKey": 160005,
@@ -482150,12 +480701,6 @@
      "dropPct": 0.3681
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3573
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -482166,12 +480711,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2991
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2903
     },
     {
      "itemKey": 160004,
@@ -482189,7 +480728,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4913
+     "dropPct": 1.1389
     },
     {
      "itemKey": 160005,
@@ -483941,12 +482480,6 @@
      "dropPct": 0.3677
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3569
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -483957,12 +482490,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2987
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.29
     },
     {
      "itemKey": 160004,
@@ -483980,7 +482507,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4908
+     "dropPct": 1.1377
     },
     {
      "itemKey": 160005,
@@ -485732,12 +484259,6 @@
      "dropPct": 0.3673
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3565
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -485748,12 +484269,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2984
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2897
     },
     {
      "itemKey": 160004,
@@ -485771,7 +484286,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4902
+     "dropPct": 1.1364
     },
     {
      "itemKey": 160005,
@@ -487565,12 +486080,6 @@
      "dropPct": 0.3652
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3563
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -487581,12 +486090,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2967
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2895
     },
     {
      "itemKey": 160004,
@@ -487604,7 +486107,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4899
+     "dropPct": 1.1357
     },
     {
      "itemKey": 160005,
@@ -489410,12 +487913,6 @@
      "dropPct": 0.3643
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3559
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -489426,12 +487923,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.296
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2892
     },
     {
      "itemKey": 160004,
@@ -489449,7 +487940,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4895
+     "dropPct": 1.1346
     },
     {
      "itemKey": 160005,
@@ -491255,12 +489746,6 @@
      "dropPct": 0.3634
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3556
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -491271,12 +489756,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2953
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2889
     },
     {
      "itemKey": 160004,
@@ -491294,7 +489773,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.489
+     "dropPct": 1.1335
     },
     {
      "itemKey": 160005,
@@ -493100,12 +491579,6 @@
      "dropPct": 0.3626
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3552
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -493116,12 +491589,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2946
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2887
     },
     {
      "itemKey": 160004,
@@ -493139,7 +491606,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4885
+     "dropPct": 1.1324
     },
     {
      "itemKey": 160005,
@@ -494945,12 +493412,6 @@
      "dropPct": 0.3617
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3549
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -494961,12 +493422,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2939
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2884
     },
     {
      "itemKey": 160004,
@@ -494984,7 +493439,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.488
+     "dropPct": 1.1313
     },
     {
      "itemKey": 160005,
@@ -496832,12 +495287,6 @@
      "dropPct": 0.3608
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3545
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -496848,12 +495297,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2932
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2881
     },
     {
      "itemKey": 160004,
@@ -496871,7 +495314,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4875
+     "dropPct": 1.1301
     },
     {
      "itemKey": 160005,
@@ -498725,12 +497168,6 @@
      "dropPct": 0.3599
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3542
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -498741,12 +497178,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2925
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2878
     },
     {
      "itemKey": 160004,
@@ -498764,7 +497195,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.487
+     "dropPct": 1.129
     },
     {
      "itemKey": 160005,
@@ -500618,12 +499049,6 @@
      "dropPct": 0.359
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3538
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -500634,12 +499059,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2917
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2875
     },
     {
      "itemKey": 160004,
@@ -500657,7 +499076,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4865
+     "dropPct": 1.1279
     },
     {
      "itemKey": 160005,
@@ -502511,12 +500930,6 @@
      "dropPct": 0.3581
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3535
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -502527,12 +500940,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.291
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2872
     },
     {
      "itemKey": 160004,
@@ -502550,7 +500957,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4861
+     "dropPct": 1.1267
     },
     {
      "itemKey": 160005,
@@ -504404,12 +502811,6 @@
      "dropPct": 0.3573
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3531
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -504420,12 +502821,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2903
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2869
     },
     {
      "itemKey": 160004,
@@ -504443,7 +502838,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4856
+     "dropPct": 1.1256
     },
     {
      "itemKey": 160005,
@@ -506297,12 +504692,6 @@
      "dropPct": 0.3564
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3527
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -506313,12 +504702,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2896
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2866
     },
     {
      "itemKey": 160004,
@@ -506336,7 +504719,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4851
+     "dropPct": 1.1244
     },
     {
      "itemKey": 160005,
@@ -508196,12 +506579,6 @@
      "dropPct": 0.3555
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3524
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -508212,12 +506589,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2889
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2863
     },
     {
      "itemKey": 160004,
@@ -508235,7 +506606,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4846
+     "dropPct": 1.1232
     },
     {
      "itemKey": 160005,
@@ -510095,12 +508466,6 @@
      "dropPct": 0.3546
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.352
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -510111,12 +508476,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2881
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.286
     },
     {
      "itemKey": 160004,
@@ -510134,7 +508493,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4841
+     "dropPct": 1.1221
     },
     {
      "itemKey": 160005,
@@ -511994,12 +510353,6 @@
      "dropPct": 0.3537
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3516
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -512010,12 +510363,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2874
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2857
     },
     {
      "itemKey": 160004,
@@ -512033,7 +510380,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.4835
+     "dropPct": 1.1209
     },
     {
      "itemKey": 160005,
@@ -513893,12 +512240,6 @@
      "dropPct": 0.3528
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3513
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -513909,12 +512250,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.2867
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2854
     },
     {
      "itemKey": 160004,
@@ -513932,7 +512267,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.483
+     "dropPct": 1.1197
     },
     {
      "itemKey": 160005,
@@ -520439,7 +518774,7 @@
      "itemKey": 170101,
      "name": "Jack-o's Ticket (Nightmare)",
      "grade": "RARE",
-     "dropPct": 0.8066
+     "dropPct": 1.21
     },
     {
      "itemKey": 160003,
@@ -520452,12 +518787,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.6447
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.4033
     },
     {
      "itemKey": 130001,
@@ -522596,7 +520925,7 @@
      "itemKey": 170101,
      "name": "Jack-o's Ticket (Nightmare)",
      "grade": "RARE",
-     "dropPct": 0.5257
+     "dropPct": 1.21
     },
     {
      "itemKey": 160003,
@@ -522611,12 +520940,6 @@
      "dropPct": 0.5623
     },
     {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3505
-    },
-    {
      "itemKey": 160004,
      "name": "Empire 10th Anniversary Coin",
      "grade": "LEGENDARY",
@@ -522627,12 +520950,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.5356
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.3338
     },
     {
      "itemKey": 130001,
@@ -524102,12 +522419,6 @@
      "dropPct": 0.6758
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.4208
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -524123,7 +522434,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.4033
+     "dropPct": 1.21
     },
     {
      "itemKey": 160004,
@@ -524136,12 +522447,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.6195
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.3858
     },
     {
      "itemKey": 130001,
@@ -525581,12 +523886,6 @@
      "dropPct": 0.4374
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.2859
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -525602,7 +523901,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.3124
+     "dropPct": 1.2098
     },
     {
      "itemKey": 160004,
@@ -525615,12 +523914,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.9357
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.6116
     },
     {
      "itemKey": 160005,
@@ -527240,12 +525533,6 @@
      "dropPct": 0.4608
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.2859
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -527261,7 +525548,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.3125
+     "dropPct": 1.21
     },
     {
      "itemKey": 160004,
@@ -527274,12 +525561,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.9858
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.6117
     },
     {
      "itemKey": 160005,
@@ -528869,12 +527150,6 @@
      "dropPct": 0.3581
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.2227
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -528885,12 +527160,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.4742
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.295
     },
     {
      "itemKey": 160004,
@@ -528908,7 +527177,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.6923
+     "dropPct": 1.21
     },
     {
      "itemKey": 160005,
@@ -530510,12 +528779,6 @@
      "dropPct": 0.3415
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.2128
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -530526,12 +528789,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.4781
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2979
     },
     {
      "itemKey": 160004,
@@ -530549,7 +528806,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.6992
+     "dropPct": 1.21
     },
     {
      "itemKey": 160005,
@@ -533726,7 +531983,7 @@
      "itemKey": 170101,
      "name": "Jack-o's Ticket (Nightmare)",
      "grade": "RARE",
-     "dropPct": 0.6784
+     "dropPct": 1.0176
     },
     {
      "itemKey": 160003,
@@ -533739,12 +531996,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.5311
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.3392
     },
     {
      "itemKey": 150104,
@@ -535385,7 +533636,7 @@
      "itemKey": 170101,
      "name": "Jack-o's Ticket (Nightmare)",
      "grade": "RARE",
-     "dropPct": 0.4297
+     "dropPct": 0.989
     },
     {
      "itemKey": 160003,
@@ -535400,12 +533651,6 @@
      "dropPct": 0.45
     },
     {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2865
-    },
-    {
      "itemKey": 160004,
      "name": "Empire 10th Anniversary Coin",
      "grade": "LEGENDARY",
@@ -535416,12 +533661,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.4286
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.2728
     },
     {
      "itemKey": 150104,
@@ -536867,12 +535106,6 @@
      "dropPct": 0.5714
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.3638
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -536888,7 +535121,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.3486
+     "dropPct": 1.0459
     },
     {
      "itemKey": 160004,
@@ -536901,12 +535134,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.5238
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.3335
     },
     {
      "itemKey": 150104,
@@ -538232,12 +536459,6 @@
      "dropPct": 0.3595
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.2404
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -538253,7 +536474,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2627
+     "dropPct": 1.0174
     },
     {
      "itemKey": 160004,
@@ -538266,12 +536487,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.7692
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.5143
     },
     {
      "itemKey": 160005,
@@ -539591,12 +537806,6 @@
      "dropPct": 0.368
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.2337
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -539612,7 +537821,7 @@
      "itemKey": 170102,
      "name": "Jack-o's Ticket (Hell)",
      "grade": "LEGENDARY",
-     "dropPct": 0.2554
+     "dropPct": 0.989
     },
     {
      "itemKey": 160004,
@@ -539625,12 +537834,6 @@
      "name": "Giant Jack-o' Candy",
      "grade": "LEGENDARY",
      "dropPct": 0.7874
-    },
-    {
-     "itemKey": 170103,
-     "name": "Jack-o's Ticket (Torment)",
-     "grade": "IMMORTAL",
-     "dropPct": 0.5
     },
     {
      "itemKey": 160005,
@@ -541004,12 +539207,6 @@
      "dropPct": 0.3031
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.1925
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -541020,12 +539217,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.4014
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2549
     },
     {
      "itemKey": 160004,
@@ -541043,7 +539234,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.5983
+     "dropPct": 1.0457
     },
     {
      "itemKey": 160005,
@@ -542399,12 +540590,6 @@
      "dropPct": 0.2811
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.179
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -542415,12 +540600,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.3936
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2506
     },
     {
      "itemKey": 160004,
@@ -542438,7 +540617,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.588
+     "dropPct": 1.0176
     },
     {
      "itemKey": 160005,
@@ -543764,12 +541943,6 @@
      "dropPct": 0.2732
     },
     {
-     "itemKey": 170101,
-     "name": "Jack-o's Ticket (Nightmare)",
-     "grade": "RARE",
-     "dropPct": 0.174
-    },
-    {
      "itemKey": 160003,
      "name": "Kingdom 10th Anniversary Coin",
      "grade": "RARE",
@@ -543780,12 +541953,6 @@
      "name": "Big Jack-o' Candy",
      "grade": "RARE",
      "dropPct": 0.3825
-    },
-    {
-     "itemKey": 170102,
-     "name": "Jack-o's Ticket (Hell)",
-     "grade": "LEGENDARY",
-     "dropPct": 0.2435
     },
     {
      "itemKey": 160004,
@@ -543803,7 +541970,7 @@
      "itemKey": 170103,
      "name": "Jack-o's Ticket (Torment)",
      "grade": "IMMORTAL",
-     "dropPct": 0.5716
+     "dropPct": 0.9891
     },
     {
      "itemKey": 160005,

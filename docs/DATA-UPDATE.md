@@ -96,8 +96,8 @@ python scripts/extract_icons.py
 ### 步骤 3：数据质量审计
 
 ```powershell
-python scripts/audit_catalog.py        # 审计 gamedata.json 质量
-python scripts/audit_unresolved.py     # 审计未解析的 ItemName_ 键
+python scripts/audit_catalog.py        # 审计 gamedata.json 质量（名称解析看它的 "Items still showing raw ItemName_"）
+python scripts/audit_unresolved.py     # ⚠️ v1.00.28 遗留诊断脚本，报告与当前管线不符（见 §5 v1.3.2 踩坑 1），仅作参考
 python scripts/check_icons.py          # 图标覆盖：no_icon_path / missing_png
 ```
 
@@ -241,6 +241,50 @@ v1.2.6 实战里就记为「已知缺口，需先设计掉率加成如何并入�
 - **每级同值** ⇒ 总加成 = `Σ(已购等级 × perLevelPercent)`，沿用现有符文族模型。
 - 数据文件 `data/rune_drop_chance.json` 由 `scripts/dump_rune_drop_chance.py` **从游戏资源自动生成**（脚本会校验「同一节点各 level 值一致」，不一致即报错退出）。act boss 箱**没有**对应符文链。
 
+### v1.3.2 更新实战（2026-10-28）
+
+游戏更新到 **Ver 1.3.2**（`Version.txt` 与 `sharedassets0.assets` 于 10/27 09:32 重写）。本次是**掉落表重平衡**型更新：**物品目录零变化**，变化全部集中在掉落图。
+
+- **物品目录无变化**：`ItemInfoData` 仍 7031 行（服务器已删 4364 行，实际入库 **2804** 项，与 v1.3.0 一致）。`lookup_items.json`（2331 条）/ `offerings.json` / `synthesis_model.json` **逐字节相同**（`git diff --numstat` 为空）；`gamedata.json` / `stage_boxes.json` 只有 `gameVersion` / `fetchedUtc` / `source` 三行头部变化。
+- **掉落图有实质变化**（`lookup_sources.json`，本次唯一有内容变化的产物）：删除 222 条、新增 81 条。**条目总数不变**（items 1732 / boxes 146 / stages 192）—— 是**档位重排**而非新增内容。
+  - 模式：**各箱的品质档位上移一档**。例：`Normal Monster Box Lv50`（910501）旧 RARE 档 → 新 LEGENDARY 档；`910801` 旧 RARE+LEGENDARY+IMMORTAL → 新只剩 IMMORTAL。涉及全部箱段（910/915 普通与污染怪箱、920/925 关卡 Boss 箱、930/935 关卡王箱），其中 **925xxx（污染关卡 Boss 箱）改动量最大**（-120 / +40）。
+  - **受影响的物品只有万圣节活动票三件套**（`170101` / `170102` / `170103`，Jack-o's Ticket）：`170101`（RARE）**90 个来源全部消失**（游戏内不再掉落）；`170102`（LEGENDARY）失去 30 个来源、获得 6 个（`910501` / `910551` / `910601` + `920501` / `920551` / `920601`）；`170103`（IMMORTAL）失去 37 个来源。**没有任何物品完全失去全部掉落来源。**
+  - **掉落条目的 `grade` 取自物品自身 CSV 的 `GRADE` 列**（`build_tbh_data.py` 的 `item_grade()`），不是箱内档位 —— 所以「同一箱子、同一权重、物品换成 LEGENDARY」在数据上表现为该箱子的 RARE 条目消失、LEGENDARY 条目出现。**解读这类差异时不要当成解析 bug。**
+- **符文表逐项核对一致，无需改动**：`rune_box_cap.json` / `rune_auto_open.json` / `rune_wave.json` 与 `RuneInfoData` / `RuneLevelInfoData` 全量比对（按 `LevelDataKey` 反查 STATTYPE）**零 DIFF**；`rune_drop_chance.json` 重跑后 `git diff` 为空。1.3.2 **没有新增 STATTYPE 族**（`OpenAllTypeChestAllAtOnce` / `OpenOneTypeChestAllAtOnce` / `UnlockArrangeSlotCount` / `UnlockSkillSlotCount` 仍是未建模的已知缺口）。
+- **图标 0 新增**（`extract_icons.py` → `exported 0 new icons, missing in asset 0`），`check_icons.py` = **2331/2331 ok**，`missing_png=0`、`no_icon_path=0`。
+- **本地化**：`_game_locale_dump.json` 仅 17 行变化（16 语言键值微调，无新语言、无表结构变化）；`locale_strings_*.json` **只有 `fetchedUtc` 变**（条目数不变，`items_by_itemkey=7022`）。
+- **locale 标签补齐：`HATCHET`（v1.3.0 遗留缺口，本次顺手修掉）**：v1.3.0 引入 `HATCHET` 装备类型时只更新了游戏侧，companion 的 `app/shared/locales/*/common.json` 的 `labels.types` **漏了这个键** ⇒ 图鉴里该类装备（崇高手斧、次元手斧…）直接显示原始 key `labels.types.HATCHET`。注意 `scripts/sync_common_with_game.py` **救不了这个坑**：它的 `build_types_lookup()` 里 **已有** `HATCHET` → `GearType_HATCHET`，但 `sync_section()` **只更新已有键、不会新增键** —— 必须在 4 个语言的 `labels.types` 里**手工加一行**。取值：`GearType_HATCHET`（en `Hatchet` / ja `手斧` / ko `손도끼`）；**zh-Hans 游戏侧完全没有 `GearType_*` 键**（zh-CN 的中文装备名一直是人工维护的），故取 zh-Hant 的「手斧」。
+  - 同一类的其它未本地化残留（如图鉴筛选里的 `filters.plagueOnly`）**仍未处理**，属同一类人工补键缺口。
+- **站点数据仍为零拷贝**：`data/` 提交推送后 `pages.yml` 因 `data/**` 自动重建站点，无需手工 `Copy-Item`（`website/data/{gamedata,stage_boxes}.json` 手工副本自 v1.2.8 起已作废）。
+- `app/test/main/gameDataProvider.test.ts` 的版本断言同步改成 `1.3.2`。
+
+两个踩坑：
+
+1. **`audit_unresolved.py` 已过时，它的「未解析」报告是误报。** 该脚本是 v1.00.28 时代的独立诊断工具，自带一套原始 bundle 二进制扫描（`scan_marker_entries`）去查 `SharedTableData` 里的 `ItemName_` 键；而**当前管线**（`build_tbh_data.py`）走的是 localization bundle 的 itemKey 索引（`items_by_itemkey=7022`）。所以它报「6885 unresolved」时，实际名称早已全部解析。**判断名称是否真的解析，应看 `audit_catalog.py` 的 `Items still showing raw ItemName_: 0`，并对产物全量 grep**（`gamedata` / `lookup_items` / `offerings` / `stage_boxes` / `synthesis_model` 五份 JSON 的 `ItemName_\d+` 出现次数均为 0）。
+2. **掉落图「条目数不变」会掩盖变化。** 本次 items / boxes / stages 三个计数与 v1.3.0 完全相同（1732 / 146 / 192），**只看计数会误判为「零改动」**。比对掉落图必须逐条比 `(itemKey, via, boxItemKey, grade, dropPct)`，才能看出 222 删 / 81 增的档位重排。
+
+### 万圣节活动箱：两个独立类别 `eventNormal` / `eventStage`（2026-10-28 产品决策落地）
+
+v1.3.0 的活动箱（`940xxx` / `941xxx`，`CONTENTTYPE=EVENT`）在 companion 侧升级为**两个独立类别** —— `eventNormal`（940xxx，普通型）与 `eventStage`（941xxx，关卡型）—— 在 Chests 页与掉落统计里都与普通箱、关卡宝箱分开，且**彼此也分开**（与普通箱 / 关卡宝箱的切分方式对称）。落地时**先核对了游戏侧的三条链 + IL2CPP 枚举**，结论决定了「哪些维度建模、哪些维度不建模」：
+
+| 游戏侧事实 | 核对方式 | companion 侧结论 |
+| ------------ | -------- | ----------------- |
+| **无容量符文链** | `RuneInfoData` 无 `MaxAmountEvent*Chest` | 仍给**两个独立箱位**（产品决策），但**容量数值分别沿用 common / stage boss 链**（base 5、+1/级）⇒ 属近似值，已在 `data/rune_box_cap.json` 的 note 里标注 |
+| **无自动开箱** | `RuneInfoData` / `RuneLevelInfoData` 无 `UnlockAutoOpenEvent*Chest`、无 `ReduceAutoOpenEvent*ChestTime` | **不建模**：`data/rune_auto_open.json` **不加** event 条目；`ChestState.autoOpen` 不含 event 键；活动箱**不进自动开箱队列**（`AutoClassifyService.handleChestDrop` 只自增 `liveSlots[cat]` 后 return） |
+| **无掉落冷却** | `ItemInfoData.DropCooldown` = **3 秒**（普通箱 180 s、关卡箱 300 s、章节 Boss 箱无该字段） | **不建模**：`LootRingSeconds` 不含 event 键（无冷却圈）；活动箱**不进 BoxTimer 路由** ⇒ `loadStageBoxTrackerRoutes` 从 74 回到 **71** |
+| **游戏侧没有 EVENT 箱型** | `global-metadata.dat` 的 `EBoxType` 只有 `NORMAL` / `BOSS` / `ACTBOSS`；`EVENT` 属于 `EContentType` | 活动箱在游戏里本就与普通箱 / 关卡箱共用桶位 ⇒ companion 的两个独立类别是**纯产品决策**，不是还原游戏结构 |
+
+关键实现要点：
+
+- **统一 band 表**：新建 `app/src/core/boxCategories.ts`（`categoryFromBoxItemId` / `isEventBoxItemId` / `isAutoOpenedCategory`），把原先分散在 `core/chestDropTracker.ts::categoryFromPrefix` 与 `renderer/lib/chests.ts::chestCategoryFromKey` 的两张 band 表合并成一张 —— 三处分类入口漂移正是「活动箱被当成普通箱」这类 bug 的来源。940/941 是**兄弟**而非嵌套，按千位切开。
+- **`resolveStageBoxDrop` 必须让 prefix 优先**：`941xxx` 的 `GRADE=RARE`，若按 grade 归类会落进 `rare` 桶 —— 现在 940/941 段与瘟疫段一样，**先按 id 段判定**再查目录。
+- **live 掉落也要分档**：`resolveLiveDropCategory` 在活动地图上把基础档位升级成对应活动档位（common → `eventNormal`、rare → `eventStage`；活动地图无 act 档箱，`act` 原样透传）。
+- **活动箱没有等级**：游戏的容量 / 自动开箱 / 冷却三条链都没有它，BoxTimer 目录因此不含 941xxx ⇒ 活动箱的 boxKey 只能是 category-only（`eventNormal` / `eventStage`），恢复路径记到合成桶 `900940` / `900941`（与瘟疫箱同构）。
+- **图鉴页**：wiki 数据（`lookup_sources.json`）把活动箱标成 `common` / `stage_boss`（没有 EVENT 概念）⇒ 新增 `core/lookup/boxDisplay.ts::boxEventTier`（按 id 段）与 `boxEventTierFromName`（按名称，掉落行只有名字），UI 才不会显示成泛化的「普通宝箱 / 关卡宝箱」。难度后缀 `(Nightmare)` / `(Hell)` / `(Torment)` 单独保留（三个难度的 level 分别是 39 / 59 / 84，丢掉就分不出彼此）。
+- **手动开箱仍可归类**：活动箱虽不入队，但玩家手动开箱产生的 burst 必须能归到对应档位 ⇒ `classifyPendingBursts` 的类别表**同时包含** `eventNormal` 与 `eventStage`（靠 save 槽位下降信号判定）。
+- **开箱掉落物是自动的**：游戏 `BoxOpenLog` 每条记录都带产出物品 id（`itemStringKey`）⇒ `BoxOpenTracker` 已经把每次开箱的物品挂到对应箱子下，Loot 页出「物品名 / 品质 / 数量 / 挂单价 / 合成点数」明细；活动箱手动开箱同样适用。**前提是开 live memory** —— 存档里没有逐次开箱记录。
+- **⚠️ 内存路径分不开活动箱**：`readRuntimeChestSlots` 只读 `BoxData.BoxTypes[] + BoxQuantity[]`（游戏的 `SerializedBoxData` 没有内容类型数组）⇒ 活动箱的箱位与归属判定以**存档解析**为准。
+
 ## 6. 快速参考
 
 ```powershell
@@ -250,7 +294,7 @@ python scripts/extract_locale_catalog.py   # 4 语言的 locale_strings_*.json�
 python scripts/build_tbh_data.py          # 版本号自动从 Version.txt 探测
 python scripts/extract_icons.py
 python scripts/audit_catalog.py
-python scripts/audit_unresolved.py
+python scripts/audit_unresolved.py      # ⚠️ 遗留脚本，报告与当前管线不符，仅作参考
 python scripts/check_icons.py
 
 # 站点数据：无需同步（网页版构建期内联 data/，见 §3 末）
@@ -266,6 +310,8 @@ git diff --numstat -- data                 # 确认变更范围
 #   python scripts/sync_common_with_game.py    # 维护 common.json 的 labels 节
 #   注意：Relic_* / Relic_Name 等非标准键名需在 build_types_lookup /
 #   build_gear_groups_lookup 里显式加映射
+#   注意：sync 只「更新已有键」，不会新增键 —— 新类型必须先在 4 个语言的
+#   common.json 的 labels.types / labels.gearGroups 里手工加一行，否则 UI 显示原始 key
 
 # 应用侧
 cd app
