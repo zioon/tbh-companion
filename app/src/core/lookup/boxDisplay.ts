@@ -23,6 +23,35 @@ export function boxPlagueTier(boxItemKey: number): BoxPlagueTier | null {
 }
 
 /**
+ * v1.3.0 Halloween **event** chest tiers, keyed by their 9xxx box id prefix.
+ *
+ * The Lookup source tags them as plain `common` / `stage_boss` (the wiki data
+ * has no notion of the EVENT content type), so without this lookup the
+ * Halloween boxes render as "Common chest" / "Stage boss chest" and get mixed
+ * into the wrong group. 940xxx = normal tier, 941xxx = stage-boss tier.
+ */
+export type BoxEventTier = "eventNormal" | "eventStage";
+
+/** Map a box id prefix to its Halloween event tier (940 = normal, 941 = stage). */
+export function boxEventTier(boxItemKey: number): BoxEventTier | null {
+  const key = String(boxItemKey);
+  if (key.startsWith("940")) return "eventNormal";
+  if (key.startsWith("941")) return "eventStage";
+  return null;
+}
+
+/**
+ * Map a box NAME to its Halloween event tier. Used where only the name is
+ * available (the lookup drop rows carry `boxName`, not the box's item id).
+ */
+export function boxEventTierFromName(boxName: string | null | undefined): BoxEventTier | null {
+  if (!boxName) return null;
+  if (boxName.startsWith("Halloween Normal Box")) return "eventNormal";
+  if (boxName.startsWith("Halloween Stage Box")) return "eventStage";
+  return null;
+}
+
+/**
  * Acquisition-group semantics of a plague (Contaminated) chest, inferred from
  * the drop-source `via` and how many stages share this box:
  *   - `shared-group` — normal-monster drops, several adjacent stages share one box

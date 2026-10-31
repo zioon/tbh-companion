@@ -6,7 +6,9 @@
     "unclassified": "Nicht klassifiziert",
     "plagueCommon": "Pest-Gewöhnliche Schatztruhe",
     "plagueRare": "Pest-Stufenschatztruhe",
-    "plagueAct": "Pest-Aktboss-Schatztruhe"
+    "plagueAct": "Pest-Aktboss-Schatztruhe",
+    "eventNormal": "Halloween-Schatztruhe",
+    "eventStage": "Halloween-Stufenschatztruhe"
   },
   "levelSuffix": "{{base}} St.{{level}}"
 }

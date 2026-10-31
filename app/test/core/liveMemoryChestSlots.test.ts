@@ -204,6 +204,8 @@ describe("readRuntimeChestSlots — full path", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(r.status).toBe("");
   });
@@ -224,6 +226,8 @@ describe("readRuntimeChestSlots — full path", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -287,6 +291,8 @@ describe("readRuntimeChestSlots — full path", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -318,13 +324,15 @@ describe("v1.2.2 箱子物品名 → category 分类", () => {
   });
 
   it("categoryFromBoxItemName maps the v1.3.0 Halloween event boxes", () => {
-    // The event boxes reuse the common / rare bucket slots — the game ships
-    // no dedicated capacity rune chain for the Halloween content.
-    expect(categoryFromBoxItemName("Halloween Normal Box (Nightmare)")).toBe("common");
-    expect(categoryFromBoxItemName("Halloween Normal Box (Hell)")).toBe("common");
-    expect(categoryFromBoxItemName("Halloween Normal Box (Torment)")).toBe("common");
-    expect(categoryFromBoxItemName("Halloween Stage Box (Nightmare)")).toBe("rare");
-    expect(categoryFromBoxItemName("Halloween Stage Box (Hell)")).toBe("rare");
-    expect(categoryFromBoxItemName("Halloween Stage Box (Torment)")).toBe("rare");
+    // The event boxes get their OWN companion-side categories so they
+    // never mix into the common / rare rows — even though the game itself
+    // stores them in the common / rare buckets (no MaxAmountEvent*Chest chain,
+    // no auto-open, no drop cooldown).
+    expect(categoryFromBoxItemName("Halloween Normal Box (Nightmare)")).toBe("eventNormal");
+    expect(categoryFromBoxItemName("Halloween Normal Box (Hell)")).toBe("eventNormal");
+    expect(categoryFromBoxItemName("Halloween Normal Box (Torment)")).toBe("eventNormal");
+    expect(categoryFromBoxItemName("Halloween Stage Box (Nightmare)")).toBe("eventStage");
+    expect(categoryFromBoxItemName("Halloween Stage Box (Hell)")).toBe("eventStage");
+    expect(categoryFromBoxItemName("Halloween Stage Box (Torment)")).toBe("eventStage");
   });
 });

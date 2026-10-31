@@ -6,7 +6,9 @@
     "unclassified": "Некласифіковано",
     "plagueCommon": "Звичайна скриня чуми",
     "plagueRare": "Скриня боса етапу чуми",
-    "plagueAct": "Скриня боса акту чуми"
+    "plagueAct": "Скриня боса акту чуми",
+    "eventNormal": "Звичайний сундук Хеллоуїна",
+    "eventStage": "Сундук етапу Хеллоуїна"
   },
   "levelSuffix": "{{base}} Рів.{{level}}"
 }

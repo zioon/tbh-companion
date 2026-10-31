@@ -125,6 +125,8 @@
     "categoryPlagueNormal": "汚染一般宝箱",
     "categoryPlagueStageBoss": "汚染ステージ宝箱",
     "categoryPlagueActBoss": "汚染アクトボス宝箱",
+    "categoryEventNormal": "ハロウィン一般宝箱",
+    "categoryEventStage": "ハロウィンステージ宝箱",
     "plagueBadgeTitle": "汚染（疫病）宝箱 — 汚染地帯の汚染ステージからドロップ、通常宝箱とは別管理",
     "acqRule": "入手ルール",
     "ruleSharedGroup": "{{count}} マップにまたがる通常モンスターが落とす共有宝箱",

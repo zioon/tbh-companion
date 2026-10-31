@@ -125,6 +125,8 @@
     "categoryPlagueNormal": "Contaminated Common Treasure Chest",
     "categoryPlagueStageBoss": "Contaminated Stage Treasure Chest",
     "categoryPlagueActBoss": "Contaminated Act Boss Treasure Chest",
+    "categoryEventNormal": "Halloween Common Treasure Chest",
+    "categoryEventStage": "Halloween Stage Treasure Chest",
     "plagueBadgeTitle": "Contaminated (plague) chest — drops from contaminated stages in the Plaguelands, held separately from normal chests",
     "acqRule": "Acquisition rule",
     "ruleSharedGroup": "Shared chest dropped by normal monsters across {{count}} adjacent maps",

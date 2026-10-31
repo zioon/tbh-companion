@@ -6,7 +6,9 @@
     "unclassified": "Não classificado",
     "plagueCommon": "Baú comum da peste",
     "plagueRare": "Baú de chefe de estágio da peste",
-    "plagueAct": "Baú de chefe de ato da peste"
+    "plagueAct": "Baú de chefe de ato da peste",
+    "eventNormal": "Baú normal de Halloween",
+    "eventStage": "Baú de estágio de Halloween"
   },
   "levelSuffix": "{{base}} Nv.{{level}}"
 }

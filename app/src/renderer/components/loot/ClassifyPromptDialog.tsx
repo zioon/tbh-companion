@@ -51,6 +51,12 @@ export function ClassifyPromptDialog({
           <Button variant="ghost" onClick={() => onResolve("plagueAct")}>
             {t("category.plagueAct")}
           </Button>
+          <Button variant="ghost" onClick={() => onResolve("eventNormal")}>
+            {t("category.eventNormal")}
+          </Button>
+          <Button variant="ghost" onClick={() => onResolve("eventStage")}>
+            {t("category.eventStage")}
+          </Button>
         </div>
         <div className="mt-1 flex justify-end">
           <Button variant="ghost" size="sm" onClick={onClose}>

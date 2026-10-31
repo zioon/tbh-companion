@@ -9,7 +9,9 @@
     "actBoss": "章节 Boss",
     "plagueCommon": "瘟疫普通",
     "plagueRare": "瘟疫关卡 Boss",
-    "plagueAct": "瘟疫章节 Boss"
+    "plagueAct": "瘟疫章节 Boss",
+    "eventNormal": "万圣节普通",
+    "eventStage": "万圣节关卡"
   },
   "full": "已满",
   "slotsAria": "已使用 {{used}} / {{capacity}} 个格子",
@@ -17,6 +19,7 @@
   "slotsRemainingOne": "剩余 1 个格子",
   "capacityDetails": "容量详情",
   "autoOpenTime": "自动开启用时 {{value}}",
+  "noAutoOpen": "游戏内不会自动开启",
   "capacityBase": "基础 {{count}}",
   "capacityRuneBonus": "来自 {{nodes}} 个 {{runeLabel}} 节点 +{{bonus}}",
   "dropChanceRuneBonus": "掉率 +{{percent}}%（来自 {{nodes}} 个{{runeLabel}}节点）",

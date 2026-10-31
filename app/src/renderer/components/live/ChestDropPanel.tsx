@@ -13,6 +13,8 @@ const CHEST_NAME_KEY: Record<ChestDropCategory, string> = {
   plagueCommon: "plagueCommonChests",
   plagueRare: "plagueRareChests",
   plagueAct: "plagueActChests",
+  eventNormal: "eventNormalChests",
+  eventStage: "eventStageChests",
 };
 
 /** Category rows that should render the highlight color in the drop log. */
@@ -96,7 +98,7 @@ export function ChestDropPanel({
  * distinguishes "level known" from "category only" without a second lookup.
  */
 const SYNTHETIC_LIVE_BUCKET_IDS: ReadonlySet<number> = new Set([
-  900910, 900920, 900930, 900915, 900925, 900935,
+  900910, 900920, 900930, 900915, 900925, 900935, 900940, 900941,
 ]);
 
 function isSyntheticLiveBucket(itemKey: number): boolean {

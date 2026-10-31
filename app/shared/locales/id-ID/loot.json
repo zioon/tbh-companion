@@ -6,7 +6,9 @@
     "unclassified": "Tidak Terklasifikasi",
     "plagueCommon": "Peti Biasa Wabah",
     "plagueRare": "Peti Bos Tahap Wabah",
-    "plagueAct": "Peti Bos Babak Wabah"
+    "plagueAct": "Peti Bos Babak Wabah",
+    "eventNormal": "Peti Biasa Halloween Normal",
+    "eventStage": "Peti Biasa Halloween Stage"
   },
   "levelSuffix": "{{base}} Lv.{{level}}"
 }

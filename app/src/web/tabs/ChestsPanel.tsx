@@ -68,6 +68,10 @@ function categoryForKey(itemKey: number): LookupBoxSources["category"] {
       return "stage_boss";
     case "act":
       return "act_boss";
+    case "eventNormal":
+      return "eventNormal";
+    case "eventStage":
+      return "eventStage";
     default:
       return "unknown";
   }
@@ -368,6 +372,19 @@ export function ChestsPanel() {
               breakdown={chests.capacity.plagueAct}
               autoOpenSeconds={chests.autoOpen.plagueAct}
               fillVariant="green"
+            />
+            {/* v1.3.0 万圣节活动箱——两个独立箱位；游戏侧无自动开箱，故不显示倒计时。 */}
+            <ChestCategoryCard
+              title={t("category.eventNormal")}
+              slot={chests.eventNormal}
+              breakdown={chests.capacity.eventNormal}
+              fillVariant="amber"
+            />
+            <ChestCategoryCard
+              title={t("category.eventStage")}
+              slot={chests.eventStage}
+              breakdown={chests.capacity.eventStage}
+              fillVariant="amber"
             />
           </div>
         </section>

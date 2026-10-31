@@ -6,7 +6,9 @@
     "unclassified": "Non classé",
     "plagueCommon": "Coffre commun de la peste",
     "plagueRare": "Coffre de boss d'étape de la peste",
-    "plagueAct": "Coffre de boss d'acte de la peste"
+    "plagueAct": "Coffre de boss d'acte de la peste",
+    "eventNormal": "Coffre normal d'Halloween",
+    "eventStage": "Coffre d'étape d'Halloween"
   },
   "levelSuffix": "{{base}} Niv.{{level}}"
 }

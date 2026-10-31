@@ -922,6 +922,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(1);
@@ -963,6 +965,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(1);
@@ -995,6 +999,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().totalQueued).toBe(2);
   });
@@ -1023,6 +1029,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(3);
@@ -1033,6 +1041,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Serial-queue: 1st = now+300s, 2nd chains +300s, 3rd chains +300s.
     const common = snap.byCategory.find((c) => c.category === "common")!;
@@ -1068,6 +1078,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().totalQueued).toBe(2);
   });
@@ -1102,6 +1114,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const snap = service.getQueueSnapshot();
     expect(snap.totalQueued).toBe(1);
@@ -1137,6 +1151,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(
       service.getQueueSnapshot().byCategory.find((c) => c.category === "common")!.nextAutoOpenInMs,
@@ -1155,6 +1171,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const common = service.getQueueSnapshot().byCategory.find((c) => c.category === "common")!;
@@ -1186,6 +1204,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().totalQueued).toBe(0);
   });
@@ -1212,6 +1232,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().totalQueued).toBe(0);
   });
@@ -1240,6 +1262,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const firstCallInfoCount = logMocks.info.mock.calls.filter((c) =>
       String(c[0]).includes("backfilled 5 common"),
@@ -1253,6 +1277,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.reconcileWithChestSlots({
       common: 5,
@@ -1261,6 +1287,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const totalInfoCount = logMocks.info.mock.calls.filter((c) =>
       String(c[0]).includes("backfilled 5 common"),
@@ -1277,6 +1305,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const afterChangeCount = logMocks.info.mock.calls.filter((c) =>
       String(c[0]).includes("backfilled 3 common"),
@@ -1305,6 +1335,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.setEnabled(false);
     service.setEnabled(true);
@@ -1316,6 +1348,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const reloggedCount = logMocks.info.mock.calls.filter((c) =>
       String(c[0]).includes("backfilled 5 common"),
@@ -1345,6 +1379,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
     expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(2);
@@ -1364,6 +1400,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0); // still in grace
     expect(service.getQueueSnapshot().byCategory.find((c) => c.category === "rare")!.count).toBe(3);
@@ -1394,6 +1432,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // rare slots 2→4 (increase 2): both are new drops missed live → record 2
     // (after the deferred recovery grace elapses).
@@ -1404,6 +1444,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(2);
@@ -1430,6 +1472,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0); // first reconcile: no record
 
@@ -1441,6 +1485,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
 
@@ -1454,6 +1500,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
@@ -1480,6 +1528,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(chestDropTracker.getStats(100).commonTotal).toBe(0);
     // common 3→5 (increase 2) but recovery is rare/act-only → still 0.
@@ -1490,6 +1540,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).commonTotal).toBe(0);
@@ -1517,6 +1569,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // live detects the rare drop (history +1, credit +1) and — via onDrop —
@@ -1534,6 +1588,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.reconcileWithChestSlots({
       common: 0,
@@ -1542,6 +1598,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Save finally reflects the drop: rare 0→1. The live drop was already
@@ -1555,6 +1613,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     flushRecoveryGrace(service);
     expect(chestDropTracker.getStats(100).rareTotal).toBe(1);
@@ -1591,6 +1651,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // The race: reconcile sees rare 0→1 while the live burst is still buffered.
     service.reconcileWithChestSlots({
@@ -1600,6 +1662,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Deferred: nothing recorded yet (pre-fix this appended a reconcile drop).
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
@@ -1633,6 +1697,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Save shows rare 0→1 and the live reader never surfaced a burst (no live
     // record → no credit). The recovery is deferred, then records after grace.
@@ -1643,6 +1709,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(chestDropTracker.getStats(100).rareTotal).toBe(0);
     flushRecoveryGrace(service);
@@ -1670,6 +1738,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.reconcileWithChestSlots({
       common: 0,
@@ -1678,6 +1748,8 @@ describe("AutoClassifyService.reconcileWithChestSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // User resets the session while the grace is running → the deferred
     // recovery belongs to the cleared session and must not record into the
@@ -1741,6 +1813,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots).toEqual({
       common: 3,
@@ -1749,6 +1823,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -1774,6 +1850,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a common chest → liveSlots.common should increment to 3.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -1784,6 +1862,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a rare chest → liveSlots.rare should increment to 2.
     chestDropTracker.recordLiveChestDrop("rare", 2.0);
@@ -1794,6 +1874,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -1819,6 +1901,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a common chest at wallTime=1.0s → droppedAtMs=1000,
     // autoOpenAtMs = 1000 + 300*1000 = 301000ms. liveSlots.common → 1.
@@ -1830,6 +1914,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance time past autoOpenAtMs (now > 301000).
@@ -1843,6 +1929,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -1868,6 +1956,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a common chest → liveSlots.common = 1.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -1878,6 +1968,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Player manually opens the chest (unclassified burst) at the auto-open
@@ -1892,6 +1984,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -1917,6 +2011,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a common chest → liveSlots.common = 1.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -1927,6 +2023,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance time past autoOpenAtMs and tick — auto-open detected,
@@ -1940,6 +2038,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Now the unclassified burst from the auto-open arrives — processEvent
@@ -1953,6 +2053,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -1969,6 +2071,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots).toEqual({
       common: 5,
@@ -1977,6 +2081,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.setEnabled(false);
     expect(service.getQueueSnapshot().liveSlots).toBeNull();
@@ -2004,6 +2110,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a chest → liveSlots.common = 3 (real-time adjustment).
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -2014,6 +2122,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Second save parse arrives with the ground truth: common=3 (the dropped
@@ -2026,6 +2136,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots).toEqual({
       common: 3,
@@ -2034,6 +2146,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -2059,6 +2173,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop two common chests at wallTime 1.0s and 2.0s.
     // Serial-queue model:
@@ -2074,6 +2190,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance time past head's autoOpenAtMs (301000) but before tail's (601000).
@@ -2088,6 +2206,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance time past tail's autoOpenAtMs (601000). Both items are now
@@ -2104,6 +2224,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance time past the head's TTL so pruneExpired removes it.
@@ -2119,6 +2241,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Next tick: new head (common@2.0s) is already in WeakSet → no decrement.
     service.tick();
@@ -2129,6 +2253,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -2154,6 +2280,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop two common chests → liveSlots.common = 2.
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs = 301000
@@ -2165,6 +2293,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance to 302000ms — head's autoOpenAtMs (301000) has elapsed.
@@ -2179,6 +2309,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance to 602000ms — tail's autoOpenAtMs (601000) has now elapsed.
@@ -2193,6 +2325,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Verify the tail is still in queue (waiting for processEvent or TTL).
@@ -2373,6 +2507,8 @@ describe("AutoClassifyService.liveSlots tracking", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Recomputed: 1000 + 100*1000 = 101000. now=10000 → autoOpenInMs=91000.
     const snap = service.getQueueSnapshot();
@@ -2810,6 +2946,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     snap = service.getQueueSnapshot();
     expect(snap.items).toHaveLength(2);
@@ -2850,6 +2988,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     vi.setSystemTime(302_000);
@@ -2861,6 +3001,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // 首次 save 解析：autoOpen.common 从 FALLBACK 300s → 100s。
@@ -2884,6 +3026,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots).toEqual({
       common: 0,
@@ -2892,6 +3036,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // queue 被 prune 清空（slots=0 < queue=1）。
     expect(service.getQueueSnapshot().totalQueued).toBe(0);
@@ -2937,6 +3083,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     snap = service.getQueueSnapshot();
     expect(snap.items).toHaveLength(1);
@@ -2985,6 +3133,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     expect(service.getQueueSnapshot().totalQueued).toBe(1);
@@ -2995,6 +3145,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // 禁用：状态全部清空。
@@ -3030,6 +3182,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots).toEqual({
       common: 1,
@@ -3038,6 +3192,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -3066,6 +3222,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     vi.setSystemTime(302_000);
@@ -3077,6 +3235,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // 重启：disable→enable。queue 清空，slotDecrementedItems WeakSet 仍持有旧 item
@@ -3092,6 +3252,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // 新 item, autoOpenAtMs=301000
     expect(service.getQueueSnapshot().liveSlots).toEqual({
@@ -3101,6 +3263,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // tick 越过 autoOpenAtMs → liveSlots 应该递减（不被旧 WeakSet 抑制）。
     vi.setSystemTime(302_000);
@@ -3112,6 +3276,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -3292,6 +3458,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a common chest at wallTime=1.0 → autoOpenAtMs=301000, liveSlots=1
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -3302,6 +3470,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Inventory becomes full. tick detects the transition and pauses.
@@ -3321,6 +3491,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Queue item NOT pruned despite autoOpenAtMs being in the past.
     expect(snap.totalQueued).toBe(1);
@@ -3351,6 +3523,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop a common chest at wallTime=1.0 → autoOpenAtMs = 301000
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -3409,6 +3583,8 @@ describe("AutoClassifyService session lifecycle (H3/H4)", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Pause at t=100000.
@@ -3477,6 +3653,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     expect(service.getQueueSnapshot().liveSlots).toEqual({
@@ -3486,6 +3664,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Burst outside grace → pended.
@@ -3527,6 +3707,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
     expect(service.getQueueSnapshot().liveSlots).toEqual({
@@ -3536,6 +3718,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Burst at wallTime=2.0s (burstMs=2000) → no match within grace → pended.
@@ -3552,6 +3736,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Burst classified → items moved from "unclassified" to "common:5".
@@ -3588,6 +3774,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("plagueCommon", 1.0);
     expect(service.getQueueSnapshot().liveSlots).toEqual({
@@ -3597,6 +3785,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 1,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Burst at wallTime=2.0s (burstMs=2000) → head delta=599000ms → no match
@@ -3615,6 +3805,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Burst classified → items moved out of "unclassified" into the plague
@@ -3652,6 +3844,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0); // liveSlots.common=1
     chestDropTracker.recordLiveChestDrop("plagueRare", 2.0); // liveSlots.plagueRare=1
@@ -3662,6 +3856,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 1,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Two bursts (one per category) arrive without a queue match → pended.
@@ -3680,6 +3876,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const stats = boxOpenTracker.getStats(null);
@@ -3715,6 +3913,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Three common chests drop (serial-queue: autoOpenAtMs 301000/601000/901000).
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -3727,6 +3927,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Player manually opens all three in quick succession; the reader surfaces
@@ -3748,6 +3950,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const stats = boxOpenTracker.getStats(null);
@@ -3781,6 +3985,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Two common chests drop: autoOpenAtMs 301000 / 601000.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -3792,6 +3998,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance past both autoOpenAtMs and tick: liveSlots is decremented to 0
@@ -3806,6 +4014,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().totalQueued).toBe(2);
 
@@ -3827,6 +4037,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const stats = boxOpenTracker.getStats(null);
@@ -3860,6 +4072,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // A rare chest drops during the session (keeps the queue non-empty so the
     // upcoming burst pends instead of routing to the prompt path).
@@ -3871,6 +4085,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Advance past the common item's TTL: tick decrements liveSlots.common and
@@ -3884,6 +4100,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Queue holds only the rare item now (common expired & pruned).
     expect(service.getQueueSnapshot().items.every((i) => i.boxKey.startsWith("rare"))).toBe(true);
@@ -3904,6 +4122,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const stats = boxOpenTracker.getStats(null);
@@ -3936,6 +4156,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop one common and one rare chest.
     chestDropTracker.recordLiveChestDrop("common", 1.0); // autoOpenAtMs=301000
@@ -3947,6 +4169,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Two bursts, both outside grace → both pended.
@@ -3964,6 +4188,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Ambiguous → items stay unclassified (NOT reclassified to common/rare).
@@ -3999,6 +4225,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // liveSlots.common = 1 (from save). Drop another common → liveSlots=2.
     chestDropTracker.recordLiveChestDrop("common", 1.0);
@@ -4009,6 +4237,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Burst outside grace → pended.
@@ -4024,6 +4254,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().pendingBurstsCount).toBe(1);
     // Items still unclassified.
@@ -4058,6 +4290,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // A is overdue: dropped 310s before the pinned "now" (10s) → droppedAtMs
     // = -310000 → autoOpenAtMs = -10000 (elapsed, and >5s from the burst at
@@ -4085,6 +4319,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const snap = service.getQueueSnapshot();
@@ -4117,6 +4353,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Drop two commons and one rare, all OVERDUE so the save decrease can
     // prune them (only elapsed items are prunable). common A: dropped 310s
@@ -4133,6 +4371,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // Two bursts: common at wallTime=2.0s (burstMs=2000), rare at 3.0s (3000).
@@ -4158,6 +4398,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     const snap = service.getQueueSnapshot();
@@ -4194,6 +4436,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
 
@@ -4232,6 +4476,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
@@ -4265,6 +4511,8 @@ describe("AutoClassifyService pending burst classification", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     chestDropTracker.recordLiveChestDrop("common", 1.0);
     boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
@@ -4343,6 +4591,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     // t0: the save parses a rare slot increase 0 -> 1 BEFORE the live burst
@@ -4356,6 +4606,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
 
@@ -4379,6 +4631,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
   });
@@ -4409,6 +4663,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     let saveRare = 0;
     for (let cycle = 1; cycle <= 6; cycle++) {
@@ -4423,6 +4679,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
         plagueCommon: 0,
         plagueRare: 0,
         plagueAct: 0,
+        eventNormal: 0,
+        eventStage: 0,
       });
       // … then the live reader records the SAME chest (duplicate credit).
       chestDropTracker.recordLiveChestDrop("rare", t / 1000);
@@ -4457,6 +4715,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
     // No save increase preceded this drop → no armed credit → +1 is correct.
@@ -4490,6 +4750,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const t0 = FIXED_NOW_MS + 1_000;
     vi.setSystemTime(t0);
@@ -4502,6 +4764,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
 
@@ -4539,6 +4803,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     // Rare drops the save has NOT yet counted (real-time live ahead).
     for (let i = 0; i < 3; i++) {
@@ -4553,6 +4819,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     expect(service.getQueueSnapshot().liveSlots?.rare).toBe(1);
     // Repeated ticks never drive it negative.
@@ -4590,6 +4858,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 2,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     let snap = service.getQueueSnapshot();
     expect(snap.byCategory.find((c) => c.category === "plagueRare")?.count).toBe(2);
@@ -4602,6 +4872,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 4,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     snap = service.getQueueSnapshot();
     expect(snap.byCategory.find((c) => c.category === "plagueRare")?.count).toBe(4);
@@ -4620,6 +4892,8 @@ describe("AutoClassifyService liveSlots over-report regression", () => {
       plagueCommon: 0,
       plagueRare: 3,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     const stats = boxOpenTracker.getStats(null);
     expect(stats.find((s) => s.boxKey.startsWith("plagueRare"))).toBeTruthy();
@@ -4668,6 +4942,8 @@ describe("AutoClassifyService map-family burst gate (plague vs normal)", () => {
     plagueCommon: 0,
     plagueRare: 0,
     plagueAct: 0,
+    eventNormal: 0,
+    eventStage: 0,
   });
 
   /** Info-log lines emitted when a burst is matched to a queued item. */
@@ -4899,6 +5175,8 @@ describe("AutoClassifyService drop-time level pinning", () => {
     plagueCommon: 0,
     plagueRare: 0,
     plagueAct: 0,
+    eventNormal: 0,
+    eventStage: 0,
   });
 
   /** Act-boss drop on Normal 2-10 → Lv20; the same category on Torment 3-10 → Lv90. */
@@ -5037,6 +5315,8 @@ describe("AutoClassifyService recovered drops keep their catalog level", () => {
     plagueCommon: 0,
     plagueRare: 0,
     plagueAct: 0,
+    eventNormal: 0,
+    eventStage: 0,
   });
 
   beforeEach(() => {
@@ -5114,5 +5394,143 @@ describe("AutoClassifyService recovered drops keep their catalog level", () => {
     const recovered = chestDropTracker.fitHistory().filter((e) => e.category === "rare");
     expect(recovered.length).toBe(1);
     expect(recovered[0]!.itemKey).toBe(900920);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// v1.3.0 Halloween (event) chests: NO auto-open.
+//
+// The game ships no `UnlockAutoOpenEvent*Chest` rune chain, so it never opens
+// an event chest on a timer — the player opens it by hand. An event chest must
+// therefore never enter the auto-classify queue (there is no countdown to
+// predict), but it still occupies a slot and its drops must still be counted.
+// ---------------------------------------------------------------------------
+
+describe("AutoClassifyService v1.3.0 event chests (no auto-open)", () => {
+  const AUTO_OPEN = {
+    common: 300,
+    stageBoss: 600,
+    actBoss: 60,
+    plagueCommon: 600,
+    plagueRare: 1200,
+    plagueAct: 120,
+  };
+
+  const zeroSlots = () => ({
+    common: 0,
+    rare: 0,
+    act: 0,
+    plagueCommon: 0,
+    plagueRare: 0,
+    plagueAct: 0,
+    eventNormal: 0,
+    eventStage: 0,
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW_MS);
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("does not queue an event drop (the game never auto-opens it)", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: 2901, // EVENT stage
+    });
+
+    chestDropTracker.recordLiveChestDrop("eventNormal", 1.0);
+
+    const snap = service.getQueueSnapshot();
+    expect(snap.totalQueued).toBe(0);
+    expect(snap.items).toHaveLength(0);
+    expect(snap.byCategory.find((c) => c.category === "eventNormal")).toBeUndefined();
+    expect(snap.byCategory.find((c) => c.category === "eventStage")).toBeUndefined();
+  });
+
+  it("still counts the event drop in the live slot totals", () => {
+    const { service, chestDropTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: 2901,
+    });
+    // Seed the slot baseline so the drop has a slot to occupy.
+    service.reconcileWithChestSlots(zeroSlots());
+
+    chestDropTracker.recordLiveChestDrop("eventNormal", 1.0);
+
+    const snap = service.getQueueSnapshot();
+    expect(snap.liveSlots?.eventNormal).toBe(1);
+    expect(snap.liveSlots?.eventStage).toBe(0);
+    expect(snap.totalQueued).toBe(0);
+  });
+
+  it("never backfills an event slot into the queue", () => {
+    const { service } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: 2901,
+    });
+
+    service.reconcileWithChestSlots({ ...zeroSlots(), eventNormal: 3, eventStage: 2 });
+
+    expect(service.getQueueSnapshot().totalQueued).toBe(0);
+  });
+
+  it("classifies a MANUAL event-chest open as its own tier", () => {
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: 2901,
+    });
+
+    // The player holds an event chest AND a common chest (so the auto-classify
+    // queue is non-empty and the burst is pended instead of prompting). The
+    // event chest opens by hand — the game never auto-opens it, so there is no
+    // queued event item to match the burst against.
+    service.reconcileWithChestSlots({ ...zeroSlots(), common: 1, eventNormal: 1 });
+    chestDropTracker.recordLiveChestDrop("eventNormal", 1.0);
+
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+
+    // The save now reports the event slot as empty (the chest was opened) —
+    // that decrease is the only signal that identifies the family.
+    service.reconcileWithChestSlots({ ...zeroSlots(), common: 1 });
+
+    const stats = boxOpenTracker.getStats(null);
+    expect(stats.find((s) => s.boxKey === "eventNormal")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "eventStage")).toBeFalsy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
+  });
+
+  it("classifies a MANUAL event-stage-chest open as `eventStage`", () => {
+    const { service, chestDropTracker, boxOpenTracker } = makeService({
+      enabled: true,
+      autoOpen: AUTO_OPEN,
+      catalog: CATALOG,
+      currentStageKey: 2901,
+    });
+
+    service.reconcileWithChestSlots({ ...zeroSlots(), common: 1, eventStage: 1 });
+    chestDropTracker.recordLiveChestDrop("eventStage", 1.0);
+
+    boxOpenTracker.recordOpen("unclassified", 100, "Sword", "COMMON", 1, 2.0);
+    boxOpenTracker.flushUnclassified();
+
+    service.reconcileWithChestSlots({ ...zeroSlots(), common: 1 });
+
+    const stats = boxOpenTracker.getStats(null);
+    expect(stats.find((s) => s.boxKey === "eventStage")).toBeTruthy();
+    expect(stats.find((s) => s.boxKey === "eventNormal")).toBeFalsy();
+    expect(stats.find((s) => s.boxKey === "unclassified")).toBeFalsy();
   });
 });

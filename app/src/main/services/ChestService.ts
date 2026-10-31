@@ -38,6 +38,10 @@ export type ChestSlotCounts = {
   plagueCommon: number;
   plagueRare: number;
   plagueAct: number;
+  /** v1.3.0 Halloween event chests — 940xxx (normal tier) — own slot. */
+  eventNormal: number;
+  /** v1.3.0 Halloween event chests — 941xxx (stage tier) — own slot. */
+  eventStage: number;
 };
 
 export class ChestService {
@@ -147,7 +151,9 @@ export class ChestService {
       prev.act === slots.act &&
       prev.plagueCommon === slots.plagueCommon &&
       prev.plagueRare === slots.plagueRare &&
-      prev.plagueAct === slots.plagueAct;
+      prev.plagueAct === slots.plagueAct &&
+      prev.eventNormal === slots.eventNormal &&
+      prev.eventStage === slots.eventStage;
     if (unchanged) return;
     this.liveSlotsOverride = slots;
     this.reconcile();
@@ -339,6 +345,8 @@ export class ChestService {
             plagueCommon: this.lastChests.plagueCommon.quantity,
             plagueRare: this.lastChests.plagueRare.quantity,
             plagueAct: this.lastChests.plagueAct.quantity,
+            eventNormal: this.lastChests.eventNormal.quantity,
+            eventStage: this.lastChests.eventStage.quantity,
           }
         : null);
     if (slots) this.onReconcile(slots);

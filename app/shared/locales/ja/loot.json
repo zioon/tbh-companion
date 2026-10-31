@@ -18,7 +18,9 @@
     "unclassified": "未分類",
     "plagueCommon": "疫病の一般宝箱",
     "plagueRare": "疫病のステージ宝箱",
-    "plagueAct": "疫病のアクトボス宝箱"
+    "plagueAct": "疫病のアクトボス宝箱",
+    "eventNormal": "ハロウィン一般宝箱",
+    "eventStage": "ハロウィンステージ宝箱"
   },
   "levelSuffix": "{{base}} レベル {{level}}",
   "boxSection": {
@@ -60,7 +62,9 @@
     "ringDialogBody": "枠リングが 1 周するのにかかる時間。このタイプの宝箱がドロップするたびに、リングは上から時計回りに充填されます。完了した周はより暖色で下に重なります。",
     "minutesLabel": "分",
     "ringMinutesAriaLabel": "リング一周時間（分）",
-    "save": "保存"
+    "save": "保存",
+    "categoryOptionEventNormal": "ハロウィン一般",
+    "categoryOptionEventStage": "ハロウィンステージ"
   },
   "queueSlots": {
     "title": "自動分類スロット",

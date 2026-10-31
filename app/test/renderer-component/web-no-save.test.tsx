@@ -19,9 +19,13 @@ import { TradingPanel } from "../../src/web/tabs/TradingPanel";
 // a 3-item fixture, which only proved "a fixture renders", never "the real
 // catalog renders", and left Trading's ~1k tradable rows uncovered entirely.
 //
-// Rendering the real catalog (1,725 items on Lookup, ~1,079 tradable rows on
-// Trading) is heavy for jsdom, so the page cases carry an explicit 30s timeout
-// rather than shrinking scope to a fixture.
+// Rendering the real catalog (2,331 items on Lookup, ~1.1k tradable rows on
+// Trading) is heavy for jsdom, so the page cases carry an explicit 60s timeout
+// rather than shrinking scope to a fixture. The timeout has to cover the FULL
+// DOM suite, not just this file in isolation: vitest runs the jsdom files in
+// parallel, and a 30s budget was not enough once the bundled catalog grew to
+// v1.3.0 (2,331 items) — the Lookup grid alone took >30s under that load while
+// taking ~11s on its own.
 
 // A "save gate" is any copy that tells the visitor to load a save first. None of
 // these three pages may ever show one — the catalog pages are save-independent
@@ -74,19 +78,19 @@ describe("web shell without a save file — real bundled catalog", () => {
       </TbhProvider>,
     );
 
-    // The ~1,725-item grid only mounts once the real catalog reaches the context
+    // The ~2,331-item grid only mounts once the real catalog reaches the context
     // — this is the assertion that would fail if the catalog were ever a stub.
     await waitFor(
       () => {
         expect(container.querySelectorAll("ul.grid > li").length).toBeGreaterThan(100);
       },
-      { timeout: 25000 },
+      { timeout: 45000 },
     );
     // No "waiting for the catalog" placeholder once cards are up…
     expect(screen.queryByText(/loading item catalog/i)).toBeNull();
     // …and no save gate.
     expectNoSaveGate(container);
-  }, 30000);
+  }, 60000);
 
   it("renders the real chest catalog", async () => {
     const { container } = render(<ChestsPanel />);
@@ -138,7 +142,7 @@ describe("web shell without a save file — real bundled catalog", () => {
       </TbhProvider>,
     );
 
-    // Real tradable rows (~1,079) once the real catalog lands.
+    // Real tradable rows (~1,099) once the real catalog lands.
     await waitFor(
       () => {
         expect(container.querySelectorAll("tbody tr").length).toBeGreaterThan(0);

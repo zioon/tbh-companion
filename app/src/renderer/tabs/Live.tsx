@@ -350,8 +350,15 @@ export function Live() {
     plagueRarePerHour,
     plagueCommonRecentPerHour,
     plagueRareRecentPerHour,
+    eventNormalSession,
+    eventStageSession,
+    eventNormalPerHour,
+    eventStagePerHour,
+    eventNormalRecentPerHour,
+    eventStageRecentPerHour,
     normalMapSeconds,
     plagueMapSeconds,
+    eventMapSeconds,
     readerRequired,
   } = stats.chestDrops;
   const chestReaderOff = readerRequired && !liveScalars.connected;
@@ -449,7 +456,7 @@ export function Live() {
             title={goldTip}
           />
         </div>
-        <div className="grid grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-6 gap-2.5 max-[1100px]:grid-cols-3 max-[640px]:grid-cols-2">
           <StatCard
             label={t("commonChests")}
             value={
@@ -498,6 +505,35 @@ export function Live() {
                 perHour={plagueRarePerHour}
                 recentPerHour={plagueRareRecentPerHour}
                 countClassName="text-status-info"
+                inactive={chestStatsInactive}
+              />
+            }
+            title={chestRateTip}
+          />
+          {/* v1.3.0 万圣节活动箱（940xxx/941xxx）——两个独立掉落统计桶，
+              速率按**活动地图**时长（EVENT 关卡 2901/3901/4901）折算。 */}
+          <StatCard
+            label={t("eventNormalChests")}
+            value={
+              <LiveChestStatValue
+                total={eventNormalSession}
+                perHour={eventNormalPerHour}
+                recentPerHour={eventNormalRecentPerHour}
+                countClassName="text-status-warning"
+                inactive={chestStatsInactive}
+              />
+            }
+            detail={t("eventMapTime", { time: fmtShortDuration(eventMapSeconds) })}
+            title={chestRateTip}
+          />
+          <StatCard
+            label={t("eventStageChests")}
+            value={
+              <LiveChestStatValue
+                total={eventStageSession}
+                perHour={eventStagePerHour}
+                recentPerHour={eventStageRecentPerHour}
+                countClassName="text-status-warning"
                 inactive={chestStatsInactive}
               />
             }

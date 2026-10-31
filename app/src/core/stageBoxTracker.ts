@@ -1,5 +1,6 @@
 import { readBundledJson } from "./bundledData";
 import { stageName } from "./stages";
+import { isEventBoxItemId } from "./boxCategories";
 import type { GameItem } from "./gamedata";
 
 export interface StageBoxTrackerMeta {
@@ -35,13 +36,29 @@ export function loadStageBoxCatalogFile(): StageBoxCatalogFile {
   return readBundledJson<StageBoxCatalogFile>("stage_boxes.json");
 }
 
+/**
+ * Load tracker routes for RARE stage-boss boxes.
+ *
+ * The v1.3.0 Halloween **event** boxes (940xxx/941xxx) are GRADE=RARE and
+ * carry a canonical tracker block too, but they are deliberately EXCLUDED:
+ * the game gives them no drop cooldown (`ItemInfoData.DropCooldown` = 3 s for
+ * every event box, vs 180 s for a normal box and 300 s for a stage-boss box),
+ * so there is nothing to count down — the BoxTimer must not arm a timer for
+ * them. They live in their own `eventNormal` / `eventStage` families instead
+ * (see `core/boxCategories.ts`).
+ *
+ * Returns routes sorted by level ascending.
+ */
 export function loadStageBoxTrackerRoutes(
   catalog: StageBoxCatalogFile = loadStageBoxCatalogFile(),
 ): StageBoxTrackerRoute[] {
   return catalog.items
     .filter(
       (item): item is StageBoxCatalogItem & { tracker: StageBoxTrackerMeta } =>
-        item.grade === "RARE" && item.obtainable && item.tracker?.canonical === true,
+        item.grade === "RARE" &&
+        item.obtainable &&
+        item.tracker?.canonical === true &&
+        !isEventBoxItemId(item.id),
     )
     .map((item) => ({
       boxId: item.id,
@@ -87,6 +104,10 @@ export function loadActBossTrackerRoutes(
  * vs RARE Lv4/5/7 on the same stages). This loader lets the auto-classify
  * queue infer the correct COMMON chest level independently from the RARE
  * catalog. Returns routes sorted by level ascending.
+ *
+ * The v1.3.0 Halloween **event** boxes (940xxx, GRADE=COMMON) are excluded for
+ * the same reason as in {@link loadStageBoxTrackerRoutes}: they are their own
+ * family and carry no drop cooldown.
  */
 export function loadCommonChestTrackerRoutes(
   catalog: StageBoxCatalogFile = loadStageBoxCatalogFile(),
@@ -94,7 +115,10 @@ export function loadCommonChestTrackerRoutes(
   return catalog.items
     .filter(
       (item): item is StageBoxCatalogItem & { tracker: StageBoxTrackerMeta } =>
-        item.grade === "COMMON" && item.obtainable && item.tracker?.canonical === true,
+        item.grade === "COMMON" &&
+        item.obtainable &&
+        item.tracker?.canonical === true &&
+        !isEventBoxItemId(item.id),
     )
     .map((item) => ({
       boxId: item.id,

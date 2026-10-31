@@ -54,5 +54,5 @@
       "11673": 1
     }
   },
-  "note": "baseSeconds from RuneLevelInfoData UnlockAutoOpen*Chest (Mainspring unlock nodes). Per-level reduction from ReduceAutoOpen*ChestTime (Lubrication). Plague (Contaminated) chest chains from UnlockAutoOpenPlague*Chest / ReduceAutoOpenPlague*ChestTime (v1.02.00)."
+  "note": "baseSeconds from RuneLevelInfoData UnlockAutoOpen*Chest (Mainspring unlock nodes). Per-level reduction from ReduceAutoOpen*ChestTime (Lubrication). Plague (Contaminated) chest chains from UnlockAutoOpenPlague*Chest / ReduceAutoOpenPlague*ChestTime (v1.02.00). The v1.3.0 Halloween event boxes (940xxx/941xxx) have NO auto-open at all: RuneInfoData / RuneLevelInfoData ship no UnlockAutoOpenEvent*Chest node and no ReduceAutoOpenEvent*ChestTime node, so the game never opens an event chest on a timer (the player opens it by hand). There is deliberately no `event` entry here - event chests are excluded from the auto-classify queue entirely."
 }

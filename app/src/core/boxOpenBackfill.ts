@@ -391,6 +391,8 @@ const BASE_CATEGORIES: ReadonlySet<string> = new Set([
   "plagueCommon",
   "plagueRare",
   "plagueAct",
+  "eventNormal",
+  "eventStage",
 ]);
 
 /**

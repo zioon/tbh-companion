@@ -21,6 +21,9 @@ import { ClassifyPromptDialog } from "../components/loot/ClassifyPromptDialog";
 import { useTbhContext } from "../context/tbhContext";
 import { reportIpcError } from "../lib/reportError";
 
+// The v1.3.0 Halloween event chests get NO ring: the game gives them no drop
+// cooldown (`ItemInfoData.DropCooldown` = 3 s), so there is no cooldown lap to
+// draw for them.
 const DEFAULT_RING_SECONDS: LootRingSeconds = {
   common: 5 * 60,
   stage: 7 * 60,

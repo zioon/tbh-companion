@@ -128,6 +128,8 @@ const zero = () => ({
   plagueCommon: 0,
   plagueRare: 0,
   plagueAct: 0,
+  eventNormal: 0,
+  eventStage: 0,
 });
 
 describe("liveSlots over-report — adversarial / boundary", () => {

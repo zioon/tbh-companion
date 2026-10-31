@@ -6,7 +6,9 @@
     "unclassified": "Неклассифицирован",
     "plagueCommon": "Обычный сундук чумы",
     "plagueRare": "Сундук босса этапа чумы",
-    "plagueAct": "Сундук босса акта чумы"
+    "plagueAct": "Сундук босса акта чумы",
+    "eventNormal": "Обычный сундук Хеллоуина",
+    "eventStage": "Сундук этапа Хеллоуина"
   },
   "levelSuffix": "{{base}} Ур.{{level}}"
 }

@@ -52,6 +52,7 @@
   "commonChests": "Common chests",
   "normalMapTime": "Normal maps {{time}}",
   "plagueMapTime": "Plague maps {{time}}",
+  "eventMapTime": "Event maps {{time}}",
   "stageBossChests": "Stage boss chests",
   "actBossChests": "Act boss chests",
   "plagueCommonChests": "Plague common chests",
@@ -104,5 +105,7 @@
   "saveStatusWritten": "Save written {{ago}}",
   "saveStatusIdleHint": "- is the game running?",
   "saveStatusStale": "Save unreadable — shown values are from before the failure (game update?)",
-  "goldStatusStale": "Live gold read is stale (memory offsets not yet adapted to this game version) — showing last save balance"
+  "goldStatusStale": "Live gold read is stale (memory offsets not yet adapted to this game version) — showing last save balance",
+  "eventNormalChests": "Halloween common chests",
+  "eventStageChests": "Halloween stage chests"
 }

@@ -26,5 +26,7 @@
   "pageOlder": "다음 페이지",
   "pageLatest": "최신으로 돌아가기",
   "pageOf": "{{page}} / {{total}} 페이지",
-  "pageLoading": "불러오는 중…"
+  "pageLoading": "불러오는 중…",
+  "fitChestEventNormal": "할로윈 일반 상자",
+  "fitChestEventStage": "할로윈 스테이지 상자"
 }

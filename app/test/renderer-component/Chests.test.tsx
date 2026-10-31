@@ -20,6 +20,10 @@ const { CHESTS } = vi.hoisted(() => {
       plagueCommon: slot(0, 10),
       plagueRare: slot(0, 10),
       plagueAct: slot(0, 10),
+      // v1.3.0 万圣节活动箱——两个独立箱位（游戏侧无自动开箱链）：
+      // eventNormal = 940xxx 普通活动箱，eventStage = 941xxx 活动关卡箱。
+      eventNormal: slot(1, 10),
+      eventStage: slot(0, 10),
       capacity: {
         common: breakdown,
         stageBoss: breakdown,
@@ -27,6 +31,8 @@ const { CHESTS } = vi.hoisted(() => {
         plagueCommon: breakdown,
         plagueRare: breakdown,
         plagueAct: breakdown,
+        eventNormal: breakdown,
+        eventStage: breakdown,
         totalRunePurchases: 0,
       },
       // Effective auto-open seconds (base − rune reduction) as the real save yields.
@@ -92,5 +98,22 @@ describe("Chests tab auto-open time", () => {
     expect(screen.getByText("Auto-open 4m21s")).toBeInTheDocument();
     expect(screen.getByText("Auto-open 8m45s")).toBeInTheDocument();
     expect(screen.getByText("Auto-open 54s")).toBeInTheDocument();
+  });
+
+  it("renders the v1.3.0 Halloween event card without an auto-open time", () => {
+    window.tbh = {
+      ...(window.tbh ?? {}),
+      getLookupCatalog: vi.fn().mockResolvedValue([]),
+      getLookupSources: vi.fn().mockResolvedValue({}),
+      getOfferings: vi.fn().mockResolvedValue([]),
+    } as unknown as typeof window.tbh;
+    render(<Chests />);
+    // The v1.3.0 event boxes have their own cards, separate from common /
+    // stage boss: one for the 940xxx normal tier, one for the 941xxx stage tier.
+    expect(screen.getAllByText("Halloween common").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Halloween stage").length).toBeGreaterThan(0);
+    // The game has no auto-open chain for them → each card says so instead of
+    // showing a countdown (one line per event card).
+    expect(screen.getAllByText("Not auto-opened in game").length).toBe(2);
   });
 });

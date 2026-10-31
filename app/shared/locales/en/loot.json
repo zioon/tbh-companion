@@ -18,7 +18,9 @@
     "unclassified": "Unclassified",
     "plagueCommon": "Plague Common Treasure Chest",
     "plagueRare": "Plague Stage Treasure Chest",
-    "plagueAct": "Plague Act Boss Treasure Chest"
+    "plagueAct": "Plague Act Boss Treasure Chest",
+    "eventNormal": "Halloween Common Treasure Chest",
+    "eventStage": "Halloween Stage Treasure Chest"
   },
   "levelSuffix": "{{base}} Lv{{level}}",
   "boxSection": {
@@ -60,7 +62,9 @@
     "ringDialogBody": "How long one full traversal of the border ring takes. The ring fills clockwise from the top each time a chest of this type drops; completed laps layer underneath in a warmer color.",
     "minutesLabel": "Minutes",
     "ringMinutesAriaLabel": "Ring lap duration in minutes",
-    "save": "Save"
+    "save": "Save",
+    "categoryOptionEventNormal": "Halloween common",
+    "categoryOptionEventStage": "Halloween stage"
   },
   "queueSlots": {
     "title": "Auto-classify slots",

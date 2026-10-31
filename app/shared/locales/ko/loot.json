@@ -18,7 +18,9 @@
     "unclassified": "미분류",
     "plagueCommon": "역병 일반 보물 상자",
     "plagueRare": "역병 스테이지 보물 상자",
-    "plagueAct": "역병 액트보스 보물 상자"
+    "plagueAct": "역병 액트보스 보물 상자",
+    "eventNormal": "할로윈 일반 보물 상자",
+    "eventStage": "할로윈 스테이지 보물 상자"
   },
   "levelSuffix": "{{base}} 레벨 {{level}}",
   "boxSection": {
@@ -60,7 +62,9 @@
     "ringDialogBody": "테두리 링을 한 바퀴 완전히 도는 데 걸리는 시간. 이 유형의 보물 상자이 드롭될 때마다 링이 위에서부터 시계 방향으로 채워지며, 완료된 바퀴는 더 따뜻한 색상으로 아래에 겹쳐 표시됩니다.",
     "minutesLabel": "분",
     "ringMinutesAriaLabel": "링 한 바퀴 지속 시간(분)",
-    "save": "저장"
+    "save": "저장",
+    "categoryOptionEventNormal": "할로윈 일반",
+    "categoryOptionEventStage": "할로윈 스테이지"
   },
   "queueSlots": {
     "title": "자동 분류 슬롯",

@@ -6,6 +6,8 @@ const fillClasses = {
   blue: "bg-status-info",
   red: "bg-status-danger",
   green: "bg-status-success",
+  /** v1.3.0 Halloween event chests — amber (pumpkin). */
+  amber: "bg-status-warning",
 } as const;
 
 export function CapacityBar({

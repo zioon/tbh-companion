@@ -6,7 +6,9 @@
     "unclassified": "未分類",
     "plagueCommon": "瘟疫普通寶箱",
     "plagueRare": "瘟疫關卡寶箱",
-    "plagueAct": "瘟疫章節首領寶箱"
+    "plagueAct": "瘟疫章節首領寶箱",
+    "eventNormal": "萬聖節普通寶箱",
+    "eventStage": "萬聖節關卡寶箱"
   },
   "levelSuffix": "{{base}} 等級 {{level}}"
 }

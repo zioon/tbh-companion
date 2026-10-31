@@ -27,6 +27,8 @@ import {
   actBossBoxCapacity,
   boxSlotState,
   commonBoxCapacity,
+  eventNormalBoxCapacity,
+  eventStageBoxCapacity,
   plagueActBoxCapacity,
   plagueCommonBoxCapacity,
   plagueRareBoxCapacity,
@@ -41,6 +43,8 @@ export {
   plagueCommonBoxCapacity,
   plagueRareBoxCapacity,
   plagueActBoxCapacity,
+  eventNormalBoxCapacity,
+  eventStageBoxCapacity,
   boxSlotState,
   commonBoxState,
 } from "./capacity";
@@ -96,7 +100,11 @@ export function resolveChestHoldings(
                 ? 4
                 : c === "plagueAct"
                   ? 5
-                  : 6;
+                  : c === "eventNormal"
+                    ? 6
+                    : c === "eventStage"
+                      ? 7
+                      : 8;
     const d = order(a.category) - order(b.category);
     return d !== 0 ? d : a.boxType - b.boxType;
   });
@@ -158,6 +166,8 @@ export function buildChestState(
   const plagueCommonCapTotal = plagueCommonBoxCapacity(purchases, runeCapCatalog);
   const plagueRareCapTotal = plagueRareBoxCapacity(purchases, runeCapCatalog);
   const plagueActCapTotal = plagueActBoxCapacity(purchases, runeCapCatalog);
+  const eventNormalCapTotal = eventNormalBoxCapacity(purchases, runeCapCatalog);
+  const eventStageCapTotal = eventStageBoxCapacity(purchases, runeCapCatalog);
 
   const common = buildCategoryState(rows, "common", commonCapTotal);
   const stageBoss = buildCategoryState(rows, "rare", stageCapTotal);
@@ -165,6 +175,9 @@ export function buildChestState(
   const plagueCommon = buildCategoryState(rows, "plagueCommon", plagueCommonCapTotal);
   const plagueRare = buildCategoryState(rows, "plagueRare", plagueRareCapTotal);
   const plagueAct = buildCategoryState(rows, "plagueAct", plagueActCapTotal);
+  // v1.3.0 万圣节活动箱：两个独立箱位（游戏侧仍占 common/rare 桶，见容量函数注释）。
+  const eventNormal = buildCategoryState(rows, "eventNormal", eventNormalCapTotal);
+  const eventStage = buildCategoryState(rows, "eventStage", eventStageCapTotal);
 
   const capacity = {
     common: buildCapacityBreakdown(purchases, runeCapCatalog.common),
@@ -173,9 +186,13 @@ export function buildChestState(
     plagueCommon: buildCapacityBreakdown(purchases, runeCapCatalog.plagueCommon),
     plagueRare: buildCapacityBreakdown(purchases, runeCapCatalog.plagueRare),
     plagueAct: buildCapacityBreakdown(purchases, runeCapCatalog.plagueAct),
+    eventNormal: buildCapacityBreakdown(purchases, runeCapCatalog.eventNormal),
+    eventStage: buildCapacityBreakdown(purchases, runeCapCatalog.eventStage),
     totalRunePurchases: purchases.length,
   };
 
+  // v1.3.0 万圣节活动箱**没有自动开箱**（游戏侧无 UnlockAutoOpenEvent*Chest 链），
+  // 故 autoOpen 里没有 eventNormal / eventStage 键——UI 也不为活动箱显示自动开箱倒计时。
   const autoOpen = {
     common: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.common),
     stageBoss: effectiveAutoOpenSeconds(purchases, runeAutoOpenCatalog.stageBoss),
@@ -202,6 +219,8 @@ export function buildChestState(
     plagueCommon,
     plagueRare,
     plagueAct,
+    eventNormal,
+    eventStage,
     capacity,
     autoOpen,
     dropChance,

@@ -57,14 +57,22 @@ export interface HeroRate {
 }
 
 /** Box drop categories tracked by {@link ChestDropTracker}. Includes the
- * v1.02.00 plague (Contaminated) buckets, which only drop on plague maps. */
+ * v1.02.00 plague (Contaminated) buckets, which only drop on plague maps, and
+ * the v1.3.0 Halloween event buckets, which only drop on the event maps.
+ *
+ * The event chests come in two tiers and stay **separate** — mirroring the
+ * normal / stage-boss split of the regular chests:
+ *   - `eventNormal` — 940xxx (Halloween Normal Box, grade COMMON)
+ *   - `eventStage`  — 941xxx (Halloween Stage Box,  grade RARE) */
 export type ChestDropCategory =
   | "common"
   | "rare"
   | "act"
   | "plagueCommon"
   | "plagueRare"
-  | "plagueAct";
+  | "plagueAct"
+  | "eventNormal"
+  | "eventStage";
 
 export interface ChestDropBreakdownRow {
   itemKey: number;
@@ -99,6 +107,10 @@ export interface ChestDropStats {
   plagueCommonTotal: number;
   plagueRareTotal: number;
   plagueActTotal: number;
+  /** v1.3.0 Halloween event chests — 940xxx (normal tier). */
+  eventNormalTotal: number;
+  /** v1.3.0 Halloween event chests — 941xxx (stage tier). */
+  eventStageTotal: number;
   combinedTotal: number;
   commonPerHour: number;
   rarePerHour: number;
@@ -106,6 +118,10 @@ export interface ChestDropStats {
   plagueCommonPerHour: number;
   plagueRarePerHour: number;
   plagueActPerHour: number;
+  /** v1.3.0 Halloween event chests — 940xxx (normal tier). */
+  eventNormalPerHour: number;
+  /** v1.3.0 Halloween event chests — 941xxx (stage tier). */
+  eventStagePerHour: number;
   /**
    * Rolling 1-hour drop rates: drops in the last `ROLLING_HOUR_SEC` seconds
    * (or since the first recent drop when the window is shorter), divided by
@@ -119,6 +135,10 @@ export interface ChestDropStats {
   plagueCommonRecentPerHour: number;
   plagueRareRecentPerHour: number;
   plagueActRecentPerHour: number;
+  /** v1.3.0 Halloween event chests — 940xxx (normal tier). */
+  eventNormalRecentPerHour: number;
+  /** v1.3.0 Halloween event chests — 941xxx (stage tier). */
+  eventStageRecentPerHour: number;
   /**
    * Session-scoped drop counts. After `reset` these start at 0; after
    * `applySnapshot` (app restart) these include the restored history so
@@ -133,6 +153,10 @@ export interface ChestDropStats {
   plagueCommonSession: number;
   plagueRareSession: number;
   plagueActSession: number;
+  /** v1.3.0 Halloween event chests — 940xxx (normal tier). */
+  eventNormalSession: number;
+  /** v1.3.0 Halloween event chests — 941xxx (stage tier). */
+  eventStageSession: number;
   combinedSession: number;
   breakdown: ChestDropBreakdownRow[];
   history: ChestDropHistoryEntry[];
@@ -149,13 +173,15 @@ export interface ChestDropStats {
    */
   readerRequired: boolean;
   /**
-   * Session seconds spent farming normal (non-plague) vs plague maps, fed by
-   * `ChestDropTracker.noteMapTime`. Surfaced so the Live tab annotates the
-   * normal/plague chest cards with the time actually spent on each map type.
-   * 0 when live map time hasn't been accumulated (non-attached session).
+   * Session seconds spent farming normal (non-plague) vs plague vs event maps,
+   * fed by `ChestDropTracker.noteMapTime`. Surfaced so the Live tab annotates
+   * the normal/plague/event chest cards with the time actually spent on each map
+   * type. 0 when live map time hasn't been accumulated (non-attached session).
    */
   normalMapSeconds: number;
   plagueMapSeconds: number;
+  /** v1.3.0 Halloween event maps (EVENT stages 2901 / 3901 / 4901). */
+  eventMapSeconds: number;
 }
 
 /** Serialized chest drop tracker for session_state.json restore. */
@@ -184,6 +210,8 @@ export interface ChestDropTrackerSnapshot {
    */
   normalMapSec?: number;
   plagueMapSec?: number;
+  /** v1.3.0 Halloween event-map farming time (seconds). */
+  eventMapSec?: number;
 }
 
 // --- 祈愿记录（Wish Record） ---
@@ -627,6 +655,10 @@ export interface AutoClassifyStatePayload {
     plagueCommon: number;
     plagueRare: number;
     plagueAct: number;
+    /** v1.3.0 Halloween event chests — 940xxx (normal tier) — own bucket. */
+    eventNormal: number;
+    /** v1.3.0 Halloween event chests — 941xxx (stage tier) — own bucket. */
+    eventStage: number;
   } | null;
   /**
    * Whether auto-open timers are currently paused because the player's
@@ -1325,6 +1357,11 @@ export interface ChestAutoOpenPrefs {
  * `stage` is the stage-boss chest cooldown (default 7 min, matches the mini
  * overlay's boss-chest ring). Keys intentionally use the short category
  * names so the renderer can index by `BoxCategory` (`"common"` / `"rare"`).
+ *
+ * No `eventNormal` / `eventStage` keys: the v1.3.0 Halloween event chests have
+ * **no drop cooldown** in the game (`ItemInfoData.DropCooldown` = 3 s for every
+ * event box, vs 180 s for a normal box and 300 s for a stage-boss box), so there
+ * is no cooldown ring to draw for them.
  */
 export interface LootRingSeconds {
   common: number;
@@ -1878,6 +1915,18 @@ export interface ChestState {
   plagueCommon: BoxSlotStatus;
   plagueRare: BoxSlotStatus;
   plagueAct: BoxSlotStatus;
+  /**
+   * v1.3.0 万圣节活动箱（940xxx）——**独立槽位**，不与 common / rare 混算。
+   *
+   * 注意：游戏侧活动箱实际占用的是 common / rare 桶（`RuneInfoData` 无
+   * `MaxAmountEvent*Chest` 链），这里按产品决策拆成独立箱位，让活动箱在
+   * Chests / Loot 页与普通、关卡宝箱分开归类与排队。
+   */
+  eventNormal: BoxSlotStatus;
+  /**
+   * v1.3.0 万圣节活动关卡箱（941xxx）——独立槽位，与普通箱 / 关卡宝箱对称。
+   */
+  eventStage: BoxSlotStatus;
   capacity: {
     common: ChestCapacityBreakdown;
     stageBoss: ChestCapacityBreakdown;
@@ -1885,6 +1934,10 @@ export interface ChestState {
     plagueCommon: ChestCapacityBreakdown;
     plagueRare: ChestCapacityBreakdown;
     plagueAct: ChestCapacityBreakdown;
+    /** v1.3.0 万圣节普通活动箱（940xxx）的独立容量明细。 */
+    eventNormal: ChestCapacityBreakdown;
+    /** v1.3.0 万圣节关卡活动箱（941xxx）的独立容量明细。 */
+    eventStage: ChestCapacityBreakdown;
     totalRunePurchases: number;
   };
   /** Effective seconds to auto-open one chest of each type (base minus rune reduction). */
@@ -1895,6 +1948,11 @@ export interface ChestState {
     plagueCommon: number;
     plagueRare: number;
     plagueAct: number;
+    /**
+     * No `eventNormal` / `eventStage` keys: the v1.3.0 Halloween event chests
+     * have **no auto-open** in the game (no `UnlockAutoOpenEvent*Chest` rune
+     * chain), so there is no countdown to show for them.
+     */
   };
   /**
    * v1.3.0 掉率符文加成：各箱型的掉率**乘数**提升百分比。
@@ -2315,6 +2373,8 @@ export type BoxCategory =
   | "plagueCommon"
   | "plagueRare"
   | "plagueAct"
+  | "eventNormal"
+  | "eventStage"
   | "unclassified";
 
 /**
@@ -2322,8 +2382,17 @@ export type BoxCategory =
  * because the lookup module's data source (tbh-data) uses fully-descriptive
  * snake_case names (`stage_boss`/`act_boss`) rather than the in-game rarity
  * tags (`rare`/`act`). Mapped via {@link toLookupCategory}.
+ *
+ * The v1.3.0 Halloween event chests get two entries of their own, mirroring the
+ * normal / stage-boss split: `eventNormal` (940xxx) and `eventStage` (941xxx).
  */
-export type LookupBoxCategory = "common" | "stage_boss" | "act_boss" | "unknown";
+export type LookupBoxCategory =
+  | "common"
+  | "stage_boss"
+  | "act_boss"
+  | "eventNormal"
+  | "eventStage"
+  | "unknown";
 
 /**
  * Map a canonical {@link BoxCategory} to its {@link LookupBoxCategory}
@@ -2346,6 +2415,10 @@ export function toLookupCategory(category: BoxCategory): LookupBoxCategory {
     case "plagueRare":
     case "plagueAct":
       return "unknown";
+    case "eventNormal":
+      return "eventNormal";
+    case "eventStage":
+      return "eventStage";
     case "unclassified":
       return "unknown";
   }
@@ -2454,6 +2527,10 @@ export interface LiveChestSlots {
   plagueCommon: number;
   plagueRare: number;
   plagueAct: number;
+  /** v1.3.0 Halloween event chests — 940xxx (normal tier) — own bucket. */
+  eventNormal: number;
+  /** v1.3.0 Halloween event chests — 941xxx (stage tier) — own bucket. */
+  eventStage: number;
 }
 
 /** Pet unlock state read from save-layer heap (PetSaveData). */
@@ -2600,6 +2677,17 @@ export interface LiveMemorySnapshot {
   at: number;
 }
 
+/**
+ * Why the live reader cannot attach to the game, when the cause is an
+ * environment problem rather than "the game simply is not running".
+ *
+ * - `low-integrity` — the companion process runs below Medium integrity (a
+ *   "Low mandatory level" label on the program directory). Windows then hides
+ *   the Medium-integrity game process from the companion's process list and
+ *   denies `OpenProcess` on it, so the game looks like it is not running.
+ */
+export type LiveMemoryBlocker = "low-integrity";
+
 /** Reader lifecycle/attach state for the status indicator + diagnostics. */
 export interface LiveMemoryStatus {
   /** The reader process is up. */
@@ -2613,6 +2701,11 @@ export interface LiveMemoryStatus {
   supported: boolean;
   /** e.g. "live stats unavailable for game v1.00.99". */
   note?: string;
+  /**
+   * Set when the reader is running but cannot attach for an environment
+   * reason the user can act on (see {@link LiveMemoryBlocker}).
+   */
+  blocker?: LiveMemoryBlocker;
   /** True while the reader is performing an expensive memory scan (offset derivation or class-name resolution). */
   scanning?: boolean;
   /** Self-healing offset resolution health: whether every wanted field is mapped. */

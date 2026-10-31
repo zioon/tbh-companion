@@ -32,6 +32,19 @@ export interface RuneBoxCapCatalog {
   plagueCommon: ChestCapDefinition;
   plagueRare: ChestCapDefinition;
   plagueAct: ChestCapDefinition;
+  /**
+   * v1.3.0 万圣节普通活动箱（940xxx）——独立箱位。
+   *
+   * 游戏没有 `MaxAmountEvent*Chest` 链，故数值沿用 common 链（base 5、
+   * +1/级、同一批符文节点）；箱位本身是 companion 侧的独立记账单位。
+   */
+  eventNormal: ChestCapDefinition;
+  /**
+   * v1.3.0 万圣节关卡活动箱（941xxx）——独立箱位，与普通箱 / 关卡宝箱对称。
+   *
+   * 同样没有专属符文链，数值沿用 stage boss 链（base 5、+1/级、同一批节点）。
+   */
+  eventStage: ChestCapDefinition;
   note?: string;
 }
 
@@ -50,6 +63,15 @@ export interface RuneAutoOpenCatalog {
   plagueCommon: AutoOpenDefinition;
   plagueRare: AutoOpenDefinition;
   plagueAct: AutoOpenDefinition;
+  /**
+   * No `eventNormal` / `eventStage` entries: the v1.3.0 Halloween event boxes
+   * (940xxx/941xxx) have **no auto-open at all**. The game's auto-open chain is
+   * keyed by the box's own type (`UnlockAutoOpen*Chest` / `ReduceAutoOpen*ChestTime`,
+   * one family per common / stage-boss / act-boss / plague tier) and
+   * `RuneInfoData` / `RuneLevelInfoData` carry no `UnlockAutoOpenEvent*Chest`
+   * node — the game never opens an event chest on a timer, the player opens it
+   * by hand. Event chests therefore never enter the auto-classify queue.
+   */
   note?: string;
 }
 

@@ -3,6 +3,8 @@ import {
   boxCategoryLabel,
   boxDropViaLabel,
   boxDropViaSummaries,
+  boxEventTier,
+  boxEventTierFromName,
   boxExpectedValue,
   boxPlagueRule,
   boxPlagueTier,
@@ -16,6 +18,25 @@ import { loadLookupSources } from "../../src/core/lookup/catalog";
 describe("boxStageListLabel", () => {
   it("combines compact stage key and map name", () => {
     expect(boxStageListLabel(1103, "Wasteland")).toBe("Normal 1-3 - Wasteland");
+  });
+});
+
+describe("boxEventTier", () => {
+  it("maps the v1.3.0 Halloween box ids to their own tiers", () => {
+    // The lookup source tags these boxes as plain common / stage_boss (the
+    // wiki data has no EVENT concept) — the id band is the only reliable
+    // signal that they are the Halloween event boxes.
+    expect(boxEventTier(940001)).toBe("eventNormal");
+    expect(boxEventTier(941001)).toBe("eventStage");
+    expect(boxEventTier(920151)).toBeNull();
+    expect(boxEventTier(915001)).toBeNull();
+  });
+
+  it("maps a Halloween box NAME to its tier (lookup drop rows carry only a name)", () => {
+    expect(boxEventTierFromName("Halloween Normal Box (Nightmare)")).toBe("eventNormal");
+    expect(boxEventTierFromName("Halloween Stage Box (Torment)")).toBe("eventStage");
+    expect(boxEventTierFromName("Stage Boss Box Lv90")).toBeNull();
+    expect(boxEventTierFromName(null)).toBeNull();
   });
 });
 

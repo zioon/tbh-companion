@@ -45,9 +45,13 @@ export function ChestCategoryCard({
   title: string;
   slot: BoxSlotStatus;
   breakdown: ChestCapacityBreakdown;
-  /** Effective seconds this chest type takes to auto-open (base − rune reduction). */
-  autoOpenSeconds: number;
-  fillVariant: "gray" | "blue" | "red" | "green";
+  /**
+   * Effective seconds this chest type takes to auto-open (base − rune reduction).
+   * `undefined` = the game never auto-opens this chest type (the v1.3.0
+   * Halloween event boxes), so no countdown is shown.
+   */
+  autoOpenSeconds?: number;
+  fillVariant: "gray" | "blue" | "red" | "green" | "amber";
   /** v1.3.0 掉率符文加成（该箱型无对应符文链时省略）。 */
   dropChance?: ChestDropChanceBreakdown;
 }) {
@@ -84,7 +88,9 @@ export function ChestCategoryCard({
           : "\u00a0"}
       </p>
       <p className="m-0 mt-1 text-xs text-muted">
-        {t("autoOpenTime", { value: fmtShortDuration(autoOpenSeconds) })}
+        {autoOpenSeconds != null
+          ? t("autoOpenTime", { value: fmtShortDuration(autoOpenSeconds) })
+          : t("noAutoOpen")}
       </p>
       <div className="mt-auto flex flex-col gap-0.5 pt-2">
         <p className="m-0 text-xs font-semibold text-fg/80">{t("capacityDetails")}</p>

@@ -9,7 +9,9 @@
     "actBoss": "章ボス",
     "plagueCommon": "疫病・一般",
     "plagueRare": "疫病・ステージボス",
-    "plagueAct": "疫病・章ボス"
+    "plagueAct": "疫病・章ボス",
+    "eventNormal": "ハロウィン一般",
+    "eventStage": "ハロウィンステージ"
   },
   "full": "満杯",
   "slotsAria": "{{used}} / {{capacity}} スロット使用中",
@@ -17,6 +19,7 @@
   "slotsRemainingOne": "残り 1 スロット",
   "capacityDetails": "容量詳細",
   "autoOpenTime": "自動開封 {{value}}",
+  "noAutoOpen": "ゲームでは自動開封しません",
   "capacityBase": "基本 {{count}}",
   "capacityRuneBonus": "{{nodes}} 個の {{runeLabel}} ノードから +{{bonus}}",
   "dropChanceRuneBonus": "ドロップ率 +{{percent}}%（{{nodes}} 個の{{runeLabel}}ノードから）",

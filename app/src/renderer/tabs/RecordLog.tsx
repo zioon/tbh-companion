@@ -113,6 +113,10 @@ const CHEST_COLORS: Record<string, string> = {
   plagueCommon: "#8fd862",
   plagueRare: "#5cd2d6",
   plagueAct: "#8fd862",
+  /** v1.3.0 万圣节活动箱——琥珀色（南瓜）。两个档位共用同一色相，
+   与瘟疫三档共用绿色同理，靠标签区分。 */
+  eventNormal: "#e8b85a",
+  eventStage: "#e8b85a",
 };
 const CLEAR_COLOR = "#dfc149";
 const PLAGUE_COLOR = CHEST_COLORS.plagueCommon;
@@ -162,6 +166,8 @@ type CatFilter =
   | "chestRare"
   | "chestAct"
   | "chestPlague"
+  | "chestEventNormal"
+  | "chestEventStage"
   | "open"
   | "clear"
   | "hero"
@@ -178,6 +184,8 @@ const CAT_CHIP_KEYS: Record<CatFilter, string> = {
   chestRare: "fitChestRare",
   chestAct: "fitChestAct",
   chestPlague: "fitChestPlague",
+  chestEventNormal: "fitChestEventNormal",
+  chestEventStage: "fitChestEventStage",
   open: "fitOpen",
   clear: "fitClear",
   hero: "fitHero",
@@ -194,6 +202,8 @@ const CAT_CHIP_COLORS: Partial<Record<CatFilter, string>> = {
   chestRare: CHEST_COLORS.rare,
   chestAct: CHEST_COLORS.act,
   chestPlague: PLAGUE_COLOR,
+  chestEventNormal: CHEST_COLORS.eventNormal,
+  chestEventStage: CHEST_COLORS.eventStage,
   clear: CLEAR_COLOR,
   hero: HERO_COLOR,
   wish: "#c78fe8",
@@ -433,6 +443,8 @@ export function RecordLog() {
       "chestRare",
       "chestAct",
       "chestPlague",
+      "chestEventNormal",
+      "chestEventStage",
       "open",
       "clear",
       "hero",

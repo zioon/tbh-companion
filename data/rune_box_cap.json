@@ -100,5 +100,49 @@
       11664
     ]
   },
-  "note": "BoxData BoxTypes 0/1/2 map to common/stage boss/act boss slots. Plague (Contaminated) chests are stored separately (v1.02.00) and use MaxAmountPlague*Chest rune chains with boxTypes 3/4/5. Rune keys from game RuneInfoData (MaxAmount*Chest)."
+  "eventNormal": {
+    "boxType": 6,
+    "baseCapacity": 5,
+    "bonusPerLevel": 1,
+    "runeLabel": "Rune of Containment",
+    "runeKeys": [
+      1031,
+      1052,
+      1061,
+      1072,
+      1091,
+      1101,
+      1121,
+      1131,
+      1142,
+      1161,
+      1191,
+      1201,
+      1241,
+      11002,
+      11611
+    ]
+  },
+  "eventStage": {
+    "boxType": 7,
+    "baseCapacity": 5,
+    "bonusPerLevel": 1,
+    "runeLabel": "Rune of the Vault",
+    "runeKeys": [
+      1071,
+      1102,
+      1111,
+      1132,
+      1141,
+      1172,
+      1181,
+      1202,
+      1221,
+      1251,
+      1261,
+      1281,
+      11003
+    ]
+  },
+  "note": "BoxData BoxTypes 0/1/2 map to common/stage boss/act boss slots. Plague (Contaminated) chests are stored separately (v1.02.00) and use MaxAmountPlague*Chest rune chains with boxTypes 3/4/5. Rune keys from game RuneInfoData (MaxAmount*Chest). The v1.3.0 Halloween event chests (940xxx/941xxx) get TWO slots of their own (boxTypes 6/7, companion-internal ids - the game has no event BoxType): eventNormal (940xxx, common tier) and eventStage (941xxx, stage-boss tier), mirroring the normal / stage-boss split of the regular chests. The game ships no MaxAmountEvent*Chest chain, so both event slots reuse the corresponding base chain's numbers (base 5, +1/level, same rune nodes as common / stage boss). Note: the event boxes have NO auto-open and NO drop cooldown in the game (no UnlockAutoOpenEvent*Chest node; ItemInfoData.DropCooldown = 3 s), so the event slots are holding counters only - see docs/business-flows/09-chest-and-autoclassify.md 13.7."
 }

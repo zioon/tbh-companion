@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 import type { LookupBoxCategory, LookupBoxDropVia } from "../../../shared/types";
-import type { BoxPlagueRule, BoxPlagueTier } from "../../core/lookup/boxDisplay";
-import { boxPlagueTier } from "../../core/lookup/boxDisplay";
+import type { BoxEventTier, BoxPlagueRule, BoxPlagueTier } from "../../core/lookup/boxDisplay";
+import { boxEventTier, boxEventTierFromName, boxPlagueTier } from "../../core/lookup/boxDisplay";
 
 /**
  * Renderer-side i18n wrappers for `core/lookup/boxDisplay` English helpers.
@@ -48,6 +48,30 @@ export function translateBoxPlagueTier(t: TFunction<"lookup">, tier: BoxPlagueTi
   }
 }
 
+/** Localized label for a v1.3.0 Halloween event chest tier. */
+export function translateBoxEventTier(t: TFunction<"lookup">, tier: BoxEventTier): string {
+  switch (tier) {
+    case "eventNormal":
+      return t("box.categoryEventNormal");
+    case "eventStage":
+      return t("box.categoryEventStage");
+  }
+}
+
+/**
+ * Trailing "(Nightmare)" / "(Hell)" / "(Torment)" difficulty suffix of a box
+ * name, with the difficulty word localized. The Halloween event boxes are the
+ * only ones whose name carries the difficulty in parentheses (their level
+ * numbering differs per difficulty: 39 / 59 / 84), so the suffix has to
+ * survive the category rebuild — otherwise the three difficulties would be
+ * indistinguishable.
+ */
+function localizedDifficultySuffix(t: TFunction<"lookup">, boxName: string): string {
+  const m = /\(([^)]+)\)\s*$/.exec(boxName);
+  if (!m) return "";
+  return localizeDifficultyWords(t, m[0]);
+}
+
 /** Localized acquisition-rule line for a plague box (shared group vs unique). */
 export function translateBoxPlagueRule(t: TFunction<"lookup">, rule: BoxPlagueRule): string {
   switch (rule.kind) {
@@ -72,6 +96,15 @@ export function translateBoxDropName(
   t: TFunction<"lookup">,
   drop: { via: string; boxName: string },
 ): string {
+  // v1.3.0 Halloween event boxes: the lookup source tags them as plain
+  // common / stage_boss, so the `via` alone would render them as the wrong
+  // chest. Detect them by name and use the event label (+ difficulty).
+  const event = boxEventTierFromName(drop.boxName);
+  if (event != null) {
+    const base = translateBoxEventTier(t, event);
+    const suffix = localizedDifficultySuffix(t, drop.boxName);
+    return suffix ? `${base} ${suffix}` : base;
+  }
   const category = viaToCategory(drop.via);
   const base = translateBoxCategoryLabel(t, category);
   const levelMatch = drop.boxName.match(/Lv?\s*(\d+)\s*$/i);
@@ -105,6 +138,15 @@ export function localizedBoxName(
   box: { name: string; category: LookupBoxCategory; level?: number | null },
   boxItemKey: number,
 ): string {
+  // v1.3.0 Halloween event boxes come first: the lookup source tags them as
+  // plain common / stage_boss, so without this they would be rendered as the
+  // wrong chest AND mixed into the wrong group.
+  const event = boxEventTier(boxItemKey);
+  if (event != null) {
+    const base = translateBoxEventTier(t, event);
+    const suffix = localizedDifficultySuffix(t, box.name);
+    return suffix ? `${base} ${suffix}` : base;
+  }
   const tier = boxPlagueTier(boxItemKey);
   const base =
     tier != null ? translateBoxPlagueTier(t, tier) : translateBoxCategoryLabel(t, box.category);

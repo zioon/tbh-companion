@@ -52,6 +52,7 @@
   "commonChests": "普通宝箱",
   "normalMapTime": "普通地图 {{time}}",
   "plagueMapTime": "瘟疫地图 {{time}}",
+  "eventMapTime": "活动地图 {{time}}",
   "stageBossChests": "关卡 Boss 宝箱",
   "actBossChests": "章节 Boss 宝箱",
   "plagueCommonChests": "瘟疫普通宝箱",
@@ -104,5 +105,7 @@
   "saveStatusWritten": "存档写入于 {{ago}}",
   "saveStatusIdleHint": "—— 游戏是否在运行？",
   "saveStatusStale": "存档读取失败——当前显示的是失败前的旧数值（游戏更新后？）",
-  "goldStatusStale": "金币实时读数已失效（当前游戏版本的内存偏移尚未适配）——显示的是上次存档余额"
+  "goldStatusStale": "金币实时读数已失效（当前游戏版本的内存偏移尚未适配）——显示的是上次存档余额",
+  "eventNormalChests": "万圣节普通宝箱",
+  "eventStageChests": "万圣节关卡宝箱"
 }

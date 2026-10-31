@@ -156,6 +156,8 @@ export function readRuntimeChestSlots(
     plagueCommon: 0,
     plagueRare: 0,
     plagueAct: 0,
+    eventNormal: 0,
+    eventStage: 0,
   };
   for (let i = 0; i < types.length; i++) {
     const category = boxTypeCatalog.get(types[i]!);
@@ -177,12 +179,15 @@ export function readRuntimeChestSlots(
 //   "Contaminated Normal Box*"   → plagueCommon  （v1.02.00 Plague 独立保管）
 //   "Contaminated Stage Box*"    → plagueRare
 //   "Contaminated ActBoss Box*"  → plagueAct
-//   "Halloween Normal Box*"      → common  （v1.3.0 万圣节活动箱）
-//   "Halloween Stage Box*"       → rare
+//   "Halloween Normal Box*"      → eventNormal （v1.3.0 万圣节活动箱，独立箱位）
+//   "Halloween Stage Box*"       → eventStage
 //
-// v1.3.0 的活动箱（CONTENTTYPE=EVENT，id 段 940xxx/941xxx）**没有**独立的
-// 容量符文链（游戏 RuneInfoData 无 MaxAmountEvent*Chest），所以它们占用的是
-// 既有的 common / rare 桶位 —— 上面这两条前缀映射正是这个事实的落地。
+// v1.3.0 的活动箱（CONTENTTYPE=EVENT，id 段 940xxx/941xxx）在游戏里**没有**独立的
+// 容量符文链（游戏 RuneInfoData 无 MaxAmountEvent*Chest），实际占用的是既有的
+// common / rare 桶位；也**没有自动开箱**（无 UnlockAutoOpenEvent*Chest）与
+// **掉落冷却**（ItemInfoData.DropCooldown = 3 秒）。按产品决策，companion 侧仍把
+// 它们拆成**两个独立箱位** `eventNormal` / `eventStage`（与普通箱 / 关卡宝箱
+// 对称），以便在 Chests / Loot 页与普通、关卡宝箱分开归类与排队。
 // ---------------------------------------------------------------------------
 
 /** 依据 gamedata 物品名前缀，把一个箱子 item 归类到 tracker 的 BoxCategory。 */
@@ -191,8 +196,8 @@ export function categoryFromBoxItemName(name: string | null | undefined): BoxCat
   if (name.startsWith("Contaminated Normal Box")) return "plagueCommon";
   if (name.startsWith("Contaminated Stage Box")) return "plagueRare";
   if (name.startsWith("Contaminated ActBoss Box")) return "plagueAct";
-  if (name.startsWith("Halloween Normal Box")) return "common";
-  if (name.startsWith("Halloween Stage Box")) return "rare";
+  if (name.startsWith("Halloween Normal Box")) return "eventNormal";
+  if (name.startsWith("Halloween Stage Box")) return "eventStage";
   if (name.startsWith("Normal Monster Box")) return "common";
   if (name.startsWith("Stage Boss Box")) return "rare";
   if (name.startsWith("Act Boss Box")) return "act";

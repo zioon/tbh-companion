@@ -76,6 +76,9 @@ function reclassifyCategoryOptions(t: TFunction<"loot">): SelectOption[] {
     { value: "plagueCommon", label: t("boxSection.categoryOptionPlagueCommon") },
     { value: "plagueRare", label: t("boxSection.categoryOptionPlagueRare") },
     { value: "plagueAct", label: t("boxSection.categoryOptionPlagueAct") },
+    // v1.3.0 万圣节活动箱（940xxx/941xxx）——两个独立类别。
+    { value: "eventNormal", label: t("boxSection.categoryOptionEventNormal") },
+    { value: "eventStage", label: t("boxSection.categoryOptionEventStage") },
   ];
 }
 

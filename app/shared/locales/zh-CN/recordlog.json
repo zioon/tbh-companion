@@ -26,5 +26,7 @@
   "pageOlder": "下一页",
   "pageLatest": "回到最新",
   "pageOf": "第 {{page}} / {{total}} 页",
-  "pageLoading": "加载中…"
+  "pageLoading": "加载中…",
+  "fitChestEventNormal": "万圣节普通宝箱",
+  "fitChestEventStage": "万圣节关卡宝箱"
 }

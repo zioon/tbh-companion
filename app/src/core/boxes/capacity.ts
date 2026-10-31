@@ -47,6 +47,31 @@ export function plagueActBoxCapacity(
   return boxCapacity(purchases, catalog.plagueAct);
 }
 
+/**
+ * v1.3.0 万圣节普通活动箱（940xxx）容量。
+ *
+ * 活动箱在游戏里占用 common / rare 桶（无 `MaxAmountEvent*Chest` 链），这里
+ * 仍按产品决策给它**独立箱位**，数值沿用 common 链。
+ */
+export function eventNormalBoxCapacity(
+  purchases: RunePurchase[],
+  catalog: RuneBoxCapCatalog,
+): number {
+  return boxCapacity(purchases, catalog.eventNormal);
+}
+
+/**
+ * v1.3.0 万圣节关卡活动箱（941xxx）容量。
+ *
+ * 同样没有专属符文链，数值沿用 stage boss 链。
+ */
+export function eventStageBoxCapacity(
+  purchases: RunePurchase[],
+  catalog: RuneBoxCapCatalog,
+): number {
+  return boxCapacity(purchases, catalog.eventStage);
+}
+
 export function boxSlotState(heldQty: number, capacity: number): BoxSlotStatus {
   const quantity = Math.max(0, heldQty);
   const cap = Math.max(0, capacity);

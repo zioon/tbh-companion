@@ -51,8 +51,11 @@ describe("BoxTimerService", () => {
     expect(state.rows).toHaveLength(4);
     // Catalog covers all canonical RARE tracker routes. Box 1/2/3/6 phantom
     // tracker entries were removed; game v1.2.2 added higher-level 925xxx stage
-    // boss boxes (→71); game v1.3.0 added the 3 Halloween stage boxes (→74).
-    expect(state.catalog).toHaveLength(74);
+    // boss boxes (→71). game v1.3.0 added 3 more canonical RARE boxes (941xxx,
+    // Halloween) but they are EXCLUDED again: the event boxes have no drop
+    // cooldown (`ItemInfoData.DropCooldown` = 3 s), so there is nothing to
+    // count down for them.
+    expect(state.catalog).toHaveLength(71);
     expect(state.defaultCooldownSeconds).toBe(720);
   });
 

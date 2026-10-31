@@ -33,7 +33,17 @@ export function Chests() {
     );
   }
 
-  const { common, stageBoss, actBoss, plagueCommon, plagueRare, plagueAct, totalHeld } = chests;
+  const {
+    common,
+    stageBoss,
+    actBoss,
+    plagueCommon,
+    plagueRare,
+    plagueAct,
+    eventNormal,
+    eventStage,
+    totalHeld,
+  } = chests;
 
   return (
     <TabPage>
@@ -89,6 +99,21 @@ export function Chests() {
             breakdown={chests.capacity.plagueAct}
             autoOpenSeconds={chests.autoOpen.plagueAct}
             fillVariant="green"
+          />
+          {/* v1.3.0 万圣节活动箱（940xxx/941xxx）——两个独立箱位。
+              游戏侧没有自动开箱链（`UnlockAutoOpenEvent*Chest` 不存在），
+              所以这两张卡不显示自动开箱时间。 */}
+          <ChestCategoryCard
+            title={t("category.eventNormal")}
+            slot={eventNormal}
+            breakdown={chests.capacity.eventNormal}
+            fillVariant="amber"
+          />
+          <ChestCategoryCard
+            title={t("category.eventStage")}
+            slot={eventStage}
+            breakdown={chests.capacity.eventStage}
+            fillVariant="amber"
           />
         </div>
         {chests.orphanExclusions && chests.orphanExclusions.act > 0 ? (

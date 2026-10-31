@@ -181,26 +181,60 @@ v1.2.2 把 `PlayerSaveData.BoxData`（两列 int，静态可达）整体移除�
 - **行为边界**：污染宝箱 save 侧解析与普通宝箱一致（BoxBucketGetBoxList + itemSaveDatas 前缀分类）。
 - **掉落追踪（2026-09-11 更新）**：`ChestDropTracker` 已支持 6 类（common/rare/act/plagueCommon/plagueRare/plagueAct）。live 掉落依据**当前地图判定瘟疫**——瘟疫箱子只在瘟疫之地掉落，`isPlagueStage(stageKey)` 聚合瘟疫箱（915/925/935）的 `tracker.dropStageKeys`/`idealStageKey` 成 Set，`resolveLiveDropCategory` 在瘟疫地图把 base category 升级为 `plague*`（详见 14.4 Step 5）。AutoClassify 的 reconcile 补偿类别已扩至 6 类；Live/Loot 掉落面板均渲染 6 类。
 
-### 13.7 v1.3.0 万圣节活动箱：复用 common / rare 槽位（不新增 BoxCategory）
+### 13.7 v1.3.0 万圣节活动箱：companion 侧**两个独立箱位**（`eventNormal` / `eventStage`），游戏侧无自动开箱 / 无掉落冷却
 
 游戏 v1.3.0（2026-10-22 更新）新增**万圣节活动**（EventKey 50001，活动期 2026-09-18 ~ 2026-11-11），含 3 张 EVENT 关卡（`2901`/`3901`/`4901`，`StageInfoData.STAGETYPE=EVENT`）与 6 个新箱子（`ItemInfoData.CONTENTTYPE=EVENT`）：
 
-| 物品                                | 前缀                      | grade | 类别（占用槽位） | 掉落关卡                    |
-| ----------------------------------- | ------------------------- | ----- | ---------------- | --------------------------- |
-| `940xxx` Halloween Normal Box       | `Halloween Normal Box`    | COMMON| `common`         | 2901 / 3901 / 4901（怪掉） |
-| `941xxx` Halloween Stage Box        | `Halloween Stage Box`     | RARE  | `rare`          | 2901 / 3901 / 4901（Boss掉）|
+| 物品                                | 前缀                      | grade | companion 类别    | 游戏侧占用桶位 | 掉落关卡                    |
+| ----------------------------------- | ------------------------- | ----- | ----------------- | -------------- | --------------------------- |
+| `940xxx` Halloween Normal Box       | `Halloween Normal Box`    | COMMON| `eventNormal`     | `common`       | 2901 / 3901 / 4901（怪掉） |
+| `941xxx` Halloween Stage Box        | `Halloween Stage Box`     | RARE  | `eventStage`      | `rare`        | 2901 / 3901 / 4901（Boss掉）|
 
-**关键结论：不新增 BoxCategory / 容量槽位。** 依据：游戏 `RuneInfoData` **没有** `MaxAmountEvent*Chest` 之类的活动专用容量符文链（`rune_box_cap.json` / `rune_auto_open.json` 三份表逐项核对与 v1.2.8 **完全一致**），且 `IsBucketBox=True` 与普通箱同义 ⇒ 活动箱占用既有的 common / rare 桶位。与 v1.02.00 瘟疫箱（`915/925/935`，有独立 `MaxAmountPlague*Chest` 链 → 独立槽位）形成对照。
+**游戏侧事实（v1.3.2 复核 + IL2CPP metadata 核验）**：
 
-**companion 适配（2026-10-22）**：
+- **无专属容量符文链**：`RuneInfoData` 没有 `MaxAmountEvent*Chest`（与 v1.2.8 逐项核对一致）⇒ 活动箱占用既有的 common / rare 桶位。
+- **无自动开箱**：`RuneInfoData` / `RuneLevelInfoData` 都没有 `UnlockAutoOpenEvent*Chest` / `ReduceAutoOpenEvent*ChestTime` 节点 ⇒ **游戏永远不会用计时器打开活动箱**，玩家只能手动开。
+- **无掉落冷却**：`ItemInfoData.DropCooldown` = **3 秒**（普通箱 180 s、关卡箱 300 s、章节 Boss 箱无该字段）⇒ 活动箱的「再掉一个」几乎没有冷却，**不需要也不应该**给它们配冷却计时器。
+- **游戏侧没有 EVENT 箱型**：`global-metadata.dat` 里 `EBoxType` 只有 `NORMAL` / `BOSS` / `ACTBOSS` 三个成员，`EVENT` 属于 `EContentType`。⇒ 活动箱在游戏里本就与普通箱 / 关卡箱共用桶位；companion 的两个独立类别是**产品决策**。
+- `IsBucketBox=True` 与普通箱同义 ⇒ 它们仍是「桶内未开箱」，占桶位。
 
-- **管道2**：`scripts/build_tbh_data.py` 的 `category_via_for` 原本只覆盖 910000-939999，导致 `940/941` 段箱子既不在 `lookup_sources.boxes`（无掉落图）、也不在 `stage_boxes.json`，且 `stages` 里 2901/3901/4901 的 `boxes` 引用退化为裸 id。已扩展到 940000-949999（`940xxx`→common/monster_box、`941xxx`→stage_boss/boss_box）。管道2 产物随之从 140 箱增至 146 箱。
-- **分类（存档侧）**：`categoryFromBoxItemName`（`core/liveMemory/chestSlots.ts`）新增 `Halloween Normal Box*` → `common`、`Halloween Stage Box*` → `rare`。
-- **分类（id 前缀侧）**：`categoryFromPrefix`（`core/chestDropTracker.ts`）与 `chestCategoryFromKey`（`renderer/lib/chests.ts`）新增 `940xxx`→common、`941xxx`→rare。
-- **箱子识别**：`isBoxItemKey`（`core/boxOpenLog.ts`）上界由 940000 放宽到 950000，并新增 940/941 两个 band。
-- **图标**：`boxIconPath`（`renderer/lib/boxIconPath.ts`）新增 `940*`→`item-940001`、`941*`→`item-941001`（游戏 `IconPath` 列里同一 band 的三个难度共用一个 sprite）。`scripts/extract_icons.py` 新增 `BOX_BAND_ICONS` 常量，把箱子 band 图标纳入自动提取（此前这些图标只能手工加）。
-- **tracker 路由**：`stage_boxes.json` 中 6 个活动箱带 `tracker` 元数据（`idealStageKey` 2901/3901/4901、`dropStageKeys` 各 1 个），因此 RARE 路由 71 → 74、COMMON 路由 +3。**level 无冲突**：活动箱 level 为 39/59/84（取自 EVENT 关卡 `StageLevel`），与既有 canonical 箱的 level 集合不重叠。
-- **⚠️ 已知边界**：`boxPlagueTier`（`core/lookup/boxDisplay.ts`）**不**包含活动箱 —— 该函数语义是「污染（瘟疫）箱层级」，活动箱不是瘟疫箱，故返回 null，UI 按普通 common/rare 类别展示。
+**companion 适配（2026-10-28，产品决策：两个独立类别 + 两个独立箱位）**：
+
+> 决策：活动箱在 companion 侧是**两个独立类别** —— `eventNormal`（940xxx，普通型）与 `eventStage`（941xxx，关卡型）—— 与普通箱 / 关卡宝箱的切分方式**对称**。在 **Chests 页（宝箱）** 与 **掉落统计（Loot / Live）** 两处都分别单开一张卡；但**不**为它们虚构游戏里不存在的自动开箱与掉落冷却。
+
+| 维度 | 活动箱（`eventNormal` / `eventStage`） | 说明 |
+| ---- | ------------------------------------ | ---- |
+| 类别 | **两个独立类别** | `BoxCategory` / `ChestDropCategory` / `LookupBoxCategory` 均含 `eventNormal` + `eventStage` |
+| 容量 | **两个独立箱位** | `data/rune_box_cap.json` 新增 `eventNormal`（boxType 6）+ `eventStage`（boxType 7），boxType 为 companion 内部编号；数值分别沿用 common 链 / stage boss 链（base 5、+1/级），因为游戏无 event 容量链 —— 属于**近似值**，已在数据文件 note 中标注 |
+| 自动开箱 | **无** | `ChestState.autoOpen` **不含** `eventNormal` / `eventStage` 键；`data/rune_auto_open.json` **不含** event 条目；活动箱**不进自动开箱队列**（`AutoClassifyService.handleChestDrop` 直接 return，只自增 `liveSlots[cat]`） |
+| 掉落冷却 | **无** | `LootRingSeconds` **不含** event 键（无冷却圈）；活动箱**不进 BoxTimer 路由**（`loadStageBoxTrackerRoutes` / `loadCommonChestTrackerRoutes` 用 `isEventBoxItemId` 过滤掉 940/941 段） |
+| 掉率符文 | 无 | 游戏没有 `DropChance*Event*Percent` ⇒ `ChestState.dropChance` 不含 event 键，UI 不显示该行 |
+| 掉落统计 | **两个独立桶** | `ChestDropStats` 新增 `eventNormalTotal/PerHour/RecentPerHour/Session` 与 `eventStageTotal/PerHour/RecentPerHour/Session`；两者速率都按**活动地图**时长（第三种 map family）折算 |
+| 手动开箱 | **仍可分类** | 活动箱虽不入队，但玩家手动开箱产生的 burst 必须能归到对应档位 ⇒ `classifyPendingBursts` 的类别表**同时包含** `eventNormal` 与 `eventStage` |
+
+**分类入口（统一到一张表）**：
+
+- **id 前缀**：新增 `app/src/core/boxCategories.ts` —— `categoryFromBoxItemId(itemId)` 是**唯一**的 band 表（910/915/920/925/930/935/940/941，其中 940 → `eventNormal`、941 → `eventStage`），`core/chestDropTracker.ts::categoryFromPrefix` 与 `renderer/lib/chests.ts::chestCategoryFromKey` 都改为委托它，杜绝三处实现漂移。
+- **物品名（存档侧）**：`core/liveMemory/chestSlots.ts::categoryFromBoxItemName` 新增 `Halloween Normal Box*` → `eventNormal`、`Halloween Stage Box*` → `eventStage`（原为 common / rare）。
+- **live 掉落分类**：`core/chestDropTracker.ts::resolveLiveDropCategory` 在活动地图上把基础档位升级成对应活动档位（common → `eventNormal`、rare → `eventStage`；活动地图没有 act 档箱 ⇒ `act` 原样透传）。
+- **箱子识别**：`isBoxItemKey`（`core/boxOpenLog.ts`）已含 940/941 两个 band；`categoryFromBoxKey` / `boxLabel` 新增 `eventNormal` / `eventStage`。
+- **图标**：`boxIconPath`（`renderer/lib/boxIconPath.ts`）`940*`→`item-940001`、`941*`→`item-941001`（游戏 `IconPath` 列里同一 band 的三个难度共用一个 sprite）。`scripts/extract_icons.py` 的 `BOX_BAND_ICONS` 把箱子 band 图标纳入自动提取。
+
+**UI**：
+
+- Chests 页第 7、8 张槽位卡（`ChestCategoryCard` 新增 `amber` 变体 / `CapacityBar` 新增 amber）；两张活动箱卡都**不显示自动开箱时间**，改显「游戏内不会自动开启」。
+- 持有分组与图鉴目录分组：`CHEST_GROUPS` 新增 `eventNormal` + `eventStage`（`renderer/lib/chests.ts`，桌面端与网页版共用）。
+- Live 页新增**两张**活动箱掉落统计卡（会话数 / 小时速率 / 滚动 1 小时速率；普通型那张额外标注活动地图时长）。
+- 记录页新增 `chestEventNormal` / `chestEventStage` 两个筛选项（琥珀色）。
+- 手动分类弹窗 `ClassifyPromptDialog` 与重分类下拉 `LootBoxSection.reclassifyCategoryOptions` 均新增两个活动档位选项。
+- 图鉴页：`lookup_sources.json` 把活动箱标成 `common` / `stage_boss`（wiki 数据没有 EVENT 概念）⇒ 新增 `core/lookup/boxDisplay.ts::boxEventTier`（按 id 段）与 `boxEventTierFromName`（按名称），`renderer/lib/boxDisplay.ts` 的 `localizedBoxName` / `translateBoxDropName` 优先用活动箱文案 + 难度后缀（`(Nightmare)` / `(Hell)` / `(Torment)`），不再显示成泛化的「普通宝箱 / 关卡宝箱」。
+
+**开箱掉落物判定（自动）**：
+
+- 游戏侧的 `BoxOpenLog`（live memory）**每条记录都带开箱产出的物品 id**（`itemStringKey` → `BoxOpenEntry.itemKey`）与品质 ⇒ companion 的 `BoxOpenTracker` 已经把每次开箱的物品挂到对应箱子下，Loot 页能出「物品名 / 品质 / 数量 / 挂单价 / 合成点数」明细。**这一条对活动箱同样成立**：活动箱虽不入自动开箱队列，但手动开箱同样会写 `BoxOpenLog`。
+- **归属判定**（哪个箱子）：自动开的箱走「掉落队列 + 时间窗匹配」；**手动开的箱**走「存档箱位数量差分」——存档侧按物品段分类，940/941 与 910/920 分得开 ⇒ 手动开活动箱也能自动归到 `eventNormal` / `eventStage`。
+- **前提**：必须开启 live memory。存档里没有逐次开箱记录，不开 live memory 的话任何实现都还原不出来。
+- **⚠️ 已知边界**：live memory 的箱位读取（`readRuntimeChestSlots`）只读 `BoxData.BoxTypes[] + BoxQuantity[]`（游戏的 `SerializedBoxData` **没有**内容类型数组）⇒ 内存路径分不开活动箱与普通箱；活动箱箱位与归属判定以**存档解析**为准（`AutoClassifyService.liveSlots` 全部来自存档 reconcile，UI 数字也来自存档）。
 
 ### 13.8 v1.3.0 掉率符文（DropChance*）：掉率乘数加成
 

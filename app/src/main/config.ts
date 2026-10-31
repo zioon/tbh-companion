@@ -63,7 +63,9 @@ const DEFAULT_LOOKUP_PRICE_POLLING: LookupPricePollingPrefs = {
 // Lap duration defaults: Common chest = 5 min, Stage-boss chest = 7 min
 // (matches the mini overlay's boss-chest ring lap duration). Plague
 // (Contaminated) chests get their own laps — common/rare mirror the normal
-// rates, act-boss is rarer so its lap defaults to 1 hour.
+// rates, act-boss is rarer so its lap defaults to 1 hour. The v1.3.0
+// Halloween event chests get NO lap: the game gives them no drop cooldown
+// (`ItemInfoData.DropCooldown` = 3 s), so there is no cooldown ring for them.
 const DEFAULT_LOOT_RING_SECONDS: LootRingSeconds = {
   common: 5 * 60,
   stage: 7 * 60,

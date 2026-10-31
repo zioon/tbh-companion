@@ -26,10 +26,12 @@ export function boxCategoryFromType(boxType: number | undefined | null): BoxCate
  * Whether a catalog itemKey denotes a chest (stage box) rather than loot.
  *
  * Chests occupy their own id bands (910xxx / 915xxx / 920xxx / 925xxx /
- * 930xxx / 935xxx) — the same ranges `chestDropTracker.categoryFromPrefix`
- * maps to categories. v1.3.0 adds the Halloween event boxes (940xxx /
- * 941xxx, CONTENTTYPE=EVENT), which reuse the common / rare bucket slots
- * (the game has no dedicated capacity rune chain for them).
+ * 930xxx / 935xxx / 940xxx / 941xxx) — the same ranges
+ * `core/boxCategories.ts::categoryFromBoxItemId` maps to categories. v1.3.0
+ * adds the Halloween event boxes (940xxx / 941xxx, CONTENTTYPE=EVENT): the
+ * game gives them no dedicated capacity / auto-open / drop-cooldown chain, so
+ * they sit in the existing common / rare buckets — but the companion tracks
+ * them as their own `eventNormal` / `eventStage` families.
  *
  * Callers use this to protect box rows from catalog normalizers that would
  * otherwise drop them: a box key's item is bookkeeping, not inventory loot,
@@ -73,6 +75,8 @@ export function boxLabel(boxKey: string): string {
   if (boxKey === "plagueCommon") return "Plague common chest";
   if (boxKey === "plagueRare") return "Plague stage boss chest";
   if (boxKey === "plagueAct") return "Plague act boss chest";
+  if (boxKey === "eventNormal") return "Halloween common chest";
+  if (boxKey === "eventStage") return "Halloween stage boss chest";
   if (boxKey === "unclassified") return "Unclassified";
   const colonIdx = boxKey.indexOf(":");
   if (colonIdx > 0) {
@@ -98,6 +102,8 @@ export function categoryFromBoxKey(boxKey: string): BoxCategory | null {
     cat === "plagueCommon" ||
     cat === "plagueRare" ||
     cat === "plagueAct" ||
+    cat === "eventNormal" ||
+    cat === "eventStage" ||
     cat === "unclassified"
   ) {
     return cat;

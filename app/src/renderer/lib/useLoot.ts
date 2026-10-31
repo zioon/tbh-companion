@@ -148,6 +148,8 @@ export function useLoot(): {
       plagueCommon: null,
       plagueRare: null,
       plagueAct: null,
+      eventNormal: null,
+      eventStage: null,
       unclassified: null,
     };
     const history = stats?.chestDrops?.history ?? [];

@@ -34,6 +34,8 @@ export {
   commonBoxCapacity,
   stageBossBoxCapacity,
   actBossBoxCapacity,
+  eventNormalBoxCapacity,
+  eventStageBoxCapacity,
   boxSlotState,
   commonBoxState,
   commonQuantityFromRows,

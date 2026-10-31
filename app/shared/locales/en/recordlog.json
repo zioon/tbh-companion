@@ -26,5 +26,7 @@
   "pageOlder": "Older",
   "pageLatest": "Back to latest",
   "pageOf": "Page {{page}} of {{total}}",
-  "pageLoading": "Loading…"
+  "pageLoading": "Loading…",
+  "fitChestEventNormal": "Halloween common chests",
+  "fitChestEventStage": "Halloween stage chests"
 }

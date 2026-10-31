@@ -6,7 +6,9 @@
     "unclassified": "Sin clasificar",
     "plagueCommon": "Cofre común de la plaga",
     "plagueRare": "Cofre de jefe de etapa de la plaga",
-    "plagueAct": "Cofre de jefe de acto de la plaga"
+    "plagueAct": "Cofre de jefe de acto de la plaga",
+    "eventNormal": "Cofre normal de Halloween",
+    "eventStage": "Cofre de etapa de Halloween"
   },
   "levelSuffix": "{{base}} Nv.{{level}}"
 }

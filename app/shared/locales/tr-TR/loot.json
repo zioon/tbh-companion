@@ -6,7 +6,9 @@
     "unclassified": "Sınıflandırılmamış",
     "plagueCommon": "Veba Sıradan Sandığı",
     "plagueRare": "Veba Aşama Patron Sandığı",
-    "plagueAct": "Veba Perde Patron Sandığı"
+    "plagueAct": "Veba Perde Patron Sandığı",
+    "eventNormal": "Halloween Normal Sandığı",
+    "eventStage": "Halloween Stage Sandığı"
   },
   "levelSuffix": "{{base}} Sv.{{level}}"
 }

@@ -9,7 +9,9 @@
     "actBoss": "챕터 보스",
     "plagueCommon": "역병 일반",
     "plagueRare": "역병 스테이지 보스",
-    "plagueAct": "역병 챕터 보스"
+    "plagueAct": "역병 챕터 보스",
+    "eventNormal": "할로윈 일반",
+    "eventStage": "할로윈 스테이지"
   },
   "full": "가득 참",
   "slotsAria": "{{used}} / {{capacity}} 슬롯 사용 중",
@@ -17,6 +19,7 @@
   "slotsRemainingOne": "1개 슬롯 남음",
   "capacityDetails": "용량 세부 정보",
   "autoOpenTime": "자동 열기 {{value}}",
+  "noAutoOpen": "게임에서 자동 개봉되지 않음",
   "capacityBase": "기본 {{count}}",
   "capacityRuneBonus": "{{nodes}}개의 {{runeLabel}} 노드에서 +{{bonus}}",
   "dropChanceRuneBonus": "드롭 확률 +{{percent}}%（{{nodes}}개의 {{runeLabel}} 노드에서）",

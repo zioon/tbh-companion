@@ -6,7 +6,9 @@
     "unclassified": "Niesklasyfikowana",
     "plagueCommon": "Zwykła skrzynia zarazy",
     "plagueRare": "Skrzynia bossa etapu zarazy",
-    "plagueAct": "Skrzynia bossa aktu zarazy"
+    "plagueAct": "Skrzynia bossa aktu zarazy",
+    "eventNormal": "Skrzynia skarbów Halloween (normalna)",
+    "eventStage": "Skrzynia skarbów Halloween (etap)"
   },
   "levelSuffix": "{{base}} Poz.{{level}}"
 }

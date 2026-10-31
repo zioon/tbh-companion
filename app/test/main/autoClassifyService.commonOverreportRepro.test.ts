@@ -88,6 +88,8 @@ const zero = () => ({
   plagueCommon: 0,
   plagueRare: 0,
   plagueAct: 0,
+  eventNormal: 0,
+  eventStage: 0,
 });
 
 /** Count queued items of a category from the public snapshot. */

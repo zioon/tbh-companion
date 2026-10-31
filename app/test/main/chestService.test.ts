@@ -50,6 +50,8 @@ function makeChestState(
   plagueCommon = 0,
   plagueRare = 0,
   plagueAct = 0,
+  eventNormal = 0,
+  eventStage = 0,
 ): ChestState {
   const cap = { base: 10, runeBonus: 0, purchasedCapRuneNodes: 0, runeLabel: "" };
   return {
@@ -90,6 +92,19 @@ function makeChestState(
       isFull: plagueAct >= 5,
       slotsRemaining: 5 - plagueAct,
     },
+    // v1.3.0 万圣节活动箱——两个独立箱位（游戏侧无自动开箱链）。
+    eventNormal: {
+      quantity: eventNormal,
+      capacity: 5,
+      isFull: eventNormal >= 5,
+      slotsRemaining: 5 - eventNormal,
+    },
+    eventStage: {
+      quantity: eventStage,
+      capacity: 5,
+      isFull: eventStage >= 5,
+      slotsRemaining: 5 - eventStage,
+    },
     capacity: {
       common: cap,
       stageBoss: cap,
@@ -97,6 +112,8 @@ function makeChestState(
       plagueCommon: cap,
       plagueRare: cap,
       plagueAct: cap,
+      eventNormal: cap,
+      eventStage: cap,
       totalRunePurchases: 0,
     },
     autoOpen: {
@@ -113,7 +130,15 @@ function makeChestState(
       plagueCommon: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
       plagueRare: { bonusPercent: 0, purchasedRuneNodes: 0, runeLabel: "" },
     },
-    totalHeld: common + stageBoss + actBoss + plagueCommon + plagueRare + plagueAct,
+    totalHeld:
+      common +
+      stageBoss +
+      actBoss +
+      plagueCommon +
+      plagueRare +
+      plagueAct +
+      eventNormal +
+      eventStage,
     saveMtime: 1000,
     runeBonusSlots: 0,
   };
@@ -143,8 +168,26 @@ describe("ChestService.setOnReconcile", () => {
     service.onSave("text1", 1000, []);
     service.onSave("text2", 2000, []);
     expect(calls).toEqual([
-      { common: 3, rare: 2, act: 1, plagueCommon: 0, plagueRare: 0, plagueAct: 0 },
-      { common: 1, rare: 2, act: 0, plagueCommon: 0, plagueRare: 0, plagueAct: 0 },
+      {
+        common: 3,
+        rare: 2,
+        act: 1,
+        plagueCommon: 0,
+        plagueRare: 0,
+        plagueAct: 0,
+        eventNormal: 0,
+        eventStage: 0,
+      },
+      {
+        common: 1,
+        rare: 2,
+        act: 0,
+        plagueCommon: 0,
+        plagueRare: 0,
+        plagueAct: 0,
+        eventNormal: 0,
+        eventStage: 0,
+      },
     ]);
   });
 
@@ -172,6 +215,8 @@ describe("ChestService.setOnReconcile", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
   });
 
@@ -237,6 +282,8 @@ describe("ChestService.setLiveSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.setLiveSlots({
       common: 1,
@@ -245,6 +292,8 @@ describe("ChestService.setLiveSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.setLiveSlots({
       common: 2,
@@ -253,6 +302,8 @@ describe("ChestService.setLiveSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
 
     expect(calls).toEqual([
@@ -276,6 +327,8 @@ describe("ChestService.setLiveSlots", () => {
       plagueCommon: 0,
       plagueRare: 0,
       plagueAct: 0,
+      eventNormal: 0,
+      eventStage: 0,
     });
     service.setLiveSlots(null);
     service.setLiveSlots(null);

@@ -11,6 +11,7 @@ import {
   type StageBoxCatalogFile,
   type StageBoxCatalogItem,
 } from "./stageBoxTracker";
+import { categoryFromBoxItemId } from "./boxCategories";
 
 export type { ChestDropCategory } from "../../shared/types";
 
@@ -27,6 +28,16 @@ export interface ChestDropTrackerCallbacks {
 }
 
 /**
+ * The three mutually-exclusive map families whose farming time is tracked
+ * separately, so each chest family's per-hour rate divides by the time
+ * actually spent on its own maps:
+ *   - `normal` — regular stages (common / rare / act chests)
+ *   - `plague` — Contaminated region (plagueCommon / plagueRare / plagueAct)
+ *   - `event`  — v1.3.0 Halloween EVENT stages (event chests)
+ */
+export type MapTimeKind = "normal" | "plague" | "event";
+
+/**
  * Live chest drops from the GetBox battle log carry no item key, only a
  * category. They are aggregated into these synthetic per-category buckets.
  */
@@ -37,6 +48,10 @@ const LIVE_CHEST_KEY: Record<ChestDropCategory, number> = {
   plagueCommon: 900915,
   plagueRare: 900925,
   plagueAct: 900935,
+  // v1.3.0 Halloween event chests — two buckets, mirroring the normal /
+  // stage-boss split of the regular chests.
+  eventNormal: 900940,
+  eventStage: 900941,
 };
 const LIVE_CHEST_NAME: Record<ChestDropCategory, string> = {
   common: "Common chest",
@@ -45,14 +60,34 @@ const LIVE_CHEST_NAME: Record<ChestDropCategory, string> = {
   plagueCommon: "Contaminated Normal Chest",
   plagueRare: "Contaminated Stage Chest",
   plagueAct: "Contaminated ActBoss Chest",
+  eventNormal: "Halloween Common Chest",
+  eventStage: "Halloween Stage Chest",
 };
 
 function emptyLiveCredits(): Record<ChestDropCategory, number[]> {
-  return { common: [], rare: [], act: [], plagueCommon: [], plagueRare: [], plagueAct: [] };
+  return {
+    common: [],
+    rare: [],
+    act: [],
+    plagueCommon: [],
+    plagueRare: [],
+    plagueAct: [],
+    eventNormal: [],
+    eventStage: [],
+  };
 }
 
 function emptyCounts(): Record<ChestDropCategory, number> {
-  return { common: 0, rare: 0, act: 0, plagueCommon: 0, plagueRare: 0, plagueAct: 0 };
+  return {
+    common: 0,
+    rare: 0,
+    act: 0,
+    plagueCommon: 0,
+    plagueRare: 0,
+    plagueAct: 0,
+    eventNormal: 0,
+    eventStage: 0,
+  };
 }
 
 export interface ResolvedStageBoxDrop {
@@ -141,18 +176,13 @@ function nowSeconds(): number {
 }
 
 function categoryFromPrefix(itemKey: number): ChestDropCategory | null {
-  if (itemKey >= 915_000 && itemKey < 916_000) return "plagueCommon";
-  if (itemKey >= 925_000 && itemKey < 926_000) return "plagueRare";
-  if (itemKey >= 935_000 && itemKey < 936_000) return "plagueAct";
-  if (itemKey >= 910_000 && itemKey < 920_000) return "common";
-  if (itemKey >= 920_000 && itemKey < 930_000) return "rare";
-  if (itemKey >= 930_000 && itemKey < 940_000) return "act";
-  // v1.3.0 Halloween event boxes: 940xxx = normal (common) tier, 941xxx =
-  // stage-boss (rare) tier. They reuse the common/rare bucket slots — the
-  // game has no dedicated capacity rune chain for the event content.
-  if (itemKey >= 940_000 && itemKey < 941_000) return "common";
-  if (itemKey >= 941_000 && itemKey < 942_000) return "rare";
-  return null;
+  // v1.3.0 Halloween event boxes: 940xxx = normal tier (`eventNormal`),
+  // 941xxx = stage-boss tier (`eventStage`). Both are tracked under their own
+  // buckets so event drops are counted and displayed separately from common /
+  // stage-boss drops — and separately from each other.
+  // The band table itself lives in `core/boxCategories.ts` (shared with the
+  // renderer grouping and the stage-box tracker).
+  return categoryFromBoxItemId(itemKey);
 }
 
 /** Convert a base (non-plague) category to its plague variant. */
@@ -239,19 +269,31 @@ function canonicalTrackerBoxIdFromIndex(
   return index.canonicalByLevel.get(item.level) ?? null;
 }
 
-/** Resolve a Player.log ItemKey to a tracked stage box (common, rare, act, or plague). */
+/** Resolve a Player.log ItemKey to a tracked stage box (common, rare, act, plague, event). */
 export function resolveStageBoxDrop(itemKey: number): ResolvedStageBoxDrop | null {
-  // Plague buckets are disjoint itemKey ranges (915xxx/925xxx/935xxx), so the
-  // prefix is authoritative even when a catalog entry's grade would otherwise
-  // map to the base bucket (e.g. a RARE-grade plague box must NOT become "rare").
-  const plagueCat = categoryFromPrefix(itemKey);
-  if (plagueCat != null && plagueCat.startsWith("plague")) {
+  // The prefix band is authoritative for every family whose ids sit inside a
+  // shared numeric range or whose GRADE would otherwise map to the base
+  // bucket:
+  //   - plague buckets (915xxx/925xxx/935xxx) — a RARE-grade plague box must
+  //     NOT become "rare";
+  //   - the v1.3.0 event buckets (940xxx/941xxx) — a RARE-grade Halloween
+  //     Stage Box must NOT become "rare" either.
+  const prefixCat = categoryFromPrefix(itemKey);
+  if (prefixCat === "eventNormal" || prefixCat === "eventStage") {
+    const item = getStageBoxCatalogIndex().byId.get(itemKey);
+    return {
+      itemKey,
+      name: item?.name ?? plagueFallbackName(prefixCat, itemKey),
+      category: prefixCat,
+    };
+  }
+  if (prefixCat != null && prefixCat.startsWith("plague")) {
     const lookupKey = itemKey;
     const item = getStageBoxCatalogIndex().byId.get(lookupKey);
     return {
       itemKey: lookupKey,
-      name: item?.name ?? plagueFallbackName(plagueCat, lookupKey),
-      category: plagueCat,
+      name: item?.name ?? plagueFallbackName(prefixCat, lookupKey),
+      category: prefixCat,
     };
   }
 
@@ -301,6 +343,10 @@ function plagueFallbackName(category: ChestDropCategory, key: number): string {
       return `Contaminated Stage Chest #${key}`;
     case "plagueAct":
       return `Contaminated ActBoss Chest #${key}`;
+    case "eventNormal":
+      return `Halloween Common Chest #${key}`;
+    case "eventStage":
+      return `Halloween Stage Chest #${key}`;
     default:
       return `Chest #${key}`;
   }
@@ -341,9 +387,43 @@ export function isPlagueStage(stageKey: number): boolean {
 }
 
 /**
+ * Lazily-built set of stageKeys that belong to the v1.3.0 Halloween event
+ * region (the EVENT stages 2901 / 3901 / 4901). Populated once from the
+ * stage-box catalog: every event box (itemKey prefix 940xxx/941xxx,
+ * obtainable) contributes its `tracker.dropStageKeys` and `tracker.idealStageKey`.
+ * Disjoint from both normal and plague map stageKeys.
+ */
+let cachedEventStageSet: Set<number> | null = null;
+
+function getEventStageSet(): Set<number> {
+  if (cachedEventStageSet === null) {
+    const set = new Set<number>();
+    for (const item of getStageBoxCatalogIndex().catalog.items) {
+      const cat = categoryFromPrefix(item.id);
+      if (cat !== "eventNormal" && cat !== "eventStage") continue;
+      if (!item.obtainable) continue;
+      for (const sk of item.tracker?.dropStageKeys ?? []) set.add(sk);
+      if (item.tracker?.idealStageKey != null) set.add(item.tracker.idealStageKey);
+    }
+    cachedEventStageSet = set;
+  }
+  return cachedEventStageSet;
+}
+
+/** True when `stageKey` is a Halloween event map — chests dropped there are event boxes. */
+export function isEventStage(stageKey: number): boolean {
+  return getEventStageSet().has(stageKey);
+}
+
+/**
  * Resolve a live GetBox drop category on the current map to the tracked
  * category: on a plague map the base category (common/rare/act) becomes its
- * plague variant, otherwise it passes through unchanged.
+ * plague variant, on a Halloween event map the base category becomes the
+ * matching event tier (common → `eventNormal` = 940xxx, rare → `eventStage` =
+ * 941xxx), and otherwise it passes through unchanged.
+ *
+ * The event maps have no act-tier chest (there is no 942xxx band), so an `act`
+ * base there would fall through unchanged — it cannot occur in practice.
  */
 export function resolveLiveDropCategory(
   stageKey: number | undefined | null,
@@ -351,6 +431,10 @@ export function resolveLiveDropCategory(
 ): ChestDropCategory {
   if (stageKey != null && stageKey > 0 && isPlagueStage(stageKey)) {
     return toPlagueCategory(base);
+  }
+  if (stageKey != null && stageKey > 0 && isEventStage(stageKey)) {
+    if (base === "common") return "eventNormal";
+    if (base === "rare") return "eventStage";
   }
   return base;
 }
@@ -595,9 +679,11 @@ export class ChestDropTracker {
    */
   private normalMapSec = 0;
   private plagueMapSec = 0;
+  /** v1.3.0 Halloween event maps (EVENT stages 2901 / 3901 / 4901). */
+  private eventMapSec = 0;
 
   /** Map type of the most recent {@link noteMapTime} sample ("none" = unknown). */
-  private lastMapType: "normal" | "plague" | "none" = "none";
+  private lastMapType: MapTimeKind | "none" = "none";
   /** Wall seconds of the most recent {@link noteMapTime} sample. */
   private lastMapSampleAt: number | null = null;
 
@@ -610,9 +696,10 @@ export class ChestDropTracker {
    * segments older than {@link ROLLING_HOUR_SEC} and subtracts their duration
    * from the rolling sums.
    */
-  private mapSegments: Array<{ start: number; end: number; plague: boolean }> = [];
+  private mapSegments: Array<{ start: number; end: number; type: MapTimeKind }> = [];
   private rollingNormalSec = 0;
   private rollingPlagueSec = 0;
+  private rollingEventSec = 0;
 
   constructor(callbacks?: ChestDropTrackerCallbacks) {
     this.callbacks = callbacks;
@@ -633,8 +720,14 @@ export class ChestDropTracker {
    * uncapped behaviour.
    */
   noteMapTime(stageKey: number | null | undefined, at: number): void {
-    const type: "normal" | "plague" | "none" =
-      stageKey != null && stageKey > 0 ? (isPlagueStage(stageKey) ? "plague" : "normal") : "none";
+    const type: MapTimeKind | "none" =
+      stageKey != null && stageKey > 0
+        ? isPlagueStage(stageKey)
+          ? "plague"
+          : isEventStage(stageKey)
+            ? "event"
+            : "normal"
+        : "none";
 
     // Attribute the interval [lastMapSampleAt, at) to the map type that was
     // active during it (the previous sample's type), then record the new type
@@ -650,6 +743,9 @@ export class ChestDropTracker {
         if (this.lastMapType === "plague") {
           this.plagueMapSec += credited;
           this.rollingPlagueSec += credited;
+        } else if (this.lastMapType === "event") {
+          this.eventMapSec += credited;
+          this.rollingEventSec += credited;
         } else {
           this.normalMapSec += credited;
           this.rollingNormalSec += credited;
@@ -657,7 +753,7 @@ export class ChestDropTracker {
         this.mapSegments.push({
           start: segStart,
           end: at,
-          plague: this.lastMapType === "plague",
+          type: this.lastMapType,
         });
         this.pruneMapSegments(nowSeconds());
       }
@@ -673,7 +769,8 @@ export class ChestDropTracker {
       const seg = this.mapSegments[0]!;
       if (seg.end > cutoff) break;
       const removed = seg.end - seg.start;
-      if (seg.plague) this.rollingPlagueSec -= removed;
+      if (seg.type === "plague") this.rollingPlagueSec -= removed;
+      else if (seg.type === "event") this.rollingEventSec -= removed;
       else this.rollingNormalSec -= removed;
       this.mapSegments.shift();
     }
@@ -696,11 +793,13 @@ export class ChestDropTracker {
     this.sessionDropStart = null;
     this.normalMapSec = 0;
     this.plagueMapSec = 0;
+    this.eventMapSec = 0;
     this.lastMapType = "none";
     this.lastMapSampleAt = null;
     this.mapSegments = [];
     this.rollingNormalSec = 0;
     this.rollingPlagueSec = 0;
+    this.rollingEventSec = 0;
     this.sessionEpoch++;
     this.rebuildIncrementalCaches();
   }
@@ -947,6 +1046,8 @@ export class ChestDropTracker {
     let plagueCommonTotal = 0;
     let plagueRareTotal = 0;
     let plagueActTotal = 0;
+    let eventNormalTotal = 0;
+    let eventStageTotal = 0;
 
     // Reuse cached breakdown array when no new drops were recorded since the
     // last call — avoids rebuilding the array at 5 Hz when content is unchanged.
@@ -976,6 +1077,12 @@ export class ChestDropTracker {
             break;
           case "plagueAct":
             plagueActTotal += count;
+            break;
+          case "eventNormal":
+            eventNormalTotal += count;
+            break;
+          case "eventStage":
+            eventStageTotal += count;
             break;
         }
 
@@ -1010,6 +1117,12 @@ export class ChestDropTracker {
           case "plagueAct":
             plagueActTotal += row.count;
             break;
+          case "eventNormal":
+            eventNormalTotal += row.count;
+            break;
+          case "eventStage":
+            eventStageTotal += row.count;
+            break;
         }
       }
     }
@@ -1023,7 +1136,14 @@ export class ChestDropTracker {
     const history = this.historyCache;
 
     const combinedTotal =
-      commonTotal + rareTotal + actTotal + plagueCommonTotal + plagueRareTotal + plagueActTotal;
+      commonTotal +
+      rareTotal +
+      actTotal +
+      plagueCommonTotal +
+      plagueRareTotal +
+      plagueActTotal +
+      eventNormalTotal +
+      eventStageTotal;
     // Use sessionDropStart as the perHour time anchor instead of
     // tracker.elapsed. After an app restart, tracker.elapsed may span hours
     // of idle time (from the restored sessionStart), making perHour =
@@ -1051,6 +1171,8 @@ export class ChestDropTracker {
       this.normalMapSec > 0 ? Math.max(MIN_RATE_WINDOW_SEC, this.normalMapSec) / 3600 : hours;
     const plagueHoursForRate =
       this.plagueMapSec > 0 ? Math.max(MIN_RATE_WINDOW_SEC, this.plagueMapSec) / 3600 : hours;
+    const eventHoursForRate =
+      this.eventMapSec > 0 ? Math.max(MIN_RATE_WINDOW_SEC, this.eventMapSec) / 3600 : hours;
 
     // perHour rates use the session delta (current - baseline) so that a
     // session reset zeroes rates without wiping cumulative totals. Totals
@@ -1061,6 +1183,8 @@ export class ChestDropTracker {
     let sessionPlagueCommon = 0;
     let sessionPlagueRare = 0;
     let sessionPlagueAct = 0;
+    let sessionEventNormal = 0;
+    let sessionEventStage = 0;
     // Closure mutating the session accumulators by category.
     const addSession = (category: ChestDropCategory | undefined, n: number): void => {
       switch (category) {
@@ -1081,6 +1205,12 @@ export class ChestDropTracker {
           break;
         case "plagueAct":
           sessionPlagueAct += n;
+          break;
+        case "eventNormal":
+          sessionEventNormal += n;
+          break;
+        case "eventStage":
+          sessionEventStage += n;
           break;
         default:
           break;
@@ -1104,13 +1234,17 @@ export class ChestDropTracker {
     const plagueCommonPerHour = sessionPlagueCommon / plagueHoursForRate;
     const plagueRarePerHour = sessionPlagueRare / plagueHoursForRate;
     const plagueActPerHour = sessionPlagueAct / plagueHoursForRate;
+    const eventNormalPerHour = sessionEventNormal / eventHoursForRate;
+    const eventStagePerHour = sessionEventStage / eventHoursForRate;
     const combinedSession =
       sessionCommon +
       sessionRare +
       sessionAct +
       sessionPlagueCommon +
       sessionPlagueRare +
-      sessionPlagueAct;
+      sessionPlagueAct +
+      sessionEventNormal +
+      sessionEventStage;
 
     // Mini overlay's boss-chest ring + "Box" countdown only track stage boss
     // (rare) drops — common chests drop too frequently to make a 7-min lap
@@ -1134,6 +1268,8 @@ export class ChestDropTracker {
     const plagueCommonRecent = this.recentCounts.plagueCommon;
     const plagueRareRecent = this.recentCounts.plagueRare;
     const plagueActRecent = this.recentCounts.plagueAct;
+    const eventNormalRecent = this.recentCounts.eventNormal;
+    const eventStageRecent = this.recentCounts.eventStage;
     let earliestRecentWallTime: number | null = null;
     for (const entry of this.recentEntries) {
       if (earliestRecentWallTime === null || entry.wallTime < earliestRecentWallTime) {
@@ -1162,12 +1298,18 @@ export class ChestDropTracker {
       this.rollingPlagueSec > 0
         ? Math.max(RECENT_MIN_WINDOW_SEC, this.rollingPlagueSec) / 3600
         : recentHours;
+    const eventRecentHours =
+      this.rollingEventSec > 0
+        ? Math.max(RECENT_MIN_WINDOW_SEC, this.rollingEventSec) / 3600
+        : recentHours;
     const commonRecentPerHour = commonRecent / normalRecentHours;
     const rareRecentPerHour = rareRecent / normalRecentHours;
     const actRecentPerHour = actRecent / normalRecentHours;
     const plagueCommonRecentPerHour = plagueCommonRecent / plagueRecentHours;
     const plagueRareRecentPerHour = plagueRareRecent / plagueRecentHours;
     const plagueActRecentPerHour = plagueActRecent / plagueRecentHours;
+    const eventNormalRecentPerHour = eventNormalRecent / eventRecentHours;
+    const eventStageRecentPerHour = eventStageRecent / eventRecentHours;
 
     return {
       commonTotal,
@@ -1176,6 +1318,8 @@ export class ChestDropTracker {
       plagueCommonTotal,
       plagueRareTotal,
       plagueActTotal,
+      eventNormalTotal,
+      eventStageTotal,
       combinedTotal,
       commonPerHour,
       rarePerHour,
@@ -1183,27 +1327,34 @@ export class ChestDropTracker {
       plagueCommonPerHour,
       plagueRarePerHour,
       plagueActPerHour,
+      eventNormalPerHour,
+      eventStagePerHour,
       commonRecentPerHour,
       rareRecentPerHour,
       actRecentPerHour,
       plagueCommonRecentPerHour,
       plagueRareRecentPerHour,
       plagueActRecentPerHour,
+      eventNormalRecentPerHour,
+      eventStageRecentPerHour,
       commonSession: sessionCommon,
       rareSession: sessionRare,
       actSession: sessionAct,
       plagueCommonSession: sessionPlagueCommon,
       plagueRareSession: sessionPlagueRare,
       plagueActSession: sessionPlagueAct,
+      eventNormalSession: sessionEventNormal,
+      eventStageSession: sessionEventStage,
       combinedSession,
       breakdown,
       history,
       lastRareDropWallTime,
       readerRequired: true,
       // Session map-farming seconds, surfaced so the Live tab can annotate the
-      // normal/plague chest cards with the time actually spent on each map type.
+      // normal/plague/event chest cards with the time actually spent on each map type.
       normalMapSeconds: this.normalMapSec,
       plagueMapSeconds: this.plagueMapSec,
+      eventMapSeconds: this.eventMapSec,
     };
   }
 
@@ -1251,6 +1402,7 @@ export class ChestDropTracker {
       sessionDropStart: this.sessionDropStart,
       normalMapSec: this.normalMapSec,
       plagueMapSec: this.plagueMapSec,
+      eventMapSec: this.eventMapSec,
     };
   }
 
@@ -1261,7 +1413,9 @@ export class ChestDropTracker {
       category === "act" ||
       category === "plagueCommon" ||
       category === "plagueRare" ||
-      category === "plagueAct";
+      category === "plagueAct" ||
+      category === "eventNormal" ||
+      category === "eventStage";
 
     const categoriesByKey = new Map(
       Object.entries(data.categoriesByKey).filter(([, category]) => isTracked(category)),
@@ -1327,11 +1481,13 @@ export class ChestDropTracker {
     // so the first post-restore frame can't attribute an offline gap.
     this.normalMapSec = data.normalMapSec ?? 0;
     this.plagueMapSec = data.plagueMapSec ?? 0;
+    this.eventMapSec = data.eventMapSec ?? 0;
     this.lastMapType = "none";
     this.lastMapSampleAt = null;
     this.mapSegments = [];
     this.rollingNormalSec = 0;
     this.rollingPlagueSec = 0;
+    this.rollingEventSec = 0;
     this.sessionEpoch++;
   }
 }

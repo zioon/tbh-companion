@@ -25,20 +25,24 @@ describe("stageBoxes", () => {
 });
 
 describe("stageBoxTracker", () => {
-  it("loads 74 canonical obtainable rare routes", () => {
+  it("loads 71 canonical obtainable rare routes", () => {
     // Box 1/2/3/6 (920001/920002/920003/920022) had phantom tracker entries
     // removed — those boxes don't drop from any stage. game v1.2.2 added many
     // higher-level stage boss boxes (925xxx, Torment act 2/3), bringing the
-    // tracked RARE routes to 71; game v1.3.0 added the 3 Halloween stage
-    // boxes (941xxx) on the event stages → 74.
+    // tracked RARE routes to 71.
+    //
+    // game v1.3.0 added 3 more canonical RARE boxes (941xxx, Halloween stage
+    // boxes on the EVENT stages) → 74 — but they are EXCLUDED again: the game
+    // gives the event boxes no drop cooldown (`ItemInfoData.DropCooldown` =
+    // 3 s), so there is no cooldown timer to count down for them.
     const routes = loadStageBoxTrackerRoutes();
-    expect(routes).toHaveLength(74);
+    expect(routes).toHaveLength(71);
     expect(routes.find((route) => route.boxId === 920501)?.idealStageKey).toBe(2305);
     expect(routes.find((route) => route.boxId === 920501)?.dropStageRangeLabel).toContain(
       "Nightmare 3-5",
     );
     expect(routes.some((route) => route.boxId === 920251)).toBe(false);
-    // The Halloween event routes ride on the EVENT stages (2901/3901/4901).
-    expect(routes.find((route) => route.boxId === 941001)?.idealStageKey).toBe(2901);
+    // The Halloween event boxes never become tracker routes (no cooldown).
+    expect(routes.some((route) => route.boxId === 941001)).toBe(false);
   });
 });

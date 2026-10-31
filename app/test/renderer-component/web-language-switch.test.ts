@@ -43,6 +43,19 @@ function realSave(): File {
   return new File([bytes], "SaveFile_Live.es3", { lastModified: Date.now() });
 }
 
+/**
+ * Wait for the background price-snapshot fetch to settle.
+ *
+ * `loadWebSaveFile` fires `void ensureWebPricesLoaded()`; when the snapshot
+ * arrives (or 404s) the price store broadcasts and the shim re-resolves the
+ * inventory. Awaiting the same in-flight promise makes the identity / push
+ * assertions deterministic instead of racing that republish.
+ */
+async function settleWebPrices(): Promise<void> {
+  const prices = await import("../../src/web/pricesSnapshot");
+  await prices.ensureWebPricesLoaded();
+}
+
 beforeEach(() => {
   vi.stubGlobal("crypto", webcrypto);
   localStorage.clear();
@@ -105,20 +118,45 @@ describe("web shim: language change re-resolves the loaded inventory", () => {
   );
 
   it.skipIf(!hasSave)(
-    "does not re-analyze for a non-language patch",
+    "does not re-analyze for a neutral patch",
     async () => {
       const api = await installShim();
       await api.loadWebSaveFile(realSave());
+      await settleWebPrices();
       const before = await window.tbh.getInventory();
 
       const pushes: ResolvedInventory[] = [];
       window.tbh.onInventory((value) => pushes.push(value));
 
-      await window.tbh.saveConfig({ currency: "EUR" });
+      // Neither the UI language nor the display currency changed → the
+      // resolve step is skipped, so the very same inventory object is kept.
+      await window.tbh.saveConfig({ pollIntervalSeconds: 7 });
 
       // Strict identity: the same inventory object was kept (no re-analysis).
       expect(await window.tbh.getInventory()).toBe(before);
       expect(pushes.length).toBe(0);
+    },
+    30000,
+  );
+
+  it.skipIf(!hasSave)(
+    "re-analyzes when the display currency changes (re-prices through the FX table)",
+    async () => {
+      const api = await installShim();
+      await api.loadWebSaveFile(realSave());
+      await settleWebPrices();
+      const before = await window.tbh.getInventory();
+
+      const pushes: ResolvedInventory[] = [];
+      window.tbh.onInventory((value) => pushes.push(value));
+
+      // A currency change re-prices the loaded rows through the snapshot's FX
+      // table, so the resolve step reruns (97ec4d5) — this is a *different*
+      // trigger than a language change and must NOT be asserted as a no-op.
+      await window.tbh.saveConfig({ currency: "EUR" });
+
+      expect(await window.tbh.getInventory()).not.toBe(before);
+      expect(pushes.length).toBeGreaterThan(0);
     },
     30000,
   );

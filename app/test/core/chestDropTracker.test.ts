@@ -3,6 +3,7 @@ import {
   ChestDropTracker,
   LiveChestDropAggregator,
   resolveStageBoxDrop,
+  isEventStage,
   isPlagueStage,
   resolveLiveDropCategory,
 } from "../../src/core/chestDropTracker";
@@ -679,6 +680,57 @@ describe("ChestDropTracker onDrop callback", () => {
   it("does not fire onDrop when disabled (no callback provided)", () => {
     const tracker = new ChestDropTracker();
     expect(() => tracker.recordLiveChestDrop("common", 4000)).not.toThrow();
+  });
+});
+
+describe("v1.3.0 Halloween (event) chest drop tracking", () => {
+  it("maps the 940/941 itemKeys to their own category, not common/rare", () => {
+    // 941xxx is GRADE=RARE — without the explicit event band it would be
+    // canonicalized into the plain "rare" bucket and mix into the stage-boss
+    // drop stats.
+    expect(resolveStageBoxDrop(940001)?.category).toBe("eventNormal");
+    expect(resolveStageBoxDrop(941001)?.category).toBe("eventStage");
+    expect(resolveStageBoxDrop(941001)?.name).toBe("Halloween Stage Box (Nightmare)");
+  });
+
+  it("detects the event stages from the stage-box catalog", () => {
+    expect(isEventStage(2901)).toBe(true);
+    expect(isEventStage(3901)).toBe(true);
+    expect(isEventStage(4901)).toBe(true);
+    expect(isEventStage(1)).toBe(false);
+    expect(isEventStage(201201)).toBe(false);
+  });
+
+  it("routes live drops on an event map into the matching event bucket", () => {
+    // The event maps have no act-tier chest (no 942xxx band), so an "act" base
+    // has no event counterpart and passes through unchanged.
+    expect(resolveLiveDropCategory(2901, "common")).toBe("eventNormal");
+    expect(resolveLiveDropCategory(2901, "rare")).toBe("eventStage");
+    expect(resolveLiveDropCategory(2901, "act")).toBe("act");
+    // Normal / plague maps keep their own buckets.
+    expect(resolveLiveDropCategory(1, "common")).toBe("common");
+    expect(resolveLiveDropCategory(201201, "common")).toBe("plagueCommon");
+  });
+
+  it("keeps event drops out of the plague buckets and vice versa", () => {
+    expect(resolveStageBoxDrop(940001)?.category).not.toBe("common");
+    expect(resolveStageBoxDrop(915001)?.category).not.toBe("eventNormal");
+    expect(resolveStageBoxDrop(915001)?.category).not.toBe("eventStage");
+  });
+
+  it("aggregates event totals, session and combined separately", () => {
+    const tracker = new ChestDropTracker();
+    tracker.recordLiveChestDrop("eventNormal");
+    tracker.recordLiveChestDrop("eventStage");
+    tracker.recordLiveChestDrop("common");
+
+    const stats = tracker.getStats(3600);
+    expect(stats.eventNormalTotal).toBe(1);
+    expect(stats.eventStageTotal).toBe(1);
+    expect(stats.eventNormalSession).toBe(1);
+    expect(stats.eventStageSession).toBe(1);
+    expect(stats.commonTotal).toBe(1);
+    expect(stats.combinedTotal).toBe(3);
   });
 });
 

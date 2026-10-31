@@ -18,7 +18,9 @@
     "unclassified": "未分类",
     "plagueCommon": "瘟疫普通宝箱",
     "plagueRare": "瘟疫关卡宝箱",
-    "plagueAct": "瘟疫章节首领宝箱"
+    "plagueAct": "瘟疫章节首领宝箱",
+    "eventNormal": "万圣节普通宝箱",
+    "eventStage": "万圣节关卡宝箱"
   },
   "levelSuffix": "{{base}} 等级 {{level}}",
   "boxSection": {
@@ -60,7 +62,9 @@
     "ringDialogBody": "边框环完整走一圈所需的时间。每次此类型宝箱掉落时，环从顶部顺时针填充；完成的一圈以更暖的颜色叠在下方。",
     "minutesLabel": "分钟",
     "ringMinutesAriaLabel": "环线一圈时长（分钟）",
-    "save": "保存"
+    "save": "保存",
+    "categoryOptionEventNormal": "万圣节普通",
+    "categoryOptionEventStage": "万圣节关卡"
   },
   "queueSlots": {
     "title": "自动归类槽位",

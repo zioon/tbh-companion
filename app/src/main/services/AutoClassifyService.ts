@@ -290,6 +290,8 @@ export class AutoClassifyService {
     plagueCommon: number;
     plagueRare: number;
     plagueAct: number;
+    eventNormal: number;
+    eventStage: number;
   } | null = null;
   /**
    * Queue items whose `autoOpenAtMs` has elapsed and whose `liveSlots` decrement
@@ -315,6 +317,8 @@ export class AutoClassifyService {
     plagueCommon: number;
     plagueRare: number;
     plagueAct: number;
+    eventNormal: number;
+    eventStage: number;
   } | null = null;
   /**
    * Outstanding "already-counted live drop" credits, one entry per save slot
@@ -659,6 +663,18 @@ export class AutoClassifyService {
         return;
       }
     }
+    // v1.3.0 万圣节活动箱：游戏**没有自动开箱**（`RuneInfoData` 无
+    // `UnlockAutoOpenEvent*Chest` 链，活动箱不会被计时器打开，只能手动开），
+    // 所以它永远不进自动开箱队列——没有倒计时可预测。但它确实占一个箱位，
+    // 实时槽位计数照常递增。
+    if (cat === "eventNormal" || cat === "eventStage") {
+      if (this.liveSlots) this.liveSlots[cat]++;
+      log.info(
+        `drop boxKey=${boxKey} stageKey=${stageKey}: event chest has no auto-open; ` +
+          `slot counted (${cat}), not queued`,
+      );
+      return;
+    }
     // Serial-queue model: each category has one shared timer. `enqueue`
     // computes this chest's `autoOpenAtMs` relative to the previous
     // same-category tail (or `droppedAtMs` if the category queue is empty).
@@ -738,6 +754,8 @@ export class AutoClassifyService {
     plagueCommon: number;
     plagueRare: number;
     plagueAct: number;
+    eventNormal: number;
+    eventStage: number;
   }): void {
     if (!this.enabled) return;
     // Finalize any deferred drop recoveries whose grace has elapsed before the
@@ -752,6 +770,11 @@ export class AutoClassifyService {
     // primary trigger for queue recalibration.
     this.maybeRecalibrateQueue();
 
+    // The auto-openable categories. `eventNormal` / `eventStage` (v1.3.0
+    // Halloween boxes) are NOT here: the game never auto-opens an event chest,
+    // so it never enters the queue — nothing to prune, nothing to backfill.
+    // Their slot counts still flow through `liveSlots` (Step 3) so the Chests
+    // tab can show them.
     const order = ["common", "rare", "act", "plagueCommon", "plagueRare", "plagueAct"] as const;
 
     // Step 1: Excess-prune FIRST (before classifyPendingBursts). Queue is
@@ -854,7 +877,9 @@ export class AutoClassifyService {
       prev.act !== slots.act ||
       prev.plagueCommon !== slots.plagueCommon ||
       prev.plagueRare !== slots.plagueRare ||
-      prev.plagueAct !== slots.plagueAct;
+      prev.plagueAct !== slots.plagueAct ||
+      prev.eventNormal !== slots.eventNormal ||
+      prev.eventStage !== slots.eventStage;
     this.lastReconcileSlots = slots;
 
     for (const category of order) {
@@ -1100,6 +1125,8 @@ export class AutoClassifyService {
       plagueCommon: number;
       plagueRare: number;
       plagueAct: number;
+      eventNormal: number;
+      eventStage: number;
     },
     prevSlots: {
       common: number;
@@ -1108,14 +1135,19 @@ export class AutoClassifyService {
       plagueCommon: number;
       plagueRare: number;
       plagueAct: number;
+      eventNormal: number;
+      eventStage: number;
     } | null,
     prunedByCategory: Partial<Record<BoxCategory, number>>,
   ): void {
     if (this.pendingBursts.length === 0 || this.liveSlots == null) return;
 
     // All tracked slot categories — plague (Contaminated) chests get their own
-    // buckets (plagueCommon/plagueRare/plagueAct), so a plague-box open shows
-    // up here exactly like a normal one and can classify its pending burst.
+    // buckets (plagueCommon/plagueRare/plagueAct), and the v1.3.0 Halloween
+    // event chests get theirs (`eventNormal` / `eventStage`), so an event-box
+    // open shows up here exactly like a normal one and can classify its pending
+    // burst. (Event chests are never *queued* — the game has no auto-open for
+    // them — but a MANUAL open still has to be attributed to the right family.)
     const categories = [
       "common",
       "rare",
@@ -1123,6 +1155,8 @@ export class AutoClassifyService {
       "plagueCommon",
       "plagueRare",
       "plagueAct",
+      "eventNormal",
+      "eventStage",
     ] as const;
 
     // Compute per-category deltas: positive = chests opened since last save
@@ -1868,6 +1902,10 @@ export class AutoClassifyService {
     if (cat === "plagueCommon") return autoOpen.plagueCommon;
     if (cat === "plagueRare") return autoOpen.plagueRare;
     if (cat === "plagueAct") return autoOpen.plagueAct;
+    // v1.3.0 万圣节活动箱没有自动开箱（游戏侧无 UnlockAutoOpenEvent*Chest 链），
+    // 所以它永远不会入队；这里的 0 只是一个防御性兜底（`resetSlotTimersForCategory`
+    // 对空队列会直接返回，锚点值用不到）。
+    if (cat === "eventNormal" || cat === "eventStage") return 0;
     return FALLBACK_AUTO_OPEN.common;
   }
 }
