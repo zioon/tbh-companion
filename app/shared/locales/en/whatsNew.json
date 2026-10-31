@@ -3,6 +3,16 @@
   "releaseNotesLink": "Full release notes on GitHub",
   "gotIt": "Got it",
   "versions": {
+    "1.29.0": {
+      "title": "What's new in v1.29.0",
+      "bullets": [
+        "Halloween event chests are now their own category: \"Halloween common\" and \"Halloween stage\" each get a capacity card, live stat card and filter entry, and event drops no longer inflate the normal chest totals.",
+        "Event chests no longer take a slot in the auto-open queue, and the chest timer stops warning \"ready to drop again\" for them — the game never auto-opens event chests.",
+        "Live reading now supports game v1.3.1 / v1.3.2: gold, hero experience and DPS are read again, and max-level heroes no longer show 0 experience.",
+        "If the companion runs below Medium integrity, the toolbar shows \"Live: blocked\" with the exact fix command, so \"game process not found\" is no longer a mystery.",
+        "Bundled data is refreshed to game v1.3.2 with the new hatchet weapon type, and the Lookup drop sources are de-duplicated — cleaner lists and faster loading."
+      ]
+    },
     "1.28.1": {
       "title": "What's new in v1.28.1",
       "bullets": [

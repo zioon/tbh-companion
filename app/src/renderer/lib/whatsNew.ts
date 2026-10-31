@@ -18,6 +18,11 @@ export const WHATS_NEW_STORAGE_KEY = "tbh.whatsNew.lastSeenVersion";
 
 const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: "1.29.0",
+    titleKey: "versions.1.29.0.title",
+    bulletsKey: "versions.1.29.0.bullets",
+  },
+  {
     version: "1.17.0",
     titleKey: "versions.1.17.0.title",
     bulletsKey: "versions.1.17.0.bullets",
