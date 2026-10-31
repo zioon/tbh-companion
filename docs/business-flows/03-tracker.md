@@ -41,7 +41,7 @@ flowchart TD
     NotInit -- 否 --> Return2[直接 return 须先有 save]
     NotInit -- 是 --> TakeOver{首次接管?}
     TakeOver -- 是 --> Restore[liveGold / liveXp.restore 基线重置 + reanchor]
-    TakeOver -- 否 --> Guards[逐 hero 校验 exp ≤1e12 / level-drop / same-level dip]
+    TakeOver -- 否 --> Guards[逐 hero 校验 exp ≤1e15 / level-drop / same-level dip]
     Guards --> Gain2{gain 通过 plausibleLiveHeroGain ≤1e7?}
     Gain2 -- 否 --> RefreshOnly[meter.refreshRolling]
     Gain2 -- 是 --> Sync[applyGain + syncXpFromLiveMeter]
@@ -91,7 +91,7 @@ flowchart TD
 - **XP live**：
   - takingOver 时：`seedTotal = isPlausibleCumulativeXp(cumulativeGained, elapsed) ? cumulativeGained : 0`；`liveXp.restore(...)`；`cumulativeGained = seedTotal`；`prevHero.clear()`；每个 hero 写入 `prevHero`；现有 `heroMeters` 调 `meter.reanchor(wallTimeSec)` 重置时间基准（避免 save mtime 与 live wallTime 混用导致 session 速率看起来比 hero 速率高）。
   - 持续路径：对每个 hero：
-    - `plausibleHeroRuntimeExp(h.exp)` 校验（≤1e12）。
+    - `plausibleHeroRuntimeExp(h.exp)` 校验（≤1e15，见下方"live hero exp 合理性上限"）。
     - **level-drop guard**：`prev.level > h.level` → 跳过（dirty read，不计数不前进基线）。
     - **same-level dip guard**：`prev.level === h.level && h.exp < prev.exp` → 跳过计数但 `meter.refreshRolling`。
     - `heroDeltaGain(prev, level, exp)` 计算 gain。
@@ -199,4 +199,5 @@ XP 早有 per-tick 上限（`MAX_LIVE_XP_GAIN_PER_TICK`，4.1/4.5）与自愈，
 - **live gold stale 上限**：`readRuntimeGold`（`core/liveMemory/runtime.ts`）所有读取路径失败时仅返回 `GOLD_STALE_MAX_MS=5000` 内的 `pin.lastKnown`（防 UI 闪烁），超龄返回 null——防止游戏更新后 25Hz 轮询把更新前余额当当前值无限回放（"金币回退"现象的直接根源之一）。`GoldPinState` 新增 `lastKnownAt`（成功读取时打点）。
 - **ObscuredLong u64 掩码（2026-09-17，v1.2.4 修复）**：ACTk ObscuredLong 的解码公式 `(hidden - crypto) ^ crypto` 在 C# 是 ulong（mod-2^64）运算，但 JS BigInt 无回绕——当 hidden 的最高位为 1（int64 视角为负，v1.2.4 实测的 wallet 加密对即如此）时，未掩码的 BigInt 解码结果为负，`Number()` 后被 `plausibleGold` 拒绝 → `readGoldFromEntry` 恒 null → live 金币永久失效。修复：与 `readObscuredInt`（英雄等级，本就有 `& 0xffffffff`）对齐，`readObscuredLong` 改为 `((hidden - crypto) & U64) ^ crypto) & U64`。此 bug 与版本无关（1.2.2 只是数据巧合未触发），修复对旧版本行为不变。
 - **live/save 发散守卫 + 陈旧标记（v1.2.4，2026-09-17）**：`TrackingService.ingestLiveFrame` 在 `lastLiveFrame = snap` 之前，先用 `evaluateGoldDivergence(snap.gold, saveGold, goldDivergeSinceSec, snap.at/1000, GOLD_DIVERGE_SUSTAIN_SEC=8)`（`core/tracker.ts`）比对 live 读数与上一存档余额 `saveGold = lastSnap?.gold`。当 `liveGold < saveGold`（live 读数低于存档"权威下界"，典型为偏移失效导致的回退/倒退）→ `substitute=true`，用 `saveGold` 覆盖 `snap.gold`，并首次触发时记 `goldDivergeSinceSec = snap.at/1000`；该"低于下界"状态**持续 ≥8s**（`nowSec - goldDivergeSinceSec >= sustainSec`）→ `suspect=true` 且 `tracker.goldLiveSuspect=true`，UI 经 `SaveStatusBar` 显示 `goldStatusStale` 警示（见 `shared/locales/*/live.json`）。读数与存档持平或更高（含 null 缺失）→ 复位 `goldDivergeSinceSec=null`、`goldLiveSuspect=false`。注意：`saveGold` 取自**会话内最近一次 save 解析**而非实时读数，因此它代表"游戏已落盘的已知最低余额"；live 永远不应低于它，低于即判为 stale。这是 §4.6 `saveStale` 之外的**第二道金币回退防线**，专门覆盖"save 解析仍成功、但 live 偏移失效读错"的情形（v1.2.4 偏移表 fallback 到 1.2.2 导致 `wallet gold` 读数错位）。
-- **save 英雄经验合理性钳制（v1.2.4，2026-09-17）**：实测 v1.2.4 存档英雄 `exp` 高达 1.4e12，超过运行时解码上限 `MAX_HERO_RUNTIME_EXP=1e12` 的口径，会污染 `heroDeltaGain`/`healInflatedXpTotals` 的合理性判据。`tracker.update()` 在写入 `this.heroes` 时统一用 `clampHeroSaveExp(exp)`（`MAX_HERO_SAVE_EXP=1e15`）：非有限或负值归 0，超 1e15 钳到 1e15。init 与 live→save handover 两个分支同样钳制，保证 save 与 live 路径一致。该上限独立于运行时 1e12 上限——save 是累计总经验、量级本就更大，1e15 是为防脏存档（内存损坏/错误偏移写入）反噬统计而设的硬性天花板。
+- **live hero exp 合理性上限 = 1e15（2026-10-27）**：运行时 hero exp 是**本级内累计值**。英雄到 101 级（满级）后再也不升级，没有任何东西消费这个计数器，它会**无上限地增长**（见 `levelCurve.isLevelCapped` 的"满级后本级经验继续涨、但属幻影值"语义）。游戏 v1.3.1 实测三个在场英雄的 live exp 分别约 1.67e12 / 2.47e12 / 2.50e12，**全部超过旧的 1e12 上限** → `plausibleHeroRuntimeExp` 把它们整个跳过 → live 经验彻底失效（与"经验回退"同源）。修复：`tracker.ts` 的 `MAX_HERO_RUNTIME_EXP` 提到 **1e15**，与 `core/liveMemory/runtime.ts` 里 reader 的同名上限、以及存档侧的 `MAX_HERO_SAVE_EXP=1e15` 三者对齐——同一个量经两层读取必须共用一个上限，否则会出现"reader 钳 0 而 tracker 接受"（或反之）的静默分裂。该上限只负责**拒绝损坏/错位的 Obscured 解码**，不建模游戏平衡；真实值离 1e15 仍有极大余量。**其余增益守卫一律不动**：`plausibleLiveHeroGain`（单 tick ≤1e7）、`healInflatedXpTotals`、`isPlausibleCumulativeXp`、逐英雄 level-drop / same-level-dip 守卫全部保持原样。
+- **save 英雄经验合理性钳制（v1.2.4，2026-09-17）**：实测 v1.2.4 存档英雄 `exp` 高达 1.4e12，超过当时的运行时解码上限 `MAX_HERO_RUNTIME_EXP=1e12` 的口径，会污染 `heroDeltaGain`/`healInflatedXpTotals` 的合理性判据。`tracker.update()` 在写入 `this.heroes` 时统一用 `clampHeroSaveExp(exp)`（`MAX_HERO_SAVE_EXP=1e15`）：非有限或负值归 0，超 1e15 钳到 1e15。init 与 live→save handover 两个分支同样钳制，保证 save 与 live 路径一致。该上限独立于运行时 1e12 上限——save 是累计总经验、量级本就更大，1e15 是为防脏存档（内存损坏/错误偏移写入）反噬统计而设的硬性天花板。

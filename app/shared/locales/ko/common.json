@@ -24,7 +24,9 @@
     "live": "라이브",
     "unsupportedTitle": "이 게임 버전에서는 라이브 통계를 사용할 수 없습니다",
     "unsupported": "라이브: 지원되지 않음",
-    "waitingForGame": "라이브: 게임 시작 대기 중"
+    "waitingForGame": "라이브: 게임 시작 대기 중",
+    "lowIntegrity": "라이브: 권한 부족",
+    "lowIntegrityTitle": "어시스턴트 프로세스가 Medium 이하의 무결성 수준으로 실행되어 Windows가 게임 프로세스를 숨기고 접근을 거부합니다. 관리자 권한으로 실행하세요: icacls \"<프로그램 디렉터리>\" /setintegritylevel (OI)(CI)M"
   },
   "catalog": {
     "refresh": "카탈로그 새로고침",
@@ -82,6 +84,7 @@
       "RING": "반지",
       "EARING": "귀걸이",
       "BRACER": "팔찌",
+      "HATCHET": "손도끼",
       "OFFERING": "기원",
       "INSCRIPTION": "각인",
       "DECORATION": "장식",

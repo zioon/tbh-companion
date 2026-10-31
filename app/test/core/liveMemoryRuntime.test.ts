@@ -23,7 +23,7 @@ import {
   readRuntimeAcquireLogs,
   type GoldPinState,
 } from "../../src/core/liveMemory/runtime";
-import { offsetsForVersion } from "../../src/core/liveMemory/offsets";
+import { offsetsForVersion, type LiveOffsets } from "../../src/core/liveMemory/offsets";
 import { FakeMemory } from "./liveMemoryFake";
 
 const O = offsetsForVersion("1.00.21")!;
@@ -2580,6 +2580,14 @@ function seedMonsterList(
 }
 
 describe("readRuntimeMonsterHp HP offset cache", () => {
+  // A table WITHOUT explicit runtime.monster.hpCurrent / hpMax, so the HP
+  // offsets must be PROBED (the v1.00.21 table pins them explicitly, which
+  // short-circuits the probe — that path has its own test below).
+  const O_PROBE: LiveOffsets = {
+    ...O,
+    runtime: { ...O.runtime, monster: { ...O.runtime.monster, hpCurrent: 0, hpMax: 0 } },
+  };
+
   it("probes all pairs on first read and caches the winning pair", () => {
     const pin = makeMonsterSpawnPinState();
     pin.ptr = MSM_INSTANCE; // bypass resolveMonsterSpawnManager
@@ -2589,7 +2597,7 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
       { addr: 0xd20000n, current: 100, max: 100 },
     ]);
 
-    const r1 = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    const r1 = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O_PROBE, pin);
     expect(r1).not.toBeNull();
     expect(r1!.monsterHps).toHaveLength(3);
     expect(r1!.monsterHps[0]).toEqual([0xd00000, 50.5, 100]);
@@ -2608,13 +2616,43 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
       { addr: 0xd10000n, current: 3, max: 4 },
     ]);
 
-    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O_PROBE, pin);
     expect(r!.monsterHps).toEqual([
       [0xd00000, 1, 2],
       [0xd10000, 3, 4],
     ]);
     // Cache should remain valid.
     expect(pin.cachedHpOffsets).toEqual({ cOff: HC_PROBE_C, mOff: HC_PROBE_M });
+  });
+
+  it("uses the table's explicit HP offsets and caches them (v1.3.1 layout)", () => {
+    const pin = makeMonsterSpawnPinState();
+    pin.ptr = MSM_INSTANCE;
+    // A table that pins the controller layout: currentHp 0x40, maxHp 0x50 —
+    // the v1.3.1 arrangement (the old 0x4c slot now reads 0).
+    const O_EXPLICIT: LiveOffsets = {
+      ...O,
+      runtime: {
+        ...O.runtime,
+        monster: { ...O.runtime.monster, hpCurrent: 0x40, hpMax: 0x50 },
+      },
+    };
+    const m = new FakeMemory();
+    m.writePtr(MSM_INSTANCE + 0x28n, MONSTER_LIST_OBJ)
+      .writePtr(MONSTER_LIST_OBJ + BigInt(O.container.listItems), MONSTER_ARR)
+      .writeI32(MONSTER_LIST_OBJ + BigInt(O.container.listSize), 1);
+    m.writePtr(MONSTER_ARR + BigInt(O.container.arrayFirst), 0xd00000n)
+      .writePtr(0xd00000n + 0xb0n, 0xd00000n + 0x100n)
+      .writeF32(0xd00000n + 0x100n + 0x40n, 24912.5)
+      .writeF32(0xd00000n + 0x100n + 0x50n, 24912.5)
+      // The legacy 0x4c slot reads 0 on this build — the reason the old
+      // probe pairs all failed live.
+      .writeF32(0xd00000n + 0x100n + 0x4cn, 0);
+
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O_EXPLICIT, pin);
+    expect(r!.monsterHps).toEqual([[0xd00000, 24912.5, 24912.5]]);
+    // The explicit pair is what is in use, so that is what the cache holds.
+    expect(pin.cachedHpOffsets).toEqual({ cOff: 0x40, mOff: 0x50 });
   });
 
   it("invalidates the cache when validation fails and re-probes to repopulate it", () => {
@@ -2628,7 +2666,7 @@ describe("readRuntimeMonsterHp HP offset cache", () => {
     // values that fail validHpPair (current > maxHp*1.1).
     m.writeF32(0xd00000n + 0x100n + 0x30n, 999).writeF32(0xd00000n + 0x100n + 0x3cn, 1);
 
-    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O, pin);
+    const r = readRuntimeMonsterHp(m, GA_BASE, GA_SIZE, O_PROBE, pin);
     expect(r!.monsterHps).toEqual([[0xd00000, 99, 100]]);
     // Cache should be updated to the winning pair.
     expect(pin.cachedHpOffsets).toEqual({ cOff: HC_PROBE_C, mOff: HC_PROBE_M });

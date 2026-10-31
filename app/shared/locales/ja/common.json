@@ -24,7 +24,9 @@
     "live": "ライブ",
     "unsupportedTitle": "このゲームバージョンではライブ統計は利用できません",
     "unsupported": "ライブ: 非対応",
-    "waitingForGame": "ライブ: ゲーム起動待ち"
+    "waitingForGame": "ライブ: ゲーム起動待ち",
+    "lowIntegrity": "ライブ: 権限不足",
+    "lowIntegrityTitle": "アシスタントのプロセスが Medium 未満の整合性レベルで動作しているため、Windows がゲームプロセスを隠してアクセスを拒否します。管理者として実行してください: icacls \"<プログラムディレクトリ>\" /setintegritylevel (OI)(CI)M"
   },
   "catalog": {
     "refresh": "カタログを更新",
@@ -82,6 +84,7 @@
       "RING": "リング",
       "EARING": "イヤリング",
       "BRACER": "ブレイサー",
+      "HATCHET": "手斧",
       "OFFERING": "祈願",
       "INSCRIPTION": "碑文",
       "DECORATION": "装飾",

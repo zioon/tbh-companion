@@ -110,6 +110,7 @@ type WorkerMessage =
    - 先用 `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS)` 列所有进程，按名字匹配。
    - 若匹配为空，fallback `findViaPowerShell`。
    - 多实例（多个匹配）时按"沙箱状态一致"挑选（见 5.10）。
+   - 匹配为空**且助手进程完整性级别低于 Medium** 时，判定为环境阻塞而非"游戏没开"，见 5.13。
 4. `OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ)` — 只读权限，不要求管理员。
 5. `refreshGameContext()`：
    - `detectGameVersion(proc)` — 找 `taskbarhero.exe` 模块的 path，读同目录 `Version.txt`，正则 `^\d+\.\d+\.\d+$` 校验。失败时保留之前的 gameVersion。
@@ -132,7 +133,15 @@ type WorkerMessage =
 - 精确命中：`fallback=false`，`source="bundled"`。
 - 同 major.minor 邻近版本命中：`fallback=true`，table 上贴 `_fallbackFromVersion: <bestVersion>`，`source="bundled"`。
 - 都不命中：`base=null`，准备走纯 extractor 路径。
-- **版本表现状（2026-09-17）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / 1.2.2 / **1.2.4**。**v1.2.4 表（2026-09-17 补录）**：游戏 12:28 更新 v1.2.4 后，缺表期间按同 major.minor 规则 fallback 到 1.2.2 RVA 基线——但 v1.2.4 重编译使**全部 5 个静态 TypeInfo RVA 漂移**（currencyManager 0x5f4b8c8→0x5f4a068、stageCacheManager→0x5f4adf8、stageManager→0x5f75838、logManager→0x5f43a78、monsterSpawnManager→0x5f23148），错误的 currencyManager 使 `readRuntimeGold` 每 tick 失败 → live 金币静默降级为 5s save 轮询（用户感知为"实时数据回退成 save 数据"；结构布局本身未变，`unit.cache`/`heroRuntime` 等沿用 1.2.2 值）。表由 `scripts/capture-live-offsets.ts` 从运行中的 v1.2.4 游戏（critical path，gold probe 通过）捕获补录。**fallback 日志措辞修正（2026-09-17）**：旧日志把 `meta.table.gameVersion`（=1.2.4）当来源显示 "fallback from v1.2.4" 自相矛盾；已改为 `meta.table._fallbackFromVersion ?? meta.table.gameVersion`。跨 major.minor 版本（如 1.3.x）不会 fallback 到旧表，只能走纯 extractor / 磁盘 cache 路径。**v1.2.4 已知差距（英雄运行时经验）**：`heroRuntime.expHidden/expKey`（0x658/0x660，继承自 1.2.2）在 v1.2.4 上读数**冻结不更新**（实测探针三次读数 bit 级一致，且与骑士的存档本级经验逐位相同），0x1000 范围差分扫描未找到任何像实时经验的字段（唯一变化的 qword 是跨英雄共享的指针缓存）。即 v1.2.4 的 live 英雄经验/每英雄速率暂不可用——等级显示不受影响（信任闸门整帧回退 save 真值），满级（101）下速率 0 本就是设计行为；诊断页"英雄（实时经验）"显示的是**原始 live 读数**（设计如此，不做闸门修正），其中占位壳槽位显示 L1/0、经验列可能是过期值。恢复实时英雄经验需要专门的偏移再派生（extractor 无法按形状派生 heroRuntime 字段，需配合游戏内可对照的等级/经验变化做实测捕获）。
+- **版本表现状（2026-10-27）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / 1.2.2 / 1.2.4 / **1.3.1**。
+- **v1.3.1 表（2026-10-27 补录）**：游戏更新到 v1.3.1 后出现**金币、经验回退 + 伤害无数据**三连回归。根因是**缺表 + 跨 major.minor 不可 fallback**的叠加：`offsetsForVersionMeta` 只在同 major.minor 内 fallback（`offsets.ts:1119`），1.3.x 命中不了 1.2.4，`base=null` → extractor 走无 base 分支，产出三个坏值：
+  - `typeInfoRva.currencyManager = 0` → `readRuntimeGold` 每 tick 返回 null → live 金币静默降级为 5s save 轮询（"金币回退"）。
+  - `unit.cache = 0x3b0` + `heroRuntime.{levelHidden,levelKey,expHidden,expKey} = 0xd0/0xd4/0x118/0x120`——extractor 无 base 时回退到 **v1.00.27–v1.01.05 的老常量**（`offsetExtractor.ts:525-533`）。1.3.1 真实布局是 `unit.cache = 0x3d8`，老的 0x3b0 让每个英雄的 heroKey 链走错 → `readParty` 过滤掉全部英雄 → `heroes: null` → live 经验降级回 save（"经验回退"）。
+  - `runtime.monster.*` 全 0 → 见 §5.5 怪物/DPS 小节。
+  **表由 `scripts/capture-live-offsets.ts` 从运行中的 v1.3.1 游戏捕获补录**（critical path，gold probe 通过），英雄结构偏移用存档快照交叉验证：`unit.cache = 0x3d8` 解出的 heroKey `[401,301,201]` 与存档在场队伍完全一致；`heroRuntime.levelHidden/levelKey = 0xd0/0xd4` 解出 level=101 与存档一致；`expHidden/expKey = 0x118/0x120` 解出**随时间单调递增**的真实值（1.3.1 上 1.2.x 用的 0x658/0x660 解出 0）。`runtime.heroList` 也随之从 0x30 变为 **0x68**（不再是 stable across patches）。
+  **再次印证"每个补丁都要重新捕获"**：v1.3.0 → v1.3.1 只是重编译就把**全部静态 TypeInfo RVA 挪了 ~+0x1180**（stageManager 0x6120e18→0x6121f98、stageCacheManager 0x615c800→0x615d978、logManager 0x614fcc8→0x6150e48、monsterSpawnManager 0x6120b28→0x6121ca8），currencyManager 也必须重新派生（0x615b6c8→0x615c840）。1.3.0 的表**不能**用于 1.3.1——与 1.2.2→1.2.4 是同一种失败模式。
+- **live hero exp 合理性上限 = 1e15（2026-10-27）**：运行时 hero exp 是**本级内累计值**。英雄到 101 级（满级）后再也不会升级，没有任何东西消费这个计数器，它会**无上限地增长**（见 `levelCurve.isLevelCapped` 的"满级后本级经验继续涨但属幻影值"语义）。1.3.1 实测：hero 401 ≈ 1.67e12、hero 301 ≈ 2.47e12、hero 201 ≈ 2.50e12，**全部超过旧的 1e12 上限** → reader 把 exp 钳成 0（`runtime.ts` 的 `MAX_HERO_RUNTIME_EXP`），tracker 的 `plausibleHeroRuntimeExp` 又把这些英雄整个跳过 → live 经验彻底失效。修复：把 `runtime.ts` 与 `tracker.ts` 的 `MAX_HERO_RUNTIME_EXP` 提到 **1e15**，与存档侧的 `MAX_HERO_SAVE_EXP = 1e15` 对齐（同一个量经两层读取，共用一个上限；两层不一致就会出现"reader 钳 0 而 tracker 接受"或反之的静默分裂）。该上限的职责是**拒绝损坏/错位的 Obscured 解码**，不是建模游戏平衡——真实值离 1e15 还有极大余量，而损坏解码会解出天文数字。**其余增益守卫一律不动**：`plausibleLiveHeroGain`（单 tick ≤1e7）、`healInflatedXpTotals`、`isPlausibleCumulativeXp`、`clampHeroSaveExp`、逐英雄的等级跌落/同级回退守卫全部保持原样。
+- **历史：版本表现状（2026-09-17）**：内置 `offsets.ts` 覆盖 1.00.21 / 1.00.23 / 1.00.27 / 1.00.28 / 1.01.01 / 1.01.05 / 1.2.2 / **1.2.4**。**v1.2.4 表（2026-09-17 补录）**：游戏 12:28 更新 v1.2.4 后，缺表期间按同 major.minor 规则 fallback 到 1.2.2 RVA 基线——但 v1.2.4 重编译使**全部 5 个静态 TypeInfo RVA 漂移**（currencyManager 0x5f4b8c8→0x5f4a068、stageCacheManager→0x5f4adf8、stageManager→0x5f75838、logManager→0x5f43a78、monsterSpawnManager→0x5f23148），错误的 currencyManager 使 `readRuntimeGold` 每 tick 失败 → live 金币静默降级为 5s save 轮询（用户感知为"实时数据回退成 save 数据"；结构布局本身未变，`unit.cache`/`heroRuntime` 等沿用 1.2.2 值）。表由 `scripts/capture-live-offsets.ts` 从运行中的 v1.2.4 游戏（critical path，gold probe 通过）捕获补录。**fallback 日志措辞修正（2026-09-17）**：旧日志把 `meta.table.gameVersion`（=1.2.4）当来源显示 "fallback from v1.2.4" 自相矛盾；已改为 `meta.table._fallbackFromVersion ?? meta.table.gameVersion`。跨 major.minor 版本（如 1.3.x）不会 fallback 到旧表，只能走纯 extractor / 磁盘 cache 路径。**v1.2.4 已知差距（英雄运行时经验）**：`heroRuntime.expHidden/expKey`（0x658/0x660，继承自 1.2.2）在 v1.2.4 上读数**冻结不更新**（实测探针三次读数 bit 级一致，且与骑士的存档本级经验逐位相同），0x1000 范围差分扫描未找到任何像实时经验的字段（唯一变化的 qword 是跨英雄共享的指针缓存）。即 v1.2.4 的 live 英雄经验/每英雄速率暂不可用——等级显示不受影响（信任闸门整帧回退 save 真值），满级（101）下速率 0 本就是设计行为；诊断页"英雄（实时经验）"显示的是**原始 live 读数**（设计如此，不做闸门修正），其中占位壳槽位显示 L1/0、经验列可能是过期值。恢复实时英雄经验需要专门的偏移再派生（extractor 无法按形状派生 heroRuntime 字段，需配合游戏内可对照的等级/经验变化做实测捕获）。
 
 **Step 2 — Disk cache**（`liveReader.ts:612-635`）：
 
@@ -141,6 +150,12 @@ type WorkerMessage =
   - envelope 的 `extractorRevision < EXTRACTOR_REVISION` → 返回 null（强制重跑，避免旧 bug 的缓存留存）。
   - 兼容两种磁盘格式：envelope `{ gameVersion, extractorRevision, offsets }` 与 legacy 裸 `LiveOffsets`。
 - 当 cache 比 bundled 更完整（或等完整但 cache 是 extractor-validated 的）→ 用 cache，`source="cache"`。保留 `_fallbackFromVersion` 标记。
+- **精确 bundled 表优先于"中毒 cache"（2026-10-27 新增）**：完整性指标（`CRITICAL_FIELDS`/`ENRICHMENT_FIELDS`）**故意不含** `currencyManager`、`commonSaveData` 与任何 `runtime.monster.*` 字段——gold probe 失败不该把 reader 判为 unsupported。于是"缺了值的 cache"在计数上仍与 bundled 表**打平**，按老规则平局归 cache，中毒的 cache 就一直赢，新表根本不会生效；更糟的是 cache 里没有 `_fallbackFromVersion` 标记 → `isCriticalStaleOnBaseline` 恒 false → 只跑 enrichment 模式，而 enrichment **从不重新探测 currencyManager** → 毒值被原样写回同一个文件。
+  修复：新增纯函数 `bundledOverrideReasons()` / `bundledOverridesCache()`（`offsetCompleteness.ts`）与 `bundledOverrideDetails()`，对 `currencyManager`、`commonSaveData`、`unit.cache`、`heroRuntime.*`、`runtime.monster.*` **按值**（不只是按是否为 0）比较 bundled 与 cache，规则刻意收窄：
+  - **cache 把值丢了**（bundled 非 0、cache 为 0）→ bundled 必赢。extractor 从不把已派生的值清零，所以 0 只意味着"没派生出来"，bundled（该 build 实机捕获）是严格更好的来源。这正是 v1.3.1 的 `currencyManager=0` 中毒场景。
+  - **cache 存着陈旧的非 0 值**（与 bundled 不同）→ **仅在完整性打平时** bundled 才赢；cache 严格更完整时（如上一轮重新派生过 logManager）必须继续赢。
+  仅对**精确命中**（`meta.fallback === false`）生效：同 major.minor 的邻近表本就是别的 build 的布局，且 fallback cache 往往带着新派生的锚点，必须赢过邻近基线。
+  **自愈**：bundled 赢下后，Step 4 的合并结果会经 `saveCachedOffsets` **覆写同一个缓存文件** → 被污染的 cache 自动被替换，用户**无需手工删文件**。
 
 **Step 3 — Complete short-circuit**（`liveReader.ts:637-657`）：
 
@@ -365,6 +380,10 @@ flowchart TD
 5. **DPS / monster tracking**：检测 **stage 切换**（`stageKey` 变化，含首次 live frame）→ `dpsTracker.beginMap()`（该检测移出 `monsterHp` 分支，对所有 live 帧生效）；随后分两路喂 DpsTracker：
    - `snap.monsterHp != null` → `dpsTracker.update(monsterHp, deadMonsterCount, timestamp)`（完整 HP 数据，可算 DPS/伤害/存活/最大生命；**空数组也走 update()**——波间怪物清空时正确把 alive 归 0，wave-clear 由 DpsTracker 的 0→N 转换推进）。
    - 否则 `snap.stageAlive != null` → `dpsTracker.updateAlive(stageAlive, timestamp)` —— 仅在 monsterHp 数据源完全缺失（null，偏移无法解析）时兜底，用 StageManager 的存活怪数（v1.01.05 的 `runtime.stage.alive=0x78`）驱动 wave-clear 检测，让波次仍实时推进；DPS/伤害在该情况下保持 0。
+   - **v1.3.1 怪物布局与 HP 字段对变化（2026-10-27）**：两处独立的破坏导致 DPS/伤害全为 0。
+     ① **HP 字段对移动**：`UnitHealthController` 的 `maxHp` 从 0x4c 挪到 **0x50**（0x4c 现在读 0），`currentHp` 仍是 0x40。`HC_PROBE_PAIRS` 里四组老探测对因此**全部失配**（(0x40,0x4c) 的 maxHp=0 被 `validHpPair` 拒；其余三组 current/maxHp 也不成对）→ 每只怪都读不出 HP → `monsterHps` 恒为**空数组**。实机证据：只用老探测对时 21 只活怪 **0/21** 有 HP；加上 (0x40,0x50) 后 **21/21**。修复：`HC_PROBE_PAIRS` 增加 `[0x40, 0x50]`（保留老对以兼容 1.2.x 及更早——那边 0x4c 仍有效，且它排在前面先命中）。同时让**表里显式给出的** `runtime.monster.hpCurrent/hpMax` 优先（这两个 schema 字段此前无人读取），探测仅作无表版本（1.3.1 之前所有 bundled 表都是 0）的兜底。
+     ② **MSM 类锚点是假阳性**：1.3.1 抽出的 `typeInfoRva.monsterSpawnManager=0x6121ca8` 指向的是泛型单例宿主类 `ob\`1\`，其静态块里塞着几十个 manager（WindowManager / PoolManager / ResourceManager / AudioManager …）。老规则"第一个结构上像 List 的候选胜出"选中了 **AudioManager**（它的 +0x28 是个空的 `List<AudioClip>`）→ reader 报"读了但没怪"（**假空**）而不是"没有数据源"（null）→ 调用方的 `stageAlive` 兜底被吞掉，DPS/HP 全被清零。真正的 `MonsterSpawnManager` 类在 1.3.1 的 gameassembly.dll 里**没有 TypeInfo 槽**（引用全在堆上），只能靠"按类名 + 父类静态块"那条路。修复：`resolveMonsterSpawnManager` 改成**收集**所有结构合法的候选，**优先挑类名是 `MonsterSpawnManager` 的那个**（实机确认：真实例的 Il2CppClass name 就是 `MonsterSpawnManager`），一个都没匹配上名字时才退回"第一个结构合法的候选"，**保证老版本（类名被混淆或读不到）行为不变**。类名是**偏好信号而非硬过滤**——早期把它做成硬过滤会打断老版本。
+     ③ **列表偏移不能混用两套规则**（`resolveMonsterLayout`）：1.3.x 把 `SummonedMonsterList` 从 0x38 挪到 **0x30**、并**删掉了 dead-monster 列表**（0x30 现在是 summoned、0x40 是已通关关卡表）。若继续套用 0x38/0x30 老默认，会把 bool 当列表指针读、并把 summoned 数量当成 dead 数量。现在按两套规则分流：**表里钉住了怪物布局**（per-version 捕获表）→ 只用表给的偏移，表里为 0 即"该 build 不存在这个字段"→ 跳过该列表；**表里一个都没钉**（1.3.1 之前所有 bundled 表）→ 继续用 v1.00.21 老默认 0x28/0x38/0x30/0xb0（实测 v1.01.05 靠这套 fallback 仍能显示 DPS/存活/最大生命）。
    - **monsterHp 数据源回退读取**（2026-08-28 修正）：`readRuntimeMonsterHp` 在 `runtime.monster.monsterList/summonedList` 均为 0（未派生，v1.00.28/v1.01.01/v1.01.05 的 MonsterSpawnManager RVA 有但列表偏移不可派生）时**回退到 v1.00.21 base 偏移（0x28/0x38/0x30）读取**，仅在 MonsterSpawnManager 实例本身解析失败时才返回 null。8/27 曾改为"偏移为 0 直接返回 null"以修复波次冻结，但一刀切切断了 DPS/存活/最大生命的显示（实测 v1.01.05 上 base 偏移仍有效：monsterList 就在 +0x28，HP 真实波动 0..21，旧程序能正常显示这三项）。**波次保护**：空数组走 update() 时 DpsTracker 自身 wave-clear 检测（`_wasAlive && alive===0` → wavesCleared++）正常推进，无需 updateAlive 兜底；只有 monsterHp 为 null（数据源缺失）才回退 updateAlive。
    - **击杀数推断兜底**（2026-08-28）：v1.01.05 的 `deadMonsterList` 偏移 0x30 不可派生（实测该偏移处 List 恒 0），`deadMonsterCount` 恒 0 → 击杀数恒 0。`DpsTracker.update()` 现用**存活列表消失的怪物数**推断击杀：当 dead 计数不可用（null，或卡在 0 而怪物明显消失）时，把本帧从存活列表消失的怪物数计入击杀。波次切换整波消失即整波被击杀，计数准确。正常版本（dead 计数可用）仍优先用 dead delta。
    - **关卡重开兜底**（`dpsTracker.trackStageEndFromAlive`）：`update`/`updateAlive` 每次都会检测 **alive 连续为 0 超过 2s** 即判定关卡结束（结算画面通常 ~1-2s，而波间隙多为亚秒级；阈值由 0.5s 放宽到 2s 于 2026-08-25，避免每波怪物少时波间隙被误判为关卡结束、UI 波次 0/1 跳动），新一局怪物刷新（alive>0）时重置 `_wavesCleared` 到 0、波次从 1 重新计数。这是 **stage-clear 事件被日志尾部漏检**（`readRuntimeStageClears` 25Hz 采样偶发错过 entry 写入→清空窗口，实测约 40% 漏检率）时的兜底，防止 `_wavesCleared` 跨局累计成 "30/16"。
@@ -624,7 +643,7 @@ status.scanning                   → "scanning"
 else                              → "attached"
 ```
 
-`LiveMemoryStatus` 关键字段：`running / attached / pid / gameVersion / supported / note / scanning / offsetHealth`。`offsetHealth` 包含 `complete / missing / source / extractionAttempts / fallbackFromVersion`。
+`LiveMemoryStatus` 关键字段：`running / attached / pid / gameVersion / supported / note / scanning / offsetHealth / blocker`。`offsetHealth` 包含 `complete / missing / source / extractionAttempts / fallbackFromVersion`。`blocker` 只在"环境原因导致无法附加"时出现（当前取值 `low-integrity`，见 5.13）。
 
 ### 5.12 worker 内存不变量（2026-09-24）
 
@@ -636,3 +655,45 @@ else                              → "attached"
 | **扫描缓冲区抖动**：三个区域遍历（`scanBytes` / `scanBytesInRange` / `resolveClassByName` Pass 2）与 GA 类索引扫描（`collectClassEntries`）**每个分块都新分配一块 4 MiB Buffer**。`BufferPool` 救不了（原因见 5.6）。 | 实测 worker 启动 42 MB RSS，**一次 attach 后停在 ~400 MB** 且不再回落（`heapUsed` ~20 MB、`external` ~7 MB、强制 GC 无效）。 | `WinProcess.acquireScanBuffer(size)` 提供**每进程一块**可复用扫描缓冲（配合 `readInto()` 零分配读入），四个遍历全部改用它；`close()` 时释放，避免 `detach` 后还被钉住。回归守卫：`test/core/liveMemoryMemory.test.ts` 的 `readChunk` 用例（断言一次遍历只分配 1 块）+ `winProcessScanBuffer.test.ts`。 |
 
 **纪律**：`MemoryReader` 只要求 `readBytes`；新增的 `readInto(addr, buf, size)` / `acquireScanBuffer(size)` 是**可选**能力，`core` 侧统一走 `readChunk()`（有则复用、无则回落 `readBytes`），因此纯函数单测用的 `FakeMemory` 无需改动。**新增任何区域遍历时必须复用扫描缓冲，不得按分块 `readBytes`；新增任何系统调用必须经 `lazyFunc()` 声明。**
+
+### 5.13 低完整性级别自检（2026-10-28）
+
+**症状**：游戏明明在跑（`TaskBarHero.exe` 存在），助手却一直报「找不到游戏进程」——实时数据永久停在「等待游戏启动」。
+
+**根因**：助手所在目录被打了 **"Low mandatory level"** 强制级别标签。从该目录启动的 Electron 及其所有子进程都以 **Low 完整性级别（S-1-16-4096）** 运行，于是：
+
+| 现象 | 机制 |
+| --- | --- |
+| 进程枚举里看不到游戏 | 低完整性调用方拿到的 ToolHelp 进程列表被系统过滤（实测：Electron 内 56 个 vs 普通 node 393 个，游戏不在其中） |
+| `OpenProcess` 失败 | 对更高完整性级别的目标句柄访问被拒绝（返回 `null`） |
+| 日志写不进去 | Low 完整性进程无权写 Medium 级别的 `%APPDATA%\tbh-companion\logs\app.log`（`EPERM`） |
+| Electron 启动即崩 | Chromium 沙箱初始化在 Low 令牌下失败（`0x80000003`），需 `--no-sandbox` 兜底 |
+
+**为什么不是代码问题**：`WinProcess.findByNames` 的匹配逻辑与游戏进程名完全一致；同一个 PID 在 Medium 级别的普通 node 进程里 `OpenProcess` 成功，在 Low 级别的 Electron 进程里失败。仓库代码无法绕过 Windows 的完整性级别检查。
+
+**自检实现**（`app/src/main/liveMemory/winProcess.ts`）：
+
+- `currentProcessIntegrityRid()` — 经 `OpenProcessToken` + `GetTokenInformation(TokenIntegrityLevel=25)` 读当前进程令牌，取标签 SID 的**最后一个 subauthority**（即 RID），用 `koffi.alloc("void *", 1)` 承接出参。
+- `integrityLevelName(rid)` — RID → `untrusted / low / medium / high / system / unknown`（纯函数，可单测）。
+- `isBelowMediumIntegrity(rid)` — `rid < 0x2000` 即判定为阻塞；`rid === null`（读不到）**不**阻塞——自检是诊断辅助，不是开关。
+- `inspectIntegrity()` — 组合上述结果，供 reader 使用。
+
+**上报链路**：
+
+```
+LiveMemoryReader.attach() 找不到进程
+  → detectAttachBlocker()  → integrity.belowMedium ? "low-integrity" : undefined
+  → 日志：attach: game process not found — companion process runs at low integrity …
+  → status().blocker = "low-integrity"
+  → renderer LiveReaderIndicator 显示「实时：权限不足」徽章 + 修复提示 tooltip
+```
+
+**修复方式**（需管理员权限，标签在仓库根目录，向下继承）：
+
+```powershell
+icacls "<程序目录>" /setintegritylevel (OI)(CI)M
+```
+
+改完必须**重启助手**（完整性级别在进程启动时确定）。详见 `docs/agent/WINDOWS.md` 的「Low mandatory level 标签」一节。
+
+**纪律**：任何"进程找不到 / 附加失败"的新症状，先确认助手进程的完整性级别，再怀疑进程名匹配。排查顺序：① `whoami /groups` 看 `Mandatory Label` ② `icacls <程序目录>` 看标签 ③ 再看 `main.log` 的 `attach:` 行。

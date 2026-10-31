@@ -29,6 +29,12 @@ function psapi(): ReturnType<typeof koffi.load> {
   return psapiLib;
 }
 
+let advapi32Lib: ReturnType<typeof koffi.load> | null = null;
+function advapi32(): ReturnType<typeof koffi.load> {
+  if (advapi32Lib === null) advapi32Lib = koffi.load("advapi32.dll");
+  return advapi32Lib;
+}
+
 /**
  * Lazily declare an FFI function EXACTLY ONCE per process.
  *
@@ -154,6 +160,47 @@ const GetExitCodeProcess = lazyFunc(() =>
 // (host + sandboxed), the companion only attaches to the one whose sandbox
 // state matches its own.
 const GetModuleHandleW = lazyFunc(() => kernel32().func("GetModuleHandleW", "void *", ["str16"]));
+
+// --- Token integrity level (self-check) ------------------------------------
+//
+// A Low-integrity companion process cannot see or open Medium-integrity
+// processes: Windows filters the ToolHelp process list for low-integrity
+// callers, and OpenProcess on a higher-integrity target is denied. The
+// symptom is "the game is running, but the companion says it cannot find the
+// game process" - indistinguishable from "the game is not running" without
+// this probe. See docs/agent/WINDOWS.md ("Low integrity label").
+//
+// TokenIntegrityLevel = 25, TOKEN_QUERY = 0x0008.
+const TOKEN_QUERY = 0x0008;
+const TOKEN_INTEGRITY_LEVEL = 25;
+
+const GetCurrentProcess = lazyFunc(() => kernel32().func("GetCurrentProcess", "void *", []));
+const OpenProcessToken = lazyFunc(() =>
+  advapi32().func("OpenProcessToken", "bool", ["void *", "uint32", "_Out_ void *"]),
+);
+const GetTokenInformation = lazyFunc(() =>
+  advapi32().func("GetTokenInformation", "bool", [
+    "void *",
+    "uint32",
+    "void *",
+    "uint32",
+    "uint32 *",
+  ]),
+);
+
+// TOKEN_MANDATORY_LABEL = { SID_AND_ATTRIBUTES Label; } - the SID pointer is
+// followed by the attributes DWORD.
+const SID_AND_ATTRIBUTES = koffi.struct("SID_AND_ATTRIBUTES", {
+  Sid: "void *",
+  Attributes: "uint32",
+});
+// SID header: revision, subauthority count, 6-byte authority. The integrity
+// RID is the LAST subauthority, which follows the 8-byte header.
+const SID_HEADER = koffi.struct("SID_HEADER", {
+  Revision: "uint8",
+  SubAuthorityCount: "uint8",
+  IdentifierAuthority: "uint8[6]",
+});
 
 // psapi.dll — PSAPI module enumeration, used as a fallback when ToolHelp's
 // CreateToolhelp32Snapshot(TH32CS_SNAPMODULE) is blocked by sandbox software
@@ -295,6 +342,119 @@ export function selectProcessBySandbox(
     if (pool[i].pid > best.pid) best = pool[i];
   }
   return best.pid;
+}
+
+/**
+ * Windows mandatory integrity levels, by the RID of the label SID.
+ * `medium` is the level a normal (non-elevated) desktop app runs at.
+ */
+export type IntegrityLevelName = "untrusted" | "low" | "medium" | "high" | "system" | "unknown";
+
+export const INTEGRITY_RID = {
+  untrusted: 0x0000,
+  low: 0x1000,
+  medium: 0x2000,
+  high: 0x3000,
+  system: 0x4000,
+} as const;
+
+/**
+ * Map an integrity RID to its level name. Unknown RIDs (future Windows
+ * levels) map to "unknown" rather than throwing.
+ *
+ * Exported for unit testing — the token query itself cannot be unit-tested.
+ */
+export function integrityLevelName(rid: number): IntegrityLevelName {
+  switch (rid) {
+    case INTEGRITY_RID.untrusted:
+      return "untrusted";
+    case INTEGRITY_RID.low:
+      return "low";
+    case INTEGRITY_RID.medium:
+      return "medium";
+    case INTEGRITY_RID.high:
+      return "high";
+    case INTEGRITY_RID.system:
+      return "system";
+    default:
+      return "unknown";
+  }
+}
+
+/**
+ * True when the RID is below Medium. A Low-integrity process cannot open
+ * Medium-integrity processes (the game) and Windows filters the process
+ * list it enumerates, so the game looks like it is not running.
+ *
+ * `null` (level unknown) is NOT treated as blocked — the probe is a
+ * diagnostic aid, not a gate.
+ */
+export function isBelowMediumIntegrity(rid: number | null): boolean {
+  if (rid === null) return false;
+  return rid < INTEGRITY_RID.medium;
+}
+
+/** Integrity self-check result for the current process. */
+export interface IntegritySelfCheck {
+  /** The integrity RID, or null when it could not be determined. */
+  rid: number | null;
+  /** Human-readable level name. */
+  level: IntegrityLevelName;
+  /** True when the process runs below Medium integrity. */
+  belowMedium: boolean;
+}
+
+/**
+ * Read the current process's mandatory integrity level.
+ *
+ * Returns `{ rid: null, ... }` when the token cannot be queried (non-Windows,
+ * blocked API) — the caller then falls back to the plain "not found" wording.
+ */
+export function inspectIntegrity(): IntegritySelfCheck {
+  const rid = currentProcessIntegrityRid();
+  return {
+    rid,
+    level: rid === null ? "unknown" : integrityLevelName(rid),
+    belowMedium: isBelowMediumIntegrity(rid),
+  };
+}
+
+/**
+ * Query the current process token for its integrity label RID.
+ *
+ * The integrity SID always carries the level RID as its LAST subauthority,
+ * right after the 8-byte SID header.
+ */
+export function currentProcessIntegrityRid(): number | null {
+  try {
+    const tokenBuf = koffi.alloc("void *", 1);
+    if (!OpenProcessToken()(GetCurrentProcess()(), TOKEN_QUERY, tokenBuf)) return null;
+    const hToken = koffi.decode(tokenBuf, "void *");
+    try {
+      const lenBuf = koffi.alloc("uint32", 1);
+      // The size query always reports failure (a null buffer is an invalid
+      // parameter) but still writes the required length back — do NOT treat
+      // its return value as an error, only the length.
+      GetTokenInformation()(hToken, TOKEN_INTEGRITY_LEVEL, null, 0, lenBuf);
+      const len = koffi.decode(lenBuf, "uint32");
+      if (!len) return null;
+      const buf = Buffer.alloc(len);
+      if (!GetTokenInformation()(hToken, TOKEN_INTEGRITY_LEVEL, buf, len, lenBuf)) return null;
+      const label = koffi.decode(buf, SID_AND_ATTRIBUTES);
+      const header = koffi.decode(label.Sid, SID_HEADER);
+      const count = header.SubAuthorityCount;
+      if (!count) return null;
+      // SID header is 8 bytes; each subauthority is 4 bytes; the RID is last.
+      // 24 bytes cover the header plus four subauthorities — the integrity
+      // label always has exactly one, the extra room is just headroom.
+      const bytes = Buffer.from(koffi.decode(label.Sid, "uint8[24]"));
+      return bytes.readUInt32LE(8 + (count - 1) * 4);
+    } finally {
+      CloseHandle()(hToken);
+    }
+  } catch {
+    return null;
+  }
 }
 
 export interface ProcessInfo {

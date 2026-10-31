@@ -41,6 +41,17 @@ export function LiveReaderIndicator() {
     );
   }
 
+  // Running but the game process is unreachable for an environment reason
+  // (e.g. the companion runs below Medium integrity and Windows hides the
+  // game from it). Say so instead of the generic "waiting for game" badge.
+  if (status.blocker === "low-integrity") {
+    return (
+      <span className="self-center" title={t("liveReader.lowIntegrityTitle")}>
+        <Badge variant="warning">{t("liveReader.lowIntegrity")}</Badge>
+      </span>
+    );
+  }
+
   // Running but game process not found yet — retry loop is active.
   return (
     <Badge variant="muted" className="self-center">

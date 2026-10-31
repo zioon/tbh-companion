@@ -24,7 +24,9 @@
     "live": "Live",
     "unsupportedTitle": "Live stats unavailable for this version",
     "unsupported": "Live: unsupported",
-    "waitingForGame": "Live: waiting for game"
+    "waitingForGame": "Live: waiting for game",
+    "lowIntegrity": "Live: blocked",
+    "lowIntegrityTitle": "The companion runs below Medium integrity, so Windows hides the game process from it and denies access. Run in an elevated prompt: icacls \"<program dir>\" /setintegritylevel (OI)(CI)M"
   },
   "catalog": {
     "refresh": "Refresh catalog",
@@ -82,6 +84,7 @@
       "RING": "Ring",
       "EARING": "Earing",
       "BRACER": "Bracer",
+      "HATCHET": "Hatchet",
       "OFFERING": "Offering",
       "INSCRIPTION": "Inscription",
       "DECORATION": "Decoration",

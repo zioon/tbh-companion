@@ -10,6 +10,8 @@ import {
   type LiveOffsets,
 } from "../../core/liveMemory/offsets";
 import {
+  bundledOverrideReasons,
+  bundledOverridesCache,
   hasCriticalOffsets,
   isOffsetTableComplete,
   mergeOffsets,
@@ -83,7 +85,7 @@ import {
 } from "../../core/liveMemory/runtime";
 import { makeHeroStableState, stabilizeHeroes } from "../../core/liveMemory/heroStable";
 import { resolveClassByName, singletonFromClass } from "./winProcess";
-import { WinProcess } from "./winProcess";
+import { WinProcess, inspectIntegrity, type IntegritySelfCheck } from "./winProcess";
 import { readRuntimeChestSlots, type ReadChestSlotsResult } from "../../core/liveMemory/chestSlots";
 import { readClassFields } from "../../core/liveMemory/il2cppScanner";
 import { StaleWaveGuard } from "../../core/liveMemory/staleWaveGuard";
@@ -93,6 +95,7 @@ import type {
   BoxOpenEntry,
   LiveMemorySnapshot,
   LiveMemoryStatus,
+  LiveMemoryBlocker,
   AcquireLogEntry,
   AcquireRingView,
 } from "../../../shared/types";
@@ -163,6 +166,13 @@ const STAGE_CLEAR_BURST_GAP_MS = 2;
  * main.log without spamming the 25 Hz tick loop.
  */
 const STATUS_FAIL_LOG_THROTTLE_MS = 30_000;
+
+/**
+ * Throttle for the attach-failure log. While the game is not running the
+ * worker retries the attach every 1.5 s, so an unthrottled failure line
+ * repeats ~2400 times an hour — and the low-integrity explanation is long.
+ */
+const ATTACH_FAIL_LOG_THROTTLE_MS = 30_000;
 
 /**
  * How long `readRuntimeBoxOpenLog` must continuously return "list not
@@ -403,6 +413,20 @@ export class LiveMemoryReader {
   private gameInstallDir: string | null = null;
   private readonly userDataDir: string;
   private log: LiveMemoryLogFn = () => undefined;
+  /**
+   * Why the last attach attempt failed for an environment reason (not "the
+   * game is not running"). Set by {@link attach} and surfaced through
+   * {@link status} so the UI can explain the situation instead of showing a
+   * bare "waiting for game" badge.
+   */
+  private attachBlocker: LiveMemoryBlocker | undefined;
+  /** Integrity self-check result, probed once (the level cannot change). */
+  private integrity: IntegritySelfCheck | null = null;
+  /** Throttle state for the attach-failure log. */
+  private lastAttachFailLogAt = 0;
+  private lastAttachFailMsg = "";
+  /** The integrity level cannot change while the process lives — log it once. */
+  private integrityBlockerLogged = false;
   /** True once we've attempted name-based MonsterSpawnManager resolution (avoid re-scan). */
   private monsterNameScanAttempted = false;
   /** True once we've attempted name-based PlayerSaveData resolution (avoid re-scan). */
@@ -698,6 +722,58 @@ export class LiveMemoryReader {
     return this.proc?.pid ?? null;
   }
 
+  /**
+   * Classify an attach failure that is NOT "the game is not running".
+   *
+   * A Low-integrity companion cannot see Medium-integrity processes: Windows
+   * filters the ToolHelp process list for low-integrity callers and denies
+   * `OpenProcess` on the game. The user then sees "no game process" while the
+   * game is plainly running, so the cause has to be named explicitly instead
+   * of being reported as a missing game.
+   */
+  private detectAttachBlocker(): LiveMemoryBlocker | undefined {
+    if (this.integrity === null) this.integrity = inspectIntegrity();
+    if (!this.integrity.belowMedium) return undefined;
+    if (!this.integrityBlockerLogged) {
+      this.integrityBlockerLogged = true;
+      this.log(
+        `attach blocker: companion runs at ${this.integrity.level} integrity ` +
+          `(RID=0x${(this.integrity.rid ?? 0).toString(16)}) — a "Low mandatory level" label on ` +
+          `the program directory hides the game process and blocks OpenProcess on it`,
+      );
+    }
+    return "low-integrity";
+  }
+
+  /** One-line explanation for the log (English, log-oriented). */
+  private attachBlockerReason(): string {
+    const level = this.integrity?.level ?? "unknown";
+    return (
+      `companion process runs at ${level} integrity (below Medium) — Windows hides the game ` +
+      `process from it; remove the "Low mandatory level" label from the program directory ` +
+      `(elevated: icacls "<program dir>" /setintegritylevel (OI)(CI)M)`
+    );
+  }
+
+  /**
+   * Log an attach failure, throttled: the worker retries every 1.5 s, so the
+   * same message would otherwise repeat thousands of times per hour. A
+   * CHANGED message is always logged immediately (that is the interesting
+   * transition, e.g. "game not running" → "blocked by low integrity").
+   */
+  private logAttachFailure(message: string): void {
+    const now = Date.now();
+    if (
+      message === this.lastAttachFailMsg &&
+      now - this.lastAttachFailLogAt < ATTACH_FAIL_LOG_THROTTLE_MS
+    ) {
+      return;
+    }
+    this.lastAttachFailMsg = message;
+    this.lastAttachFailLogAt = now;
+    this.log(message);
+  }
+
   /** Attach to the game and resolve version + offsets. Idempotent. */
   attach(appBuild: string = resolveAppBuild()): boolean {
     if (this.attached) {
@@ -707,9 +783,15 @@ export class LiveMemoryReader {
     this.detach();
     const proc = WinProcess.findByNames(PROCESS_NAMES);
     if (!proc) {
-      this.log("attach: game process not found");
+      this.attachBlocker = this.detectAttachBlocker();
+      this.logAttachFailure(
+        this.attachBlocker
+          ? `attach: game process not found — ${this.attachBlockerReason()}`
+          : "attach: game process not found",
+      );
       return false;
     }
+    this.attachBlocker = undefined;
     this.proc = proc;
     this.refreshGameContext();
     this.log(
@@ -805,6 +887,41 @@ export class LiveMemoryReader {
           ...this.offsets,
           unit: { ...this.offsets.unit, cache: bundled.unit.cache },
         };
+      }
+    }
+    // Backfill the HeroRuntime struct offsets (level / exp) from an EXACT
+    // bundled table. These offsets are layout-coupled to the game build and
+    // have NO other repair path: `mergeOffsets` keeps the base's non-zero
+    // values and the extractor cannot re-derive them by shape (it copies them
+    // from the base table, or falls back to the v1.00.27 constants — see
+    // offsetExtractor.ts). A disk cache written before the version had a
+    // bundled table therefore keeps a stale-but-non-zero layout (v1.3.x:
+    // 0xd0/0xd4/0x118/0x120 inherited from v1.00.27) and the hero level/exp
+    // reads return garbage → live XP rate broken.
+    // Scoped to EXACT matches: a same-major.minor neighbour table may carry a
+    // different hero layout (v1.2.2 shifted it inside the 1.2 line), so a
+    // fallback table must not overwrite a cache's re-derived layout.
+    if (this.offsets && this.gameVersion) {
+      const meta = offsetsForVersionMeta(this.gameVersion);
+      if (meta && !meta.fallback) {
+        const bundledHero = meta.table.heroRuntime;
+        const currentHero = this.offsets.heroRuntime;
+        const heroRuntime: LiveOffsets["heroRuntime"] = {
+          ...currentHero,
+          levelHidden:
+            bundledHero.levelHidden > 0 ? bundledHero.levelHidden : currentHero.levelHidden,
+          levelKey: bundledHero.levelKey > 0 ? bundledHero.levelKey : currentHero.levelKey,
+          expHidden: bundledHero.expHidden > 0 ? bundledHero.expHidden : currentHero.expHidden,
+          expKey: bundledHero.expKey > 0 ? bundledHero.expKey : currentHero.expKey,
+        };
+        if (
+          heroRuntime.levelHidden !== currentHero.levelHidden ||
+          heroRuntime.levelKey !== currentHero.levelKey ||
+          heroRuntime.expHidden !== currentHero.expHidden ||
+          heroRuntime.expKey !== currentHero.expKey
+        ) {
+          this.offsets = { ...this.offsets, heroRuntime };
+        }
       }
     }
     // Backfill the StageManager `alive` offset from the bundled table when the
@@ -904,12 +1021,37 @@ export class LiveMemoryReader {
       if (cached) {
         const baseMissing = base ? missingOffsetFields(base).length : Infinity;
         const cacheMissing = missingOffsetFields(cached).length;
-        // Prefer cache when:
-        //   - no bundled/fallback table (unknown version), OR
-        //   - cache is strictly more complete (extractor filled gaps), OR
-        //   - cache is equally complete but is the previously live-validated
-        //     extractor output (vs the static bundled table).
-        if (!base || cacheMissing <= baseMissing) {
+        // A bundled table that EXACTLY matches the running game version is
+        // authoritative for the fields the extractor cannot re-derive and the
+        // completeness metric cannot see (currencyManager / commonSaveData /
+        // hero struct layout / monster offsets). A disk cache that lost such a
+        // value — or inherited a stale, non-zero but WRONG one (the v1.3.1
+        // cache kept the v1.00.27-era `unit.cache` / `heroRuntime` layout) —
+        // must NOT win, not even on a tie of the counted fields: that is
+        // exactly how the poisoned v1.3.1 cache kept live gold / hero XP
+        // broken while still looking "complete".
+        // The rule is deliberately narrow (see bundledOverridesCache): a cache
+        // that LOST a value always loses to the bundled table, but a cache that
+        // merely holds a DIFFERENT non-zero value only loses on a completeness
+        // tie — a strictly more complete cache (e.g. one that re-derived
+        // logManager) must keep winning.
+        // Only EXACT matches qualify: for a same-major.minor fallback the
+        // cache holds freshly re-derived anchors that must keep winning.
+        const exactBundled = meta != null && !meta.fallback ? meta.table : null;
+        if (exactBundled !== null && bundledOverridesCache(exactBundled, cached)) {
+          const reasons = bundledOverrideReasons(exactBundled, cached);
+          this.log(
+            `resolve: bundled table overrides disk cache for v${version} — cache holds missing/stale values for ${reasons.join(", ")} (cache missing=${cacheMissing}, bundled missing=${baseMissing === Infinity ? "n/a" : baseMissing})`,
+          );
+          // `base` stays the bundled table (Step 1) — the merged result of
+          // Step 4 is persisted over the same cache file, which replaces the
+          // poisoned cache automatically (no manual user action needed).
+        } else if (!base || cacheMissing <= baseMissing) {
+          // Prefer cache when:
+          //   - no bundled/fallback table (unknown version), OR
+          //   - cache is strictly more complete (extractor filled gaps), OR
+          //   - cache is equally complete but is the previously live-validated
+          //     extractor output (vs the static bundled table).
           base = cached;
           // Preserve fallback marker — a prior session's merged cache carries
           // `_fallbackFromVersion` for provenance, and the stale-on-baseline
@@ -2375,7 +2517,10 @@ export class LiveMemoryReader {
       note:
         this.attached && !this.supported
           ? `live stats unavailable for game v${this.gameVersion ?? "?"}`
-          : undefined,
+          : !this.attached && this.attachBlocker
+            ? "companion runs below Medium integrity — the game process is hidden from it"
+            : undefined,
+      blocker: this.attached ? undefined : this.attachBlocker,
       offsetHealth: this.offsets
         ? {
             complete: isOffsetTableComplete(this.offsets),

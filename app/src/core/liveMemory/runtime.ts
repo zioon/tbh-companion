@@ -15,7 +15,7 @@ import {
 } from "./memory";
 import { plausibleGold, plausibleStage, plausibleWave, type LiveOffsets } from "./offsets";
 import { readStaticFieldPtr, readStaticFieldsBlock, resolveClassPtr } from "./statics";
-import { STRUCT_CONTAINER } from "./il2cppScanner";
+import { readCString, STRUCT_CONTAINER } from "./il2cppScanner";
 import type {
   AcquireLogEntry,
   AcquireRingSlotView,
@@ -1214,8 +1214,29 @@ function decodeObscuredDouble(hidden: bigint | null, key: bigint | null): number
 // ── Heroes (StageManager.HeroList → Hero[] → Unit.cache → HeroRuntime) ────────
 
 const MAX_HEROES = 20; // sanity cap: game has far fewer party slots
-/** Reject decoded runtime exp above this (corrupted memory / bad Obscured decode). */
-const MAX_HERO_RUNTIME_EXP = 1e12;
+/**
+ * Hard ceiling on a decoded runtime hero exp.
+ *
+ * This exists to reject CORRUPT / MISALIGNED Obscured decodes (a wrong
+ * `heroRuntime.expHidden` offset decodes random bytes into a wild double), NOT
+ * to model game balance. It is therefore deliberately aligned with the
+ * save-layer ceiling `MAX_HERO_SAVE_EXP = 1e15` (app/src/core/tracker.ts) —
+ * the same quantity, read through two different layers, must share one bound.
+ *
+ * Why 1e15 and not the historical 1e12: the runtime exp is a WITHIN-LEVEL
+ * counter. Once a hero reaches the level cap (101) it never levels up again,
+ * so nothing consumes that counter and it grows without bound — exactly the
+ * "phantom XP at cap" behaviour `levelCurve.isLevelCapped` documents. Observed
+ * live on game v1.3.1 (2026-10-26): ~1.67e12 (hero 401), ~2.47e12 (hero 301),
+ * ~2.50e12 (hero 201) — every one of them above the old 1e12 bound, so the
+ * reader clamped them to 0 and the tracker then discarded the hero entirely,
+ * leaving live hero XP permanently broken.
+ *
+ * The save layer already tolerated this magnitude (v1.2.4 save exps reached
+ * ~1.4e12), so 1e15 keeps the two layers consistent while still rejecting
+ * garbage: a legitimate double never approaches 1e15.
+ */
+const MAX_HERO_RUNTIME_EXP = 1e15;
 
 /**
  * Read the live party off a resolved StageManager instance.
@@ -3287,6 +3308,65 @@ function isPlausibleHeapPtr(v: bigint): boolean {
   return v > 0x10000n && v < 0x7ff0_0000_0000n;
 }
 
+/** Resolved monster struct offsets for the current build. */
+interface MonsterLayout {
+  /** `MonsterSpawnManager.MonsterList` (alive on field). 0 = unknown / absent. */
+  monsterList: number;
+  /** `MonsterSpawnManager.SummonedMonsterList`. 0 = unknown / absent. */
+  summonedList: number;
+  /** `MonsterSpawnManager.DeadMonsterList`. 0 = unknown / absent. */
+  deadList: number;
+  /** `Unit.UnitHealthController`. 0 = unknown. */
+  health: number;
+}
+
+/**
+ * Resolve the monster struct offsets for the current build.
+ *
+ * Two regimes, and they must not be mixed:
+ *
+ * 1. **LAYOUT-PINNED** — the offset table pins at least one monster layout
+ *    field (i.e. it came from a per-version capture such as the bundled
+ *    v1.3.1 table). The table is authoritative: use ONLY the offsets it
+ *    provides, and treat a 0 as "this field does not exist on this build" so
+ *    the list is skipped instead of read at a guessed offset.
+ *
+ * 2. **LEGACY FALLBACK** — the table pins none of them. Every bundled table up
+ *    to and including v1.2.4 carries all-zero monster offsets and relied on
+ *    the historical v1.00.21 base layout: monsterList 0x28, summonedList 0x38,
+ *    deadMonsterList 0x30, health controller 0xb0 (verified live on v1.01.05,
+ *    which shows DPS / alive / max-HP through that fallback).
+ *
+ * Why the regimes must not be mixed (v1.3.1): the 1.3.x layout moved
+ * `SummonedMonsterList` from 0x38 to 0x30 and dropped the dead-monster list
+ * entirely (0x30 is now the summoned list, 0x40 the cleared-stage list) —
+ * verified live against 21 live monsters. Applying the legacy 0x38/0x30
+ * defaults there reads a bool field as a list pointer and mislabels the
+ * summoned count as the dead count. Conversely, dropping the legacy defaults
+ * for the older tables would silently cost v1.2.x users their summoned list
+ * and dead-monster count. So: a pinned table is trusted in full, including its
+ * zeros; a table that pins nothing gets the historical defaults.
+ */
+function resolveMonsterLayout(o: LiveOffsets): MonsterLayout {
+  const m = o.runtime.monster;
+  const pinned =
+    m.monsterList > 0 ||
+    m.summonedList > 0 ||
+    m.deadMonsterList > 0 ||
+    m.monsterHealth > 0 ||
+    m.hpCurrent > 0 ||
+    m.hpMax > 0;
+  if (pinned) {
+    return {
+      monsterList: m.monsterList > 0 ? m.monsterList : 0,
+      summonedList: m.summonedList > 0 ? m.summonedList : 0,
+      deadList: m.deadMonsterList > 0 ? m.deadMonsterList : 0,
+      health: m.monsterHealth > 0 ? m.monsterHealth : 0,
+    };
+  }
+  return { monsterList: 0x28, summonedList: 0x38, deadList: 0x30, health: 0xb0 };
+}
+
 /** Resolve MonsterSpawnManager instance using the TypeInfo RVA (extracted or bundled).
  *  Reads the class's static_fields block and scans for a plausible heap pointer
  *  (the singleton instance). Tries the parent class (nn<T>) first for the bbwf field,
@@ -3304,10 +3384,10 @@ function resolveMonsterSpawnManager(
   // Re-validate on every call: StageManager and LogManager pins both re-check
   // liveness each tick — MonsterSpawnManager must do the same to avoid returning
   // a stale instance after scene swap / GC (HPs would silently degrade). When
-  // the cached instance no longer passes isValidMonsterManager, drop the pin and
+  // the cached instance no longer passes the structural check, drop the pin and
   // fall through to the regular resolution path.
   if (pin.ptr != null) {
-    if (isValidMonsterManager(reader, pin.ptr, o)) return pin.ptr;
+    if (hasMonsterListShape(reader, pin.ptr, o)) return pin.ptr;
     pin.ptr = null;
   }
   if (o.typeInfoRva.monsterSpawnManager === 0n) return null;
@@ -3318,17 +3398,20 @@ function resolveMonsterSpawnManager(
   // Strategy 1: try via parent class (nn<T>) — bbwf at static_fields+0x00
   const parent = readPtr(reader, klass + 0x58n);
   if (parent != null && parent >= 0x10000n && parent < 0x7ff0_0000_0000n) {
+    const candidates: bigint[] = [];
     for (const off of o.il2cppClass.staticFieldsOffsets) {
       const block = readPtr(reader, parent + BigInt(off));
       if (block != null && block > 0x10000n && block < 0x7ff0_0000_0000n) {
         const bbwf = readPtr(reader, block);
         if (bbwf != null && bbwf > 0x10000n && bbwf < 0x7ff0_0000_0000n) {
-          if (isValidMonsterManager(reader, bbwf, o)) {
-            pin.ptr = bbwf;
-            return bbwf;
-          }
+          if (hasMonsterListShape(reader, bbwf, o)) candidates.push(bbwf);
         }
       }
+    }
+    const picked = pickMonsterManagerCandidate(reader, candidates);
+    if (picked != null) {
+      pin.ptr = picked;
+      return picked;
     }
   }
 
@@ -3343,26 +3426,82 @@ function resolveMonsterSpawnManager(
   );
   if (block == null) return null;
 
+  // Strategy 2 scans the generic holder class' static block, which on
+  // v1.3.1 holds MANY managers. Collect every structurally valid candidate and
+  // let `pickMonsterManagerCandidate` prefer the one that identifies itself
+  // by class name, instead of taking whichever came first in slot order.
+  const candidates: bigint[] = [];
   for (let off = 0; off <= 0x100; off += 8) {
     const cand = readPtr(reader, block + BigInt(off));
     if (cand == null) continue;
     if (cand !== 0n && cand > 0x10000n && cand < 0x7ff0_0000_0000n) {
-      if (isValidMonsterManager(reader, cand, o)) {
-        pin.ptr = cand;
-        return cand;
-      }
+      if (hasMonsterListShape(reader, cand, o)) candidates.push(cand);
     }
+  }
+  const picked = pickMonsterManagerCandidate(reader, candidates);
+  if (picked != null) {
+    pin.ptr = picked;
+    return picked;
   }
   return null;
 }
 
-/** Check that a candidate MonsterSpawnManager instance has at least one valid monster list.
- *  Uses the same `monsterList` offset the reader uses (`o.runtime.monster.monsterList`,
- *  defaulting to 0x28 when not derived) — previously hardcoded 0x28, which could
- *  diverge from the reader's actual offset on versions where the extractor
- *  derived a different value. */
-function isValidMonsterManager(reader: MemoryReader, inst: bigint, o: LiveOffsets): boolean {
-  const monsterListOff = o.runtime.monster.monsterList > 0 ? o.runtime.monster.monsterList : 0x28;
+/** Il2CppObject::klass — the Il2CppClass* every managed object carries at +0x00. */
+const IL2CPP_OBJECT_CLASS_OFFSET = 0x00n;
+/** Il2CppClass::name — `const char*` at +0x10 (NUL-terminated ASCII). */
+const IL2CPP_CLASS_NAME_OFFSET = 0x10n;
+/**
+ * Class name of the monster-manager singleton.
+ *
+ * The game obfuscates most class names per build (`ob`1`, `pn`, …) but keeps
+ * the ES3 serialization names of the managers the live reader anchors on —
+ * `MonsterSpawnManager` is the name the by-name fallback already relies on
+ * (see `liveReader.runMonsterNameScan` / `winProcess.resolveClassByName`).
+ */
+const MONSTER_MANAGER_CLASS_NAME = "MonsterSpawnManager";
+
+/**
+ * True when the candidate instance's Il2CppClass identifies the monster manager.
+ *
+ * This is a PREFERENCE signal, not a hard filter — see
+ * {@link pickMonsterManagerCandidate} for the live evidence and the fallback
+ * rule. It answers "does this object claim to be the monster manager?", and the
+ * caller prefers such a candidate over one that merely has a List-shaped field.
+ *
+ * The class name is read from the object itself (Il2CppObject::klass @+0x00 →
+ * Il2CppClass::name @+0x10). When the name cannot be read at all (unreadable
+ * metadata, or a synthetic address space in unit tests) this returns false, so
+ * the caller falls back to the historical first-structurally-valid candidate —
+ * older builds are unaffected.
+ */
+function isMonsterManagerClass(reader: MemoryReader, inst: bigint): boolean {
+  const klass = readPtr(reader, inst + IL2CPP_OBJECT_CLASS_OFFSET);
+  if (klass == null || klass <= 0x10000n || klass >= 0x7ff0_0000_0000n) return false;
+  const namePtr = readPtr(reader, klass + IL2CPP_CLASS_NAME_OFFSET);
+  if (namePtr == null) return false;
+  const name = readCString(reader, namePtr);
+  if (name == null) return false;
+  // Tolerate a namespace prefix (`vb.MonsterSpawnManager`) and derived names.
+  const tail = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : name;
+  return tail.endsWith(MONSTER_MANAGER_CLASS_NAME);
+}
+
+/**
+ * Structural check: does the candidate instance expose a plausible monster List?
+ *
+ * This is the SHAPE test only — it says "there is a List here that could hold
+ * monsters", not "this object is the monster manager". The class-name check is
+ * a separate, PREFERRED (not mandatory) signal; see
+ * {@link pickMonsterManagerCandidate}.
+ *
+ * The probe uses the table's monster-list offset when it pins one, else 0x28 —
+ * the only monster-list location ever observed. This probe offset is a
+ * heuristic for recognition; the READ path stays strict (see
+ * {@link resolveMonsterLayout}).
+ */
+function hasMonsterListShape(reader: MemoryReader, inst: bigint, o: LiveOffsets): boolean {
+  const layout = resolveMonsterLayout(o);
+  const monsterListOff = layout.monsterList > 0 ? layout.monsterList : 0x28;
   const listPtr = readPtr(reader, inst + BigInt(monsterListOff));
   if (listPtr == null || listPtr <= 0x10000n || listPtr >= 0x7ff0_0000_0000n) return false;
   // Verify it has a non-empty backing array with sane count
@@ -3372,24 +3511,104 @@ function isValidMonsterManager(reader: MemoryReader, inst: bigint, o: LiveOffset
   return count != null && count >= 0 && count <= MAX_MONSTERS;
 }
 
-/** Known HP offset pairs to probe within a UnitHealthController candidate. */
+/**
+ * Pick the monster-manager instance among structurally valid candidates.
+ *
+ * The class name is a PREFERENCE, never a hard filter: on older builds the
+ * manager class may carry a different (or unreadable) name, and hard-filtering
+ * would break them. Live evidence on v1.3.1 (2026-10-26): the extracted
+ * `typeInfoRva.monsterSpawnManager` (0x6121ca8) points at the GENERIC
+ * singleton-holder class `ob`1`, whose static block holds dozens of managers
+ * (bdn, WindowManager, PoolManager, ResourceManager, AudioManager, …). The
+ * old "first structurally valid candidate wins" rule picked the AudioManager
+ * (its +0x28 is an empty `List<AudioClip>`), producing a FALSE EMPTY
+ * ("read attempted, zero monsters") instead of "no data source" — which
+ * suppressed the caller's `stageAlive` fallback and zeroed DPS/HP. The real
+ * manager's Il2CppClass name IS exactly "MonsterSpawnManager" on 1.3.1, and the
+ * by-name route recovers it.
+ *
+ * So: prefer a name match; if NO candidate matches by name (obfuscated or
+ * unreadable names), fall back to the historical first-structurally-valid
+ * behaviour so older builds keep working exactly as before.
+ */
+function pickMonsterManagerCandidate(
+  reader: MemoryReader,
+  candidates: readonly bigint[],
+): bigint | null {
+  if (candidates.length === 0) return null;
+  for (const cand of candidates) {
+    if (isMonsterManagerClass(reader, cand)) return cand;
+  }
+  // No candidate identified itself by name — keep the historical behaviour and
+  // take the first structurally valid one.
+  return candidates[0];
+}
+
+/** Known HP offset pairs to probe within a UnitHealthController candidate.
+ *
+ *  Layout history (all verified live):
+ *  - v1.2.x and older: currentHp @0x40, maxHp @0x4c (tbh-meter verified layout).
+ *  - v1.3.1: currentHp @0x40, maxHp @0x50 — the controller's base class moved
+ *    maxHp from 0x4c to 0x50 and 0x4c now reads 0. Live proof on v1.3.1: with
+ *    only the pre-1.3.1 pairs, 0 of 21 live monsters yielded HP; with
+ *    (0x40, 0x50) added, 21 of 21 did.
+ *
+ *  Order matters only in that a pair must not "win" on garbage: `validHpPair`
+ *  requires maxHp > 0, so on v1.3.1 the dead (0x40, 0x4c) slot is rejected and
+ *  the probe falls through to (0x40, 0x50), while on v1.2.x (0x40, 0x4c)
+ *  validates first and the newer pair is never reached. */
 const HC_PROBE_PAIRS: [number, number][] = [
-  [0x40, 0x4c], // tbh-meter verified layout
+  [0x40, 0x4c], // tbh-meter verified layout (v1.2.x and older)
+  [0x40, 0x50], // v1.3.1 layout — maxHp moved 0x4c → 0x50
   [0x38, 0x44],
   [0x30, 0x3c],
   [0x48, 0x54],
 ];
 
-/** Read HP from a `UnitHealthController`, using the cached offset pair when valid.
- *  Falls back to the full 4-pair probe when the cache is empty or the cached
- *  pair fails validation (transient mid-write / layout change). On successful
- *  probe, updates `pin.cachedHpOffsets` so subsequent monsters read HP directly. */
+/**
+ * Explicit HP field offsets taken from the offset table.
+ *
+ * A per-version table pins the controller layout for that build
+ * (`runtime.monster.hpCurrent` / `hpMax`). When both are non-zero they are
+ * authoritative — the probe pairs are only a fallback for versions whose table
+ * carries no explicit offsets (every bundled table before v1.3.1 has 0 here).
+ */
+function explicitHpOffsets(o: LiveOffsets): { cOff: number; mOff: number } | null {
+  const cOff = o.runtime.monster?.hpCurrent ?? 0;
+  const mOff = o.runtime.monster?.hpMax ?? 0;
+  if (cOff > 0 && mOff > 0) return { cOff, mOff };
+  return null;
+}
+
+/** Read HP from a `UnitHealthController`.
+ *
+ *  Order: the offset table's explicit pair (`runtime.monster.hpCurrent` /
+ *  `hpMax`, authoritative for the build it was captured on) → the cached
+ *  probe pair (all monsters of a wave share the controller layout) → the full
+ *  {@link HC_PROBE_PAIRS} probe as the last resort. The cache is invalidated
+ *  when the cached pair fails validation (transient mid-write / layout change)
+ *  and repopulated by the next successful probe. */
 function readHpFromController(
   reader: MemoryReader,
   ctrlPtr: bigint,
+  o: LiveOffsets,
   pin: MonsterSpawnPinState,
 ): [number, number] | null {
-  // Fast path: try the cached offset pair first.
+  // 1) Explicit per-version offsets from the table win over probing: a
+  //    bundled table knows the controller layout of its build exactly.
+  //    The winning pair is recorded in the pin cache so the cache always
+  //    reflects the pair actually in use — otherwise a stale cached pair from
+  //    an older layout would survive here and never be invalidated.
+  const explicit = explicitHpOffsets(o);
+  if (explicit != null) {
+    const current = readF32(reader, ctrlPtr + BigInt(explicit.cOff));
+    const maxHp = readF32(reader, ctrlPtr + BigInt(explicit.mOff));
+    if (validHpPair(current, maxHp)) {
+      pin.cachedHpOffsets = { cOff: explicit.cOff, mOff: explicit.mOff };
+      return [current!, maxHp!];
+    }
+  }
+  // 2) Fast path: try the cached offset pair first.
   const cached = pin.cachedHpOffsets;
   if (cached != null) {
     const current = readF32(reader, ctrlPtr + BigInt(cached.cOff));
@@ -3403,7 +3622,7 @@ function readHpFromController(
   // Fallback: probe all known pairs. On success, cache the winning pair so
   // subsequent monsters (which share the same controller struct layout) hit
   // the fast path on their first read.
-  const probed = probeHealthController(reader, ctrlPtr);
+  const probed = probeHealthController(reader, ctrlPtr, o);
   if (probed != null) {
     pin.cachedHpOffsets = { cOff: probed.cOff, mOff: probed.mOff };
     return [probed.current, probed.maxHp];
@@ -3435,11 +3654,18 @@ function readMonsterHp(
   o: LiveOffsets,
   pin: MonsterSpawnPinState,
 ): [number, number] | null {
-  const hcOff = o.runtime.monster.monsterHealth > 0 ? o.runtime.monster.monsterHealth : 0xb0;
+  // The UnitHealthController pointer offset is verified stable on EVERY build
+  // so far (v1.00.21 → v1.3.1 all use 0xb0), so it keeps its own fallback even
+  // when the table is layout-pinned — unlike the LIST offsets, a stale guess
+  // here would not read an unrelated field. (What changed in v1.3.1 is the
+  // position of current/maxHp INSIDE the controller, not where the controller
+  // pointer sits inside the Unit — see HC_PROBE_PAIRS.)
+  const layout = resolveMonsterLayout(o);
+  const hcOff = layout.health > 0 ? layout.health : 0xb0;
 
   const hc = readPtr(reader, monsterPtr + BigInt(hcOff));
   if (hc == null || hc <= 0x10000n || hc >= 0x7ff0_0000_0000n) return null;
-  return readHpFromController(reader, hc, pin);
+  return readHpFromController(reader, hc, o, pin);
 }
 
 /** Try multiple known HP offset pairs within a controller struct. Returns the
@@ -3447,7 +3673,17 @@ function readMonsterHp(
 function probeHealthController(
   reader: MemoryReader,
   ctrlPtr: bigint,
+  o: LiveOffsets,
 ): { current: number; maxHp: number; cOff: number; mOff: number } | null {
+  // Explicit table offsets first — they describe this build exactly.
+  const explicit = explicitHpOffsets(o);
+  if (explicit != null) {
+    const current = readF32(reader, ctrlPtr + BigInt(explicit.cOff));
+    const maxHp = readF32(reader, ctrlPtr + BigInt(explicit.mOff));
+    if (validHpPair(current, maxHp)) {
+      return { current: current!, maxHp: maxHp!, cOff: explicit.cOff, mOff: explicit.mOff };
+    }
+  }
   for (const [cOff, mOff] of HC_PROBE_PAIRS) {
     const current = readF32(reader, ctrlPtr + BigInt(cOff));
     const maxHp = readF32(reader, ctrlPtr + BigInt(mOff));
@@ -3490,19 +3726,22 @@ function walkMonsterList(
  * Returns the combined (monsterList + summonedList) HP array and the dead monster count.
  *
  * MonsterSpawnManager has:
- *   - monsterList: List<Monster> (alive on field)
- *   - summonedList: List<Monster> (summoned monsters)
- *   - deadMonsterList: List<dead_monster> (dead count via listSize)
+ *   - monsterList: List<Monster> (alive on field) — 0x28 on every build so far
+ *   - summonedList: List<Monster> (summoned monsters) — 0x30 on v1.3.1 (0x38 before)
+ *   - deadMonsterList: List<dead_monster> (dead count via listSize) — absent on v1.3.1
  *
- * Each Monster (a runtime Unit) has a UnitHealthController whose exact field
- * offset is scanned dynamically.
+ * Each Monster (a runtime Unit) has a UnitHealthController whose HP fields are
+ * read from the offset table when it provides them
+ * (`runtime.monster.hpCurrent` / `hpMax`) and probed dynamically otherwise
+ * (see {@link HC_PROBE_PAIRS}).
  *
  * Returns null only when the MonsterSpawnManager instance itself cannot be
- * resolved. When the struct offsets aren't derived for this build (e.g.
- * v1.00.28 / v1.01.01 / v1.01.05 — `runtime.monster.monsterList`/`summonedList`
- * are 0), the reader falls back to the v1.00.21 base offsets (0x28/0x38/0x30)
- * so monster HP data keeps flowing where those offsets are still valid (verified
- * live: v1.01.05 shows DPS/alive/max-HP with the base-offset fallback).
+ * resolved. The struct offsets come from {@link resolveMonsterLayout}: a table
+ * that pins the monster layout (per-version capture) is authoritative, while a
+ * table that pins none of it (every bundled table up to v1.2.4 — e.g.
+ * v1.00.28 / v1.01.01 / v1.01.05) keeps the historical v1.00.21 base offsets
+ * (0x28 / 0x38 / 0x30) so monster HP data keeps flowing where they are still
+ * valid (verified live: v1.01.05 shows DPS/alive/max-HP with that fallback).
  *
  * The empty-array-vs-null distinction is left to the CALLER: an empty array
  * means "read attempted but no monsters found" (TrackingService then falls back
@@ -3524,12 +3763,16 @@ export function readRuntimeMonsterHp(
   const msmPtr = resolveMonsterSpawnManager(reader, gaBase, gaSize, o, pin);
   if (msmPtr == null) return null;
 
-  // Use known offsets from tbh-meter: MONSTER_LIST=0x28, SUMMONED_LIST=0x38, DEAD_MONSTER_LIST=0x30
-  const monsterListOff = o.runtime.monster.monsterList > 0 ? o.runtime.monster.monsterList : 0x28;
-  const summonedListOff =
-    o.runtime.monster.summonedList > 0 ? o.runtime.monster.summonedList : 0x38;
-  const deadListOff =
-    o.runtime.monster.deadMonsterList > 0 ? o.runtime.monster.deadMonsterList : 0x30;
+  // Monster list offsets — see `resolveMonsterLayout` for the two regimes
+  // (layout-pinned table vs. legacy v1.00.21 base-layout fallback) and why
+  // they must not be mixed. In short: a table that pins the layout is trusted
+  // in full (a 0 means "absent on this build" → that list is skipped), while a
+  // table that pins nothing keeps the historical 0x28 / 0x38 / 0x30 defaults
+  // that every bundled table up to v1.2.4 relied on.
+  const layout = resolveMonsterLayout(o);
+  const monsterListOff = layout.monsterList;
+  const summonedListOff = layout.summonedList;
+  const deadListOff = layout.deadList;
 
   // Read monsters from monsterList and summonedList
   const monsterHps: Array<[number, number, number]> = []; // [addr, hpCurrent, hpMax]

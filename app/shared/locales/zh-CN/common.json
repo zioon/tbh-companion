@@ -24,7 +24,9 @@
     "live": "实时",
     "unsupportedTitle": "此游戏版本暂不支持实时数据",
     "unsupported": "实时：不支持",
-    "waitingForGame": "实时：等待游戏启动"
+    "waitingForGame": "实时：等待游戏启动",
+    "lowIntegrity": "实时：权限不足",
+    "lowIntegrityTitle": "助手进程以低于 Medium 的完整性级别运行，Windows 会因此隐藏游戏进程并拒绝访问它。请用管理员权限执行：icacls \"<程序目录>\" /setintegritylevel (OI)(CI)M"
   },
   "catalog": {
     "refresh": "刷新目录",
@@ -82,6 +84,7 @@
       "RING": "戒指",
       "EARING": "耳环",
       "BRACER": "护腕",
+      "HATCHET": "手斧",
       "OFFERING": "供奉",
       "INSCRIPTION": "铭文",
       "DECORATION": "装饰",

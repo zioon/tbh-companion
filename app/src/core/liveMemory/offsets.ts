@@ -1036,6 +1036,154 @@ const V1_2_4: LiveOffsets = {
   goldKey: 100001,
 };
 
+// v1.3.1 — captured from a live run on 2026-10-26 (game running, party deployed:
+// knights 401 / 301 / 201, 21 live monsters). Every value below was LIVE-VERIFIED
+// on the v1.3.1 binary; nothing here is inherited from an older build.
+//
+// Why v1.3.1 needs its OWN table:
+//  - v1.3.0 → v1.3.1 recompiled the binary and MOVED every static TypeInfo RVA:
+//      stageManager         0x6120e18 → 0x6121f98  (+0x1180)
+//      stageCacheManager    0x615c800 → 0x615d978  (+0x1178)
+//      logManager           0x614fcc8 → 0x6150e48  (+0x1180)
+//      monsterSpawnManager  0x6120b28 → 0x6121ca8  (+0x1180)
+//      currencyManager      0x615b6c8 → 0x615c840  (re-derived — the 1.3.0 value
+//                          is stale on 1.3.1)
+//    ⇒ a 1.3.0 table cannot be reused for 1.3.1 — exactly the failure the
+//      1.2.2 → 1.2.4 recompile caused (see the V1_2_4 block above).
+//  - `offsetsForVersionMeta` only falls back within the SAME major.minor, so
+//    1.3.1 had NO bundled table at all and the runtime extractor ran with
+//    `base = null`. Its no-base fallback constants then overwrote the hero
+//    struct offsets with the v1.00.27–v1.01.05 layout (see the note below).
+//
+// LIVE-VERIFIED on v1.3.1 (2026-10-26):
+//  - typeInfoRva.currencyManager 0x615c840 — the gold probe PASSED: live gold
+//    read 131143471506 while the save snapshot showed 139668750798 (both are
+//    plausible wallet values; live lags save by the un-spent delta).
+//  - unit.cache 0x3d8 — heroPtr+0x3d8 → +0x30 → +0x30 yields hero keys
+//    [401, 301, 201], exactly matching the deployed party in the save snapshot.
+//    The layout moved AGAIN on 1.3.1: v1.2.x used 0x3d0, and the value the
+//    extractor falls back to when it has no base (0x3b0, the v1.00.27–v1.01.05
+//    constant) yields garbage.
+//  - heroRuntime.levelHidden / levelKey 0xd0 / 0xd4 — the ACTk ObscuredInt
+//    decode yields level=101 for all three heroes, matching the save snapshot.
+//  - heroRuntime.expHidden / expKey 0x118 / 0x120 — the v1.00.27+ layout
+//    REVERTED on 1.3.1 (v1.2.x used 0x658/0x660; on v1.3.1 the 0x658 pair
+//    decodes to 0). Decodes to live, monotonically increasing values
+//    (1671035434284 → 1671045066799 over 21s for hero 401).
+//  - runtime.heroList 0x68 — freshly derived AND live-verified (3 heroes found).
+//  - runtime.monster.* — verified against 21 live monsters by the DPS
+//    diagnoser: MonsterList 0x28 (unchanged), SummonedMonsterList moved
+//    0x38 → 0x30, NO dead-monster list on 1.3.1, Unit.UnitHealthController
+//    0xb0, health controller currentHp 0x40 / maxHp 0x50.
+//
+// KNOWN GAPS / INHERITED (unchanged from V1_2_4):
+//  - player.boxData / boxData.boxTypes / boxData.boxQuantity — 0. From v1.01.02
+//    on the save layer is an ES3 byte stream, so BoxData is not pointer-walkable
+//    at runtime → live chest slots stay on the save-snapshot path.
+//  - runtime.stage.alive — 0, not derivable on this build (v1.2.4 parity).
+//
+// ⚠️ EXP MAGNITUDE — the live hero exp decoded on v1.3.1 is ~1.67e12, which is
+// ABOVE the reader's plausibility ceiling MAX_HERO_RUNTIME_EXP = 1e12
+// (app/src/core/liveMemory/runtime.ts:1218) and ABOVE the tracker's
+// plausibleHeroRuntimeExp gate (app/src/core/tracker.ts:224, same 1e12 limit).
+// ⇒ the runtime read clamps exp to 0 (runtime.ts:1310) and the tracker skips
+// those heroes entirely (tracker.ts:566 / 581 / 604), so live hero XP stays 0
+// even though the raw decode is correct. The save layer already tolerates
+// larger values (MAX_HERO_SAVE_EXP = 1e15, tracker.ts:46 — ~1.4e12 observed on
+// v1.2.4), so the LIVE ceiling is the outlier and needs a separate fix.
+const V1_3_1: LiveOffsets = {
+  gameVersion: "1.3.1",
+  typeInfoRva: {
+    commonSaveData: 0n, // not static-reachable — save layer is ES3 byte stream
+    currencyManager: 0x615c840n, // re-derived on 1.3.1 (gold probe passed on this build)
+    stageCacheManager: 0x615d978n,
+    stageManager: 0x6121f98n,
+    localInventoryManager: 0n,
+    logManager: 0x6150e48n,
+    monsterSpawnManager: 0x6121ca8n,
+  },
+  player: {
+    commonSaveData: 0x10,
+    currency: 0x48,
+    heroSaveDatas: 0x50,
+    petSaveDatas: 0x70,
+    itemSaveDatas: 0xa8,
+    aggregates: 0xb8,
+    boxData: 0, // ES3 byte stream — not derivable at runtime (see v1.01.05 notes)
+  },
+  boxData: {
+    boxTypes: 0,
+    boxQuantity: 0,
+  },
+  common: {
+    playTime: 0x20,
+    arrangedHeroKey: 0x48,
+    maxCompletedStage: 0x54,
+    currentStageKey: 0x58,
+    currentStageWave: 0x5c,
+  },
+  hero: { heroKey: 0x10, level: 0x14, unlock: 0x18, exp: 0x1c, equipped: 0x28 },
+  unit: { cache: 0x3d8 }, // re-verified on 1.3.1 — v1.2.x used 0x3d0, 1.01.x used 0x3b0
+  heroRuntime: {
+    info: 0x30,
+    levelHidden: 0xd0, // re-verified on 1.3.1 — v1.2.x used 0x610
+    levelKey: 0xd4, // re-verified on 1.3.1 — v1.2.x used 0x614
+    expHidden: 0x118, // re-verified on 1.3.1 — v1.2.x used 0x658 (decodes to 0 here)
+    expKey: 0x120, // re-verified on 1.3.1 — v1.2.x used 0x660 (decodes to 0 here)
+  },
+  heroInfoData: { heroKey: 0x30 },
+  currency: { key: 0x10, quantity: 0x18 },
+  petSaveData: { petKey: 0x10, isUnlock: 0x14 },
+  inventoryItem: { itemKey: 0x10, isChaotic: 0x20 },
+  runtime: {
+    currency: { list: 0x0, dict: 0x8, entryInfoData: 0x10, entryObscuredQty: 0x28 },
+    stage: {
+      currentCache: 0xa8,
+      cacheInfoData: 0x10,
+      stageKey: 0x30,
+      waveAmount: 0x54,
+      runtimeWave: 0x138,
+      alive: 0, // not derived on this build
+    },
+    currencyInfoKey: 0x30,
+    heroList: 0x68, // re-derived + live-verified on 1.3.1 — v1.2.x used 0x30
+    log: {
+      logByType: 0x28,
+      getBoxTypeKey: 3,
+      stageClearTypeKey: 1,
+      getItemWithBoxOpenTypeKey: 2,
+    },
+    getBoxLog: {
+      monsterType: 0x50,
+    },
+    boxOpenLog: {
+      itemStringKey: 0x40,
+      itemGradeType: 0x48,
+      gradeSO: 0x50,
+      gradeSOGrade: 0x10,
+      boxType: 0,
+      level: 0,
+    },
+    stageClearLog: {
+      act: 0x40,
+      stage: 0x44,
+      clearTimeSec: 0x48,
+    },
+    monster: {
+      monsterList: 0x28, // live-verified on 1.3.1
+      summonedList: 0x30, // live-verified on 1.3.1 — moved 0x38 → 0x30
+      deadMonsterList: 0, // no dead-monster list on 1.3.1
+      monsterHealth: 0xb0, // Unit.UnitHealthController — live-verified on 1.3.1
+      hpCurrent: 0x40, // health controller currentHp — live-verified on 1.3.1
+      hpMax: 0x50, // health controller maxHp — live-verified on 1.3.1
+    },
+  },
+  container: CONTAINER,
+  dict: DICT,
+  il2cppClass: IL2CPP_CLASS,
+  goldKey: 100001,
+};
+
 const TABLE: Record<string, LiveOffsets> = {
   "1.00.21": V1_00_21,
   "1.00.23": V1_00_23,
@@ -1045,6 +1193,7 @@ const TABLE: Record<string, LiveOffsets> = {
   "1.01.05": V1_01_05,
   "1.2.2": V1_2_2,
   "1.2.4": V1_2_4,
+  "1.3.1": V1_3_1,
 };
 
 /** Parse a "MAJOR.MINOR.PATCH" version string into a numeric tuple. */

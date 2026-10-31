@@ -234,9 +234,19 @@ describe("cross-version offset regression (auto-covers new versions)", () => {
       get: (o) => o.runtime.getBoxLog.monsterType,
       expected: 0x50,
     },
-    { path: "runtime.heroList", get: (o) => o.runtime.heroList, expected: 0x30 },
     { path: "runtime.currencyInfoKey", get: (o) => o.runtime.currencyInfoKey, expected: 0x30 },
   ];
+
+  // `runtime.heroList` (StageManager.HeroList) is NOT stable across the 1.3.x
+  // boundary any more: it was 0x30 through v1.2.4 and moved to 0x68 on v1.3.1
+  // (live-verified 2026-10-26 — the extractor re-derived it from the
+  // "HeroList" field of the matched class, and the live party read back the
+  // deployed heroes 401 / 301 / 201 that match the save snapshot). It is
+  // therefore pinned per version instead of being asserted as a constant.
+  const EXPECTED_HERO_LIST: Readonly<Record<string, number>> = {
+    "1.3.1": 0x68,
+  };
+  const DEFAULT_HERO_LIST = 0x30;
 
   it("supportedVersions() is non-empty (guard against TABLE being accidentally wiped)", () => {
     expect(VERSIONS.length).toBeGreaterThan(0);
@@ -260,6 +270,12 @@ describe("cross-version offset regression (auto-covers new versions)", () => {
     for (const { path, get, expected } of EXPECTED_STABLE_RUNTIME) {
       expect(get(o), `${path} on ${version}`).toBe(expected);
     }
+  });
+
+  it.each(VERSIONS)("version %s pins runtime.heroList at the value captured for it", (version) => {
+    const o = offsetsForVersion(version)!;
+    const expected = EXPECTED_HERO_LIST[version] ?? DEFAULT_HERO_LIST;
+    expect(o.runtime.heroList, `runtime.heroList on ${version}`).toBe(expected);
   });
 
   it.each(VERSIONS)(

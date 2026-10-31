@@ -26,8 +26,27 @@ import { perHeroGain } from "./levelCurve";
 
 const HISTORY_LIMIT = 500;
 
-/** Reject decoded runtime exp above this (corrupted memory / bad Obscured decode). */
-const MAX_HERO_RUNTIME_EXP = 1e12;
+/**
+ * Hard ceiling on a decoded runtime hero exp.
+ *
+ * This rejects CORRUPT / MISALIGNED Obscured decodes (a wrong
+ * `heroRuntime.expHidden` offset decodes random bytes into a wild double); it
+ * does NOT model game balance. It is deliberately aligned with the save-layer
+ * ceiling `MAX_HERO_SAVE_EXP = 1e15` below — the same quantity read through
+ * two different layers must share one bound — and with the reader's own
+ * `MAX_HERO_RUNTIME_EXP` in app/src/core/liveMemory/runtime.ts. If the two
+ * layers disagree, the reader clamps to 0 while the tracker would accept the
+ * value (or vice versa), and live hero XP silently dies.
+ *
+ * Why 1e15 and not the historical 1e12: the runtime exp is a WITHIN-LEVEL
+ * counter. At the level cap (101) a hero never levels up again, so nothing
+ * consumes the counter and it grows without bound (see
+ * `levelCurve.isLevelCapped`). Observed live on game v1.3.1 (2026-10-26):
+ * ~1.67e12 (hero 401), ~2.47e12 (hero 301), ~2.50e12 (hero 201) — all above
+ * the old bound, so `plausibleHeroRuntimeExp` rejected them and the tracker
+ * skipped those heroes entirely.
+ */
+const MAX_HERO_RUNTIME_EXP = 1e15;
 /** Reject a single live tick whose summed hero gains exceed this. */
 const MAX_LIVE_XP_GAIN_PER_TICK = 1e7;
 /**
@@ -37,11 +56,15 @@ const MAX_LIVE_XP_GAIN_PER_TICK = 1e7;
  */
 const MAX_LIVE_GOLD_GAIN_PER_TICK = 1e7;
 /**
- * Generous upper bound for a SAVE-parsed (ES3) hero exp. The runtime read caps
- * at 1e12 (ACTk ObscuredDouble range guard); the save can legitimately hold
- * larger cumulative exp (observed ~1.4e12 on v1.2.4), so this sits far above
- * that — it only rejects memory-corruption / parse-garbage that would pollute
- * the persisted session snapshot (captureSnapshot writes currentTotalXp).
+ * Generous upper bound for a SAVE-parsed (ES3) hero exp. The save can hold
+ * larger cumulative exp than a sane balance number (observed ~1.4e12 on
+ * v1.2.4, ~2.7e12 on v1.3.1), so this sits far above that — it only rejects
+ * memory-corruption / parse-garbage that would pollute the persisted session
+ * snapshot (captureSnapshot writes currentTotalXp).
+ *
+ * Deliberately EQUAL to `MAX_HERO_RUNTIME_EXP` above: the save layer and the
+ * runtime layer observe the same quantity through different decoders, so they
+ * must agree on what "implausible" means.
  */
 const MAX_HERO_SAVE_EXP = 1e15;
 

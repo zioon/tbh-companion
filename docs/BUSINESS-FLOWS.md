@@ -117,7 +117,7 @@ flowchart LR
 | Session restore 数值不合理                         | discard + deleteFile（防 live/save baseline 混合污染）                                                                |
 | applySnapshot 抛错（schema drift）                 | discard + deleteFile                                                                                                  |
 | Live memory worker 崩溃                            | `lastLiveFrame` 超过 5s 未更新 → TrackingService tickTimer 清空 `lastLiveFrame`/`lastLiveStage`，stats 回退到 save 值 |
-| Live hero exp 异常（>1e12）                        | `plausibleHeroRuntimeExp` 拒绝                                                                                        |
+| Live hero exp 异常（>1e15）                        | `plausibleHeroRuntimeExp` 拒绝                                                                                        |
 | Live 单 tick gain 异常（>1e7）                     | `plausibleLiveHeroGain` 拒绝                                                                                          |
 | Live level-drop（dirty read）                      | 跳过该 hero 不计数                                                                                                    |
 | Live same-level dip                                | 跳过计数但 refreshRolling                                                                                             |
@@ -217,6 +217,7 @@ flowchart LR
 | ChestService              | `app/src/main/services/ChestService.ts`                                                                                                                                                |
 | boxes resolve             | `app/src/core/boxes/resolve.ts`                                                                                                                                                        |
 | boxes capacity            | `app/src/core/boxes/capacity.ts`                                                                                                                                                       |
+| boxCategories（箱子 id → 类别） | `app/src/core/boxCategories.ts` — 唯一 band 表（910/915/920/925/930/935/940/941），掉落追踪与渲染分组共用 |
 | AutoClassifyService       | `app/src/main/services/AutoClassifyService.ts`                                                                                                                                         |
 | AutoClassify 规约         | `docs/findings/auto-classify-business-logic.md`                                                                                                                                        |
 | chestDropTracker          | `app/src/core/chestDropTracker.ts`                                                                                                                                                     |

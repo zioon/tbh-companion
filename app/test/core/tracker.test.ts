@@ -404,13 +404,16 @@ describe("XpTracker.updateLive", () => {
     const t = new XpTracker(300);
     t.update(snap(1000, 0)); // initialize so updateLive is accepted
     // First live frame = takeover. key2 carries a dirty read far above the
-    // 1e12 runtime-exp cap; it must not pollute totalXp or the per-hero baseline.
+    // runtime-exp cap (MAX_HERO_RUNTIME_EXP = 1e15 — the same bound the save
+    // layer uses, so the within-level counter at the level cap is not
+    // mistaken for garbage); it must not pollute totalXp or the per-hero
+    // baseline.
     t.updateLive(
       {
         gold: null,
         heroes: [
           { heroKey: 1, level: 10, exp: 500 },
-          { heroKey: 2, level: 10, exp: 3e12 },
+          { heroKey: 2, level: 10, exp: 1e16 },
         ],
       },
       1000,
