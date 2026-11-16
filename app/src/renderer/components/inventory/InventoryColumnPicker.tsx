@@ -33,8 +33,8 @@ export function InventoryColumnPicker({ prefs, onChange }: InventoryColumnPicker
         inHand: t("columns.inHand"),
         listValue: t("columns.listValue"),
         instantSell: t("columns.instantSell"),
+        instantSellNet: t("columns.instantSellNet"),
         instantTotal: t("columns.instantTotal"),
-        instantSellAverage: t("columns.instantSellAverage"),
       }) as Record<InventoryColumnId, string>,
     [t],
   );
@@ -43,11 +43,19 @@ export function InventoryColumnPicker({ prefs, onChange }: InventoryColumnPicker
     const next = checked
       ? [...normalized.visibleColumns, id]
       : normalized.visibleColumns.filter((col) => col !== id);
-    onChange(normalizeInventoryTablePrefs({ visibleColumns: next }));
+    onChange(
+      normalizeInventoryTablePrefs({
+        visibleColumns: next,
+        version: normalized.version,
+      }),
+    );
   }
 
   function reset(): void {
-    onChange({ visibleColumns: [...DEFAULT_VISIBLE_INVENTORY_COLUMNS] });
+    onChange({
+      visibleColumns: [...DEFAULT_VISIBLE_INVENTORY_COLUMNS],
+      version: normalized.version,
+    });
     setOpen(false);
   }
 

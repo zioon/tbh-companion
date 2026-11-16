@@ -33,8 +33,8 @@
     "inHand": "受取額",
     "listValue": "マーケット合計",
     "instantSell": "即時売却",
-    "instantTotal": "即時合計",
-    "instantSellAverage": "即時平均"
+    "instantSellNet": "即時受取額",
+    "instantTotal": "即時合計"
   },
   "columnPicker": {
     "ariaLabel": "表示列",
@@ -64,7 +64,7 @@
     "notLoadedLabel": "—",
     "notLoadedTitle": "買い注文はまだ読み込まれていません",
     "highestTitle": "最高買い注文価格 — すぐに注文簿に売る場合の価格",
-    "averageTitle": "このスタックを埋めるのに使用された注文簿レベルあたりの単価平均。"
+    "netTitle": "最高買い注文で即時売却した場合、Steam とパブリッシャーの取引コストを差し引いた受取額"
   },
   "marketPrice": {
     "noListingsLabel": "アクティブ出品なし",

@@ -33,8 +33,8 @@
     "inHand": "수령액",
     "listValue": "마켓 총액",
     "instantSell": "즉시 판매",
-    "instantTotal": "즉시 총액",
-    "instantSellAverage": "즉시 평균"
+    "instantSellNet": "즉시 수령액",
+    "instantTotal": "즉시 총액"
   },
   "columnPicker": {
     "ariaLabel": "표시할 열",
@@ -64,7 +64,7 @@
     "notLoadedLabel": "—",
     "notLoadedTitle": "구매 주문이 아직 로드되지 않음",
     "highestTitle": "최고 구매 주문 — 주문장에 즉시 판매할 경우의 가격",
-    "averageTitle": "이 스택을 채우는 데 사용된 주문장 레벨 전체의 단위당 평균 가격."
+    "netTitle": "최고 구매 주문으로 즉시 판매할 때 Steam 및 퍼블리셔 거래 비용을 차감한 수령액"
   },
   "marketPrice": {
     "noListingsLabel": "활성 등록 없음",

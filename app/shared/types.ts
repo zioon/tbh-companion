@@ -1338,12 +1338,18 @@ export type InventoryColumnId =
   | "inHand"
   | "listValue"
   | "instantSell"
+  | "instantSellNet"
   | "instantTotal"
-  | "instantSellAverage"
   | "synthesisPoints";
 
 export interface InventoryTablePrefs {
   visibleColumns: InventoryColumnId[];
+  /**
+   * 列配置的持久化版本。缺省视为 1（旧版：含已移除的「立即均价」列）。
+   * 2 起移除该列并引入「立即到手价」；迁移只在版本 < 2 时补一次新列，
+   * 之后用户手动隐藏不会再被补回。
+   */
+  version?: number;
 }
 
 export interface ChestAutoOpenPrefs {

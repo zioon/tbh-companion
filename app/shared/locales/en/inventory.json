@@ -33,8 +33,8 @@
     "inHand": "In hand",
     "listValue": "Market total",
     "instantSell": "Instant sell",
-    "instantTotal": "Instant total",
-    "instantSellAverage": "Instant avg"
+    "instantSellNet": "Instant net",
+    "instantTotal": "Instant total"
   },
   "columnPicker": {
     "ariaLabel": "Visible columns",
@@ -64,7 +64,7 @@
     "notLoadedLabel": "—",
     "notLoadedTitle": "Buy order not loaded yet",
     "highestTitle": "Highest buy order — price if you sold to the order book immediately",
-    "averageTitle": "Average price per unit across the order-book levels used to fill this stack."
+    "netTitle": "Wallet proceeds from selling at the highest buy order, after Steam and publisher fees"
   },
   "marketPrice": {
     "noListingsLabel": "No active listings",

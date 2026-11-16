@@ -33,8 +33,8 @@
     "inHand": "到手价",
     "listValue": "市场总价",
     "instantSell": "立即出售",
-    "instantTotal": "立即总价",
-    "instantSellAverage": "立即均价"
+    "instantSellNet": "立即到手价",
+    "instantTotal": "立即总价"
   },
   "columnPicker": {
     "ariaLabel": "可见列",
@@ -64,7 +64,7 @@
     "notLoadedLabel": "—",
     "notLoadedTitle": "求购单尚未加载",
     "highestTitle": "最高求购价 —— 立即卖给订单簿的价格",
-    "averageTitle": "覆盖此堆栈所用订单簿层级的每单位均价。"
+    "netTitle": "按最高求购价立即出售、扣除 Steam 与厂商交易成本后的到手金额"
   },
   "marketPrice": {
     "noListingsLabel": "无活跃挂单",

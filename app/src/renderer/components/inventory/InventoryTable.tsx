@@ -31,7 +31,7 @@ import { Button } from "../../design-system/primitives/Button/Button";
 import { Card } from "../../design-system/primitives/Card/Card";
 import { Tooltip } from "../../design-system/primitives/Tooltip/Tooltip";
 import { cn } from "../../lib/cn";
-import { buyOrderAverage, type SortKey } from "../../lib/inventoryFilters";
+import type { SortKey } from "../../lib/inventoryFilters";
 import type { TFunction } from "i18next";
 
 function priceSourceTitle(
@@ -325,6 +325,7 @@ function buildColumnDefs(
     {
       id: "inHand",
       label: t("columns.inHand"),
+      sortKey: "inHand",
       align: "right",
       render: (row, currency) => {
         if (!row.marketHashName || row.unitPrice == null) return "-";
@@ -387,6 +388,32 @@ function buildColumnDefs(
       },
     },
     {
+      id: "instantSellNet",
+      label: t("columns.instantSellNet"),
+      sortKey: "instantNet",
+      align: "right",
+      render: (row, currency) => {
+        if (!row.marketHashName) return "-";
+        if (row.buyOrderUnit == null) {
+          const empty = emptyBuyOrderDisplay(t, row);
+          return (
+            <MarketListingLink hash={row.marketHashName} title={empty.title}>
+              <span className="text-muted">{empty.label}</span>
+            </MarketListingLink>
+          );
+        }
+        const net = sellerProceedsFromBuyerPrice(
+          row.buyOrderUnit,
+          feeRatesForCurrency(TBH_MARKET_FEE_RATES, currency),
+        );
+        return (
+          <MarketListingLink hash={row.marketHashName} title={t("buyOrder.netTitle")}>
+            {formatMoney(net, currency)}
+          </MarketListingLink>
+        );
+      },
+    },
+    {
       id: "instantTotal",
       label: t("columns.instantTotal"),
       sortKey: "buyOrderValue",
@@ -411,21 +438,6 @@ function buildColumnDefs(
                 {covered.toLocaleString()} / {row.count.toLocaleString()}
               </Badge>
             ) : null}
-          </MarketListingLink>
-        );
-      },
-    },
-    {
-      id: "instantSellAverage",
-      label: t("columns.instantSellAverage"),
-      sortKey: "buyOrderAverage",
-      align: "right",
-      render: (row, currency) => {
-        if (!row.marketHashName) return "-";
-        const average = buyOrderAverage(row);
-        return (
-          <MarketListingLink hash={row.marketHashName} title={t("buyOrder.averageTitle")}>
-            {average != null && Number.isFinite(average) ? formatMoney(average, currency) : "-"}
           </MarketListingLink>
         );
       },

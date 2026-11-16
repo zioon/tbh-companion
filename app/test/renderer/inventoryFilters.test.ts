@@ -191,10 +191,25 @@ describe("inventoryFilters", () => {
     expect(rows.map((r) => r.name)).toEqual(["Iron Helm", "Iron Ingot"]);
   });
 
-  it("sorts by instant sell average", () => {
+  it("sorts by in-hand proceeds (net of market fees)", () => {
+    const desc = filterAndSortRows(inv, {
+      ...baseState,
+      sortKey: "inHand",
+      sortDir: "desc",
+    });
+    expect(desc.map((r) => r.name)).toEqual(["Void Staff", "Iron Helm", "Iron Ingot"]);
+    const asc = filterAndSortRows(inv, {
+      ...baseState,
+      sortKey: "inHand",
+      sortDir: "asc",
+    });
+    expect(asc.map((r) => r.name)).toEqual(["Iron Ingot", "Iron Helm", "Void Staff"]);
+  });
+
+  it("sorts by instant-sell net proceeds, nulls last in descending order", () => {
     const rows = filterAndSortRows(inv, {
       ...baseState,
-      sortKey: "buyOrderAverage",
+      sortKey: "instantNet",
       sortDir: "desc",
     });
     expect(rows[0].name).toBe("Void Staff");

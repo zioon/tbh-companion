@@ -1,6 +1,12 @@
 import { GRADE_ORDER, GRADE_RANK } from "../../core/grades";
 import { rowMatchesLocation } from "../../core/inventory/location";
 import { synthesisPointsForItemKeyByGear } from "../../core/synthesisPoints";
+import {
+  feeRatesForCurrency,
+  sellerProceedsFromBuyerPrice,
+  TBH_MARKET_FEE_RATES,
+  type SteamMarketFeeRates,
+} from "../../core/steamMarketFee";
 import type {
   ItemLocation,
   LookupItem,
@@ -16,10 +22,11 @@ export type SortKey =
   | "count"
   | "inUse"
   | "price"
+  | "inHand"
   | "value"
   | "buyOrder"
+  | "instantNet"
   | "buyOrderValue"
-  | "buyOrderAverage"
   | "synthesisPoints";
 /** A single storage location; the location filter holds a set of these ([] = all). */
 export type LocationFilter = ItemLocation;
@@ -55,10 +62,9 @@ function matchesMulti(selected: string[], value: string | null): boolean {
   return selected.length === 0 || (value != null && selected.includes(value));
 }
 
-/** Average price per unit actually realized across the order-book levels used to fill the stack. */
-export function buyOrderAverage(row: ResolvedInventoryRow): number | null {
-  if (!row.buyOrderCoveredCount || row.buyOrderValue == null) return null;
-  return row.buyOrderValue / row.buyOrderCoveredCount;
+/** 单件净到手金额（买方价扣除 Steam/厂商手续费）；无价格时返回 null。 */
+function netProceeds(buyerPrice: number | null, rates: SteamMarketFeeRates): number | null {
+  return buyerPrice == null ? null : sellerProceedsFromBuyerPrice(buyerPrice, rates);
 }
 
 /** 单行物品的合成点数（需图鉴索引反查 gearGroup 判饰品）；无匹配返回 null。 */
@@ -112,6 +118,10 @@ export function filterAndSortRows(
   });
 
   const dir = state.sortDir === "asc" ? 1 : -1;
+  const rates =
+    state.sortKey === "inHand" || state.sortKey === "instantNet"
+      ? feeRatesForCurrency(TBH_MARKET_FEE_RATES, inv.currency)
+      : null;
   rows = [...rows].sort((a, b) => {
     let cmp: number;
     if (state.sortKey === "name") cmp = a.name.localeCompare(b.name);
@@ -120,12 +130,15 @@ export function filterAndSortRows(
     else if (state.sortKey === "count") cmp = a.count - b.count;
     else if (state.sortKey === "inUse") cmp = (a.inUseCount ?? 0) - (b.inUseCount ?? 0);
     else if (state.sortKey === "price") cmp = (a.unitPrice ?? -1) - (b.unitPrice ?? -1);
+    else if (state.sortKey === "inHand")
+      cmp = (netProceeds(a.unitPrice, rates!) ?? -1) - (netProceeds(b.unitPrice, rates!) ?? -1);
     else if (state.sortKey === "value") cmp = (a.value ?? -1) - (b.value ?? -1);
     else if (state.sortKey === "buyOrder") cmp = (a.buyOrderUnit ?? -1) - (b.buyOrderUnit ?? -1);
+    else if (state.sortKey === "instantNet")
+      cmp =
+        (netProceeds(a.buyOrderUnit, rates!) ?? -1) - (netProceeds(b.buyOrderUnit, rates!) ?? -1);
     else if (state.sortKey === "buyOrderValue")
       cmp = (a.buyOrderValue ?? -1) - (b.buyOrderValue ?? -1);
-    else if (state.sortKey === "buyOrderAverage")
-      cmp = (buyOrderAverage(a) ?? -1) - (buyOrderAverage(b) ?? -1);
     else if (state.sortKey === "synthesisPoints")
       cmp =
         (rowSynthesisPoints(a, catalogIndex, overrideMap) ?? -1) -
