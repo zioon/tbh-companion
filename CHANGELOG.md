@@ -4,6 +4,12 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 ## [Unreleased]
 
+## [1.29.3] - 2026-11-16
+
+### 市场
+
+- **修复「刷新价格一条都不拉取、整页一直显示待更新」**：1.29.2 之后市场页点「刷新价格」会得到「0 prices refreshed」，日志里每个物品都是 `Rate-limited` 并在第 2 个物品处熔断。实际并非 Steam 限流：Steam 市场会按请求头指纹判定客户端，同时携带 `accept-encoding` / `accept-language` / `sec-fetch-mode` 的请求一律返回 HTTP 429（响应体只有 `null`），而伴侣使用的网络库会给每个请求自动补上这三个头。现在在发请求前剔除它们，同一台机器、同一代理下价格请求恢复正常，之前那批只能以 **C** 变体挂单的装备（Eternal / Abyss / Ancient 等）会正常补上价格。
+
 ## [1.29.2] - 2026-11-16
 
 ### 市场

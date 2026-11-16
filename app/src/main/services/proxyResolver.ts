@@ -11,7 +11,7 @@
 // ProxyAgent. Results are cached for the process lifetime; call
 // refreshProxyCache() after settings change.
 
-import { ProxyAgent } from "undici";
+import { Dispatcher, getGlobalDispatcher, ProxyAgent } from "undici";
 import { execSync } from "node:child_process";
 import { createLogger } from "../log";
 
@@ -19,6 +19,54 @@ const log = createLogger("proxy");
 
 export interface DispatcherInit {
   dispatcher?: unknown;
+}
+
+// Steam 的社区市场 WAF 按请求头指纹判定客户端：只要同时带上
+// accept-encoding / accept-language / sec-fetch-mode 就固定返回 429，响应体是
+// "null"，看上去与「真实限流」完全一样（实测 2026-11-16：三者全带 429，
+// 只带其中一两个仍 429，全部去掉才 200；换 curl 不带这些头同样 200）。
+// undici 的 fetch 会无条件注入这三个头，于是每一轮价格刷新在第一个物品就被
+// 判成限流、触发熔断。这里在 dispatch 层剔除，调用方仍可继续用 fetch。
+const STEAM_FINGERPRINT_HEADERS = new Set(["accept-encoding", "accept-language", "sec-fetch-mode"]);
+
+function stripFingerprintHeaders(
+  headers: Dispatcher.DispatchOptions["headers"],
+): Dispatcher.DispatchOptions["headers"] {
+  if (!headers) return headers;
+  if (Array.isArray(headers)) {
+    return headers.filter(([name]) => !STEAM_FINGERPRINT_HEADERS.has(String(name).toLowerCase()));
+  }
+  const out: Record<string, string | string[] | undefined> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (STEAM_FINGERPRINT_HEADERS.has(name.toLowerCase())) continue;
+    out[name] = value;
+  }
+  return out;
+}
+
+/** Forwarding dispatcher that drops the browser-like header fingerprint. */
+class SteamSafeDispatcher extends Dispatcher {
+  constructor(
+    private readonly inner: Dispatcher,
+    private readonly ownsInner: boolean,
+  ) {
+    super();
+  }
+
+  dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
+    return this.inner.dispatch(
+      { ...options, headers: stripFingerprintHeaders(options.headers) },
+      handler,
+    );
+  }
+
+  close(): Promise<void> {
+    return this.ownsInner ? this.inner.close() : Promise.resolve();
+  }
+
+  destroy(): Promise<void> {
+    return this.ownsInner ? this.inner.destroy() : Promise.resolve();
+  }
 }
 
 const REG_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
@@ -134,20 +182,22 @@ export function refreshProxyCache(): void {
 
 /**
  * Build a fetch dispatcher from env or Windows system proxy.
- * Returns {} when no proxy is configured (caller fetches direct).
+ * Falls back to the global dispatcher when no proxy is configured.
  */
 export function getProxyDispatcher(): DispatcherInit {
   if (cachedDispatcher) return cachedDispatcher;
   const proxy = resolveProxyUrl();
   if (!proxy) {
-    cachedDispatcher = {};
+    // Wrapping the global dispatcher keeps direct (non-proxy) fetches free of
+    // the fingerprint headers too; it must not be closed on refresh.
+    cachedDispatcher = { dispatcher: new SteamSafeDispatcher(getGlobalDispatcher(), false) };
     return cachedDispatcher;
   }
   try {
-    cachedDispatcher = { dispatcher: new ProxyAgent(proxy) };
+    cachedDispatcher = { dispatcher: new SteamSafeDispatcher(new ProxyAgent(proxy), true) };
   } catch (err) {
     log.warn(`Failed to create ProxyAgent for ${proxy}: ${(err as Error).message}`);
-    cachedDispatcher = {};
+    cachedDispatcher = { dispatcher: new SteamSafeDispatcher(getGlobalDispatcher(), false) };
   }
   return cachedDispatcher;
 }

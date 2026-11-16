@@ -184,9 +184,11 @@ describe("resolveProxyUrl / getProxyDispatcher", () => {
     expect(execSyncMock).toHaveBeenCalledTimes(2);
   });
 
-  it("getProxyDispatcher returns {} when no proxy configured", () => {
+  it("getProxyDispatcher returns a dispatcher even without a proxy", () => {
     setPlatform("linux");
-    expect(getProxyDispatcher()).toEqual({});
+    const dispatcher = getProxyDispatcher();
+    expect(dispatcher.dispatcher).toBeDefined();
+    expect(typeof dispatcher.dispatcher).toBe("object");
   });
 
   it("getProxyDispatcher returns a dispatcher when proxy is set", () => {
