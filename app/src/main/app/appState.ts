@@ -65,9 +65,12 @@ import { changeLanguage, readGameLanguage, t } from "../i18n";
 import { resolveLanguage, type ResolvedLanguage } from "../../../shared/language";
 import { loadLocaleCatalog, mergeGameLocaleIntoCatalog } from "../../core/localeCatalog";
 import { selectHistoryRefreshTargets } from "../../core/lookupPrice";
+import { gearMarketHash, migrateGearVariantHashes } from "../../core/marketName";
 import { POLLING_DEFAULT_THRESHOLD_USD } from "../services/LookupPricePollingService";
 
 let config: AppConfig;
+
+const marketLog = createLogger("market");
 
 /**
  * 交易页「导入历史数据」两段式流程的中间态：第一步 `analyzeMarketVolumeBackup` 选中的
@@ -142,6 +145,54 @@ const boxTimers = new BoxTimerService();
 const stageRuns = new StageRunService();
 const lookup = new LookupService();
 const lookupPrices = new LookupPriceService();
+
+/**
+ * One-time migration for watched gear hashes saved before the market variant
+ * letter was derived from the catalog id. Families that only have the C
+ * variant on Steam (level-90 Eternal/Abyss/Ancient sets) would otherwise keep
+ * querying a non-existent `… A` hash forever.
+ *
+ * Also returns the legacy A hashes of C-only families so their empty price
+ * cache entries can be pruned at startup.
+ */
+function migrateWatchedGearVariants(cfg: AppConfig): {
+  config: AppConfig;
+  legacyAHashes: string[];
+} {
+  const idsByNameGrade = new Map<string, number[]>();
+  for (const item of inventory.getGameData().asMap().values()) {
+    if (item.type !== "GEAR" || !item.marketTradable) continue;
+    const key = `${item.name}|${item.grade.toUpperCase()}`;
+    const ids = idsByNameGrade.get(key);
+    if (ids) ids.push(item.id);
+    else idsByNameGrade.set(key, [item.id]);
+  }
+
+  const legacyAHashes: string[] = [];
+  for (const [key, ids] of idsByNameGrade) {
+    if (ids.some((id) => id % 10 === 1) || !ids.some((id) => id % 10 === 3)) continue;
+    const sep = key.lastIndexOf("|");
+    legacyAHashes.push(gearMarketHash(key.slice(0, sep), key.slice(sep + 1), "A"));
+  }
+
+  const watched = cfg.lookupPricePolling.watchedHashes ?? [];
+  const migrated = migrateGearVariantHashes(
+    watched,
+    (name, gradeTitle) => idsByNameGrade.get(`${name}|${gradeTitle.toUpperCase()}`) ?? [],
+  );
+  const changed =
+    migrated.length !== watched.length || migrated.some((hash, i) => hash !== watched[i]);
+  return {
+    config: changed
+      ? {
+          ...cfg,
+          lookupPricePolling: { ...cfg.lookupPricePolling, watchedHashes: migrated },
+        }
+      : cfg,
+    legacyAHashes,
+  };
+}
+
 const marketVolume = new MarketVolumeService({
   getCatalog: () => lookup.getCatalog(),
   getCurrency: () => config.currency,
@@ -432,6 +483,19 @@ export function startTracking(): SessionUiSnapshot {
   // into the lookup directory before it's injected below, so the Lookup page finds
   // new items and Inventory/Loot show their localized (Chinese) names.
   lookup.setGameData([...inventory.getGameData().asMap().values()]);
+  // Migrate legacy watched gear hashes (A → C for C-only families) and prune
+  // their empty price-cache entries before polling starts, so the first cycle
+  // already queries the hashes that actually exist on the Steam market.
+  const variantMigration = migrateWatchedGearVariants(config);
+  if (variantMigration.config !== config) {
+    config = variantMigration.config;
+    saveConfig(config);
+    marketLog.info("Migrated watched gear hashes to Steam market variant C");
+  }
+  const prunedLegacyVariants = inventory.prunePriceCacheHashes(variantMigration.legacyAHashes);
+  if (prunedLegacyVariants > 0) {
+    marketLog.info(`Pruned ${prunedLegacyVariants} legacy variant-A price cache entries`);
+  }
   lookupPrices.start();
   // 启动本地高价值价格轮询（如果配置开启了）。start() 内部会立即触发一次
   // 轮询，然后按 intervalMinutes 周期性触发。即使图鉴快照尚未拉到，

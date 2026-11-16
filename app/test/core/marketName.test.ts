@@ -6,6 +6,8 @@ import {
   marketHashMatch,
   marketHashCandidates,
   limitGearVariantHashes,
+  gearVariantLetterForItemId,
+  migrateGearVariantHashes,
   GEAR_MARKET_VARIANT_LETTERS,
 } from "../../src/core/marketName";
 import type { GameItem } from "../../src/core/gamedata";
@@ -59,8 +61,22 @@ describe("marketHashName", () => {
     expect(marketHashName(mat)).toBe("Iron Ingot");
   });
 
-  it("maps Legendary gear to (<Grade>) A", () => {
+  it("maps Legendary gear to (<Grade>) A when the catalog id ends in 1", () => {
     expect(marketHashName(gearLeg)).toBe("Knight Sword (Legendary) A");
+  });
+
+  it("maps gear whose catalog id ends in 3 to variant C", () => {
+    const eternal: GameItem = {
+      id: 316193,
+      name: "Eternal Bow",
+      grade: "BEYOND",
+      type: "GEAR",
+      level: 90,
+      marketTradable: true,
+    };
+    expect(marketHashName(eternal)).toBe("Eternal Bow (Beyond) C");
+    expect(marketHashMatch(eternal)?.name).toBe("Eternal Bow (Beyond) C");
+    expect(marketHashCandidates(eternal)).toEqual(["Eternal Bow (Beyond) C"]);
   });
 
   it("returns null for Rare gear", () => {
@@ -91,13 +107,13 @@ describe("marketHashName", () => {
     expect(marketHashMatch(boots)?.name).toBe("Mystic Boots (Legendary) A");
   });
 
-  it("lists variant A only for gear Steam probing", () => {
-    expect(GEAR_MARKET_VARIANT_LETTERS).toEqual(["A"]);
+  it("keeps both real gear variant letters for Steam probing", () => {
+    expect(GEAR_MARKET_VARIANT_LETTERS).toEqual(["A", "C"]);
     expect(marketHashCandidates(gearLeg)).toEqual(["Knight Sword (Legendary) A"]);
     expect(marketHashCandidates(mat)).toEqual(["Iron Ingot"]);
   });
 
-  it("drops non-A gear variant hashes from stale inputs", () => {
+  it("drops only non-existent gear variant hashes from stale inputs", () => {
     expect(
       limitGearVariantHashes([
         "Knight Sword (Legendary) A",
@@ -105,7 +121,7 @@ describe("marketHashName", () => {
         "Knight Sword (Legendary) C",
         "Iron Ingot",
       ]),
-    ).toEqual(["Knight Sword (Legendary) A", "Iron Ingot"]);
+    ).toEqual(["Knight Sword (Legendary) A", "Knight Sword (Legendary) C", "Iron Ingot"]);
   });
 });
 
@@ -157,6 +173,56 @@ describe("sourceName (English hash under localized UI)", () => {
     };
     expect(marketHashName(placeholderLocalized)).toBeNull();
     expect(marketHashCandidates(placeholderLocalized)).toEqual([]);
+  });
+});
+
+describe("gearVariantLetterForItemId", () => {
+  it("maps id last digit 1 to A, 3 to C, and unknown ids to A", () => {
+    expect(gearVariantLetterForItemId(316191)).toBe("A");
+    expect(gearVariantLetterForItemId(316193)).toBe("C");
+    expect(gearVariantLetterForItemId(625173)).toBe("C");
+    expect(gearVariantLetterForItemId(null)).toBe("A");
+    expect(gearVariantLetterForItemId(undefined)).toBe("A");
+  });
+});
+
+describe("migrateGearVariantHashes", () => {
+  const catalogIds: Record<string, number[]> = {
+    "Eternal Bow|Beyond": [316193],
+    "Ethereal Ring|Arcana": [625171, 625173],
+    "Knight Sword|Legendary": [303071],
+  };
+  const resolveItemIds = (name: string, gradeTitle: string): readonly number[] =>
+    catalogIds[`${name}|${gradeTitle}`] ?? [];
+
+  it("rewrites A to C when only the C catalog variant exists", () => {
+    expect(migrateGearVariantHashes(["Eternal Bow (Beyond) A"], resolveItemIds)).toEqual([
+      "Eternal Bow (Beyond) C",
+    ]);
+  });
+
+  it("keeps A for mixed families that have both variants", () => {
+    expect(migrateGearVariantHashes(["Ethereal Ring (Arcana) A"], resolveItemIds)).toEqual([
+      "Ethereal Ring (Arcana) A",
+    ]);
+  });
+
+  it("leaves unknown hashes, existing C hashes, and materials untouched", () => {
+    expect(
+      migrateGearVariantHashes(
+        ["Unknown (Beyond) A", "Eternal Bow (Beyond) C", "Iron Ingot"],
+        resolveItemIds,
+      ),
+    ).toEqual(["Unknown (Beyond) A", "Eternal Bow (Beyond) C", "Iron Ingot"]);
+  });
+
+  it("de-duplicates after rewriting", () => {
+    expect(
+      migrateGearVariantHashes(
+        ["Eternal Bow (Beyond) A", "Eternal Bow (Beyond) C"],
+        resolveItemIds,
+      ),
+    ).toEqual(["Eternal Bow (Beyond) C"]);
   });
 });
 

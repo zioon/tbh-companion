@@ -1,10 +1,13 @@
 // Map catalog items to Steam Community Market `market_hash_name`s.
 //
-// Materials: 1:1 on display name. Gear: "<name> (<Grade>) A" (variant letter).
+// Materials: 1:1 on display name. Gear: "<name> (<Grade>) <letter>".
 // Gear is only priced at Legendary+; materials are priced regardless of grade.
 // Exact grade only (no cross-grade fallback). priceoverview confirms listings.
 //
-// Variant B–E are not probed: save letter is unknown and B listings are often phantom.
+// The Steam variant letter is encoded in the catalog id's last digit:
+// …1 → A, …3 → C. The level-90 Eternal/Abyss/Ancient gear families only exist
+// as …3 (C) on the market, so hard-coding A made them unpriceable.
+// Variant B is not probed: no tradable catalog gear ends in 2.
 
 import type { GameItem } from "./gamedata";
 import { gradeTitle, isPriceableGrade } from "./grades";
@@ -25,7 +28,10 @@ export interface MarketHashMatch {
  * `marketHashName`/`marketHashCandidates` keep producing English hashes
  * regardless of the UI language.
  */
-export type MarketHashItem = Pick<GameItem, "name" | "grade" | "type" | "marketTradable"> & {
+export type MarketHashItem = Pick<
+  GameItem,
+  "id" | "name" | "grade" | "type" | "marketTradable"
+> & {
   sourceName?: string;
 };
 
@@ -53,12 +59,25 @@ export function isPlaceholderItemName(name: string): boolean {
   return name.startsWith("ItemName_");
 }
 
-/** Gear market hash suffix letters we price and link to (A only until save letter is known). */
-export const GEAR_MARKET_VARIANT_LETTERS = ["A"] as const;
+/** Gear market hash suffix letters that exist on Steam for tradable catalog gear. */
+export type GearMarketVariantLetter = "A" | "C";
+
+/** Keep both real variant letters; C-only level-90 families would otherwise be dropped. */
+export const GEAR_MARKET_VARIANT_LETTERS: readonly GearMarketVariantLetter[] = ["A", "C"];
+
+/**
+ * Steam's gear variant letter is encoded in the catalog id's last digit:
+ * …1 → A, …3 → C (e.g. 316191 → A, 316193 → C). Unknown ids fall back to A.
+ */
+export function gearVariantLetterForItemId(
+  id: number | null | undefined,
+): GearMarketVariantLetter {
+  return id != null && id % 10 === 3 ? "C" : "A";
+}
 
 const GEAR_VARIANT_SUFFIX_RE = /\) ([A-Z])$/;
 
-/** Keep materials and gear `… A` hashes; drop other variant letters from stale inputs. */
+/** Keep materials and gear A/C hashes; drop other variant letters from stale inputs. */
 export function limitGearVariantHashes(hashes: readonly string[]): string[] {
   const allowed = new Set<string>(GEAR_MARKET_VARIANT_LETTERS);
   return hashes.filter((hash) => {
@@ -71,14 +90,18 @@ export function limitGearVariantHashes(hashes: readonly string[]): string[] {
 export function gearMarketHash(
   itemName: string,
   catalogGrade: string,
-  variantLetter: (typeof GEAR_MARKET_VARIANT_LETTERS)[number] = "A",
+  variantLetter: GearMarketVariantLetter = "A",
 ): string {
   return `${itemName} (${gradeTitle(catalogGrade)}) ${variantLetter}`;
 }
 
-/** Steam hash for a priceable gear piece (variant A). */
-export function gearMarketHashCandidates(itemName: string, catalogGrade: string): string[] {
-  return [gearMarketHash(itemName, catalogGrade, "A")];
+/** Steam hash for a priceable gear piece (variant derived from the catalog id). */
+export function gearMarketHashCandidates(
+  itemName: string,
+  catalogGrade: string,
+  variantLetter: GearMarketVariantLetter = "A",
+): string[] {
+  return [gearMarketHash(itemName, catalogGrade, variantLetter)];
 }
 
 /** Resolve a catalog item to a Steam market_hash_name, or null if not priceable. */
@@ -92,22 +115,63 @@ export function marketHashMatch(item: MarketHashItem): MarketHashMatch | null {
   }
 
   if (item.type === "GEAR") {
-    return { name: gearMarketHash(baseName, item.grade, "A") };
+    return {
+      name: gearMarketHash(baseName, item.grade, gearVariantLetterForItemId(item.id)),
+    };
   }
 
   return null;
 }
 
-/** Steam hash names to price (gear: variant A; materials: display name). */
+/** Steam hash names to price (gear: id-derived variant; materials: display name). */
 export function marketHashCandidates(item: MarketHashItem): string[] {
   if (!isPriceableItem(item.type, item.grade, item.marketTradable)) return [];
   const baseName = hashBaseName(item);
   if (isPlaceholderItemName(baseName)) return [];
   if (item.type === "MATERIAL") return [baseName];
-  if (item.type === "GEAR") return gearMarketHashCandidates(baseName, item.grade);
+  if (item.type === "GEAR") {
+    return gearMarketHashCandidates(
+      baseName,
+      item.grade,
+      gearVariantLetterForItemId(item.id),
+    );
+  }
   return [];
 }
 
 export function marketHashName(item: MarketHashItem): string | null {
   return marketHashMatch(item)?.name ?? null;
+}
+
+const GEAR_HASH_NAME_RE = /^(.*) \(([^()]+)\) ([A-Z])$/;
+
+/**
+ * Rewrite legacy watched gear hashes from variant A to C when the catalog has
+ * no A variant for that name+grade, but does have a C variant. Mixed families
+ * (both `…1` and `…3` ids) keep A because A is still a valid market hash.
+ *
+ * `resolveItemIds` returns the catalog ids matching the hash's name and
+ * Title-Case grade (e.g. "Eternal Bow", "Beyond"). Unknown entries are kept
+ * untouched. Output is de-duplicated in input order.
+ */
+export function migrateGearVariantHashes(
+  hashes: readonly string[],
+  resolveItemIds: (name: string, gradeTitle: string) => readonly number[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const hash of hashes) {
+    const match = hash.match(GEAR_HASH_NAME_RE);
+    let next = hash;
+    if (match && match[3] === "A") {
+      const ids = resolveItemIds(match[1], match[2]);
+      const hasA = ids.some((id) => id % 10 === 1);
+      const hasC = ids.some((id) => id % 10 === 3);
+      if (!hasA && hasC) next = `${match[1]} (${match[2]}) C`;
+    }
+    if (seen.has(next)) continue;
+    seen.add(next);
+    out.push(next);
+  }
+  return out;
 }

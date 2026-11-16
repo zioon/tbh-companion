@@ -181,6 +181,18 @@ export class SteamMarketProvider {
     return this.pruneCache(flattenOwnedHashes(targets));
   }
 
+  /** Remove specific cache entries (one-time migrations, e.g. legacy variant A→C). */
+  pruneHashes(hashes: Iterable<string>): number {
+    let removed = 0;
+    for (const hash of hashes) {
+      if (!(hash in this.cache.prices)) continue;
+      delete this.cache.prices[hash];
+      removed++;
+    }
+    if (removed > 0) persistPriceCache(this.cache);
+    return removed;
+  }
+
   status(ownedTargets?: OwnedPriceTarget[]): PriceStatus {
     const now = Date.now();
     const targets = ownedTargets ?? [];

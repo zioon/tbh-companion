@@ -531,6 +531,16 @@ export class InventoryService {
     return { ...result, status };
   }
 
+  /**
+   * One-time migration helper: drop cached price entries whose hash is no
+   * longer valid (legacy gear variant A for C-only families). Returns count.
+   */
+  prunePriceCacheHashes(hashes: Iterable<string>): number {
+    const removed = this.market?.pruneHashes(hashes) ?? 0;
+    if (removed > 0) log.info(`Pruned ${removed} legacy variant-A price cache entries`);
+    return removed;
+  }
+
   async refreshItemPrices(itemKey: number): Promise<PriceRefreshResult & { status: PriceStatus }> {
     if (!this.market) {
       log.warn("refreshItemPrices called before initMarket");
