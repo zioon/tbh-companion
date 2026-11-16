@@ -4,7 +4,7 @@ User-facing changes for TBH Companion releases. Update the **[Unreleased]** sect
 
 ## [Unreleased]
 
-## [1.29.1] - 2026-11-16
+## [1.29.2] - 2026-11-16
 
 ### 市场
 

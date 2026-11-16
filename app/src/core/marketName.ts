@@ -28,10 +28,7 @@ export interface MarketHashMatch {
  * `marketHashName`/`marketHashCandidates` keep producing English hashes
  * regardless of the UI language.
  */
-export type MarketHashItem = Pick<
-  GameItem,
-  "id" | "name" | "grade" | "type" | "marketTradable"
-> & {
+export type MarketHashItem = Pick<GameItem, "id" | "name" | "grade" | "type" | "marketTradable"> & {
   sourceName?: string;
 };
 
@@ -69,9 +66,7 @@ export const GEAR_MARKET_VARIANT_LETTERS: readonly GearMarketVariantLetter[] = [
  * Steam's gear variant letter is encoded in the catalog id's last digit:
  * …1 → A, …3 → C (e.g. 316191 → A, 316193 → C). Unknown ids fall back to A.
  */
-export function gearVariantLetterForItemId(
-  id: number | null | undefined,
-): GearMarketVariantLetter {
+export function gearVariantLetterForItemId(id: number | null | undefined): GearMarketVariantLetter {
   return id != null && id % 10 === 3 ? "C" : "A";
 }
 
@@ -130,11 +125,7 @@ export function marketHashCandidates(item: MarketHashItem): string[] {
   if (isPlaceholderItemName(baseName)) return [];
   if (item.type === "MATERIAL") return [baseName];
   if (item.type === "GEAR") {
-    return gearMarketHashCandidates(
-      baseName,
-      item.grade,
-      gearVariantLetterForItemId(item.id),
-    );
+    return gearMarketHashCandidates(baseName, item.grade, gearVariantLetterForItemId(item.id));
   }
   return [];
 }
